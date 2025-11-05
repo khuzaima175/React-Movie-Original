@@ -1,10 +1,28 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import StarRating from "./StarRating";
 
 const average = (arr) =>
-  arr.reduce((acc, cur, i, arr) => acc + cur / arr.length, 0);
+  arr.length === 0 ? 0 : arr.reduce((acc, cur, i, arr) => acc + cur / arr.length, 0);
 
 const KEY = "b78bdecd";
+
+// Debounce hook
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
 export default function App() {
   const [movies, setMovies] = useState([]);
   const [watched, setWatched] = useState(() => {
@@ -16,6 +34,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
+
+  const debouncedQuery = useDebounce(query, 500);
 
   // Save watched movies to localStorage whenever it changes
   useEffect(() => {
@@ -31,7 +51,11 @@ export default function App() {
   }
 
   function handleAddWatched(movie) {
-    setWatched((watched) => [...watched, movie]);
+    // Prevent duplicates
+    const isAlreadyWatched = watched.some(m => m.imdbID === movie.imdbID);
+    if (!isAlreadyWatched) {
+      setWatched((watched) => [...watched, movie]);
+    }
   }
 
   function handleDeleteWatched(id) {
@@ -48,7 +72,7 @@ export default function App() {
           setError("");
 
           const res = await fetch(
-            `https://www.omdbapi.com/?apikey=${KEY}&s=${query}`,
+            `https://www.omdbapi.com/?apikey=${KEY}&s=${debouncedQuery}`,
             { signal: controller.signal }
           );
 
@@ -71,7 +95,7 @@ export default function App() {
         }
       }
 
-      if (query.length < 3) {
+      if (debouncedQuery.length < 3) {
         setMovies([]);
         setError("");
         return;
@@ -84,7 +108,7 @@ export default function App() {
         controller.abort();
       };
     },
-    [query]
+    [debouncedQuery]
   );
 
   return (
@@ -96,11 +120,11 @@ export default function App() {
 
       <Main>
         <Box>
-          {isLoading && <Loader />}
+          {isLoading && <MovieListSkeleton />}
           {!isLoading && !error && movies.length > 0 && (
             <MovieList movies={movies} onSelectMovie={handleSelectMovie} />
           )}
-          {!isLoading && !error && movies.length === 0 && !query && (
+          {!isLoading && !error && movies.length === 0 && !debouncedQuery && (
             <EmptyState message="Start searching for movies..." icon="🎬" />
           )}
           {error && <ErrorMessage message={error} />}
@@ -136,8 +160,44 @@ export default function App() {
   );
 }
 
-function Loader() {
-  return <p className="loader">Loading...</p>;
+function MovieListSkeleton() {
+  return (
+    <ul className="list list-movies">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <li key={i} style={{ cursor: 'default' }}>
+          <div className="skeleton skeleton-poster"></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', width: '100%' }}>
+            <div className="skeleton skeleton-title"></div>
+            <div className="skeleton skeleton-year"></div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function MovieDetailsSkeleton() {
+  return (
+    <div className="details">
+      <header style={{ position: 'relative' }}>
+        <div className="skeleton" style={{ width: '33%', height: '400px' }}></div>
+        <div className="details-overview">
+          <div className="skeleton skeleton-title" style={{ width: '80%' }}></div>
+          <div className="skeleton skeleton-text" style={{ width: '60%' }}></div>
+          <div className="skeleton skeleton-text" style={{ width: '40%' }}></div>
+          <div className="skeleton skeleton-text" style={{ width: '50%' }}></div>
+        </div>
+      </header>
+      <section>
+        <div className="rating">
+          <div className="skeleton skeleton-text" style={{ width: '200px', height: '40px' }}></div>
+        </div>
+        <div className="skeleton skeleton-text" style={{ width: '100%', height: '60px' }}></div>
+        <div className="skeleton skeleton-text" style={{ width: '80%' }}></div>
+        <div className="skeleton skeleton-text" style={{ width: '70%' }}></div>
+      </section>
+    </div>
+  );
 }
 
 function ErrorMessage({ message }) {
@@ -176,13 +236,30 @@ function Logo() {
 }
 
 function Search({ query, setQuery }) {
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    function callback(e) {
+      if (document.activeElement === inputRef.current) return;
+      if (e.code === "Slash") {
+        e.preventDefault();
+        inputRef.current.focus();
+        setQuery("");
+      }
+    }
+
+    document.addEventListener("keydown", callback);
+    return () => document.removeEventListener("keydown", callback);
+  }, [setQuery]);
+
   return (
     <input
       className="search"
       type="text"
-      placeholder="Search movies..."
+      placeholder="Search movies... (Press / to focus)"
       value={query}
       onChange={(e) => setQuery(e.target.value)}
+      ref={inputRef}
     />
   );
 }
@@ -223,9 +300,11 @@ function MovieList({ movies, onSelectMovie }) {
 }
 
 function Movie({ movie, onSelectMovie }) {
+  const posterUrl = movie.Poster !== "N/A" ? movie.Poster : "https://via.placeholder.com/100x150/374151/9ca3af?text=No+Poster";
+
   return (
     <li onClick={() => onSelectMovie(movie.imdbID)}>
-      <img src={movie.Poster} alt={`${movie.Title} poster`} />
+      <img src={posterUrl} alt={`${movie.Title} poster`} />
       <h3>{movie.Title}</h3>
       <div>
         <p>
@@ -240,6 +319,7 @@ function Movie({ movie, onSelectMovie }) {
 function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
   const [movie, setMovie] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
   const [userRating, setUserRating] = useState("");
 
   const isWatched = watched.map((movie) => movie.imdbID).includes(selectedId);
@@ -260,14 +340,16 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
     Genre: genre,
   } = movie;
 
+  const posterUrl = poster !== "N/A" ? poster : "https://via.placeholder.com/300x450/374151/9ca3af?text=No+Poster";
+
   function handleAdd() {
     const newWatchedMovie = {
       imdbID: selectedId,
       title,
       year,
-      poster,
+      poster: posterUrl,
       imdbRating: Number(imdbRating),
-      runtime: Number(runtime.split(" ")[0]),
+      runtime: Number(runtime?.split(" ")[0] || 0),
       userRating,
     };
 
@@ -278,13 +360,25 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
   useEffect(
     function () {
       async function getMovieDetails() {
-        setIsLoading(true);
-        const res = await fetch(
-          `https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`
-        );
-        const data = await res.json();
-        setMovie(data);
-        setIsLoading(false);
+        try {
+          setIsLoading(true);
+          setError("");
+          const res = await fetch(
+            `https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`
+          );
+
+          if (!res.ok) throw new Error("Failed to fetch movie details");
+
+          const data = await res.json();
+
+          if (data.Response === "False") throw new Error(data.Error);
+
+          setMovie(data);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setIsLoading(false);
+        }
       }
       getMovieDetails();
     },
@@ -323,14 +417,16 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
   return (
     <div className="details">
       {isLoading ? (
-        <Loader />
+        <MovieDetailsSkeleton />
+      ) : error ? (
+        <ErrorMessage message={error} />
       ) : (
         <>
           <header>
             <button className="btn-back" onClick={onCloseMovie}>
               &larr;
             </button>
-            <img src={poster} alt={`Poster of ${title}`} />
+            <img src={posterUrl} alt={`Poster of ${title}`} />
             <div className="details-overview">
               <h2>{title}</h2>
               <p>
@@ -396,11 +492,11 @@ function WatchedSummary({ watched }) {
         </p>
         <p>
           <span>⭐️</span>
-          <span>{avgImdbRating}</span>
+          <span>{watched.length > 0 ? avgImdbRating : '0.0'}</span>
         </p>
         <p>
           <span>🌟</span>
-          <span>{avgUserRating}</span>
+          <span>{watched.length > 0 ? avgUserRating : '0.0'}</span>
         </p>
         <p>
           <span>⏳</span>
