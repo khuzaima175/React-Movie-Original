@@ -1,70 +1,58 @@
-# Getting Started with Create React App
+# 🍿 Movie Tracker
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A professional, feature-rich React dashboard for movie enthusiasts to search, track, and rate their cinematic experiences. Featuring a sleek glassmorphism UI with smooth animations and deep OMDb API integration.
 
-## Available Scripts
+![Movie Tracker Screenshot](https://via.placeholder.com/800x450/0f172a/3b82f6?text=Movie+Tracker+Professional+Dashboard)
 
-In the project directory, you can run:
+## ✨ Key Features
 
-### `npm start`
+- **🔍 Powerful Search**: Real-time search for movies and series with type filtering (Movies vs. Series).
+- **🔥 Trending Section**: Discovery grid showcasing popular movie suggestions when you're not searching.
+- **📋 Dual Lists**: Manage both your **Watched** history and your **Plan to Watch** watchlist with ease.
+- **🎲 Random Picker**: Can't decide what to watch? Use the integrated random picker to select a movie from your watchlist with a fun animation.
+- **📊 Detailed Stats**: Automatically calculates average ratings and total viewing time in hours/minutes.
+- **🏆 Top Rated Badge**: Highlights your highest-rated film in your personal collection.
+- **⚡ Performance First**: Debounced search inputs and optimized state management for a fluid experience.
+- **✨ Professional UI**: Custom-built with a modern blue dark theme, glassmorphism effects, and staggered entrance animations.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## 🛠️ Tech Stack
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- **Frontend**: [React.js](https://reactjs.org/) (Hooks, Custom Hooks)
+- **Styling**: Vanilla CSS (Modern CSS variables, Flexbox/Grid, Keyframe animations)
+- **Data Source**: [OMDb API](http://www.omdbapi.com/)
+- **State Management**: React `useState` & `useEffect` (Local storage persistence)
 
-### `npm test`
+## 🚀 Getting Started
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### 1. Prerequisites
+You'll need an API key from OMDb. You can get a free one at [omdbapi.com](http://www.omdbapi.com/apikey.aspx).
 
-### `npm run build`
+### 2. Installation
+Clone the repository and install dependencies:
+```bash
+git clone https://github.com/khzuaima175/React-Movie-Original.git
+cd movie-ratings
+npm install
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 3. Environment Setup
+Create a `.env` file in the root directory and add your API key:
+```env
+REACT_APP_OMDB_KEY=your_key_here
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### 4. Run the App
+```bash
+npm start
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## 🎨 UI & Animations
 
-### `npm run eject`
+The app features a refined "Professional Blue" theme designed for low-strain night viewing. Key UI elements include:
+- **Staggered Animations**: Search results slide in sequentially for a premium feel.
+- **Micro-interactions**: Subtle hover scales on summary stats and movie cards.
+- **Glow Focus**: Enhanced search bar with a primary color glow on focus.
+- **Smooth Transitions**: Fluid switching between Watched and Watchlist tabs.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+---
+Built with ❤️ by [Khuzaima](https://github.com/khzuaima175)
