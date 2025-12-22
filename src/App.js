@@ -1,27 +1,21 @@
-import { useState, useEffect, useRef } from "react";
-import StarRating from "./StarRating";
+import { useState, useEffect } from "react";
+import NavBar from "./components/NavBar";
+import Search from "./components/Search";
+import NumResults from "./components/NumResults";
+import Main from "./components/Main";
+import Box from "./components/Box";
+import MovieList from "./components/MovieList";
+import MovieDetails from "./components/MovieDetails";
+import WatchedSummary from "./components/WatchedSummary";
+import WatchedMoviesList from "./components/WatchedMoviesList";
+import { MovieListSkeleton } from "./components/Loader";
+import ErrorMessage from "./components/ErrorMessage";
+import EmptyState from "./components/EmptyState";
+import TrendingMovies from "./components/TrendingMovies";
+import RandomPicker from "./components/RandomPicker";
+import { useDebounce } from "./hooks/useDebounce";
 
-const average = (arr) =>
-  arr.length === 0 ? 0 : arr.reduce((acc, cur, i, arr) => acc + cur / arr.length, 0);
-
-const KEY = "b78bdecd";
-
-// Debounce hook
-function useDebounce(value, delay) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
+const KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
 
 export default function App() {
   const [movies, setMovies] = useState([]);
@@ -35,12 +29,24 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
 
+  const [watchlist, setWatchlist] = useState(() => {
+    const saved = localStorage.getItem("watchlist");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [activeTab, setActiveTab] = useState("watched"); // 'watched' or 'watchlist'
+  const [sortBy, setSortBy] = useState("input");
+  const [type, setType] = useState(""); // '' for all, 'movie', 'series'
+
   const debouncedQuery = useDebounce(query, 500);
 
   // Save watched movies to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("watchedMovies", JSON.stringify(watched));
   }, [watched]);
+
+  useEffect(() => {
+    localStorage.setItem("watchlist", JSON.stringify(watchlist));
+  }, [watchlist]);
 
   function handleSelectMovie(id) {
     setSelectedId((selectedId) => (selectedId === id ? null : id));
@@ -55,11 +61,26 @@ export default function App() {
     const isAlreadyWatched = watched.some(m => m.imdbID === movie.imdbID);
     if (!isAlreadyWatched) {
       setWatched((watched) => [...watched, movie]);
+      // Remove from watchlist if it's there
+      setWatchlist((list) => list.filter((m) => m.imdbID !== movie.imdbID));
+      setActiveTab("watched"); // Switch to watched view
+    }
+  }
+
+  function handleAddToWatchlist(movie) {
+    const isAlreadyInWatchlist = watchlist.some(m => m.imdbID === movie.imdbID);
+    if (!isAlreadyInWatchlist) {
+      setWatchlist((list) => [...list, movie]);
+      setActiveTab("watchlist"); // Switch to watchlist view
     }
   }
 
   function handleDeleteWatched(id) {
     setWatched((watched) => watched.filter((movie) => movie.imdbID !== id));
+  }
+
+  function handleDeleteWatchlist(id) {
+    setWatchlist((list) => list.filter((movie) => movie.imdbID !== id));
   }
 
   useEffect(
@@ -72,7 +93,7 @@ export default function App() {
           setError("");
 
           const res = await fetch(
-            `https://www.omdbapi.com/?apikey=${KEY}&s=${debouncedQuery}`,
+            `https://www.omdbapi.com/?apikey=${KEY}&s=${debouncedQuery}${type ? `&type=${type}` : ''}`,
             { signal: controller.signal }
           );
 
@@ -111,10 +132,19 @@ export default function App() {
     [debouncedQuery]
   );
 
+  let watchedSorted;
+  if (sortBy === "input") watchedSorted = watched;
+  if (sortBy === "rating")
+    watchedSorted = [...watched].sort((a, b) => b.imdbRating - a.imdbRating);
+  if (sortBy === "userRating")
+    watchedSorted = [...watched].sort((a, b) => b.userRating - a.userRating);
+  if (sortBy === "runtime")
+    watchedSorted = [...watched].sort((a, b) => a.runtime - b.runtime);
+
   return (
     <>
       <NavBar>
-        <Search query={query} setQuery={setQuery} />
+        <Search query={query} setQuery={setQuery} type={type} setType={setType} />
         <NumResults movies={movies} />
       </NavBar>
 
@@ -125,7 +155,7 @@ export default function App() {
             <MovieList movies={movies} onSelectMovie={handleSelectMovie} />
           )}
           {!isLoading && !error && movies.length === 0 && !debouncedQuery && (
-            <EmptyState message="Start searching for movies..." icon="🎬" />
+            <TrendingMovies onSelectMovie={handleSelectMovie} />
           )}
           {error && <ErrorMessage message={error} />}
         </Box>
@@ -136,416 +166,81 @@ export default function App() {
               selectedId={selectedId}
               onCloseMovie={handleCloseMovie}
               onAddWatched={handleAddWatched}
+              onAddToWatchlist={handleAddToWatchlist}
               watched={watched}
+              watchlist={watchlist}
             />
           ) : (
             <>
-              <WatchedSummary watched={watched} />
-              {watched.length > 0 ? (
-                <WatchedMoviesList
-                  watched={watched}
-                  onDeleteWatched={handleDeleteWatched}
-                />
-              ) : (
-                <EmptyState
-                  message="No movies in your watched list yet. Search and rate movies to add them!"
-                  icon="📽️"
-                />
+              <div className="tab-container">
+                <button
+                  className={`btn-tab ${activeTab === "watched" ? "active" : ""}`}
+                  onClick={() => setActiveTab("watched")}
+                >
+                  Watched
+                </button>
+                <button
+                  className={`btn-tab ${activeTab === "watchlist" ? "active" : ""}`}
+                  onClick={() => setActiveTab("watchlist")}
+                >
+                  Plan to Watch
+                </button>
+              </div>
+
+              {activeTab === "watched" && (
+                <>
+                  <WatchedSummary watched={watched} />
+                  <div className="sort-container">
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="sort-select"
+                    >
+                      <option value="input">Sort by input order</option>
+                      <option value="rating">Sort by IMDb rating</option>
+                      <option value="userRating">Sort by user rating</option>
+                      <option value="runtime">Sort by runtime</option>
+                    </select>
+                  </div>
+                  {watched.length > 0 ? (
+                    <WatchedMoviesList
+                      watched={watchedSorted}
+                      onDeleteWatched={handleDeleteWatched}
+                    />
+                  ) : (
+                    <EmptyState
+                      message="No movies in your watched list yet. Search and rate movies to add them!"
+                      icon="📽️"
+                    />
+                  )}
+                </>
+              )}
+
+              {activeTab === "watchlist" && (
+                <>
+                  <RandomPicker watchlist={watchlist} onSelectMovie={handleSelectMovie} />
+                  <div style={{ padding: "1rem" }}>
+                    <p style={{ textAlign: "center", fontStyle: "italic" }}>
+                      You have {watchlist.length} movies to watch.
+                    </p>
+                  </div>
+                  {watchlist.length > 0 ? (
+                    <WatchedMoviesList
+                      watched={watchlist}
+                      onDeleteWatched={handleDeleteWatchlist}
+                    />
+                  ) : (
+                    <EmptyState
+                      message="Your watchlist is empty."
+                      icon="📋"
+                    />
+                  )}
+                </>
               )}
             </>
           )}
         </Box>
       </Main>
     </>
-  );
-}
-
-function MovieListSkeleton() {
-  return (
-    <ul className="list list-movies">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <li key={i} style={{ cursor: 'default' }}>
-          <div className="skeleton skeleton-poster"></div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', width: '100%' }}>
-            <div className="skeleton skeleton-title"></div>
-            <div className="skeleton skeleton-year"></div>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function MovieDetailsSkeleton() {
-  return (
-    <div className="details">
-      <header style={{ position: 'relative' }}>
-        <div className="skeleton" style={{ width: '33%', height: '400px' }}></div>
-        <div className="details-overview">
-          <div className="skeleton skeleton-title" style={{ width: '80%' }}></div>
-          <div className="skeleton skeleton-text" style={{ width: '60%' }}></div>
-          <div className="skeleton skeleton-text" style={{ width: '40%' }}></div>
-          <div className="skeleton skeleton-text" style={{ width: '50%' }}></div>
-        </div>
-      </header>
-      <section>
-        <div className="rating">
-          <div className="skeleton skeleton-text" style={{ width: '200px', height: '40px' }}></div>
-        </div>
-        <div className="skeleton skeleton-text" style={{ width: '100%', height: '60px' }}></div>
-        <div className="skeleton skeleton-text" style={{ width: '80%' }}></div>
-        <div className="skeleton skeleton-text" style={{ width: '70%' }}></div>
-      </section>
-    </div>
-  );
-}
-
-function ErrorMessage({ message }) {
-  return (
-    <p className="error">
-      <span>⛔</span> {message}
-    </p>
-  );
-}
-
-function EmptyState({ message, icon }) {
-  return (
-    <p className="empty-state">
-      <span>{icon}</span>
-      <span>{message}</span>
-    </p>
-  );
-}
-
-function NavBar({ children }) {
-  return (
-    <nav className="nav-bar">
-      <Logo />
-      {children}
-    </nav>
-  );
-}
-
-function Logo() {
-  return (
-    <div className="logo">
-      <span role="img">🍿</span>
-      <h1>Movie Tracker</h1>
-    </div>
-  );
-}
-
-function Search({ query, setQuery }) {
-  const inputRef = useRef(null);
-
-  useEffect(() => {
-    function callback(e) {
-      if (document.activeElement === inputRef.current) return;
-      if (e.code === "Slash") {
-        e.preventDefault();
-        inputRef.current.focus();
-        setQuery("");
-      }
-    }
-
-    document.addEventListener("keydown", callback);
-    return () => document.removeEventListener("keydown", callback);
-  }, [setQuery]);
-
-  return (
-    <input
-      className="search"
-      type="text"
-      placeholder="Search movies... (Press / to focus)"
-      value={query}
-      onChange={(e) => setQuery(e.target.value)}
-      ref={inputRef}
-    />
-  );
-}
-
-function NumResults({ movies }) {
-  return (
-    <p className="num-results">
-      Found <strong>{movies.length}</strong> results
-    </p>
-  );
-}
-
-function Main({ children }) {
-  return <main className="main">{children}</main>;
-}
-
-function Box({ children }) {
-  const [isOpen, setIsOpen] = useState(true);
-
-  return (
-    <div className="box">
-      <button className="btn-toggle" onClick={() => setIsOpen((open) => !open)}>
-        {isOpen ? "–" : "+"}
-      </button>
-      {isOpen && <div className="box-content">{children}</div>}
-    </div>
-  );
-}
-
-function MovieList({ movies, onSelectMovie }) {
-  return (
-    <ul className="list list-movies">
-      {movies?.map((movie) => (
-        <Movie movie={movie} key={movie.imdbID} onSelectMovie={onSelectMovie} />
-      ))}
-    </ul>
-  );
-}
-
-function Movie({ movie, onSelectMovie }) {
-  const posterUrl = movie.Poster !== "N/A" ? movie.Poster : "https://via.placeholder.com/100x150/374151/9ca3af?text=No+Poster";
-
-  return (
-    <li onClick={() => onSelectMovie(movie.imdbID)}>
-      <img src={posterUrl} alt={`${movie.Title} poster`} />
-      <h3>{movie.Title}</h3>
-      <div>
-        <p>
-          <span>🗓</span>
-          <span>{movie.Year}</span>
-        </p>
-      </div>
-    </li>
-  );
-}
-
-function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
-  const [movie, setMovie] = useState({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [userRating, setUserRating] = useState("");
-
-  const isWatched = watched.map((movie) => movie.imdbID).includes(selectedId);
-  const watchedUserRating = watched.find(
-    (movie) => movie.imdbID === selectedId
-  )?.userRating;
-
-  const {
-    Title: title,
-    Year: year,
-    Poster: poster,
-    Runtime: runtime,
-    imdbRating,
-    Plot: plot,
-    Released: released,
-    Actors: actors,
-    Director: director,
-    Genre: genre,
-  } = movie;
-
-  const posterUrl = poster !== "N/A" ? poster : "https://via.placeholder.com/300x450/374151/9ca3af?text=No+Poster";
-
-  function handleAdd() {
-    const newWatchedMovie = {
-      imdbID: selectedId,
-      title,
-      year,
-      poster: posterUrl,
-      imdbRating: Number(imdbRating),
-      runtime: Number(runtime?.split(" ")[0] || 0),
-      userRating,
-    };
-
-    onAddWatched(newWatchedMovie);
-    onCloseMovie();
-  }
-
-  useEffect(
-    function () {
-      async function getMovieDetails() {
-        try {
-          setIsLoading(true);
-          setError("");
-          const res = await fetch(
-            `https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`
-          );
-
-          if (!res.ok) throw new Error("Failed to fetch movie details");
-
-          const data = await res.json();
-
-          if (data.Response === "False") throw new Error(data.Error);
-
-          setMovie(data);
-        } catch (err) {
-          setError(err.message);
-        } finally {
-          setIsLoading(false);
-        }
-      }
-      getMovieDetails();
-    },
-    [selectedId]
-  );
-
-  useEffect(
-    function () {
-      if (!title) return;
-      document.title = `Movie | ${title}`;
-
-      return function () {
-        document.title = "Movie Tracker";
-      };
-    },
-    [title]
-  );
-
-  useEffect(
-    function () {
-      function callback(e) {
-        if (e.code === "Escape") {
-          onCloseMovie();
-        }
-      }
-
-      document.addEventListener("keydown", callback);
-
-      return function () {
-        document.removeEventListener("keydown", callback);
-      };
-    },
-    [onCloseMovie]
-  );
-
-  return (
-    <div className="details">
-      {isLoading ? (
-        <MovieDetailsSkeleton />
-      ) : error ? (
-        <ErrorMessage message={error} />
-      ) : (
-        <>
-          <header>
-            <button className="btn-back" onClick={onCloseMovie}>
-              &larr;
-            </button>
-            <img src={posterUrl} alt={`Poster of ${title}`} />
-            <div className="details-overview">
-              <h2>{title}</h2>
-              <p>
-                {released} &bull; {runtime}
-              </p>
-              <p>{genre}</p>
-              <p>
-                <span>⭐</span>
-                {imdbRating} IMDb rating
-              </p>
-            </div>
-          </header>
-
-          <section>
-            <div className="rating">
-              {!isWatched ? (
-                <>
-                  <StarRating
-                    maxRating={10}
-                    size={24}
-                    onSetRating={setUserRating}
-                  />
-                  {userRating > 0 && (
-                    <button className="btn-add" onClick={handleAdd}>
-                      + Add to list
-                    </button>
-                  )}
-                </>
-              ) : (
-                <p>
-                  You rated this movie {watchedUserRating} <span>⭐</span>
-                </p>
-              )}
-            </div>
-            <p>
-              <em>{plot}</em>
-            </p>
-            <p>Starring {actors}</p>
-            <p>Directed by {director}</p>
-          </section>
-        </>
-      )}
-    </div>
-  );
-}
-
-function WatchedSummary({ watched }) {
-  const avgImdbRating = average(
-    watched.map((movie) => movie.imdbRating)
-  ).toFixed(1);
-  const avgUserRating = average(
-    watched.map((movie) => movie.userRating)
-  ).toFixed(1);
-  const avgRuntime = Math.round(average(watched.map((movie) => movie.runtime)));
-
-  return (
-    <div className="summary">
-      <h2>Movies you watched</h2>
-      <div>
-        <p>
-          <span>#️⃣</span>
-          <span>{watched.length} movies</span>
-        </p>
-        <p>
-          <span>⭐️</span>
-          <span>{watched.length > 0 ? avgImdbRating : '0.0'}</span>
-        </p>
-        <p>
-          <span>🌟</span>
-          <span>{watched.length > 0 ? avgUserRating : '0.0'}</span>
-        </p>
-        <p>
-          <span>⏳</span>
-          <span>{avgRuntime} min</span>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function WatchedMoviesList({ watched, onDeleteWatched }) {
-  return (
-    <ul className="list list-watched">
-      {watched.map((movie) => (
-        <WatchedMovie
-          movie={movie}
-          key={movie.imdbID}
-          onDeleteWatched={onDeleteWatched}
-        />
-      ))}
-    </ul>
-  );
-}
-
-function WatchedMovie({ movie, onDeleteWatched }) {
-  return (
-    <li>
-      <img src={movie.poster} alt={`${movie.title} poster`} />
-      <h3>{movie.title}</h3>
-      <div>
-        <p>
-          <span>⭐️</span>
-          <span>{movie.imdbRating}</span>
-        </p>
-        <p>
-          <span>🌟</span>
-          <span>{movie.userRating}</span>
-        </p>
-        <p>
-          <span>⏳</span>
-          <span>{movie.runtime} min</span>
-        </p>
-        <button
-          className="btn-delete"
-          onClick={() => onDeleteWatched(movie.imdbID)}
-        >
-          X
-        </button>
-      </div>
-    </li>
   );
 }
