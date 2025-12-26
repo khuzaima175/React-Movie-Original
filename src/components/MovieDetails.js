@@ -10,6 +10,7 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState("");
     const [userRating, setUserRating] = useState("");
+    const [userNote, setUserNote] = useState("");
 
     const isWatched = watched.map((movie) => movie.imdbID).includes(selectedId);
     const isWatchlist = watchlist ? watchlist.map(m => m.imdbID).includes(selectedId) : false;
@@ -17,6 +18,10 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
     const watchedUserRating = watched.find(
         (movie) => movie.imdbID === selectedId
     )?.userRating;
+
+    const watchedUserNote = watched.find(
+        (movie) => movie.imdbID === selectedId
+    )?.userNote;
 
     const {
         Title: title,
@@ -42,6 +47,7 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
             imdbRating: Number(imdbRating),
             runtime: Number(runtime?.split(" ")[0] || 0),
             userRating,
+            userNote, // Add the user's note to the movie data
         };
 
         onAddWatched(newWatchedMovie);
@@ -56,7 +62,7 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
             poster: posterUrl,
             imdbRating: Number(imdbRating),
             runtime: Number(runtime?.split(" ")[0] || 0),
-            // No userRating for watchlist
+            // No userRating or note for watchlist
         };
         onAddToWatchlist(newWatchlistMovie);
         onCloseMovie();
@@ -155,20 +161,46 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
                                         onSetRating={setUserRating}
                                     />
                                     {userRating > 0 && (
-                                        <button className="btn-add" onClick={handleAdd}>
-                                            + Add to list
-                                        </button>
+                                        <div style={{ width: '100%', marginBottom: '1rem', marginTop: '1rem' }}>
+                                            <textarea
+                                                className="user-note-input"
+                                                placeholder="Why do you like/dislike this? (Optional - Helps AI)"
+                                                value={userNote}
+                                                onChange={(e) => setUserNote(e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '1rem',
+                                                    borderRadius: '8px',
+                                                    border: '1px solid #ffffff20',
+                                                    background: '#ffffff10',
+                                                    color: '#fff',
+                                                    resize: 'vertical',
+                                                    minHeight: '60px',
+                                                    fontFamily: 'inherit'
+                                                }}
+                                            />
+                                            <button className="btn-add" onClick={handleAdd}>
+                                                + Add to list
+                                            </button>
+                                        </div>
                                     )}
                                     {!isWatchlist && (
-                                        <button className="btn-add btn-watchlist" style={{ marginTop: "1rem", backgroundColor: "var(--color-accent)" }} onClick={handleAddToWatchlistClick}>
+                                        <button className="btn-add btn-watchlist" style={{ marginTop: "0.5rem", backgroundColor: "var(--color-accent)" }} onClick={handleAddToWatchlistClick}>
                                             + Plan to Watch
                                         </button>
                                     )}
                                 </>
                             ) : (
-                                <p>
-                                    You rated this movie {watchedUserRating} <span>⭐</span>
-                                </p>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                                    <p>
+                                        You rated this movie {watchedUserRating} <span>⭐</span>
+                                    </p>
+                                    {watchedUserNote && (
+                                        <p style={{ fontStyle: 'italic', opacity: 0.8, fontSize: '1.4rem' }}>
+                                            "{watchedUserNote}"
+                                        </p>
+                                    )}
+                                </div>
                             )}
                         </div>
                         <p>

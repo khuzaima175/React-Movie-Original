@@ -34,7 +34,6 @@ export default function Search({ query, setQuery, type, setType }) {
             >
                 <option value="">All</option>
                 <option value="movie">Movies</option>
-                <option value="series">Series</option>
             </select>
         </div>
     );

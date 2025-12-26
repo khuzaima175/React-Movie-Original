@@ -11,8 +11,9 @@ import WatchedMoviesList from "./components/WatchedMoviesList";
 import { MovieListSkeleton } from "./components/Loader";
 import ErrorMessage from "./components/ErrorMessage";
 import EmptyState from "./components/EmptyState";
-import TrendingMovies from "./components/TrendingMovies";
 import RandomPicker from "./components/RandomPicker";
+import MovieRecommendations from "./components/MovieRecommendations";
+import AIChat from "./components/AIChat";
 import { useDebounce } from "./hooks/useDebounce";
 
 const KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
@@ -36,6 +37,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("watched"); // 'watched' or 'watchlist'
   const [sortBy, setSortBy] = useState("input");
   const [type, setType] = useState(""); // '' for all, 'movie', 'series'
+
+  // AI Recommendations state (persists across tab switches)
+  const [aiRecommendations, setAiRecommendations] = useState(null);
+  const [aiTasteProfile, setAiTasteProfile] = useState(null);
 
   const debouncedQuery = useDebounce(query, 500);
 
@@ -129,7 +134,7 @@ export default function App() {
         controller.abort();
       };
     },
-    [debouncedQuery]
+    [debouncedQuery, type]
   );
 
   let watchedSorted;
@@ -155,7 +160,10 @@ export default function App() {
             <MovieList movies={movies} onSelectMovie={handleSelectMovie} />
           )}
           {!isLoading && !error && movies.length === 0 && !debouncedQuery && (
-            <TrendingMovies onSelectMovie={handleSelectMovie} />
+            <div className="empty-state">
+              <span style={{ fontSize: "4rem" }}>🍿</span>
+              <h3>Search for a movie to get started</h3>
+            </div>
           )}
           {error && <ErrorMessage message={error} />}
         </Box>
@@ -184,6 +192,18 @@ export default function App() {
                   onClick={() => setActiveTab("watchlist")}
                 >
                   Plan to Watch
+                </button>
+                <button
+                  className={`btn-tab ${activeTab === "ai" ? "active" : ""}`}
+                  onClick={() => setActiveTab("ai")}
+                >
+                  🤖 AI Picks
+                </button>
+                <button
+                  className={`btn-tab ${activeTab === "chat" ? "active" : ""}`}
+                  onClick={() => setActiveTab("chat")}
+                >
+                  💬 Chat
                 </button>
               </div>
 
@@ -236,6 +256,22 @@ export default function App() {
                     />
                   )}
                 </>
+              )}
+
+              {activeTab === "ai" && (
+                <MovieRecommendations
+                  watched={watched}
+                  onAddToWatchlist={handleAddToWatchlist}
+                  watchlist={watchlist}
+                  recommendations={aiRecommendations}
+                  setRecommendations={setAiRecommendations}
+                  tasteProfile={aiTasteProfile}
+                  setTasteProfile={setAiTasteProfile}
+                />
+              )}
+
+              {activeTab === "chat" && (
+                <AIChat watched={watched} />
               )}
             </>
           )}
