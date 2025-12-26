@@ -1584,9 +1584,11 @@ body {
 .ai-chat-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   position: relative;
   background: rgba(0, 0, 0, 0.2);
+  overflow: hidden;
 }
 
 .chat-messages {

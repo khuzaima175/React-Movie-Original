@@ -7,14 +7,13 @@ export default function AIChat({ watched }) {
     ]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const messagesEndRef = useRef(null);
+    const chatContainerRef = useRef(null);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
+    // Scroll to bottom using scrollTop to avoid page-level scroll jumps
     useEffect(() => {
-        scrollToBottom();
+        if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
     }, [messages]);
 
     const handleSend = async (e) => {
@@ -46,7 +45,7 @@ export default function AIChat({ watched }) {
 
     return (
         <div className="ai-chat-container">
-            <div className="chat-messages">
+            <div className="chat-messages" ref={chatContainerRef}>
                 {messages.map((msg, index) => (
                     <div key={index} className={`chat-bubble ${msg.role}`}>
                         <div className="bubble-content">
@@ -65,7 +64,6 @@ export default function AIChat({ watched }) {
                         </div>
                     </div>
                 )}
-                <div ref={messagesEndRef} />
             </div>
 
             <form className="chat-input-area" onSubmit={handleSend}>
