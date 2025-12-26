@@ -33,12 +33,16 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
         Released: released,
         Actors: actors,
         Director: director,
+        Writer: writer,
         Genre: genre,
     } = movie;
 
     const posterUrl = poster !== "N/A" ? poster : "https://via.placeholder.com/300x450/374151/9ca3af?text=No+Poster";
 
     function handleAdd() {
+        // Capture first 15 words of plot for AI theme detection
+        const shortPlot = plot ? plot.split(" ").slice(0, 15).join(" ") + "..." : "";
+
         const newWatchedMovie = {
             imdbID: selectedId,
             title,
@@ -49,7 +53,9 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
             userRating,
             userNote,
             director,
+            writer,
             genre,
+            shortPlot, // For AI theme analysis (e.g., "Memory Loss", "Time Loop")
         };
 
         onAddWatched(newWatchedMovie);
@@ -166,7 +172,7 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
                                         <div style={{ width: '100%', marginBottom: '1rem', marginTop: '1rem' }}>
                                             <textarea
                                                 className="user-note-input"
-                                                placeholder="Why do you like/dislike this? (Optional - Helps AI)"
+                                                placeholder="What hooked you? (e.g., 'The plot twist', 'The cinematography', 'Too slow')"
                                                 value={userNote}
                                                 onChange={(e) => setUserNote(e.target.value)}
                                                 style={{

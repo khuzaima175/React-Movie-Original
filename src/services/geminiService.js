@@ -27,16 +27,13 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
     onProgress?.("Analyzing your unique taste profile...");
 
-    // 1. Data Enrichment: Send Metadata (Director, Genre, Year) to help the AI
-    // We strictly map only necessary fields to keep token count low but context high.
-    const movieData = watchedMovies.map(movie => ({
-        title: movie.title,
-        year: movie.year,
-        director: movie.director || "Unknown", // Now available!
-        genre: movie.genre || "Unknown",       // Now available!
-        rating: movie.userRating,
-        userReview: movie.userNote || ""
-    }));
+    // 1. Data Enrichment: Use CSV format to save ~40% tokens while preserving context
+    // AI understands CSV perfectly and this is far more efficient than JSON
+    const header = "Title|Year|Director|Writer|Genre|Rating|UserNote|PlotTheme";
+    const rows = watchedMovies.map(m =>
+        `${m.title}|${m.year || "N/A"}|${m.director || "Unknown"}|${m.writer || "Unknown"}|${m.genre || "Unknown"}|${m.userRating}|${m.userNote || ""}|${m.shortPlot || ""}`
+    ).join("\n");
+    const historyData = `${header}\n${rows}`;
 
     // 2. Context Awareness: Create Exclusion List (Watched + Watchlist)
     // Prevents recommending movies the user already knows about.
@@ -45,40 +42,58 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
         ...(watchlist || []).map(m => m.title)
     ].join(", ");
 
-    // 3. The "Unbiased" Prompt Strategy
-    // Removed hardcoded "Inception" bias. Added "Anti-Pattern" check.
     const prompt = `
     You are an elite film critic and data scientist. Your goal is to decode the user's "Taste DNA" and find hidden gems they will love.
 
-    USER VIEWING HISTORY:
-    ${JSON.stringify(movieData, null, 2)}
+    USER VIEWING HISTORY (CSV format - Title|Year|Director|Writer|Genre|Rating|UserNote|PlotTheme):
+    ${historyData}
 
     ⛔ EXCLUSION LIST (DO NOT RECOMMEND THESE):
     ${excludeTitles}
 
     ---------------------------------------------------
+    ### 🧠 ANALYSIS EXAMPLES (HOW YOU MUST THINK):
+
+    *Example 1:*
+    User History: Liked "John Wick" (10/10), Hated "The Godfather" (3/10).
+    ❌ BAD LOGIC: "They like crime movies. Recommend 'Scarface'."
+    ✅ GOOD LOGIC: "User prefers high-kinetic action and visual storytelling. They dislike slow-burn, dialogue-heavy dramas. Recommend 'The Raid' or 'Dredd'."
+
+    *Example 2:*
+    User History: Liked "Her" (9/10), Liked "Eternal Sunshine" (10/10).
+    ❌ BAD LOGIC: "Recommend a rom-com like 'The Proposal'."
+    ✅ GOOD LOGIC: "User likes 'Melancholic Sci-Fi' and exploring human connection through a surreal lens. Recommend 'After Yang' or 'The Lobster'."
+
+    ---------------------------------------------------
     ### ANALYSIS PROTOCOL (Mental Steps):
     1.  **Analyze "High Rated" (8-10)**:
-        -   Identify the specific *Micro-Genres* (e.g., "Dystopian Cyberpunk" instead of just "Sci-Fi").
-        -   Identify the *Emotional Tone* (e.g., "Melancholic," "High-Octane," "Cerebral").
-        -   Look for Director/Writer patterns.
+        -   Identify the specific *Micro-Genres* & *Emotional Tone*.
+        -   **WRITER BIAS**: heavily weigh the 'writer' field. If the user likes 'Aaron Sorkin' or 'Charlie Kaufman', they value dialogue/complexity over visuals.
 
-    2.  **Analyze "Low Rated" (1-5) - THE ANTI-PATTERN**:
-        -   Identify specific traits the user HATES (e.g., "Shaky Cam," "Unresolved Endings," "Cheesy Dialogue").
+    2.  **Analyze PlotTheme Patterns**:
+        -   Look for recurring themes in the PlotTheme column (e.g., "memory loss", "time loop", "revenge").
+        -   If 3+ movies share a theme keyword, prioritize recommendations with that theme.
+
+    3.  **Analyze "Low Rated" (1-5) - THE ANTI-PATTERN**:
+        -   Identify specific traits the user HATES (e.g., "Shaky Cam," "Cheesy Dialogue").
         -   *Strictly filter out* any recommendations that match these traits.
 
-    3.  **Review User Notes**:
-        -   If the user left a review, treat it as the *highest priority* signal for their preferences.
+    4.  **Review User Notes**:
+        -   Treat user reviews as the *highest priority* signal.
 
-    4.  **Selection Rules**:
-        -   Select 6 movies that match the High Patterns and avoid Anti-Patterns.
-        -   **Diversity**: Include 1 "Safe Bet" (High match) and 1 "Wildcard" (Different genre but same vibe).
-        -   **Obscurity**: Avoid the top 20 most popular movies on IMDB (e.g., No Shawshank, Godfather, Dark Knight) unless the user is clearly a beginner. PRIORITIZE hidden gems.
+    5.  **Selection Rules**:
+        -   Select 6 movies: 1 Safe Bet, 1 Wildcard, 4 Hidden Gems.
+        -   **Diversity**: Do NOT recommend more than 2 movies from the same director.
+        -   **Obscurity**: Avoid the top 50 most popular movies on IMDB unless the user is a beginner.
+
+    ### 📝 OUTPUT REASONING RULES (CRITICAL):
+    -   The "reason" field MUST compare the recommendation to a specific movie the user watched.
+    -   Format: "Similar to [Movie A] because of [Trait X], but with the [Trait Y] of [Movie B]."
+    -   Example: "Similar to 'Inception' because of the mind-bending plot, but with the gritty atmosphere of 'The Batman'."
 
     ### OUTPUT REQUIREMENTS:
-    -   Return strictly a JSON object matching the defined schema.
+    -   Return strictly a JSON object matching the schema.
     -   **Match Score**: 0-100 confidence level.
-    -   **Reason**: Detailed explanation connecting the choice to the user's history (e.g., "Because you liked 'The Witch', you will like 'The Lighthouse' (same director, atmospheric horror)").
     `;
 
     try {
@@ -146,9 +161,14 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
         const result = JSON.parse(jsonStr);
 
-        // Extra safety: Sort recommendations by IMDB rating (highest first)
+        // Sort by Match Score (Personalized) first to avoid hallucinated rating issues
         if (result.recommendations) {
-            result.recommendations.sort((a, b) => (b.imdbRating || 0) - (a.imdbRating || 0));
+            result.recommendations.sort((a, b) => {
+                if (b.matchScore !== a.matchScore) {
+                    return (b.matchScore || 0) - (a.matchScore || 0);
+                }
+                return (b.imdbRating || 0) - (a.imdbRating || 0);
+            });
         }
 
         return result;
