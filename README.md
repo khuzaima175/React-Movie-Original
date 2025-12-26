@@ -6,6 +6,7 @@ A professional, feature-rich React dashboard for movie enthusiasts to search, tr
 
 ## ✨ Key Features
 
+- **🤖 AI Assistant**: Integrated **Google Gemini AI** for smart movie recommendations and interactive chat.
 - **🔍 Powerful Search**: Real-time search for movies and series with type filtering (Movies vs. Series).
 - **🔥 Trending Section**: Discovery grid showcasing popular movie suggestions when you're not searching.
 - **📋 Dual Lists**: Manage both your **Watched** history and your **Plan to Watch** watchlist with ease.
@@ -18,6 +19,7 @@ A professional, feature-rich React dashboard for movie enthusiasts to search, tr
 ## 🛠️ Tech Stack
 
 - **Frontend**: [React.js](https://reactjs.org/) (Hooks, Custom Hooks)
+- **AI Integration**: [Google Gemini API](https://ai.google.dev/) (Generative AI)
 - **Styling**: Vanilla CSS (Modern CSS variables, Flexbox/Grid, Keyframe animations)
 - **Data Source**: [OMDb API](http://www.omdbapi.com/)
 - **State Management**: React `useState` & `useEffect` (Local storage persistence)
@@ -25,7 +27,9 @@ A professional, feature-rich React dashboard for movie enthusiasts to search, tr
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-You'll need an API key from OMDb. You can get a free one at [omdbapi.com](http://www.omdbapi.com/apikey.aspx).
+You'll need API keys from:
+- **OMDb API**: Get a free one at [omdbapi.com](http://www.omdbapi.com/apikey.aspx).
+- **Google Gemini API**: Get one at [aistudio.google.com](https://aistudio.google.com/app/apikey).
 
 ### 2. Installation
 Clone the repository and install dependencies:
@@ -36,9 +40,10 @@ npm install
 ```
 
 ### 3. Environment Setup
-Create a `.env` file in the root directory and add your API key:
+Create a `.env` file in the root directory and add your API keys:
 ```env
-REACT_APP_OMDB_KEY=your_key_here
+REACT_APP_OMDB_KEY=your_omdb_key_here
+REACT_APP_GEMINI_API_KEY=your_gemini_key_here
 ```
 
 ### 4. Run the App
