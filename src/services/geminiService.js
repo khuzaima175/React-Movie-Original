@@ -2,13 +2,60 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const PRIMARY_MODEL = "gemini-3.0-flash-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
+const OMDB_KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
+
+/**
+ * Fetch real movie data from OMDB API to replace hallucinated ratings
+ * FIX: If Title+Year fails, retry with Title only (handles off-by-1 year issues)
+ */
+const fetchRealOMDBData = async (title, year) => {
+    try {
+        // First attempt: Try with year for precision
+        let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(title)}${year ? `&y=${year}` : ''}`;
+        let response = await fetch(url);
+        let data = await response.json();
+
+        // FIX: If year-specific search fails, retry without year
+        // AI often gets year off by 1 (release date vs wide release)
+        if (data.Response !== "True" && year) {
+            console.log(`🔄 Retrying "${title}" without year constraint...`);
+            url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(title)}`;
+            response = await fetch(url);
+            data = await response.json();
+        }
+
+        if (data.Response === "True") {
+            return {
+                imdbRating: parseFloat(data.imdbRating) || null,
+                imdbVotes: data.imdbVotes || "N/A",
+                poster: data.Poster !== "N/A" ? data.Poster : null,
+                plot: data.Plot || "",
+                director: data.Director || "Unknown",
+                imdbID: data.imdbID || null,
+                verifiedTitle: data.Title, // Store the actual OMDB title
+                verifiedYear: data.Year    // Store the actual year
+            };
+        }
+
+        console.warn(`⚠️ Movie not found in OMDB: "${title}" (${year || 'no year'})`);
+        return null;
+    } catch (error) {
+        console.warn(`OMDB fetch failed for ${title}:`, error);
+        return null;
+    }
+};
+
 
 /**
  * Get AI-powered movie recommendations based on user's watched movies
- * Only uses: movie title + user rating (lean approach)
- * Returns: recommendations sorted by IMDB rating (highest first)
+ * 
+ * ACCURACY IMPROVEMENTS IMPLEMENTED:
+ * 1. Explicit Elite Tier Weights (mechanical, not prose)
+ * 2. Self-Critique Step (LLM checks its own recommendations)
+ * 3. Real OMDB Data Enrichment (no hallucinated ratings)
  * 
  * @param {Array} watchedMovies - Array of watched movies with ratings
+ * @param {Array} watchlist - Array of movies in user's watchlist
  * @param {Function} onProgress - Optional callback for progress updates
  * @returns {Promise<Object>} Object with tasteProfile and recommendations
  */
@@ -27,20 +74,31 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
     onProgress?.("Analyzing your unique taste profile...");
 
-    // 1. Data Enrichment: Use CSV format to save ~40% tokens while preserving context
-    // AI understands CSV perfectly and this is far more efficient than JSON
+    // === IMPROVEMENT #1: Categorize movies by weight tier ===
+    const eliteTier = watchedMovies.filter(m => m.userRating >= 9);
+    const antiPatterns = watchedMovies.filter(m => m.userRating <= 5);
+
+    // Data Enrichment: Use CSV format to save ~40% tokens
     const header = "Title|Year|Director|Writer|Genre|Rating|UserNote|PlotTheme";
     const rows = watchedMovies.map(m =>
         `${m.title}|${m.year || "N/A"}|${m.director || "Unknown"}|${m.writer || "Unknown"}|${m.genre || "Unknown"}|${m.userRating}|${m.userNote || ""}|${m.shortPlot || ""}`
     ).join("\n");
     const historyData = `${header}\n${rows}`;
 
-    // 2. Context Awareness: Create Exclusion List (Watched + Watchlist)
-    // Prevents recommending movies the user already knows about.
+    // Context Awareness: Create Exclusion List (Watched + Watchlist)
     const excludeTitles = [
         ...watchedMovies.map(m => m.title),
         ...(watchlist || []).map(m => m.title)
     ].join(", ");
+
+    // Pre-compute Elite Tier summary for better anchoring
+    const eliteSummary = eliteTier.length > 0
+        ? eliteTier.map(m => `"${m.title}" (${m.userRating}/10)`).join(", ")
+        : "No 9-10 rated movies yet";
+
+    const antiPatternSummary = antiPatterns.length > 0
+        ? antiPatterns.map(m => `"${m.title}" (${m.userRating}/10${m.userNote ? `: ${m.userNote}` : ''})`).join(", ")
+        : "No strongly disliked movies";
 
     const prompt = `
     You are an elite film critic and data scientist. Your goal is to decode the user's "Taste DNA" and find hidden gems they will love.
@@ -50,6 +108,21 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
     ⛔ EXCLUSION LIST (DO NOT RECOMMEND THESE):
     ${excludeTitles}
+
+    ---------------------------------------------------
+    ### ⚖️ MECHANICAL WEIGHT SYSTEM (MUST FOLLOW EXACTLY):
+    
+    **ELITE TIER (Weight = 1.0) - ANCHOR MOVIES:**
+    ${eliteSummary}
+    → Each recommendation MUST align with at least ONE of these movies.
+    → If no 9-10 movies exist, use the highest-rated movies as anchors.
+
+    **GOOD TIER (Weight = 0.4) - Supporting Evidence Only:**
+    Movies rated 7-8. Use only if they share Director/Writer with Elite Tier.
+
+    **ANTI-PATTERNS (Weight = -1.0) - HARD EXCLUSIONS:**
+    ${antiPatternSummary}
+    → Any recommendation matching traits from these movies is AUTOMATICALLY DISQUALIFIED.
 
     ---------------------------------------------------
     ### 🧠 ANALYSIS EXAMPLES (HOW YOU MUST THINK):
@@ -66,21 +139,15 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
     ---------------------------------------------------
     ### ANALYSIS PROTOCOL (Mental Steps):
-    1.  **The "Elite" Tier (Ratings 9-10 ONLY)**:
-        -   These are the user's TRUE north. Base 80% of recommendations on the Vibe/Director/Writer of these movies.
-        -   *Example:* If they rated 'Inception' 10 but 'Coherence' 7, they want polished, big-budget mind-benders, NOT low-budget indie puzzles.
-
-    1b. **The "Good" Tier (Ratings 7-8)**:
-        -   Treat these as "Enjoyable but Flawed". 
-        -   Do NOT use these as the primary basis for a recommendation unless they share a Writer/Director with a 9-10.
-
+    1.  **Elite Tier First**: Start by listing which Elite Tier movie each recommendation aligns with.
+    
     2.  **Analyze PlotTheme Patterns**:
         -   Look for recurring themes in the PlotTheme column (e.g., "memory loss", "time loop", "revenge").
         -   If 3+ movies share a theme keyword, prioritize recommendations with that theme.
 
-    3.  **Analyze "Low Rated" (1-5) - THE ANTI-PATTERN**:
-        -   Identify specific traits the user HATES (e.g., "Shaky Cam," "Cheesy Dialogue").
-        -   *Strictly filter out* any recommendations that match these traits.
+    3.  **Anti-Pattern Check**:
+        -   For EACH recommendation, verify it does NOT match any Anti-Pattern traits.
+        -   If it matches even ONE Anti-Pattern, replace it.
 
     4.  **Review User Notes**:
         -   Treat user reviews as the *highest priority* signal.
@@ -94,10 +161,12 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
     -   The "reason" field MUST compare the recommendation to a specific movie the user watched.
     -   Format: "Similar to [Movie A] because of [Trait X], but with the [Trait Y] of [Movie B]."
     -   Example: "Similar to 'Inception' because of the mind-bending plot, but with the gritty atmosphere of 'The Batman'."
+    -   **ALSO STATE** which Elite Tier movie it anchors to.
 
     ### OUTPUT REQUIREMENTS:
     -   Return strictly a JSON object matching the schema.
-    -   **Match Score**: 0-100 confidence level.
+    -   **Match Score**: 0-100 confidence level (be honest, not inflated).
+    -   **DO NOT INVENT IMDB RATINGS** - leave imdbRating as 0, we will fetch real data.
     `;
 
     try {
@@ -158,14 +227,119 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
             }
         }
 
-        onProgress?.("Finalizing your curated list...");
+        onProgress?.("Validating recommendations...");
 
         let jsonStr = response.text || "{}";
         jsonStr = jsonStr.replace(/^```json\n|\n```$/g, "").trim();
 
         const result = JSON.parse(jsonStr);
 
-        // Sort by Match Score (Personalized) first to avoid hallucinated rating issues
+        // === IMPROVEMENT #2: Self-Critique Step ===
+        // Ask the AI to review its own recommendations for potential issues
+        if (result.recommendations && result.recommendations.length > 0) {
+            onProgress?.("Running quality check...");
+
+            try {
+                const critiquePrompt = `
+                You are reviewing movie recommendations for a user. Here are the recommendations:
+                ${result.recommendations.map((r, i) => `${i + 1}. "${r.title}" - ${r.reason}`).join('\n')}
+
+                User's Elite Tier movies (9-10 rated): ${eliteSummary}
+                User's Anti-Patterns (disliked): ${antiPatternSummary}
+
+                TASK: Identify if ANY recommendation is likely WRONG for this user.
+                For each movie, rate confidence 1-10 (10 = perfect fit, 1 = bad fit).
+                
+                Return JSON: { "critiques": [{ "index": 0, "confidence": 8, "issue": "none" or "reason" }] }
+                `;
+
+                const critiqueConfig = {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            critiques: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        index: { type: Type.NUMBER },
+                                        confidence: { type: Type.NUMBER },
+                                        issue: { type: Type.STRING }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+
+                const critiqueResponse = await ai.models.generateContent({
+                    model: FALLBACK_MODEL, // Use faster model for critique
+                    contents: critiquePrompt,
+                    config: critiqueConfig
+                });
+
+                const critiqueResult = JSON.parse(critiqueResponse.text || "{}");
+
+                // Adjust match scores based on self-critique
+                if (critiqueResult.critiques) {
+                    critiqueResult.critiques.forEach(critique => {
+                        if (critique.index < result.recommendations.length) {
+                            const rec = result.recommendations[critique.index];
+                            // Lower confidence = lower match score
+                            if (critique.confidence < 5) {
+                                rec.matchScore = Math.max(0, (rec.matchScore || 50) - 20);
+                                rec.reason += ` ⚠️ (Lower confidence: ${critique.issue})`;
+                            }
+                        }
+                    });
+                }
+            } catch (critiqueError) {
+                console.warn("Self-critique step failed, continuing without:", critiqueError);
+            }
+        }
+
+        // === IMPROVEMENT #3: Real OMDB Data Enrichment ===
+        // Replace hallucinated IMDB ratings with real data from OMDB API
+        // FIX: Filter out movies that don't exist in OMDB (likely hallucinated)
+        if (result.recommendations && result.recommendations.length > 0) {
+            onProgress?.("Verifying movies exist...");
+
+            const enrichedRecommendations = await Promise.all(
+                result.recommendations.map(async (rec) => {
+                    const omdbData = await fetchRealOMDBData(rec.title, rec.year);
+
+                    if (omdbData) {
+                        return {
+                            ...rec,
+                            // Use OMDB's verified title/year (fixes AI misspellings)
+                            title: omdbData.verifiedTitle || rec.title,
+                            year: omdbData.verifiedYear || rec.year,
+                            imdbRating: omdbData.imdbRating || rec.imdbRating,
+                            imdbVotes: omdbData.imdbVotes,
+                            poster: omdbData.poster,
+                            plot: omdbData.plot,
+                            imdbID: omdbData.imdbID,
+                            realData: true // Flag to indicate verified real data
+                        };
+                    }
+                    // Return null for movies not found in OMDB
+                    return null;
+                })
+            );
+
+            // FIX: Filter out null entries (hallucinated movies)
+            const validRecommendations = enrichedRecommendations.filter(rec => rec !== null);
+
+            const removedCount = enrichedRecommendations.length - validRecommendations.length;
+            if (removedCount > 0) {
+                console.warn(`🗑️ Filtered out ${removedCount} hallucinated/invalid movie(s)`);
+            }
+
+            result.recommendations = validRecommendations;
+        }
+
+        // Sort by Match Score first, then by real IMDB rating
         if (result.recommendations) {
             result.recommendations.sort((a, b) => {
                 if (b.matchScore !== a.matchScore) {
@@ -175,6 +349,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
             });
         }
 
+        console.log(`✅ ${result.recommendations?.length || 0} verified recommendations ready`);
         return result;
 
     } catch (error) {
