@@ -47,7 +47,9 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
             imdbRating: Number(imdbRating),
             runtime: Number(runtime?.split(" ")[0] || 0),
             userRating,
-            userNote, // Add the user's note to the movie data
+            userNote,
+            director,
+            genre,
         };
 
         onAddWatched(newWatchedMovie);

@@ -32,7 +32,7 @@ export default function MovieRecommendations({
         setExpandedRec(null);
 
         try {
-            const result = await getMovieRecommendations(watched, setProgress);
+            const result = await getMovieRecommendations(watched, watchlist, setProgress);
             setTasteProfile(result.tasteProfile);
             setRecommendations(result.recommendations);
         } catch (err) {

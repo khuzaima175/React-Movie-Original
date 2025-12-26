@@ -12,7 +12,7 @@ const FALLBACK_MODEL = "gemini-2.5-flash";
  * @param {Function} onProgress - Optional callback for progress updates
  * @returns {Promise<Object>} Object with tasteProfile and recommendations
  */
-export const getMovieRecommendations = async (watchedMovies, onProgress) => {
+export const getMovieRecommendations = async (watchedMovies, watchlist, onProgress) => {
     const apiKey = process.env.REACT_APP_GEMINI_KEY;
 
     if (!apiKey) {
@@ -25,45 +25,60 @@ export const getMovieRecommendations = async (watchedMovies, onProgress) => {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    onProgress?.("Analyzing your movie taste...");
+    onProgress?.("Analyzing your unique taste profile...");
 
-    // Prepare movie data for the AI - title + user rating + user's reason
+    // 1. Data Enrichment: Send Metadata (Director, Genre, Year) to help the AI
+    // We strictly map only necessary fields to keep token count low but context high.
     const movieData = watchedMovies.map(movie => ({
         title: movie.title,
-        myRating: movie.userRating,
-        review: movie.userNote || "" // Include user's note if available
+        year: movie.year,
+        director: movie.director || "Unknown", // Now available!
+        genre: movie.genre || "Unknown",       // Now available!
+        rating: movie.userRating,
+        userReview: movie.userNote || ""
     }));
 
-    const prompt = `
-    You are an elite film recommendation engine. Your goal is to predict the user's next 5-star watch with extreme accuracy based on their rating history and THEIR EXPLICIT NOTES.
+    // 2. Context Awareness: Create Exclusion List (Watched + Watchlist)
+    // Prevents recommending movies the user already knows about.
+    const excludeTitles = [
+        ...watchedMovies.map(m => m.title),
+        ...(watchlist || []).map(m => m.title)
+    ].join(", ");
 
-    USER DATA (Title + Rating/10 + Personal Review):
+    // 3. The "Unbiased" Prompt Strategy
+    // Removed hardcoded "Inception" bias. Added "Anti-Pattern" check.
+    const prompt = `
+    You are an elite film critic and data scientist. Your goal is to decode the user's "Taste DNA" and find hidden gems they will love.
+
+    USER VIEWING HISTORY:
     ${JSON.stringify(movieData, null, 2)}
+
+    ⛔ EXCLUSION LIST (DO NOT RECOMMEND THESE):
+    ${excludeTitles}
 
     ---------------------------------------------------
     ### ANALYSIS PROTOCOL (Mental Steps):
-    1.  **Analyze User Reviews (Crucial)**:
-        -   If the user wrote a note (e.g., "Hated the ending," "Loved the cinematography"), prioritize this over general genre trends.
-        -   The "review" field contains the user's specific "Why" - use it to build a highly accurate taste profile.
+    1.  **Analyze "High Rated" (8-10)**:
+        -   Identify the specific *Micro-Genres* (e.g., "Dystopian Cyberpunk" instead of just "Sci-Fi").
+        -   Identify the *Emotional Tone* (e.g., "Melancholic," "High-Octane," "Cerebral").
+        -   Look for Director/Writer patterns.
 
-    2.  **Identify the "Hate" Pattern (Ratings ≤ 6)**: 
-        -   Look at the movies the user rated low. 
-        -   *CRITICAL*: If they rated slow-burn or purely atmospheric movies low, you MUST filter out "Slow Pacing" from your recommendations.
-        -   Assume the user dislikes boredom/wandering plots.
-    
-    2.  **Identify the "Love" Pattern (Ratings ≥ 8)**:
-        -   Look for the common DNA (e.g., "Mind-Bending," "Non-Linear Time," "High-Stakes Action").
-        -   Focus on **Density of Plot**: The user likely wants movies where every scene is a clue (Puzzle Boxes).
+    2.  **Analyze "Low Rated" (1-5) - THE ANTI-PATTERN**:
+        -   Identify specific traits the user HATES (e.g., "Shaky Cam," "Unresolved Endings," "Cheesy Dialogue").
+        -   *Strictly filter out* any recommendations that match these traits.
 
-    3.  **Select Recommendations**:
-        -   Find 6 movies/shows that are **critically acclaimed** (High IMDB) AND match the **"Fast & Complex"** criteria.
-        -   **Strictly Avoid**: Generic blockbusters the user has likely seen, or "Art House" movies that are too slow.
-        -   **Prioritize**: "Hidden Gems" or Cult Classics that fit the *Inception*/*Dark* vibe.
+    3.  **Review User Notes**:
+        -   If the user left a review, treat it as the *highest priority* signal for their preferences.
+
+    4.  **Selection Rules**:
+        -   Select 6 movies that match the High Patterns and avoid Anti-Patterns.
+        -   **Diversity**: Include 1 "Safe Bet" (High match) and 1 "Wildcard" (Different genre but same vibe).
+        -   **Obscurity**: Avoid the top 20 most popular movies on IMDB (e.g., No Shawshank, Godfather, Dark Knight) unless the user is clearly a beginner. PRIORITIZE hidden gems.
 
     ### OUTPUT REQUIREMENTS:
-    -   **Match Score**: Assign a score (0-100) based on how well it fits the specific "High Pacing + High Intelligence" criteria.
-    -   **Reason**: Explain briefly *why* it fits (e.g., "It has the complexity of Movie A but the speed of Movie B").
-    -   Return the response strictly in the JSON format defined in the schema.
+    -   Return strictly a JSON object matching the defined schema.
+    -   **Match Score**: 0-100 confidence level.
+    -   **Reason**: Detailed explanation connecting the choice to the user's history (e.g., "Because you liked 'The Witch', you will like 'The Lighthouse' (same director, atmospheric horror)").
     `;
 
     try {
@@ -124,7 +139,7 @@ export const getMovieRecommendations = async (watchedMovies, onProgress) => {
             }
         }
 
-        onProgress?.("Sorting by IMDB ratings...");
+        onProgress?.("Finalizing your curated list...");
 
         let jsonStr = response.text || "{}";
         jsonStr = jsonStr.replace(/^```json\n|\n```$/g, "").trim();
