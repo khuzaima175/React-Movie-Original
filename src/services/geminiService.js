@@ -66,9 +66,13 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
     ---------------------------------------------------
     ### ANALYSIS PROTOCOL (Mental Steps):
-    1.  **Analyze "High Rated" (8-10)**:
-        -   Identify the specific *Micro-Genres* & *Emotional Tone*.
-        -   **WRITER BIAS**: heavily weigh the 'writer' field. If the user likes 'Aaron Sorkin' or 'Charlie Kaufman', they value dialogue/complexity over visuals.
+    1.  **The "Elite" Tier (Ratings 9-10 ONLY)**:
+        -   These are the user's TRUE north. Base 80% of recommendations on the Vibe/Director/Writer of these movies.
+        -   *Example:* If they rated 'Inception' 10 but 'Coherence' 7, they want polished, big-budget mind-benders, NOT low-budget indie puzzles.
+
+    1b. **The "Good" Tier (Ratings 7-8)**:
+        -   Treat these as "Enjoyable but Flawed". 
+        -   Do NOT use these as the primary basis for a recommendation unless they share a Writer/Director with a 9-10.
 
     2.  **Analyze PlotTheme Patterns**:
         -   Look for recurring themes in the PlotTheme column (e.g., "memory loss", "time loop", "revenge").
