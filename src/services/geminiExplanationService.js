@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
-const MODEL = "gemini-3-flash-preview";
+const PRIMARY_MODEL = "gemini-3.0-flash-preview";
+const FALLBACK_MODEL = "gemini-2.5-flash";
 
 /**
  * Explains WHY a specific movie was recommended based on user's taste
@@ -36,10 +37,19 @@ Compare it to their favorites if applicable.
 Keep it conversational and convincing. Do NOT use markdown or special formatting.`;
 
     try {
-        const response = await ai.models.generateContent({
-            model: MODEL,
-            contents: prompt,
-        });
+        let response;
+        try {
+            response = await ai.models.generateContent({
+                model: PRIMARY_MODEL,
+                contents: prompt,
+            });
+        } catch (primaryError) {
+            console.warn(`Primary explanation model failed: ${primaryError.message}. Switching to fallback.`);
+            response = await ai.models.generateContent({
+                model: FALLBACK_MODEL,
+                contents: prompt,
+            });
+        }
 
         // Access text property directly (same pattern as geminiService.js)
         return response.text || "This movie matches your taste profile based on your viewing history.";

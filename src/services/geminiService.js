@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const MODEL = "gemini-3-flash-preview";
+const PRIMARY_MODEL = "gemini-3.0-flash-preview";
+const FALLBACK_MODEL = "gemini-2.5-flash";
 
 /**
  * Get AI-powered movie recommendations based on user's watched movies
@@ -66,43 +67,62 @@ export const getMovieRecommendations = async (watchedMovies, onProgress) => {
     `;
 
     try {
-        const response = await ai.models.generateContent({
-            model: MODEL,
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        tasteProfile: {
-                            type: Type.OBJECT,
-                            properties: {
-                                favoriteGenres: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                preferredEra: { type: Type.STRING },
-                                ratingStyle: { type: Type.STRING }
-                            }
-                        },
-                        recommendations: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    title: { type: Type.STRING },
-                                    year: { type: Type.STRING },
-                                    type: { type: Type.STRING },
-                                    genre: { type: Type.STRING },
-                                    imdbRating: { type: Type.NUMBER },
-                                    matchScore: { type: Type.NUMBER },
-                                    reason: { type: Type.STRING }
-                                },
-                                required: ["title", "year", "type", "genre", "imdbRating", "matchScore", "reason"]
-                            }
+        const generationConfig = {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    tasteProfile: {
+                        type: Type.OBJECT,
+                        properties: {
+                            favoriteGenres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            preferredEra: { type: Type.STRING },
+                            ratingStyle: { type: Type.STRING }
                         }
                     },
-                    required: ["tasteProfile", "recommendations"]
-                }
+                    recommendations: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                title: { type: Type.STRING },
+                                year: { type: Type.STRING },
+                                type: { type: Type.STRING },
+                                genre: { type: Type.STRING },
+                                imdbRating: { type: Type.NUMBER },
+                                matchScore: { type: Type.NUMBER },
+                                reason: { type: Type.STRING }
+                            },
+                            required: ["title", "year", "type", "genre", "imdbRating", "matchScore", "reason"]
+                        }
+                    }
+                },
+                required: ["tasteProfile", "recommendations"]
             }
-        });
+        };
+
+        let response;
+        try {
+            console.log(`🤖 Trying Primary Model: ${PRIMARY_MODEL}`);
+            response = await ai.models.generateContent({
+                model: PRIMARY_MODEL,
+                contents: prompt,
+                config: generationConfig
+            });
+        } catch (primaryError) {
+            console.warn(`⚠️ Primary model failed. Switching to fallback: ${FALLBACK_MODEL}`, primaryError);
+            onProgress?.("Primary AI busy, switching to backup...");
+            try {
+                response = await ai.models.generateContent({
+                    model: FALLBACK_MODEL,
+                    contents: prompt,
+                    config: generationConfig
+                });
+            } catch (fallbackError) {
+                console.error("❌ Both models failed", fallbackError);
+                throw fallbackError; // Throw the error to be handled by the outer catch block
+            }
+        }
 
         onProgress?.("Sorting by IMDB ratings...");
 
