@@ -14,6 +14,7 @@ import EmptyState from "./components/EmptyState";
 import RandomPicker from "./components/RandomPicker";
 import MovieRecommendations from "./components/MovieRecommendations";
 import AIChat from "./components/AIChat";
+import AnimatedBackground from "./components/AnimatedBackground";
 import { useDebounce } from "./hooks/useDebounce";
 
 const KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
@@ -148,6 +149,7 @@ export default function App() {
 
   return (
     <>
+      <AnimatedBackground />
       <NavBar>
         <Search query={query} setQuery={setQuery} type={type} setType={setType} />
         <NumResults movies={movies} />
@@ -160,10 +162,11 @@ export default function App() {
             <MovieList movies={movies} onSelectMovie={handleSelectMovie} />
           )}
           {!isLoading && !error && movies.length === 0 && !debouncedQuery && (
-            <div className="empty-state">
-              <span style={{ fontSize: "4rem" }}>🍿</span>
-              <h3>Search for a movie to get started</h3>
-            </div>
+            <EmptyState
+              message="Search for a movie to get started"
+              icon="🍿"
+              onSearch={setQuery}
+            />
           )}
           {error && <ErrorMessage message={error} />}
         </Box>
