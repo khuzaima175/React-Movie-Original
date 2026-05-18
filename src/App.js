@@ -242,11 +242,9 @@ export default function App() {
               {activeTab === "watchlist" && (
                 <>
                   <RandomPicker watchlist={watchlist} onSelectMovie={handleSelectMovie} />
-                  <div style={{ padding: "1rem" }}>
-                    <p style={{ textAlign: "center", fontStyle: "italic" }}>
-                      You have {watchlist.length} movies to watch.
-                    </p>
-                  </div>
+                  <p className="watchlist-count">
+                    {watchlist.length} {watchlist.length === 1 ? "title" : "titles"} in your watchlist
+                  </p>
                   {watchlist.length > 0 ? (
                     <WatchedMoviesList
                       watched={watchlist}

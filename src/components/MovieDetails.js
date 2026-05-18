@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import StarRating from "../StarRating";
+import StarRating from "./StarRating";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 
@@ -110,7 +110,7 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
             document.title = `Movie | ${title}`;
 
             return function () {
-                document.title = "Movie Tracker";
+                document.title = "CinemaVault";
             };
         },
         [title]
@@ -175,17 +175,6 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
                                                 placeholder="What hooked you? (e.g., 'The plot twist', 'The cinematography', 'Too slow')"
                                                 value={userNote}
                                                 onChange={(e) => setUserNote(e.target.value)}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '1rem',
-                                                    borderRadius: '8px',
-                                                    border: '1px solid #ffffff20',
-                                                    background: '#ffffff10',
-                                                    color: '#fff',
-                                                    resize: 'vertical',
-                                                    minHeight: '60px',
-                                                    fontFamily: 'inherit'
-                                                }}
                                             />
                                             <button className="btn-add" onClick={handleAdd}>
                                                 + Add to list
@@ -193,7 +182,7 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
                                         </div>
                                     )}
                                     {!isWatchlist && (
-                                        <button className="btn-add btn-watchlist" style={{ marginTop: "0.5rem", backgroundColor: "var(--color-accent)" }} onClick={handleAddToWatchlistClick}>
+                                        <button className="btn-add btn-watchlist" onClick={handleAddToWatchlistClick}>
                                             + Plan to Watch
                                         </button>
                                     )}
