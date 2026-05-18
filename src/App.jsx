@@ -17,7 +17,7 @@ import AIChat from "./components/AIChat";
 import AnimatedBackground from "./components/AnimatedBackground";
 import { useDebounce } from "./hooks/useDebounce";
 
-const KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
+const KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
 
 export default function App() {
   const [movies, setMovies] = useState([]);

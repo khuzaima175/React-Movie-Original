@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { getMovieRecommendations } from "../services/geminiService";
 
-const KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
+const KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
 
 export default function MovieRecommendations({
     watched,

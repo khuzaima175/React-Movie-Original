@@ -8,7 +8,7 @@ const FALLBACK_MODEL = "gemini-2.5-flash";
  * Uses Gemini 1.5 Flash for detailed analysis
  */
 export const getRecommendationExplanation = async (movieTitle, userTasteProfile, watchedMovies) => {
-    const apiKey = process.env.REACT_APP_GEMINI_KEY;
+    const apiKey = import.meta.env.VITE_GEMINI_KEY;
 
     if (!apiKey) {
         throw new Error("Gemini API Key is missing.");

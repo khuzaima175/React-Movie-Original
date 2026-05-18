@@ -3,7 +3,7 @@ import StarRating from "./StarRating";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 
-const KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
+const KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
 
 export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, onAddToWatchlist, watched, watchlist }) {
     const [movie, setMovie] = useState({});

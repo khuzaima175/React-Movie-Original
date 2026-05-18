@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const PRIMARY_MODEL = "gemini-3.0-flash-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
-const OMDB_KEY = process.env.REACT_APP_OMDB_KEY || "b78bdecd";
+const OMDB_KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
 
 /**
  * Fetch real movie data from OMDB API to replace hallucinated ratings
@@ -60,10 +60,10 @@ const fetchRealOMDBData = async (title, year) => {
  * @returns {Promise<Object>} Object with tasteProfile and recommendations
  */
 export const getMovieRecommendations = async (watchedMovies, watchlist, onProgress) => {
-    const apiKey = process.env.REACT_APP_GEMINI_KEY;
+    const apiKey = import.meta.env.VITE_GEMINI_KEY;
 
     if (!apiKey) {
-        throw new Error("Gemini API Key is missing. Please add REACT_APP_GEMINI_KEY to your .env file.");
+        throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
     }
 
     if (!watchedMovies || watchedMovies.length === 0) {
@@ -359,7 +359,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
         // Show more helpful error message
         if (errorMsg.includes("API key") || errorMsg.includes("apiKey") || errorMsg.includes("401")) {
-            throw new Error("🔑 Invalid API key. Please check your REACT_APP_GEMINI_KEY in the .env file.");
+            throw new Error("🔑 Invalid API key. Please check your VITE_GEMINI_KEY in the .env file.");
         } else if (errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota") || errorMsg.includes("429")) {
             throw new Error("API quota exceeded. Please try again later.");
         } else if (errorMsg.includes("network") || errorMsg.includes("fetch") || errorMsg.includes("Failed to fetch")) {

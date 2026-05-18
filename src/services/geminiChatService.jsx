@@ -12,7 +12,7 @@ const FALLBACK_MODEL = "gemini-2.5-flash";
  * @returns {Promise<string>} - The AI's response
  */
 export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) => {
-    const apiKey = process.env.REACT_APP_GEMINI_KEY;
+    const apiKey = import.meta.env.VITE_GEMINI_KEY;
     if (!apiKey) throw new Error("API Key missing");
 
     const ai = new GoogleGenAI({ apiKey });
