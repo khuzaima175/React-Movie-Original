@@ -1205,14 +1205,19 @@ body {
 
 .rec-reason { font-size: 1.2rem; color: var(--text-dim); line-height: 1.6; font-style: italic; }
 
-.rec-actions { display: flex; gap: 0.8rem; margin-top: 1rem; }
+.rec-actions {
+  display: flex;
+  gap: 1.2rem;
+  margin-top: 1.4rem;
+  justify-content: flex-end;
+}
 
 .btn-explain, .btn-add-watchlist {
-  flex: 1;
-  padding: 0.7rem 1rem;
+  flex: none;
+  padding: 0.8rem 2rem;
   border-radius: 0.6rem;
   font-family: 'DM Sans', sans-serif;
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1234,7 +1239,7 @@ body {
 }
 
 .btn-add-watchlist:hover:not(:disabled) { background: var(--gold-light); }
-.btn-add-watchlist:disabled { background: var(--green); opacity: 0.85; cursor: default; }
+.btn-add-watchlist:disabled { background: rgba(39, 174, 96, 0.15); border: 1px solid rgba(39, 174, 96, 0.3); color: var(--green); opacity: 1; cursor: default; }
 
 .rec-explanation {
   margin-top: 1rem;
@@ -2016,8 +2021,7 @@ body {
 .ai-tab.active::after { transform: scaleX(1); }
 
 .ai-page-body {
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden; /* Prevent double scrollbars and layout clipping */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -2689,5 +2693,13 @@ body {
     width: 4rem;
     height: 4rem;
     font-size: 2rem;
+  }
+  .rec-actions {
+    justify-content: stretch;
+  }
+  .btn-explain, .btn-add-watchlist {
+    flex: 1;
+    padding: 0.8rem 1rem;
+    font-size: 1.2rem;
   }
 }
