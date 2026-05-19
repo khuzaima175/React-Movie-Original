@@ -1716,6 +1716,9 @@ body {
   padding: 3.6rem 6rem 0;
   background: linear-gradient(180deg, rgba(212,168,67,0.05) 0%, transparent 100%);
   flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
 }
 
 .vault-header-title {
@@ -2289,3 +2292,402 @@ body {
   .ai-page-body .chat-messages { padding: 2rem 2.4rem; padding-bottom: 9rem; }
   .ai-page-body .chat-input-area { padding: 1.2rem 2.4rem; }
 }
+
+/* ── Backup Manager UI ── */
+.vault-settings-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-mid);
+  padding: 0.8rem 1.6rem;
+  font-size: 1.3rem;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 2rem;
+}
+
+.vault-settings-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold-light);
+  background: rgba(212, 168, 67, 0.05);
+  transform: translateY(-1px);
+}
+
+.backup-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 5, 8, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.backup-modal-container {
+  width: 100%;
+  max-width: 60rem;
+  background: linear-gradient(145deg, var(--panel) 0%, var(--panel-2) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-deep), 0 0 50px rgba(212, 168, 67, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+
+.backup-modal-header {
+  padding: 2.4rem 2.8rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.backup-modal-header h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.backup-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.18s;
+}
+
+.backup-close-btn:hover {
+  color: var(--red-light);
+}
+
+.backup-modal-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.backup-tab-btn {
+  flex: 1;
+  padding: 1.4rem;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.backup-tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.backup-tab-btn.active {
+  color: var(--gold-light);
+  border-bottom-color: var(--gold);
+  background: rgba(212, 168, 67, 0.03);
+}
+
+.backup-modal-body {
+  padding: 2.8rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.section-description {
+  font-size: 1.35rem;
+  color: var(--text-mid);
+  line-height: 1.6;
+  margin-bottom: 2.4rem;
+}
+
+.export-options-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.export-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.8rem;
+  padding: 1.8rem;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.22s ease;
+  width: 100%;
+}
+
+.export-card:hover {
+  border-color: var(--border-hover);
+  background: rgba(212, 168, 67, 0.05);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.export-card .card-icon {
+  font-size: 2.4rem;
+  background: rgba(212, 168, 67, 0.08);
+  border-radius: var(--radius-sm);
+  width: 4.8rem;
+  height: 4.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.export-card h5 {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--gold-light);
+  margin-bottom: 0.4rem;
+}
+
+.export-card p {
+  font-size: 1.2rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.import-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2.2rem;
+  background: rgba(0, 0, 0, 0.15);
+  padding: 1rem 1.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.settings-label {
+  font-size: 1.3rem;
+  color: var(--text-mid);
+  font-weight: 500;
+}
+
+.import-mode-toggle {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.mode-toggle-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  color: var(--text-dim);
+  padding: 0.6rem 1.2rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.2s ease;
+}
+
+.mode-toggle-btn:hover {
+  color: var(--text);
+}
+
+.mode-toggle-btn.active {
+  background: var(--panel-3);
+  border-color: var(--border);
+  color: var(--gold-light);
+}
+
+.import-dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 4rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.01);
+  transition: all 0.22s ease;
+  text-align: center;
+}
+
+.import-dropzone:hover {
+  border-color: var(--gold);
+  background: rgba(212, 168, 67, 0.03);
+}
+
+.dropzone-icon {
+  font-size: 4rem;
+  margin-bottom: 1.6rem;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+.import-dropzone:hover .dropzone-icon {
+  transform: translateY(-4px) scale(1.1);
+  opacity: 1;
+}
+
+.import-dropzone p {
+  font-size: 1.4rem;
+  color: var(--text-mid);
+  margin-bottom: 0.6rem;
+}
+
+.import-dropzone p strong {
+  color: var(--gold-light);
+}
+
+.dropzone-sub {
+  font-size: 1.15rem;
+  color: var(--text-dim);
+}
+
+.import-alert {
+  margin-top: 2rem;
+  padding: 1.4rem 1.8rem;
+  border-radius: var(--radius-sm);
+  font-size: 1.3rem;
+  line-height: 1.5;
+}
+
+.import-alert.success {
+  background: rgba(39, 174, 96, 0.1);
+  border: 1px solid rgba(39, 174, 96, 0.2);
+  color: #58d68d;
+}
+
+.import-alert.warning {
+  background: rgba(212, 168, 67, 0.1);
+  border: 1px solid rgba(212, 168, 67, 0.2);
+  color: var(--gold-light);
+}
+
+.import-alert.error {
+  background: rgba(192, 57, 43, 0.1);
+  border: 1px solid rgba(192, 57, 43, 0.2);
+  color: var(--red-light);
+}
+
+.backup-processing-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 0;
+  text-align: center;
+}
+
+.spinner-glow {
+  width: 5rem;
+  height: 5rem;
+  border: 3px solid rgba(212, 168, 67, 0.1);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 1s infinite linear;
+  margin-bottom: 2rem;
+  box-shadow: 0 0 20px rgba(212, 168, 67, 0.15);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.backup-processing-screen h4 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.8rem;
+}
+
+.resolving-title {
+  font-size: 1.35rem;
+  color: var(--gold-light);
+  font-style: italic;
+  margin-bottom: 2.2rem;
+}
+
+.progress-bar-container {
+  width: 100%;
+  max-width: 32rem;
+  height: 0.6rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-dim) 0%, var(--gold) 100%);
+  border-radius: 1rem;
+  transition: width 0.15s ease-out;
+}
+
+.progress-numbers {
+  font-size: 1.15rem;
+  color: var(--text-dim);
+  margin-bottom: 2.4rem;
+}
+
+.btn-cancel-import {
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red-light);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1.6rem;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.btn-cancel-import:hover {
+  background: rgba(192, 57, 43, 0.1);
+}
+
+@media (max-width: 650px) {
+  .vault-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .vault-settings-btn {
+    margin-bottom: 1.4rem;
+  }
+  .backup-modal-container {
+    max-height: 95vh;
+  }
+  .backup-modal-header {
+    padding: 1.8rem 2rem;
+  }
+  .backup-modal-tabs button {
+    font-size: 1.25rem;
+    padding: 1.2rem;
+  }
+  .backup-modal-body {
+    padding: 2rem;
+  }
+  .export-card {
+    padding: 1.4rem;
+    gap: 1.2rem;
+  }
+  .export-card .card-icon {
+    width: 4rem;
+    height: 4rem;
+    font-size: 2rem;
+  }
+}

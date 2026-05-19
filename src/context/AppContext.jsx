@@ -49,7 +49,8 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider
       value={{
-        watched, watchlist,
+        watched, setWatched,
+        watchlist, setWatchlist,
         addWatched, deleteWatched,
         addToWatchlist, deleteWatchlist,
         aiRecommendations, setAiRecommendations,

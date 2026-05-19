@@ -5,6 +5,7 @@ import WatchedSummary from "../components/WatchedSummary";
 import WatchedMoviesList from "../components/WatchedMoviesList";
 import RandomPicker from "../components/RandomPicker";
 import EmptyState from "../components/EmptyState";
+import BackupManagerModal from "../components/BackupManagerModal";
 
 export default function VaultPage() {
   const [searchParams] = useSearchParams();
@@ -15,6 +16,7 @@ export default function VaultPage() {
     searchParams.get("tab") === "watchlist" ? "watchlist" : "watched"
   );
   const [sortBy, setSortBy] = useState("input");
+  const [isBackupOpen, setIsBackupOpen] = useState(false);
 
   // Sync tab if URL param changes
   useEffect(() => {
@@ -34,10 +36,21 @@ export default function VaultPage() {
     <div className="vault-page">
       {/* ── Header ── */}
       <div className="vault-header">
-        <h1 className="vault-header-title">My Vault</h1>
-        <p className="vault-header-meta">
-          {watched.length} films watched · {watchlist.length} on your list
-        </p>
+        <div className="vault-header-text">
+          <h1 className="vault-header-title">My Vault</h1>
+          <p className="vault-header-meta">
+            {watched.length} films watched · {watchlist.length} on your list
+          </p>
+        </div>
+        <div className="vault-header-actions">
+          <button
+            className="vault-settings-btn"
+            onClick={() => setIsBackupOpen(true)}
+            title="Backup & Portability"
+          >
+            ⚙️ Manage Vault
+          </button>
+        </div>
       </div>
 
       {/* ── Tab row ── */}
@@ -112,6 +125,10 @@ export default function VaultPage() {
           </>
         )}
       </div>
+      <BackupManagerModal
+        isOpen={isBackupOpen}
+        onClose={() => setIsBackupOpen(false)}
+      />
     </div>
   );
 }
