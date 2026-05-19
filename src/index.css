@@ -2071,7 +2071,7 @@ body {
   gap: 2rem;
   padding: 2.8rem 6rem;
   overflow: visible;
-  flex: unset;
+  flex: none;
   list-style: none;
 }
 
