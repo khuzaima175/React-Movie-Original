@@ -14,22 +14,14 @@ export default function WatchedMoviesList({ watched, onDeleteWatched }) {
 
 function WatchedMovie({ movie, onDeleteWatched }) {
   return (
-    <li style={{ position: "relative" }}>
+    <li>
       <img src={movie.poster} alt={`${movie.title} poster`} />
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+      <div className="movie-info-container">
         <h3>{movie.title}</h3>
-        <div style={{ display: "flex", gap: "1.4rem", flexWrap: "wrap" }}>
-          <p>
-            <span>⭐</span>
-            <span style={{ color: "var(--gold)", fontWeight: 600 }}>{movie.imdbRating}</span>
-          </p>
-          <p>
-            <span>🌟</span>
-            <span style={{ color: "var(--gold-light)", fontWeight: 600 }}>{movie.userRating}</span>
-          </p>
-          <p>
-            <span style={{ color: "var(--text-dim)" }}>⏳ {movie.runtime} min</span>
-          </p>
+        <div className="movie-meta-row watched-stats">
+          <span className="stat-rating">⭐ {movie.imdbRating}</span>
+          <span className="stat-user-rating">🌟 {movie.userRating}</span>
+          <span className="stat-runtime">⏳ {movie.runtime}m</span>
         </div>
       </div>
       <button

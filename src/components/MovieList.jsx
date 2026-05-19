@@ -19,15 +19,12 @@ function Movie({ movie, onSelectMovie }) {
   return (
     <li onClick={() => onSelectMovie(movie.imdbID)}>
       <img src={posterUrl} alt={`${movie.Title} poster`} />
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+      <div className="movie-info-container">
         <h3>{movie.Title}</h3>
-        <p>
-          <span>🗓</span>
-          <span>{movie.Year}</span>
-          <span style={{ marginLeft: "0.8rem", fontSize: "1.1rem", color: "var(--text-dim)", background: "rgba(255,255,255,0.06)", padding: "0.15rem 0.6rem", borderRadius: "2rem", border: "1px solid var(--border)" }}>
-            {typeLabel}
-          </span>
-        </p>
+        <div className="movie-meta-row">
+          <span className="movie-year">🗓 {movie.Year}</span>
+          <span className="type-badge">{typeLabel}</span>
+        </div>
       </div>
     </li>
   );

@@ -16,6 +16,9 @@ export function AppProvider({ children }) {
   const [aiRecommendations, setAiRecommendations] = useState(null);
   const [aiTasteProfile, setAiTasteProfile] = useState(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchType, setSearchType] = useState("");
+
   useEffect(() => {
     localStorage.setItem("watchedMovies", JSON.stringify(watched));
   }, [watched]);
@@ -51,6 +54,8 @@ export function AppProvider({ children }) {
         addToWatchlist, deleteWatchlist,
         aiRecommendations, setAiRecommendations,
         aiTasteProfile, setAiTasteProfile,
+        searchQuery, setSearchQuery,
+        searchType, setSearchType,
       }}
     >
       {children}

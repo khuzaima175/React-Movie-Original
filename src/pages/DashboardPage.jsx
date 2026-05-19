@@ -15,13 +15,19 @@ const KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { watched, watchlist, deleteWatched } = useApp();
+  const { 
+    watched, 
+    watchlist, 
+    deleteWatched,
+    searchQuery: query,
+    setSearchQuery: setQuery,
+    searchType: type,
+    setSearchType: setType
+  } = useApp();
 
   const [movies, setMovies] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState("");
   const [sortBy, setSortBy] = useState("input");
 
   const debouncedQuery = useDebounce(query, 500);
@@ -74,13 +80,7 @@ export default function DashboardPage() {
   return (
     <div className="dashboard-layout">
       {/* ── Hero / Search ── */}
-      <div className="dashboard-hero">
-        <h1 className="dashboard-hero-title">
-          Discover your next<br />obsession.
-        </h1>
-        <p className="dashboard-hero-subtitle">
-          Search 500,000+ films and series. Rate, track, and let AI find your next watch.
-        </p>
+      <div className="dashboard-hero compact">
         <div className="dashboard-search-wrap">
           <Search query={query} setQuery={setQuery} type={type} setType={setType} />
           <NumResults movies={movies} />
