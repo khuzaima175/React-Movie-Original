@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getMovieRecommendations } from "../services/geminiService";
+import { getMovieRecommendations, getFallbackPoster } from "../services/geminiService";
 
 const KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
 
@@ -72,7 +72,7 @@ export default function MovieRecommendations({
                     imdbID: data.imdbID,
                     title: data.Title,
                     year: data.Year,
-                    poster: data.Poster !== "N/A" ? data.Poster : "https://via.placeholder.com/300x450?text=No+Poster",
+                    poster: data.Poster !== "N/A" ? data.Poster : getFallbackPoster(rec.title),
                     runtime: data.Runtime,
                     imdbRating: data.imdbRating,
                     userRating: 0
@@ -84,7 +84,7 @@ export default function MovieRecommendations({
                     imdbID: Math.random().toString(36).substr(2, 9),
                     title: rec.title,
                     year: rec.year,
-                    poster: "https://via.placeholder.com/300x450?text=No+Poster",
+                    poster: getFallbackPoster(rec.title),
                     runtime: "N/A",
                     imdbRating: rec.imdbRating || "N/A",
                     userRating: 0
@@ -98,7 +98,7 @@ export default function MovieRecommendations({
                 imdbID: Math.random().toString(36).substr(2, 9),
                 title: rec.title,
                 year: rec.year,
-                poster: "https://via.placeholder.com/300x450?text=No+Poster",
+                poster: getFallbackPoster(rec.title),
                 runtime: "N/A",
                 imdbRating: rec.imdbRating || "N/A",
                 userRating: 0
@@ -172,54 +172,69 @@ export default function MovieRecommendations({
                     <ul className="recommendation-list">
                         {recommendations.map((rec, index) => (
                             <li key={index} className="recommendation-card">
-                                <div className="rec-header">
-                                    <div className="rec-title-section">
-                                        <h5>{rec.title}</h5>
-                                        <span className="rec-meta">
-                                            {rec.year} • {rec.type === "series" ? "📺" : "🎬"} {rec.genre}
-                                        </span>
-                                    </div>
-                                    <div className="rec-ratings">
-                                        <div className="imdb-rating">
-                                            <span className="imdb-star">⭐</span>
-                                            <span className="imdb-value">{rec.imdbRating?.toFixed(1) || "N/A"}</span>
-                                            <span className="imdb-label">IMDB</span>
-                                        </div>
-                                        <div className="match-score">
-                                            <span className="score-value">{rec.matchScore}%</span>
-                                            <span className="score-label">match</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <p className="rec-reason">{rec.reason}</p>
-
-                                <div className="rec-actions">
-                                    <button
-                                        className="btn-explain"
-                                        onClick={() => handleToggleExplanation(rec)}
-                                    >
-                                        {expandedRec === rec.title ? "Hide Details" : "🧠 Why this match?"}
-                                    </button>
-
-                                    <button
-                                        className="btn-add-watchlist"
-                                        onClick={() => handleAdd(rec)}
-                                        disabled={isAlreadyInWatchlist(rec.title) || isAddingMovie === rec.title}
-                                    >
-                                        {isAddingMovie === rec.title ? "Adding..." :
-                                            isAlreadyInWatchlist(rec.title) ? "✓ Added" : "+ Plan to Watch"}
-                                    </button>
-                                </div>
-
-                                {expandedRec === rec.title && (
-                                    <div className="rec-explanation">
-                                        <p><strong>Why we picked this:</strong> {rec.reason}</p>
-                                        <p className="rec-detail-text">
-                                            This matches your taste for {tasteProfile?.favoriteGenres?.[0] || "quality"} content
-                                            from the {tasteProfile?.preferredEra || "modern era"}.
-                                        </p>
+                                {rec.poster && (
+                                    <div className="rec-poster-wrapper">
+                                        <img
+                                            src={rec.poster}
+                                            alt={`${rec.title} Poster`}
+                                            className="rec-poster-img"
+                                            onError={(e) => {
+                                                e.target.onerror = null; // prevent infinite loop
+                                                e.target.src = getFallbackPoster(rec.title);
+                                            }}
+                                        />
                                     </div>
                                 )}
+                                <div className="rec-content">
+                                    <div className="rec-header">
+                                        <div className="rec-title-section">
+                                            <h5>{rec.title}</h5>
+                                            <span className="rec-meta">
+                                                {rec.year} • {rec.type === "series" ? "📺" : "🎬"} {rec.genre}
+                                            </span>
+                                        </div>
+                                        <div className="rec-ratings">
+                                            <div className="imdb-rating">
+                                                <span className="imdb-star">⭐</span>
+                                                <span className="imdb-value">{(rec.imdbRating && rec.imdbRating > 0) ? rec.imdbRating.toFixed(1) : "N/A"}</span>
+                                                <span className="imdb-label">IMDB</span>
+                                            </div>
+                                            <div className="match-score">
+                                                <span className="score-value">{rec.matchScore}%</span>
+                                                <span className="score-label">match</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p className="rec-reason">{rec.reason}</p>
+
+                                    <div className="rec-actions">
+                                        <button
+                                            className="btn-explain"
+                                            onClick={() => handleToggleExplanation(rec)}
+                                        >
+                                            {expandedRec === rec.title ? "Hide Details" : "🧠 Why this match?"}
+                                        </button>
+
+                                        <button
+                                            className="btn-add-watchlist"
+                                            onClick={() => handleAdd(rec)}
+                                            disabled={isAlreadyInWatchlist(rec.title) || isAddingMovie === rec.title}
+                                        >
+                                            {isAddingMovie === rec.title ? "Adding..." :
+                                                isAlreadyInWatchlist(rec.title) ? "✓ Added" : "+ Plan to Watch"}
+                                        </button>
+                                    </div>
+
+                                    {expandedRec === rec.title && (
+                                        <div className="rec-explanation">
+                                            <p><strong>Why we picked this:</strong> {rec.reason}</p>
+                                            <p className="rec-detail-text">
+                                                This matches your taste for {tasteProfile?.favoriteGenres?.[0] || "quality"} content
+                                                from the {tasteProfile?.preferredEra || "modern era"}.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
                             </li>
                         ))}
                     </ul>

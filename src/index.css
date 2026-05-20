@@ -2663,6 +2663,431 @@ body {
   background: rgba(192, 57, 43, 0.1);
 }
 
+/* ── AI Recommendations Page & Cards (Premium CinemaVault Style) ── */
+.ai-recommendations {
+  padding: 3rem;
+  max-width: 100rem;
+  margin: 0 auto;
+}
+
+.ai-trigger-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 5rem 3rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-deep);
+  margin-top: 2rem;
+}
+
+.ai-intro {
+  margin-bottom: 3.2rem;
+}
+
+.ai-sparkle {
+  font-size: 4rem;
+  display: block;
+  margin-bottom: 1.6rem;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.ai-intro h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 2.8rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 1.2rem;
+}
+
+.ai-intro p {
+  font-size: 1.5rem;
+  color: var(--text-mid);
+  max-width: 50rem;
+  line-height: 1.6;
+}
+
+.btn-ai-generate {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  color: var(--ink);
+  border: none;
+  padding: 1.4rem 2.8rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(212, 168, 67, 0.35);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-ai-generate:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(212, 168, 67, 0.5);
+  filter: brightness(1.05);
+}
+
+.ai-hint {
+  font-size: 1.2rem;
+  color: var(--text-dim);
+  margin-top: 1.2rem;
+}
+
+.ai-error {
+  color: var(--red-light);
+  font-size: 1.4rem;
+  margin-top: 1.6rem;
+  background: rgba(192, 57, 43, 0.1);
+  padding: 0.8rem 1.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(192, 57, 43, 0.2);
+}
+
+.ai-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8rem 3rem;
+  text-align: center;
+}
+
+.ai-loading-spinner {
+  width: 5.5rem;
+  height: 5.5rem;
+  border: 3.5px solid rgba(212, 168, 67, 0.1);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 1s infinite linear;
+  margin-bottom: 2.4rem;
+  box-shadow: 0 0 30px rgba(212, 168, 67, 0.15);
+}
+
+.ai-loading-text {
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: var(--gold-light);
+  letter-spacing: 0.05em;
+}
+
+.taste-profile {
+  background: linear-gradient(135deg, rgba(22, 27, 39, 0.95), rgba(17, 21, 30, 0.95));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2.4rem;
+  margin-bottom: 3.6rem;
+  box-shadow: var(--shadow-deep);
+  position: relative;
+  overflow: hidden;
+}
+
+.taste-profile::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--gold-dim), var(--gold), var(--gold-dim));
+}
+
+.taste-profile h4 {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.8rem;
+  color: #fff;
+  margin-bottom: 1.4rem;
+}
+
+.taste-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-bottom: 1.2rem;
+}
+
+.taste-tag {
+  background: rgba(212, 168, 67, 0.08);
+  border: 1px solid rgba(212, 168, 67, 0.2);
+  color: var(--gold-light);
+  padding: 0.4rem 1.2rem;
+  border-radius: 2rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.taste-era {
+  font-size: 1.3rem;
+  color: var(--text-mid);
+}
+
+.recs-header {
+  font-family: 'Playfair Display', serif;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 2rem;
+  border-left: 3px solid var(--gold);
+  padding-left: 1.2rem;
+}
+
+.recs-sorted {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 1.3rem;
+  color: var(--text-dim);
+  font-weight: 400;
+  margin-left: 0.8rem;
+}
+
+.recommendation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4rem;
+  list-style: none;
+  padding: 0;
+  margin-bottom: 3.6rem;
+}
+
+.recommendation-card {
+  display: flex;
+  gap: 2.4rem;
+  align-items: flex-start;
+  padding: 2.4rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.recommendation-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-hover);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4), 0 0 24px rgba(212, 168, 67, 0.05);
+}
+
+.rec-poster-wrapper {
+  width: 11rem;
+  aspect-ratio: 2/3;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--panel-3);
+  transition: transform 0.3s ease;
+}
+
+.recommendation-card:hover .rec-poster-wrapper {
+  transform: scale(1.04);
+}
+
+.rec-poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rec-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rec-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.6rem;
+}
+
+.rec-title-section {
+  flex: 1;
+}
+
+.rec-title-section h5 {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.4rem;
+}
+
+.rec-meta {
+  font-size: 1.3rem;
+  color: var(--text-mid);
+}
+
+.rec-ratings {
+  display: flex;
+  align-items: center;
+  gap: 1.6rem;
+  flex-shrink: 0;
+}
+
+.rec-ratings .imdb-rating {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.imdb-star {
+  font-size: 1.3rem;
+}
+
+.imdb-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--gold-light);
+}
+
+.imdb-label {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.match-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background: rgba(39, 174, 96, 0.08);
+  border: 1px solid rgba(39, 174, 96, 0.2);
+  padding: 0.4rem 1rem;
+  border-radius: 0.6rem;
+}
+
+.score-value {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.score-label {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rec-reason {
+  font-size: 1.4rem;
+  color: var(--text-mid);
+  line-height: 1.6;
+}
+
+.rec-actions {
+  display: flex;
+  gap: 1.2rem;
+  margin-top: 0.8rem;
+}
+
+.btn-explain {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-mid);
+  padding: 0.8rem 1.6rem;
+  font-size: 1.3rem;
+  font-weight: 600;
+  border-radius: 0.6rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.btn-explain:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  border-color: var(--text-dim);
+}
+
+.btn-add-watchlist {
+  background: var(--gold);
+  border: 1px solid var(--gold);
+  color: var(--ink);
+  padding: 0.8rem 1.6rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  border-radius: 0.6rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.btn-add-watchlist:hover:not(:disabled) {
+  background: var(--gold-light);
+  border-color: var(--gold-light);
+  box-shadow: 0 4px 12px rgba(212, 168, 67, 0.2);
+}
+
+.btn-add-watchlist:disabled {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: transparent;
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+.rec-explanation {
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm);
+  padding: 1.6rem;
+  margin-top: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.rec-explanation p {
+  font-size: 1.35rem;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+
+.rec-detail-text {
+  color: var(--text-dim) !important;
+  font-style: italic;
+}
+
+.btn-refresh-recs {
+  background: transparent;
+  border: 1.5px solid var(--gold-dim);
+  color: var(--gold);
+  padding: 1.2rem 2.4rem;
+  font-size: 1.4rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: block;
+  margin: 0 auto;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.btn-refresh-recs:hover {
+  background: rgba(212, 168, 67, 0.08);
+  border-color: var(--gold);
+  box-shadow: 0 4px 16px rgba(212, 168, 67, 0.1);
+}
+
 @media (max-width: 650px) {
   .vault-header {
     flex-direction: column;
@@ -3036,6 +3461,11 @@ body {
   /* Movie recommendations card layout fix */
   .recommendation-card {
     padding: 1.2rem !important;
+    gap: 1.4rem !important;
+  }
+
+  .rec-poster-wrapper {
+    width: 7.2rem !important;
   }
 
   .rec-header {

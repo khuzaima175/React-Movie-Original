@@ -47,6 +47,16 @@ const fetchRealOMDBData = async (title, year) => {
 
 
 /**
+ * Generate a luxury offline SVG poster data URI
+ */
+export const getFallbackPoster = (title) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" width="100%" height="100%"><rect width="100%" height="100%" fill="#11151e"/><rect x="10" y="10" width="280" height="430" fill="none" stroke="#d4a843" stroke-width="1.5" stroke-opacity="0.15" rx="8"/><path d="M150 130 L180 190 L120 190 Z" fill="#d4a843" fill-opacity="0.25"/><circle cx="150" cy="160" r="40" fill="none" stroke="#d4a843" stroke-opacity="0.3" stroke-width="1.5"/><text x="50%" y="275" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="bold" fill="#f0c968" text-anchor="middle">${title.length > 20 ? title.substring(0, 18) + '...' : title}</text><text x="50%" y="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#7a7368" letter-spacing="2" text-anchor="middle">CINEMATVAULT</text></svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
+
+
+/**
  * Get AI-powered movie recommendations based on user's watched movies
  * 
  * ACCURACY IMPROVEMENTS IMPLEMENTED:
@@ -166,7 +176,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
     ### OUTPUT REQUIREMENTS:
     -   Return strictly a JSON object matching the schema.
     -   **Match Score**: 0-100 confidence level (be honest, not inflated).
-    -   **DO NOT INVENT IMDB RATINGS** - leave imdbRating as 0, we will fetch real data.
+    -   **imdbRating**: Provide a highly accurate estimated or actual IMDb rating (a float between 1.0 and 10.0, e.g., 8.2) based on critical consensus. DO NOT leave this as 0. This acts as a high-fidelity fallback rating if our live database lookup fails.
     `;
 
     try {
@@ -326,7 +336,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
                     // Fall back to original AI recommendation if OMDB lookup fails (e.g. rate limit, invalid key, or network issue)
                     return {
                         ...rec,
-                        poster: "https://via.placeholder.com/300x450/374151/9ca3af?text=" + encodeURIComponent(rec.title),
+                        poster: getFallbackPoster(rec.title),
                         plot: "Detailed plot synopsis unavailable.",
                         imdbID: "ai-" + Math.random().toString(36).substr(2, 9),
                         realData: false
