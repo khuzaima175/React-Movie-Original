@@ -2,7 +2,14 @@ import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useApp } from "../context/AppContext";
 
-const KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
+const getOmdbKey = () => {
+    const key = import.meta.env.VITE_OMDB_KEY;
+    if (!key || key === "undefined" || key === "null" || key.trim() === "") {
+        return "b78bdecd";
+    }
+    return key;
+};
+const KEY = getOmdbKey();
 
 export default function BackupManagerModal({ isOpen, onClose }) {
   const { watched, watchlist, setWatched, setWatchlist } = useApp();

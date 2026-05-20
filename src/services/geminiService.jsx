@@ -2,7 +2,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const PRIMARY_MODEL = "gemini-3.0-flash-preview";
 const FALLBACK_MODEL = "gemini-2.5-flash";
-const OMDB_KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
+const getOmdbKey = () => {
+    const key = import.meta.env.VITE_OMDB_KEY;
+    if (!key || key === "undefined" || key === "null" || key.trim() === "") {
+        return "b78bdecd";
+    }
+    return key;
+};
+const OMDB_KEY = getOmdbKey();
 
 /**
  * Fetch real movie data from OMDB API to replace hallucinated ratings
@@ -10,16 +17,20 @@ const OMDB_KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
  */
 const fetchRealOMDBData = async (title, year) => {
     try {
+        // Sanitize title and year to avoid OMDb lookup failures
+        const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
+        const cleanYear = year ? String(year).trim().match(/\d{4}/)?.[0] : null;
+
         // First attempt: Try with year for precision
-        let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(title)}${year ? `&y=${year}` : ''}`;
+        let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
         let response = await fetch(url);
         let data = await response.json();
 
         // FIX: If year-specific search fails, retry without year
         // AI often gets year off by 1 (release date vs wide release)
-        if (data.Response !== "True" && year) {
-            console.log(`🔄 Retrying "${title}" without year constraint...`);
-            url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(title)}`;
+        if (data.Response !== "True" && cleanYear) {
+            console.log(`🔄 Retrying "${cleanTitle}" without year constraint...`);
+            url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}`;
             response = await fetch(url);
             data = await response.json();
         }
@@ -37,7 +48,7 @@ const fetchRealOMDBData = async (title, year) => {
             };
         }
 
-        console.warn(`⚠️ Movie not found in OMDB: "${title}" (${year || 'no year'})`);
+        console.warn(`⚠️ Movie not found in OMDB: "${cleanTitle}" (${cleanYear || 'no year'})`);
         return null;
     } catch (error) {
         console.warn(`OMDB fetch failed for ${title}:`, error);

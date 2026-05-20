@@ -3,7 +3,14 @@ import StarRating from "./StarRating";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 
-const KEY = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
+const getOmdbKey = () => {
+    const key = import.meta.env.VITE_OMDB_KEY;
+    if (!key || key === "undefined" || key === "null" || key.trim() === "") {
+        return "b78bdecd";
+    }
+    return key;
+};
+const KEY = getOmdbKey();
 
 export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, onAddToWatchlist, watched, watchlist }) {
     const [movie, setMovie] = useState({});
