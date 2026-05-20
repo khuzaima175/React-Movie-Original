@@ -2911,12 +2911,24 @@ body {
   /* --- Scale Down colossal Headers & Spacings --- */
   .vault-header {
     padding: 2.2rem 1.6rem 0 !important;
-    gap: 1.2rem !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.8rem !important;
+  }
+
+  .vault-header-actions {
+    width: 100% !important;
+  }
+
+  .vault-settings-btn {
+    width: 100% !important;
+    margin-bottom: 1.2rem !important;
+    padding: 0.8rem !important;
   }
 
   .vault-header-title,
   .ai-page-title {
-    font-size: 2.6rem !important;
+    font-size: 2.2rem !important;
   }
 
   .vault-header-meta,
@@ -2933,10 +2945,38 @@ body {
     font-size: 2.4rem !important;
   }
 
-  /* Padding adjustments across pages */
+  /* Padding & Tab adjustments across pages */
   .vault-tabs-row,
   .ai-tabs-row {
     padding: 0 1.6rem !important;
+  }
+
+  .vault-tab,
+  .ai-tab {
+    padding: 1rem 1.4rem !important;
+    font-size: 1.3rem !important;
+  }
+
+  /* Mobile AI Chat specific real estate optimizations */
+  .ai-page.chat-mode .ai-page-header {
+    padding: 1.2rem 1.6rem 0.4rem !important;
+  }
+  
+  .ai-page.chat-mode .ai-page-title {
+    font-size: 2.0rem !important;
+    margin-bottom: 0 !important;
+  }
+
+  .ai-page.chat-mode .ai-page-subtitle {
+    display: none !important;
+  }
+
+  .ai-page.chat-mode .ai-tabs-row {
+    padding: 0 1.6rem !important;
+  }
+
+  .ai-page.chat-mode .ai-tab {
+    padding: 0.8rem 1.4rem !important;
   }
 
   .vault-stats-strip,
