@@ -2702,4 +2702,362 @@ body {
     padding: 0.8rem 1rem;
     font-size: 1.2rem;
   }
+}
+
+/* ============================================================
+   CINEMATVAULT — PREMIUM MOBILE OVERHAUL
+   Sticky Bottom Navigation, Stacked Layouts & Native Scrolling
+   ============================================================ */
+
+@media (max-width: 800px) {
+  /* --- Force Natural Page Scrolling and Stacking --- */
+  .dashboard-layout,
+  .vault-page,
+  .ai-page {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .dashboard-panels {
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .dashboard-panel {
+    overflow: visible !important;
+    height: auto !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  .box-content {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .list {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .vault-body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .vault-body .list-watched {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .ai-page-body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .ai-recommendations {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* --- Special AI Chat Viewport Lock Override --- */
+  .ai-page.chat-mode {
+    height: calc(100vh - 6rem - 5.5rem) !important; /* height adjusted for bottom nav + top nav */
+    overflow: hidden !important;
+    display: grid !important;
+    grid-template-rows: auto auto 1fr !important;
+  }
+
+  .ai-page.chat-mode .ai-page-body {
+    height: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .ai-page.chat-mode .ai-chat-container {
+    height: 100% !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    position: relative !important;
+  }
+
+  .ai-page.chat-mode .chat-messages {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    padding-bottom: 9rem !important; /* Keep gap for fixed chat input */
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .ai-page.chat-mode .chat-input-area {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 100 !important;
+  }
+}
+
+@media (max-width: 600px) {
+  /* --- Top Nav (Header Header) Responsive Design --- */
+  .nav-bar {
+    padding: 0 1.6rem !important;
+    justify-content: space-between !important;
+    gap: 1rem !important;
+    background: rgba(8, 10, 15, 0.98) !important;
+  }
+
+  .nav-left {
+    gap: 0 !important;
+    flex: 0 1 auto !important;
+  }
+
+  .logo span {
+    font-size: 2.2rem !important;
+  }
+
+  .logo h1 {
+    font-size: 1.9rem !important;
+  }
+
+  /* Hide raw desktop links container */
+  .nav-bar .nav-left .nav-links {
+    display: none !important;
+  }
+
+  .nav-right {
+    flex: 0 0 auto !important;
+  }
+
+  .nav-vault-quick {
+    padding: 0.5rem 1rem !important;
+    font-size: 1.15rem !important;
+  }
+
+  /* --- Premium Glassmorphic Bottom Navigation --- */
+  /* Re-introducing navigation links as a floating bottom navigation bar */
+  body {
+    padding-bottom: 5.5rem !important;
+  }
+
+  .nav-links {
+    display: flex !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 5.5rem !important;
+    background: rgba(14, 18, 27, 0.94) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border-top: 1px solid var(--border) !important;
+    z-index: 999 !important; /* Keep floating below main modal overlay */
+    justify-content: space-around !important;
+    align-items: center !important;
+    padding: 0 1rem !important;
+    gap: 0 !important;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .nav-link {
+    flex: 1 !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.3rem !important;
+    height: 100% !important;
+    font-size: 1.05rem !important;
+    padding: 0.4rem 0 !important;
+    font-weight: 500 !important;
+    color: var(--text-dim) !important;
+    border-radius: 0 !important;
+    background: none !important;
+  }
+
+  .nav-link-icon {
+    font-size: 1.8rem !important;
+  }
+
+  .nav-link-text {
+    font-size: 1rem !important;
+  }
+
+  .nav-link:hover {
+    color: var(--text) !important;
+    background: none !important;
+  }
+
+  .nav-link.active {
+    color: var(--gold-light) !important;
+    background: none !important;
+  }
+
+  .nav-link.active::after {
+    bottom: 0.3rem !important;
+    width: 1.6rem !important;
+    height: 2px !important;
+  }
+
+  /* Increase modal overlay z-index to sit on top of bottom nav */
+  .backup-modal-overlay {
+    z-index: 10000 !important;
+  }
+
+  /* --- Scale Down colossal Headers & Spacings --- */
+  .vault-header {
+    padding: 2.2rem 1.6rem 0 !important;
+    gap: 1.2rem !important;
+  }
+
+  .vault-header-title,
+  .ai-page-title {
+    font-size: 2.6rem !important;
+  }
+
+  .vault-header-meta,
+  .ai-page-subtitle {
+    font-size: 1.3rem !important;
+    margin-bottom: 1.2rem !important;
+  }
+
+  .dashboard-hero.compact {
+    padding: 1.2rem 1.6rem !important;
+  }
+
+  .dashboard-hero-title {
+    font-size: 2.4rem !important;
+  }
+
+  /* Padding adjustments across pages */
+  .vault-tabs-row,
+  .ai-tabs-row {
+    padding: 0 1.6rem !important;
+  }
+
+  .vault-stats-strip,
+  .vault-body .summary {
+    padding: 1.6rem !important;
+  }
+
+  .vault-body .list-watched {
+    padding: 1.6rem !important;
+    grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr)) !important;
+    gap: 1.2rem !important;
+  }
+
+  .vault-sort-row {
+    padding: 1rem 1.6rem 0 !important;
+  }
+
+  .ai-page-header {
+    padding: 2.2rem 1.6rem 0 !important;
+  }
+
+  .ai-page-body .ai-recommendations,
+  .ai-page-body .ai-trigger-section {
+    padding: 1.6rem !important;
+  }
+
+  .ai-page-body .chat-messages {
+    padding: 1.6rem 1.6rem 8rem !important;
+  }
+
+  .ai-page-body .chat-input-area {
+    padding: 1rem 1.6rem !important;
+  }
+
+  .vault-body .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem !important;
+  }
+
+  .vault-body .stat-card {
+    padding: 1.2rem 0.8rem !important;
+  }
+
+  .vault-body .stat-value {
+    font-size: 2.4rem !important;
+  }
+
+  /* Movie recommendations card layout fix */
+  .recommendation-card {
+    padding: 1.2rem !important;
+  }
+
+  .rec-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.8rem !important;
+  }
+
+  .rec-ratings {
+    justify-content: flex-start !important;
+    gap: 1rem !important;
+  }
+
+  .rec-actions {
+    margin-top: 1.2rem !important;
+  }
+
+  /* --- Responsive Dedicated Movie Details Stack --- */
+  .movie-page-wrapper {
+    padding: 1.6rem 1.2rem !important;
+  }
+
+  .movie-page-wrapper .details {
+    border-radius: var(--radius-sm) !important;
+  }
+
+  .details header {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .details header img {
+    max-height: 22rem !important;
+    width: 100% !important;
+    object-position: center 20% !important;
+  }
+
+  .details .details-overview {
+    position: relative !important;
+    background: var(--panel-2) !important;
+    padding: 1.6rem !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  .details .details-overview h2 {
+    font-size: 2rem !important;
+  }
+
+  .details section {
+    padding: 1.6rem !important;
+  }
+
+  .movie-page-back {
+    top: 6.8rem !important;
+    left: 2rem !important;
+    padding: 0.5rem 1rem !important;
+    font-size: 1.2rem !important;
+  }
+
+  /* Interactive element enhancements */
+  .rating {
+    padding: 1.2rem !important;
+  }
+
+  .user-note-input {
+    font-size: 1.25rem !important;
+  }
+
+  .btn-add,
+  .btn-watchlist {
+    padding: 0.9rem 1.6rem !important;
+    font-size: 1.3rem !important;
+  }
 }

@@ -13,7 +13,7 @@ export default function AIPage() {
   const [aiSection, setAiSection] = useState("recs"); // 'recs' | 'chat'
 
   return (
-    <div className="ai-page">
+    <div className={`ai-page ${aiSection === "chat" ? "chat-mode" : ""}`}>
       {/* ── Header ── */}
       <div className="ai-page-header">
         <h1 className="ai-page-title">🤖 AI Oracle</h1>

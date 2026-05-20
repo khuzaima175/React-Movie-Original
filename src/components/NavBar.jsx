@@ -18,14 +18,16 @@ export default function NavBar() {
             end
             className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
           >
-            Search
+            <span className="nav-link-icon">🔍</span>
+            <span className="nav-link-text">Search</span>
           </NavLink>
 
           <NavLink
             to="/vault"
             className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
           >
-            My Vault
+            <span className="nav-link-icon">🎬</span>
+            <span className="nav-link-text">My Vault</span>
             {watched.length > 0 && (
               <span className="nav-badge">{watched.length}</span>
             )}
@@ -35,7 +37,8 @@ export default function NavBar() {
             to="/ai"
             className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
           >
-            🤖 AI Oracle
+            <span className="nav-link-icon">🤖</span>
+            <span className="nav-link-text">AI Oracle</span>
           </NavLink>
         </div>
       </div>
