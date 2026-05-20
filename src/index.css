@@ -2825,9 +2825,9 @@ body {
     font-size: 1.9rem !important;
   }
 
-  /* Hide raw desktop links container */
+  /* Keep links container visible on mobile but styled as a floating bottom bar */
   .nav-bar .nav-left .nav-links {
-    display: none !important;
+    display: flex !important;
   }
 
   .nav-right {
@@ -2945,10 +2945,19 @@ body {
     font-size: 2.4rem !important;
   }
 
-  /* Padding & Tab adjustments across pages */
+  /* Padding, Swiping/Scroll & Tab adjustments across pages */
   .vault-tabs-row,
   .ai-tabs-row {
     padding: 0 1.6rem !important;
+    display: flex !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .vault-tabs-row::-webkit-scrollbar,
+  .ai-tabs-row::-webkit-scrollbar {
+    display: none !important;
   }
 
   .vault-tab,
