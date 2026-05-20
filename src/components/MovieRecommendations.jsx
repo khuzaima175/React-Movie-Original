@@ -6,7 +6,7 @@ const getOmdbKey = () => {
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
         return "b78bdecd";
     }
-    return key;
+    return key.trim();
 };
 const KEY = getOmdbKey();
 
@@ -69,10 +69,30 @@ export default function MovieRecommendations({
 
         try {
             // Search OMDB for the movie to get real poster and data
-            const res = await fetch(
+            let res = await fetch(
                 `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(rec.title)}&y=${rec.year}`
             );
-            const data = await res.json();
+            
+            if (!res.ok || res.status === 401) {
+                if (KEY !== "b78bdecd") {
+                    console.log("⚠️ Configured OMDb key failed during watchlist add, retrying with default key...");
+                    res = await fetch(
+                        `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`
+                    );
+                }
+            }
+            
+            let data = await res.json();
+
+            if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && KEY !== "b78bdecd") {
+                console.log("⚠️ Configured OMDb key rejected, retrying watchlist add with default key...");
+                const fallbackRes = await fetch(
+                    `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`
+                );
+                if (fallbackRes.ok) {
+                    data = await fallbackRes.json();
+                }
+            }
 
             if (data.Response === "True") {
                 const newMovie = {

@@ -7,7 +7,7 @@ const getOmdbKey = () => {
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
         return "b78bdecd";
     }
-    return key;
+    return key.trim();
 };
 const KEY = getOmdbKey();
 
@@ -292,9 +292,37 @@ export default function BackupManagerModal({ isOpen, onClose }) {
           fetchUrl = `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(row.title)}${row.year ? `&y=${row.year}` : ""}`;
         }
 
-        const res = await fetch(fetchUrl);
+        let res = await fetch(fetchUrl);
+        
+        // Retry with default key on network issue or unauthorized (401)
+        if (!res.ok || res.status === 401) {
+          if (KEY !== "b78bdecd") {
+            let fallbackUrl = "";
+            if (row.imdbId && row.imdbId.startsWith("tt")) {
+              fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
+            } else {
+              fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(row.title)}${row.year ? `&y=${row.year}` : ""}`;
+            }
+            res = await fetch(fallbackUrl);
+          }
+        }
+
         if (!res.ok) throw new Error("Network issues");
-        const data = await res.json();
+        let data = await res.json();
+
+        // Retry with default key if response shows credential issues
+        if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && KEY !== "b78bdecd") {
+          let fallbackUrl = "";
+          if (row.imdbId && row.imdbId.startsWith("tt")) {
+            fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
+          } else {
+            fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(row.title)}${row.year ? `&y=${row.year}` : ""}`;
+          }
+          const fallbackRes = await fetch(fallbackUrl);
+          if (fallbackRes.ok) {
+            data = await fallbackRes.json();
+          }
+        }
 
         if (data.Response === "True") {
           // If rating isn't present but row type isn't specified, watchlist is empty rating

@@ -16,7 +16,7 @@ const getOmdbKey = () => {
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
         return "b78bdecd";
     }
-    return key;
+    return key.trim();
 };
 const KEY = getOmdbKey();
 
@@ -46,14 +46,47 @@ export default function DashboardPage() {
       try {
         setIsLoading(true);
         setError("");
-        const res = await fetch(
+        
+        let res = await fetch(
           `https://www.omdbapi.com/?apikey=${KEY}&s=${debouncedQuery}${type ? `&type=${type}` : ""}`,
           { signal: controller.signal }
         );
+        
+        // Handle 401 Unauthorized or general network response failure by retrying with default key
+        if (!res.ok || res.status === 401) {
+          if (KEY !== "b78bdecd") {
+            console.log("⚠️ Configured OMDb key failed, retrying search with default fallback key...");
+            res = await fetch(
+              `https://www.omdbapi.com/?apikey=b78bdecd&s=${debouncedQuery}${type ? `&type=${type}` : ""}`,
+              { signal: controller.signal }
+            );
+          }
+        }
+        
         if (!res.ok) throw new Error("Something went wrong fetching movies");
+        
         const data = await res.json();
-        if (data.Response === "False") throw new Error("Movie not found");
-        setMovies(data.Search);
+        
+        if (data.Response === "False") {
+          // If the OMDb response explicitly indicates a key authorization issue
+          if (data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && KEY !== "b78bdecd") {
+            console.log("⚠️ OMDb response reports key error, retrying search with default fallback key...");
+            const fallbackRes = await fetch(
+              `https://www.omdbapi.com/?apikey=b78bdecd&s=${debouncedQuery}${type ? `&type=${type}` : ""}`,
+              { signal: controller.signal }
+            );
+            if (fallbackRes.ok) {
+              const fallbackData = await fallbackRes.json();
+              if (fallbackData.Response === "False") throw new Error(fallbackData.Error || "Movie not found");
+              setMovies(fallbackData.Search || []);
+              setError("");
+              return;
+            }
+          }
+          throw new Error(data.Error || "Movie not found");
+        }
+        
+        setMovies(data.Search || []);
         setError("");
       } catch (err) {
         if (err.name !== "AbortError") {

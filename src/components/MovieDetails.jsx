@@ -8,7 +8,7 @@ const getOmdbKey = () => {
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
         return "b78bdecd";
     }
-    return key;
+    return key.trim();
 };
 const KEY = getOmdbKey();
 
@@ -89,15 +89,38 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
                 try {
                     setIsLoading(true);
                     setError("");
-                    const res = await fetch(
+                    let res = await fetch(
                         `https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`
                     );
 
+                    if (!res.ok || res.status === 401) {
+                        if (KEY !== "b78bdecd") {
+                            console.log("⚠️ Configured OMDb key failed, retrying details with default fallback key...");
+                            res = await fetch(
+                                `https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`
+                            );
+                        }
+                    }
+
                     if (!res.ok) throw new Error("Failed to fetch movie details");
 
-                    const data = await res.json();
+                    let data = await res.json();
 
-                    if (data.Response === "False") throw new Error(data.Error);
+                    if (data.Response === "False") {
+                        if (data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && KEY !== "b78bdecd") {
+                            console.log("⚠️ OMDb response reports key error, retrying details with default fallback key...");
+                            const fallbackRes = await fetch(
+                                `https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`
+                            );
+                            if (fallbackRes.ok) {
+                                const fallbackData = await fallbackRes.json();
+                                if (fallbackData.Response === "False") throw new Error(fallbackData.Error);
+                                setMovie(fallbackData);
+                                return;
+                            }
+                        }
+                        throw new Error(data.Error);
+                    }
 
                     setMovie(data);
                 } catch (err) {
