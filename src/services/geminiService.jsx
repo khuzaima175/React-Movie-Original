@@ -323,8 +323,14 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
                             realData: true // Flag to indicate verified real data
                         };
                     }
-                    // Return null for movies not found in OMDB
-                    return null;
+                    // Fall back to original AI recommendation if OMDB lookup fails (e.g. rate limit, invalid key, or network issue)
+                    return {
+                        ...rec,
+                        poster: "https://via.placeholder.com/300x450/374151/9ca3af?text=" + encodeURIComponent(rec.title),
+                        plot: "Detailed plot synopsis unavailable.",
+                        imdbID: "ai-" + Math.random().toString(36).substr(2, 9),
+                        realData: false
+                    };
                 })
             );
 
