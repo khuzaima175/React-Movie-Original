@@ -96,6 +96,7 @@ export default function VaultPage() {
               <WatchedMoviesList
                 watched={watchedSorted}
                 onDeleteWatched={deleteWatched}
+                onSelectMovie={handleSelectMovie}
               />
             ) : (
               <EmptyState
@@ -118,6 +119,7 @@ export default function VaultPage() {
               <WatchedMoviesList
                 watched={watchlist}
                 onDeleteWatched={deleteWatchlist}
+                onSelectMovie={handleSelectMovie}
               />
             ) : (
               <EmptyState message="Your watchlist is empty." icon="📋" />

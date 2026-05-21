@@ -338,6 +338,13 @@ body {
   padding: 1.6rem 2rem;
   border-bottom: 1px solid rgba(255,255,255,0.05);
   animation: fadeSlide 0.3s ease backwards;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.list.list-watched li:hover {
+  background: linear-gradient(90deg, rgba(212,168,67,0.06) 0%, transparent 100%);
+  padding-left: 2.6rem;
 }
 
 /* Stagger animations for first 10 items */
@@ -444,7 +451,8 @@ body {
 }
 
 /* Gold left-bar accent on hover */
-.list.list-movies li::before {
+.list.list-movies li::before,
+.list.list-watched li::before {
   content: '';
   position: absolute;
   left: 0;
@@ -457,7 +465,8 @@ body {
   transition: opacity 0.2s ease;
 }
 
-.list.list-movies li:hover::before { opacity: 1; }
+.list.list-movies li:hover::before,
+.list.list-watched li:hover::before { opacity: 1; }
 
 /* ── Delete / Back Buttons ───────────────────────────────── */
 .btn-delete {
@@ -767,6 +776,24 @@ body {
   background: rgba(212,168,67,0.12) !important;
   border-color: var(--gold) !important;
   box-shadow: 0 4px 16px rgba(212,168,67,0.15) !important;
+}
+
+.watchlist-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: var(--gold-light);
+  background: rgba(212, 168, 67, 0.08);
+  border: 1px solid rgba(212, 168, 67, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1.4rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  width: 100%;
+  margin-bottom: 1.2rem;
 }
 
 .user-note-input {

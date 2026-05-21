@@ -193,6 +193,11 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
                         <div className="rating">
                             {!isWatched ? (
                                 <>
+                                    {isWatchlist && (
+                                        <div className="watchlist-badge">
+                                            📋 Plan to Watch
+                                        </div>
+                                    )}
                                     <StarRating
                                         maxRating={10}
                                         size={24}

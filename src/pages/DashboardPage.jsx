@@ -180,7 +180,11 @@ export default function DashboardPage() {
               </select>
             </div>
             {watched.length > 0 ? (
-              <WatchedMoviesList watched={watchedSorted} onDeleteWatched={deleteWatched} />
+              <WatchedMoviesList
+                watched={watchedSorted}
+                onDeleteWatched={deleteWatched}
+                onSelectMovie={handleSelectMovie}
+              />
             ) : (
               <EmptyState
                 message="Click any movie to rate it and fill your vault!"
