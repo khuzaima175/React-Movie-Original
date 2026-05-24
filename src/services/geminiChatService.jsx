@@ -1,7 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-const PRIMARY_MODEL = "gemini-3.0-flash-preview";
-const FALLBACK_MODEL = "gemini-2.5-flash";
+const MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
 
 /**
  * Sends a message to the AI movie assistant with user context.
@@ -47,17 +46,22 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) =
 
     try {
         let response;
-        try {
-            response = await ai.models.generateContent({
-                model: PRIMARY_MODEL,
-                contents: prompt,
-            });
-        } catch (primaryError) {
-            console.warn(`Primary chat model failed: ${primaryError.message}. Switching to fallback.`);
-            response = await ai.models.generateContent({
-                model: FALLBACK_MODEL,
-                contents: prompt,
-            });
+        let lastError;
+        for (const modelName of MODELS) {
+            try {
+                response = await ai.models.generateContent({
+                    model: modelName,
+                    contents: prompt,
+                });
+                break;
+            } catch (error) {
+                lastError = error;
+                console.warn(`Primary chat model failed: ${error.message || error}. Switching to fallback.`);
+            }
+        }
+
+        if (!response) {
+            throw lastError || new Error("All chat models failed");
         }
 
         // Add some safety checks for the response property

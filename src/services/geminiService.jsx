@@ -1,7 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const PRIMARY_MODEL = "gemini-3.0-flash-preview";
-const FALLBACK_MODEL = "gemini-2.5-flash";
+const MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 const getOmdbKey = () => {
     const key = import.meta.env.VITE_OMDB_KEY;
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
@@ -256,26 +255,29 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
         };
 
         let response;
-        try {
-            console.log(`🤖 Trying Primary Model: ${PRIMARY_MODEL}`);
-            response = await ai.models.generateContent({
-                model: PRIMARY_MODEL,
-                contents: prompt,
-                config: generationConfig
-            });
-        } catch (primaryError) {
-            console.warn(`⚠️ Primary model failed. Switching to fallback: ${FALLBACK_MODEL}`, primaryError);
-            onProgress?.("Primary AI busy, switching to backup...");
+        let lastError;
+        for (let i = 0; i < MODELS.length; i++) {
+            const currentModel = MODELS[i];
             try {
+                console.log(`🤖 Trying Model: ${currentModel}`);
                 response = await ai.models.generateContent({
-                    model: FALLBACK_MODEL,
+                    model: currentModel,
                     contents: prompt,
                     config: generationConfig
                 });
-            } catch (fallbackError) {
-                console.error("❌ Both models failed", fallbackError);
-                throw fallbackError; // Throw the error to be handled by the outer catch block
+                break; // Success, break the loop
+            } catch (error) {
+                lastError = error;
+                console.warn(`⚠️ Model ${currentModel} failed:`, error.message || error);
+                if (i < MODELS.length - 1) {
+                    onProgress?.(`AI busy, switching to backup model (${MODELS[i + 1]})...`);
+                }
             }
+        }
+
+        if (!response) {
+            console.error("❌ All models failed");
+            throw lastError || new Error("All AI models failed to generate content");
         }
 
         onProgress?.("Validating recommendations...");
@@ -325,7 +327,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
                 };
 
                 const critiqueResponse = await ai.models.generateContent({
-                    model: FALLBACK_MODEL, // Use faster model for critique
+                    model: MODELS[1], // Use faster model for critique
                     contents: critiquePrompt,
                     config: critiqueConfig
                 });
