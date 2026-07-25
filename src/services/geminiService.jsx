@@ -4,8 +4,9 @@ const MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 const getOmdbKey = () => {
     const key = import.meta.env.VITE_OMDB_KEY;
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-        console.warn("⚠️ VITE_OMDB_KEY is missing. OMDb enrichment will be skipped.");
-        return null;
+        // Fall back to the public free-tier OMDb key so posters/ratings work out of the box.
+        // Replace VITE_OMDB_KEY in your .env with a personal key for higher rate limits.
+        return "b78bdecd";
     }
     return key.trim();
 };
@@ -16,8 +17,6 @@ const OMDB_KEY = getOmdbKey();
  * FIX: If Title+Year fails, retry with Title only (handles off-by-1 year issues)
  */
 const fetchRealOMDBData = async (title, year) => {
-    if (!OMDB_KEY) return null;
-
     try {
         // Sanitize title and year to avoid OMDb lookup failures
         const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
