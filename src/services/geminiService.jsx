@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+const MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 const getOmdbKey = () => {
     const key = import.meta.env.VITE_OMDB_KEY;
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
@@ -124,99 +124,98 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
     onProgress?.("Analyzing your unique taste profile...");
 
-    // === IMPROVEMENT #1: Categorize movies by weight tier ===
-    const eliteTier = watchedMovies.filter(m => m.userRating >= 9);
-    const antiPatterns = watchedMovies.filter(m => m.userRating <= 5);
+    // === History Truncation / Smart Sampling (Prevents context bloat & degrades gracefully) ===
+    // Guaranteed bucket allocation: Max 20 Top Rated (>=7), Max 10 Disliked (<=5), Max 10 Most Recent
+    let processedWatched = watchedMovies;
+    if (watchedMovies.length > 40) {
+        const parseTimestamp = (m) => {
+            const raw = m.watchedAt || m.addedAt || m.createdAt || m.date;
+            if (!raw) return 0;
+            const parsed = typeof raw === "number" ? raw : new Date(raw).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+        };
 
-    // Data Enrichment: Use CSV format to save ~40% tokens
+        // Ensure recent items are sorted by verified timestamp
+        const recent = [...watchedMovies]
+            .sort((a, b) => parseTimestamp(b) - parseTimestamp(a))
+            .slice(0, 10);
+
+        // Top rated (>=7 captures both 9-10 anchors and 7-8 supporting signal)
+        const high = [...watchedMovies]
+            .filter(m => m.userRating >= 7)
+            .sort((a, b) => b.userRating - a.userRating)
+            .slice(0, 20);
+
+        // Strongly disliked movies (<=5)
+        const low = [...watchedMovies]
+            .filter(m => m.userRating <= 5)
+            .sort((a, b) => a.userRating - b.userRating)
+            .slice(0, 10);
+
+        // Deduplicate using unique ID or Title+Year compound key to protect remakes
+        const map = new Map();
+        [...high, ...low, ...recent].forEach(m => {
+            const key = m.id || `${m.title}_${m.year || "N/A"}`;
+            map.set(key, m);
+        });
+        processedWatched = Array.from(map.values());
+    }
+
+    const eliteTier = processedWatched.filter(m => m.userRating >= 9);
+    const antiPatterns = processedWatched.filter(m => m.userRating <= 5);
+
+    // Data Encoding: Compact CSV format to optimize token usage
     const header = "Title|Year|Director|Writer|Genre|Rating|UserNote|PlotTheme";
-    const rows = watchedMovies.map(m =>
+    const rows = processedWatched.map(m =>
         `${m.title}|${m.year || "N/A"}|${m.director || "Unknown"}|${m.writer || "Unknown"}|${m.genre || "Unknown"}|${m.userRating}|${m.userNote || ""}|${m.shortPlot || ""}`
     ).join("\n");
     const historyData = `${header}\n${rows}`;
 
-    // Context Awareness: Create Exclusion List (Watched + Watchlist)
     const excludeTitles = [
         ...watchedMovies.map(m => m.title),
         ...(watchlist || []).map(m => m.title)
     ].join(", ");
 
-    // Pre-compute Elite Tier summary for better anchoring
     const eliteSummary = eliteTier.length > 0
         ? eliteTier.map(m => `"${m.title}" (${m.userRating}/10)`).join(", ")
-        : "No 9-10 rated movies yet";
+        : "No 9-10 rated movies yet (use highest rated movies as anchors)";
 
     const antiPatternSummary = antiPatterns.length > 0
         ? antiPatterns.map(m => `"${m.title}" (${m.userRating}/10${m.userNote ? `: ${m.userNote}` : ''})`).join(", ")
         : "No strongly disliked movies";
 
     const prompt = `
-    You are an elite film critic and data scientist. Your goal is to decode the user's "Taste DNA" and find hidden gems they will love.
+    You are an elite film critic and recommendation engine. Analyze the user's viewing history and select 6 distinct recommendations.
 
-    USER VIEWING HISTORY (CSV format - Title|Year|Director|Writer|Genre|Rating|UserNote|PlotTheme):
+    USER VIEWING HISTORY (CSV format):
     ${historyData}
 
     ⛔ EXCLUSION LIST (DO NOT RECOMMEND THESE):
     ${excludeTitles}
 
     ---------------------------------------------------
-    ### ⚖️ MECHANICAL WEIGHT SYSTEM (MUST FOLLOW EXACTLY):
+    ### 🎯 PRIORITY RULES:
     
-    **ELITE TIER (Weight = 1.0) - ANCHOR MOVIES:**
+    1. PRIMARY ANCHORS (User Rated 9-10/10):
     ${eliteSummary}
-    → Each recommendation MUST align with at least ONE of these movies.
-    → If no 9-10 movies exist, use the highest-rated movies as anchors.
+    → Every recommendation MUST share thematic, stylistic, or storytelling qualities with at least ONE anchor movie.
 
-    **GOOD TIER (Weight = 0.4) - Supporting Evidence Only:**
-    Movies rated 7-8. Use only if they share Director/Writer with Elite Tier.
-
-    **ANTI-PATTERNS (Weight = -1.0) - HARD EXCLUSIONS:**
+    2. DISQUALIFYING ANTI-PATTERNS (User Rated <= 5/10):
     ${antiPatternSummary}
-    → Any recommendation matching traits from these movies is AUTOMATICALLY DISQUALIFIED.
+    → DISQUALIFY any movie matching key traits/flaws of these disliked films.
+
+    3. USER REVIEWS & NOTES:
+    → Give highest priority to specific user feedback written in UserNote.
 
     ---------------------------------------------------
-    ### 🧠 ANALYSIS EXAMPLES (HOW YOU MUST THINK):
-
-    *Example 1:*
-    User History: Liked "John Wick" (10/10), Hated "The Godfather" (3/10).
-    ❌ BAD LOGIC: "They like crime movies. Recommend 'Scarface'."
-    ✅ GOOD LOGIC: "User prefers high-kinetic action and visual storytelling. They dislike slow-burn, dialogue-heavy dramas. Recommend 'The Raid' or 'Dredd'."
-
-    *Example 2:*
-    User History: Liked "Her" (9/10), Liked "Eternal Sunshine" (10/10).
-    ❌ BAD LOGIC: "Recommend a rom-com like 'The Proposal'."
-    ✅ GOOD LOGIC: "User likes 'Melancholic Sci-Fi' and exploring human connection through a surreal lens. Recommend 'After Yang' or 'The Lobster'."
-
-    ---------------------------------------------------
-    ### ANALYSIS PROTOCOL (Mental Steps):
-    1.  **Elite Tier First**: Start by listing which Elite Tier movie each recommendation aligns with.
-    
-    2.  **Analyze PlotTheme Patterns**:
-        -   Look for recurring themes in the PlotTheme column (e.g., "memory loss", "time loop", "revenge").
-        -   If 3+ movies share a theme keyword, prioritize recommendations with that theme.
-
-    3.  **Anti-Pattern Check**:
-        -   For EACH recommendation, verify it does NOT match any Anti-Pattern traits.
-        -   If it matches even ONE Anti-Pattern, replace it.
-
-    4.  **Review User Notes**:
-        -   Treat user reviews as the *highest priority* signal.
-
-    5.  **Selection Rules**:
-        -   Select 6 movies: 1 Safe Bet, 1 Wildcard, 4 Hidden Gems.
-        -   **Diversity**: Do NOT recommend more than 2 movies from the same director.
-        -   **Obscurity**: Avoid the top 50 most popular movies on IMDB unless the user is a beginner.
-
-    ### 📝 OUTPUT REASONING RULES (CRITICAL):
-    -   The "reason" field MUST compare the recommendation to a specific movie the user watched.
-    -   Format: "Similar to [Movie A] because of [Trait X], but with the [Trait Y] of [Movie B]."
-    -   Example: "Similar to 'Inception' because of the mind-bending plot, but with the gritty atmosphere of 'The Batman'."
-    -   **ALSO STATE** which Elite Tier movie it anchors to.
+    ### 🧠 ANALYSIS & SELECTION RULES:
+    - Select exactly 6 movies (1 Safe Bet, 1 Wildcard, 4 Hidden Gems).
+    - Diversity: Max 2 movies from the same director.
+    - Reason format: "Similar to [Movie A] because of [Trait X], but with the [Trait Y] of [Movie B]."
 
     ### OUTPUT REQUIREMENTS:
-    -   Return strictly a JSON object matching the schema.
-    -   **Match Score**: 0-100 confidence level (be honest, not inflated).
-    -   **imdbRating**: Provide a highly accurate estimated or actual IMDb rating (a float between 1.0 and 10.0, e.g., 8.2) based on critical consensus. DO NOT leave this as 0. This acts as a high-fidelity fallback rating if our live database lookup fails.
+    - Return strictly JSON matching the schema.
+    - Match Score: 0-100 confidence score based on alignment with primary anchors.
     `;
 
     try {
@@ -242,11 +241,10 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
                                 year: { type: Type.STRING },
                                 type: { type: Type.STRING },
                                 genre: { type: Type.STRING },
-                                imdbRating: { type: Type.NUMBER },
                                 matchScore: { type: Type.NUMBER },
                                 reason: { type: Type.STRING }
                             },
-                            required: ["title", "year", "type", "genre", "imdbRating", "matchScore", "reason"]
+                            required: ["title", "year", "type", "genre", "matchScore", "reason"]
                         }
                     }
                 },
@@ -368,7 +366,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
                             // Use OMDB's verified title/year (fixes AI misspellings)
                             title: omdbData.verifiedTitle || rec.title,
                             year: omdbData.verifiedYear || rec.year,
-                            imdbRating: omdbData.imdbRating || rec.imdbRating,
+                            imdbRating: omdbData.imdbRating || null,
                             imdbVotes: omdbData.imdbVotes,
                             poster: omdbData.poster,
                             plot: omdbData.plot,
@@ -379,6 +377,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
                     // Fall back to original AI recommendation if OMDB lookup fails (e.g. rate limit, invalid key, or network issue)
                     return {
                         ...rec,
+                        imdbRating: null,
                         poster: getFallbackPoster(rec.title),
                         plot: "Detailed plot synopsis unavailable.",
                         imdbID: "ai-" + Math.random().toString(36).substr(2, 9),
