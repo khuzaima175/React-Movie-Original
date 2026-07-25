@@ -4,7 +4,8 @@ const MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 const getOmdbKey = () => {
     const key = import.meta.env.VITE_OMDB_KEY;
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-        return "b78bdecd";
+        console.warn("⚠️ VITE_OMDB_KEY is missing. OMDb enrichment will be skipped.");
+        return null;
     }
     return key.trim();
 };
@@ -15,6 +16,8 @@ const OMDB_KEY = getOmdbKey();
  * FIX: If Title+Year fails, retry with Title only (handles off-by-1 year issues)
  */
 const fetchRealOMDBData = async (title, year) => {
+    if (!OMDB_KEY) return null;
+
     try {
         // Sanitize title and year to avoid OMDb lookup failures
         const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
@@ -23,23 +26,7 @@ const fetchRealOMDBData = async (title, year) => {
         // First attempt: Try with year for precision
         let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
         let response = await fetch(url);
-        
-        if (!response.ok || response.status === 401) {
-            if (OMDB_KEY !== "b78bdecd") {
-                console.log(`🔄 Primary OMDb key failed (status ${response.status}), retrying with default key...`);
-                url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-                response = await fetch(url);
-            }
-        }
-        
         let data = await response.json();
-
-        if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && OMDB_KEY !== "b78bdecd") {
-            console.log(`🔄 OMDb reports key error, retrying enrichment with default key...`);
-            url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-            response = await fetch(url);
-            data = await response.json();
-        }
 
         // FIX: If year-specific search fails, retry without year
         // AI often gets year off by 1 (release date vs wide release)
@@ -47,21 +34,7 @@ const fetchRealOMDBData = async (title, year) => {
             console.log(`🔄 Retrying "${cleanTitle}" without year constraint...`);
             url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}`;
             response = await fetch(url);
-            
-            if (!response.ok || response.status === 401) {
-                if (OMDB_KEY !== "b78bdecd") {
-                    url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}`;
-                    response = await fetch(url);
-                }
-            }
-            
             data = await response.json();
-            
-            if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && OMDB_KEY !== "b78bdecd") {
-                url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}`;
-                response = await fetch(url);
-                data = await response.json();
-            }
         }
 
         if (data.Response === "True") {
@@ -124,8 +97,7 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
     onProgress?.("Analyzing your unique taste profile...");
 
-    // === History Truncation / Smart Sampling (Prevents context bloat & degrades gracefully) ===
-    // Guaranteed bucket allocation: Max 20 Top Rated (>=7), Max 10 Disliked (<=5), Max 10 Most Recent
+    // === History Truncation / Smart Sampling ===
     let processedWatched = watchedMovies;
     if (watchedMovies.length > 40) {
         const parseTimestamp = (m) => {
@@ -135,28 +107,33 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
             return isNaN(parsed) ? 0 : parsed;
         };
 
-        // Ensure recent items are sorted by verified timestamp
+        // Recent watches
         const recent = [...watchedMovies]
             .sort((a, b) => parseTimestamp(b) - parseTimestamp(a))
             .slice(0, 10);
 
-        // Top rated (>=7 captures both 9-10 anchors and 7-8 supporting signal)
-        const high = [...watchedMovies]
-            .filter(m => m.userRating >= 7)
-            .sort((a, b) => b.userRating - a.userRating)
-            .slice(0, 20);
+        // ELITE TIER (9-10): uncapped — every true anchor movie must survive sampling
+        const elite = [...watchedMovies]
+            .filter(m => m.userRating >= 9)
+            .sort((a, b) => b.userRating - a.userRating);
 
-        // Strongly disliked movies (<=5)
+        // SUPPORTING TIER (7-8): capped separately, only fills remaining budget
+        const supporting = [...watchedMovies]
+            .filter(m => m.userRating >= 7 && m.userRating <= 8)
+            .sort((a, b) => b.userRating - a.userRating)
+            .slice(0, 15);
+
+        // Disliked / anti-pattern bucket
         const low = [...watchedMovies]
             .filter(m => m.userRating <= 5)
             .sort((a, b) => a.userRating - b.userRating)
             .slice(0, 10);
 
-        // Deduplicate using unique ID or Title+Year compound key to protect remakes
+        // Deduplicate — elite tier merged first so it always wins ties against supporting/recent
         const map = new Map();
-        [...high, ...low, ...recent].forEach(m => {
+        [...elite, ...supporting, ...low, ...recent].forEach(m => {
             const key = m.id || `${m.title}_${m.year || "N/A"}`;
-            map.set(key, m);
+            if (!map.has(key)) map.set(key, m); // first-write-wins preserves elite priority
         });
         processedWatched = Array.from(map.values());
     }
