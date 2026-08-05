@@ -1,52 +1,69 @@
 import { NavLink } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import { Film, Search, Sparkles, Bookmark, Command } from "lucide-react";
 
-export default function NavBar() {
+export default function NavBar({ onOpenSearch }) {
   const { watched, watchlist } = useApp();
 
   return (
-    <nav className="nav-bar">
+    <nav className="nav-bar" aria-label="Main Navigation">
       <div className="nav-left">
-        <NavLink to="/" className="logo" style={{ textDecoration: "none" }}>
-          <span>🎬</span>
+        <NavLink to="/" className="logo" style={{ textDecoration: "none" }} aria-label="CinemaVault Home">
+          <Film className="logo-icon" size={26} aria-hidden="true" />
           <h1>CinemaVault</h1>
         </NavLink>
 
-        <div className="nav-links">
+        <div className="nav-links" role="navigation">
           <NavLink
             to="/"
             end
             className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
+            aria-label="Home cinema dashboard"
           >
-            <span className="nav-link-icon">🔍</span>
-            <span className="nav-link-text">Search</span>
+            <Film className="nav-link-icon" size={16} aria-hidden="true" />
+            <span className="nav-link-text">Home</span>
           </NavLink>
 
           <NavLink
             to="/vault"
             className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
+            aria-label={`My Vault (${watched.length} items)`}
           >
-            <span className="nav-link-icon">🎬</span>
+            <Bookmark className="nav-link-icon" size={16} aria-hidden="true" />
             <span className="nav-link-text">My Vault</span>
             {watched.length > 0 && (
-              <span className="nav-badge">{watched.length}</span>
+              <span className="nav-badge" aria-label={`${watched.length} movies in vault`}>
+                {watched.length}
+              </span>
             )}
           </NavLink>
 
           <NavLink
             to="/ai"
             className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
+            aria-label="AI Oracle recommendations"
           >
-            <span className="nav-link-icon">🤖</span>
+            <Sparkles className="nav-link-icon" size={16} aria-hidden="true" />
             <span className="nav-link-text">AI Oracle</span>
           </NavLink>
         </div>
       </div>
 
       <div className="nav-right">
+        <button
+          className="nav-search-trigger"
+          onClick={onOpenSearch}
+          aria-label="Open command palette search (Ctrl+K)"
+        >
+          <Search size={15} aria-hidden="true" />
+          <span>Search movies...</span>
+          <kbd>⌘K</kbd>
+        </button>
+
         {watchlist.length > 0 && (
-          <NavLink to="/vault?tab=watchlist" className="nav-vault-quick">
-            📋 Watchlist <span className="nav-badge">{watchlist.length}</span>
+          <NavLink to="/vault?tab=watchlist" className="nav-vault-quick" aria-label={`Watchlist (${watchlist.length} saved)`}>
+            <Bookmark size={15} aria-hidden="true" />
+            <span className="nav-badge">{watchlist.length}</span>
           </NavLink>
         )}
       </div>

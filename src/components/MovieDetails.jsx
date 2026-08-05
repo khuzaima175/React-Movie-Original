@@ -2,247 +2,290 @@ import { useState, useEffect } from "react";
 import StarRating from "./StarRating";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
+import PosterImage from "./PosterImage";
+import { ArrowLeft, Star, Bookmark, Plus, Check, Award, Film, User, Clapperboard } from "lucide-react";
 
 const getOmdbKey = () => {
-    const key = import.meta.env.VITE_OMDB_KEY;
-    if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-        return "b78bdecd";
-    }
-    return key.trim();
+  const key = import.meta.env.VITE_OMDB_KEY;
+  if (!key || key === "undefined" || key === "null" || key.trim() === "") {
+    return "b78bdecd";
+  }
+  return key.trim();
 };
 const KEY = getOmdbKey();
 
-export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, onAddToWatchlist, watched, watchlist }) {
-    const [movie, setMovie] = useState({});
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState("");
-    const [userRating, setUserRating] = useState("");
-    const [userNote, setUserNote] = useState("");
+export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, onAddToWatchlist, watched = [], watchlist = [] }) {
+  const [movie, setMovie] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [userRating, setUserRating] = useState(8);
+  const [userNote, setUserNote] = useState("");
 
-    const isWatched = watched.map((movie) => movie.imdbID).includes(selectedId);
-    const isWatchlist = watchlist ? watchlist.map(m => m.imdbID).includes(selectedId) : false;
+  const isWatched = (watched || []).some((m) => m.imdbID === selectedId);
+  const isWatchlist = (watchlist || []).some((m) => m.imdbID === selectedId);
 
-    const watchedUserRating = watched.find(
-        (movie) => movie.imdbID === selectedId
-    )?.userRating;
+  const watchedItem = (watched || []).find((m) => m.imdbID === selectedId);
+  const watchedUserRating = watchedItem?.userRating;
+  const watchedUserNote = watchedItem?.userNote;
 
-    const watchedUserNote = watched.find(
-        (movie) => movie.imdbID === selectedId
-    )?.userNote;
+  const {
+    Title: title,
+    Year: year,
+    Poster: poster,
+    Runtime: runtime,
+    imdbRating,
+    Metascore: metascore,
+    Plot: plot,
+    Released: released,
+    Actors: actors,
+    Director: director,
+    Writer: writer,
+    Genre: genre,
+    Rated: rated,
+  } = movie;
 
-    const {
-        Title: title,
-        Year: year,
-        Poster: poster,
-        Runtime: runtime,
-        imdbRating,
-        Plot: plot,
-        Released: released,
-        Actors: actors,
-        Director: director,
-        Writer: writer,
-        Genre: genre,
-    } = movie;
+  function handleAdd() {
+    const shortPlot = plot ? plot.split(" ").slice(0, 15).join(" ") + "..." : "";
 
-    const posterUrl = poster !== "N/A" ? poster : "https://via.placeholder.com/300x450/374151/9ca3af?text=No+Poster";
+    const newWatchedMovie = {
+      imdbID: selectedId,
+      title,
+      year,
+      poster: poster !== "N/A" ? poster : "",
+      imdbRating: Number(imdbRating) || 8.0,
+      runtime: Number(runtime?.split(" ")[0] || 120),
+      userRating: userRating || 8,
+      userNote,
+      director,
+      writer,
+      genre,
+      shortPlot,
+    };
 
-    function handleAdd() {
-        // Capture first 15 words of plot for AI theme detection
-        const shortPlot = plot ? plot.split(" ").slice(0, 15).join(" ") + "..." : "";
+    onAddWatched(newWatchedMovie);
+    onCloseMovie();
+  }
 
-        const newWatchedMovie = {
-            imdbID: selectedId,
-            title,
-            year,
-            poster: posterUrl,
-            imdbRating: Number(imdbRating),
-            runtime: Number(runtime?.split(" ")[0] || 0),
-            userRating,
-            userNote,
-            director,
-            writer,
-            genre,
-            shortPlot, // For AI theme analysis (e.g., "Memory Loss", "Time Loop")
-        };
+  function handleAddToWatchlistClick() {
+    const newWatchlistMovie = {
+      imdbID: selectedId,
+      title,
+      year,
+      poster: poster !== "N/A" ? poster : "",
+      imdbRating: Number(imdbRating) || 8.0,
+      runtime: Number(runtime?.split(" ")[0] || 120),
+      genre,
+    };
+    onAddToWatchlist(newWatchlistMovie);
+    onCloseMovie();
+  }
 
-        onAddWatched(newWatchedMovie);
-        onCloseMovie();
+  useEffect(() => {
+    async function getMovieDetails() {
+      try {
+        setIsLoading(true);
+        setError("");
+        let res = await fetch(`https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`);
+
+        if (!res.ok || res.status === 401) {
+          if (KEY !== "b78bdecd") {
+            res = await fetch(`https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`);
+          }
+        }
+
+        if (!res.ok) throw new Error("Failed to fetch movie details");
+
+        let data = await res.json();
+        if (data.Response === "False") throw new Error(data.Error);
+        setMovie(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setIsLoading(false);
+      }
     }
+    if (selectedId) getMovieDetails();
+  }, [selectedId]);
 
-    function handleAddToWatchlistClick() {
-        const newWatchlistMovie = {
-            imdbID: selectedId,
-            title,
-            year,
-            poster: posterUrl,
-            imdbRating: Number(imdbRating),
-            runtime: Number(runtime?.split(" ")[0] || 0),
-            // No userRating or note for watchlist
-        };
-        onAddToWatchlist(newWatchlistMovie);
+  useEffect(() => {
+    if (!title) return;
+    document.title = `${title} | CinemaVault`;
+    return () => {
+      document.title = "CinemaVault";
+    };
+  }, [title]);
+
+  useEffect(() => {
+    function callback(e) {
+      if (e.code === "Escape") {
         onCloseMovie();
+      }
     }
+    document.addEventListener("keydown", callback);
+    return () => document.removeEventListener("keydown", callback);
+  }, [onCloseMovie]);
 
-    useEffect(
-        function () {
-            async function getMovieDetails() {
-                try {
-                    setIsLoading(true);
-                    setError("");
-                    let res = await fetch(
-                        `https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`
-                    );
+  const actorsList = actors ? actors.split(",").map((a) => a.trim()) : [];
+  const genreList = genre ? genre.split(",").map((g) => g.trim()) : [];
 
-                    if (!res.ok || res.status === 401) {
-                        if (KEY !== "b78bdecd") {
-                            console.log("⚠️ Configured OMDb key failed, retrying details with default fallback key...");
-                            res = await fetch(
-                                `https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`
-                            );
-                        }
-                    }
+  return (
+    <div className="netflix-detail-modal" aria-label={`Movie details for ${title || "Film"}`}>
+      {isLoading ? (
+        <MovieDetailsSkeleton />
+      ) : error ? (
+        <ErrorMessage message={error} />
+      ) : (
+        <div className="netflix-modal-card">
+          {/* Top Bar Navigation */}
+          <div className="netflix-modal-topbar">
+            <button className="btn-modal-back" onClick={onCloseMovie} aria-label="Go back">
+              <ArrowLeft size={18} aria-hidden="true" />
+              <span>Back</span>
+            </button>
+          </div>
 
-                    if (!res.ok) throw new Error("Failed to fetch movie details");
+          {/* Main 2-Column Content Grid */}
+          <div className="netflix-modal-body">
+            {/* Left Column: Poster Card & Personal Rating Box */}
+            <div className="netflix-modal-left">
+              <div className="netflix-modal-poster-wrap">
+                <PosterImage src={poster} title={title} alt={`${title} poster`} />
+              </div>
 
-                    let data = await res.json();
+              {/* Action / Rating Box */}
+              <div className="netflix-user-rating-box">
+                {!isWatched ? (
+                  <>
+                    <h4 className="rating-box-title">Rate & Save to Vault</h4>
+                    <StarRating
+                      maxRating={10}
+                      size={22}
+                      onSetRating={setUserRating}
+                      defaultRating={8}
+                    />
 
-                    if (data.Response === "False") {
-                        if (data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && KEY !== "b78bdecd") {
-                            console.log("⚠️ OMDb response reports key error, retrying details with default fallback key...");
-                            const fallbackRes = await fetch(
-                                `https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`
-                            );
-                            if (fallbackRes.ok) {
-                                const fallbackData = await fallbackRes.json();
-                                if (fallbackData.Response === "False") throw new Error(fallbackData.Error);
-                                setMovie(fallbackData);
-                                return;
-                            }
-                        }
-                        throw new Error(data.Error);
-                    }
+                    <textarea
+                      className="user-note-input"
+                      placeholder="Personal notes (e.g. 'Epic score', 'Great twist')..."
+                      value={userNote}
+                      onChange={(e) => setUserNote(e.target.value)}
+                      aria-label="Personal notes on movie"
+                    />
 
-                    setMovie(data);
-                } catch (err) {
-                    setError(err.message);
-                } finally {
-                    setIsLoading(false);
-                }
-            }
-            getMovieDetails();
-        },
-        [selectedId]
-    );
+                    <div className="rating-box-actions">
+                      <button className="btn-vault-primary" onClick={handleAdd} aria-label="Add to watched list">
+                        <Plus size={16} aria-hidden="true" /> Add to Vault
+                      </button>
 
-    useEffect(
-        function () {
-            if (!title) return;
-            document.title = `Movie | ${title}`;
-
-            return function () {
-                document.title = "CinemaVault";
-            };
-        },
-        [title]
-    );
-
-    useEffect(
-        function () {
-            function callback(e) {
-                if (e.code === "Escape") {
-                    onCloseMovie();
-                }
-            }
-
-            document.addEventListener("keydown", callback);
-
-            return function () {
-                document.removeEventListener("keydown", callback);
-            };
-        },
-        [onCloseMovie]
-    );
-
-    return (
-        <div className="details">
-            {isLoading ? (
-                <MovieDetailsSkeleton />
-            ) : error ? (
-                <ErrorMessage message={error} />
-            ) : (
-                <>
-                    <header>
-                        <button className="btn-back" onClick={onCloseMovie}>
-                            &larr;
+                      {!isWatchlist ? (
+                        <button className="btn-vault-secondary" onClick={handleAddToWatchlistClick} aria-label="Add to watchlist">
+                          <Bookmark size={16} aria-hidden="true" /> Plan to Watch
                         </button>
-                        <img src={posterUrl} alt={`Poster of ${title}`} />
-                        <div className="details-overview">
-                            <h2>{title}</h2>
-                            <p>
-                                {released} &bull; {runtime}
-                            </p>
-                            <p>{genre}</p>
-                            <p>
-                                <span>⭐</span>
-                                {imdbRating} IMDb rating
-                            </p>
-                        </div>
-                    </header>
+                      ) : (
+                        <span className="watchlist-badge">
+                          <Bookmark size={14} aria-hidden="true" /> Queued in Watchlist
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="vault-rated-badge-box">
+                    <div className="vault-rated-header">
+                      <Check size={18} className="icon-emerald" aria-hidden="true" />
+                      <span>In Your Vault</span>
+                    </div>
+                    <div className="vault-user-score">
+                      <span>Your Rating:</span>
+                      <span className="user-score-gold">★ {watchedUserRating} / 10</span>
+                    </div>
+                    {watchedUserNote && (
+                      <p className="vault-user-note">"{watchedUserNote}"</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
 
-                    <section>
-                        <div className="rating">
-                            {!isWatched ? (
-                                <>
-                                    {isWatchlist && (
-                                        <div className="watchlist-badge">
-                                            📋 Plan to Watch
-                                        </div>
-                                    )}
-                                    <StarRating
-                                        maxRating={10}
-                                        size={24}
-                                        onSetRating={setUserRating}
-                                    />
-                                    {userRating > 0 && (
-                                        <div style={{ width: '100%', marginBottom: '1rem', marginTop: '1rem' }}>
-                                            <textarea
-                                                className="user-note-input"
-                                                placeholder="What hooked you? (e.g., 'The plot twist', 'The cinematography', 'Too slow')"
-                                                value={userNote}
-                                                onChange={(e) => setUserNote(e.target.value)}
-                                            />
-                                            <button className="btn-add" onClick={handleAdd}>
-                                                + Add to list
-                                            </button>
-                                        </div>
-                                    )}
-                                    {!isWatchlist && (
-                                        <button className="btn-add btn-watchlist" onClick={handleAddToWatchlistClick}>
-                                            + Plan to Watch
-                                        </button>
-                                    )}
-                                </>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                                    <p>
-                                        You rated this movie {watchedUserRating} <span>⭐</span>
-                                    </p>
-                                    {watchedUserNote && (
-                                        <p style={{ fontStyle: 'italic', opacity: 0.8, fontSize: '1.4rem' }}>
-                                            "{watchedUserNote}"
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                        <p>
-                            <em>{plot}</em>
-                        </p>
-                        <p>Starring {actors}</p>
-                        <p>Directed by {director}</p>
-                    </section>
-                </>
-            )}
+            {/* Right Column: Cinema Details & Credits */}
+            <div className="netflix-modal-right">
+              {/* Title & Badges */}
+              <div className="netflix-title-block">
+                <h1 className="netflix-movie-title">{title}</h1>
+                
+                <div className="netflix-meta-badges">
+                  <span className="meta-badge-item">{released || year}</span>
+                  {runtime && <span className="meta-badge-item">{runtime}</span>}
+                  {rated && rated !== "N/A" && <span className="meta-badge-rated">{rated}</span>}
+                  
+                  {imdbRating && (
+                    <span className="meta-badge-imdb">
+                      <Star size={14} className="icon-star-gold" aria-hidden="true" />
+                      {imdbRating} IMDb
+                    </span>
+                  )}
+                  {metascore && metascore !== "N/A" && (
+                    <span className="meta-badge-meta">
+                      <Award size={14} aria-hidden="true" />
+                      {metascore} Metascore
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Genres */}
+              <div className="netflix-genres-row">
+                {genreList.map((g) => (
+                  <span key={g} className="netflix-genre-tag">
+                    {g}
+                  </span>
+                ))}
+              </div>
+
+              {/* Plot Synopsis */}
+              <div className="netflix-plot-block">
+                <h3 className="section-subtitle">Synopsis</h3>
+                <p className="netflix-plot-text">{plot}</p>
+              </div>
+
+              {/* Credits & Cast */}
+              <div className="netflix-credits-grid">
+                {director && director !== "N/A" && (
+                  <div className="credit-item">
+                    <span className="credit-label">
+                      <Clapperboard size={14} aria-hidden="true" /> Director
+                    </span>
+                    <span className="credit-value">{director}</span>
+                  </div>
+                )}
+
+                {writer && writer !== "N/A" && (
+                  <div className="credit-item">
+                    <span className="credit-label">
+                      <Film size={14} aria-hidden="true" /> Writers
+                    </span>
+                    <span className="credit-value">{writer}</span>
+                  </div>
+                )}
+
+                {actorsList.length > 0 && (
+                  <div className="credit-item full-row">
+                    <span className="credit-label">
+                      <User size={14} aria-hidden="true" /> Starring Cast
+                    </span>
+                    <div className="cast-chips-wrap">
+                      {actorsList.map((actor) => (
+                        <span key={actor} className="cast-chip">
+                          {actor}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-    );
+      )}
+    </div>
+  );
 }
