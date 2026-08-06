@@ -7765,15 +7765,51 @@ html, body, #root, .app {
   }
 
   /* 4. Vault Page Analytics, Grid & Tabs Polish */
+  /* 4. Vault Page Analytics, Grid & Tabs Polish */
   .vault-page-container {
-    padding: 0 1.6rem 6rem !important;
+    padding: 0 1.2rem 6rem !important;
+  }
+
+  .vault-banner-hero {
+    min-height: auto !important;
+    margin-top: 1rem !important;
+  }
+
+  .vault-banner-content {
+    padding: 2rem 1.6rem 0 !important;
+    gap: 1.6rem !important;
+  }
+
+  .vault-banner-title {
+    font-size: 2.8rem !important;
+  }
+
+  .banner-top-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 1.4rem !important;
+  }
+
+  .banner-right {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+    gap: 0.8rem !important;
+  }
+
+  .vault-manage-btn,
+  .vault-settings-ghost-btn {
+    padding: 0.7rem 1.4rem !important;
+    font-size: 1.2rem !important;
   }
 
   .vault-segmented-tabs {
     width: 100% !important;
     display: flex !important;
-    gap: 0.6rem !important;
+    gap: 0.4rem !important;
     box-sizing: border-box !important;
+    background: rgba(15, 21, 33, 0.95) !important;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
   }
 
   .tab-pill {
@@ -7782,7 +7818,7 @@ html, body, #root, .app {
     align-items: center !important;
     justify-content: center !important;
     gap: 0.6rem !important;
-    padding: 0.8rem 1rem !important;
+    padding: 0.85rem 0.8rem !important;
     font-size: 1.25rem !important;
     white-space: nowrap !important;
   }
@@ -7796,8 +7832,64 @@ html, body, #root, .app {
     flex-shrink: 0 !important;
   }
 
+  /* Sticky Toolbar Optimization on Mobile */
+  .vault-sticky-toolbar {
+    top: 5.4rem !important;
+    padding: 1rem 1.2rem !important;
+    gap: 1rem !important;
+    border-radius: var(--radius-sm) !important;
+    z-index: 95 !important;
+  }
+
+  .toolbar-left-group {
+    width: 100% !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.8rem !important;
+  }
+
+  .vault-search-box {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .vault-genre-chips {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 0.4rem !important;
+    gap: 0.6rem !important;
+    scrollbar-width: none !important;
+  }
+
+  .vault-genre-chips::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .genre-chip {
+    padding: 0.55rem 1.2rem !important;
+    font-size: 1.15rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .toolbar-right-group {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 0.8rem !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-top: 0.8rem !important;
+  }
+
+  .vault-item-count {
+    font-size: 1.15rem !important;
+  }
+
   .vault-grid {
-    grid-template-columns: repeat(3, 1fr) !important;
+    grid-template-columns: repeat(2, 1fr) !important;
     gap: 1rem !important;
   }
 
@@ -7831,6 +7923,35 @@ html, body, #root, .app {
     overflow-wrap: anywhere !important;
     word-break: break-word !important;
     white-space: normal !important;
+  }
+
+  /* Floating Bulk Selection Bar Mobile Polish */
+  .vault-bulk-floating-bar {
+    width: calc(100% - 2.4rem) !important;
+    max-width: 48rem !important;
+    bottom: 1.6rem !important;
+    padding: 1rem 1.4rem !important;
+    flex-direction: column !important;
+    gap: 0.8rem !important;
+    border-radius: 1.6rem !important;
+  }
+
+  .bulk-bar-info {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .bulk-bar-actions {
+    width: 100% !important;
+    justify-content: space-between !important;
+    gap: 0.6rem !important;
+    flex-wrap: wrap !important;
+  }
+
+  .btn-bulk-action,
+  .btn-bulk-text {
+    font-size: 1.15rem !important;
+    padding: 0.5rem 1rem !important;
   }
 
   /* 5. Movie Details Modal Responsive Polish */
