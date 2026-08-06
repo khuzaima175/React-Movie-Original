@@ -8813,3 +8813,144 @@ button {
   color: #ffffff !important;
 }
 
+/* ── Upgraded Executive Taste Match Badge & Rating Group ── */
+.rec-ratings-group {
+  display: flex !important;
+  align-items: center !important;
+  gap: 1.2rem !important;
+  flex-shrink: 0 !important;
+}
+
+.imdb-rating-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.6rem !important;
+  background: rgba(251, 191, 36, 0.08) !important;
+  border: 1px solid rgba(251, 191, 36, 0.28) !important;
+  color: #fbbf24 !important;
+  padding: 0.75rem 1.4rem !important;
+  border-radius: var(--radius-pill) !important;
+  font-size: 1.3rem !important;
+  font-weight: 700 !important;
+  backdrop-filter: blur(12px) !important;
+  height: 4.2rem !important;
+  box-sizing: border-box !important;
+}
+
+.imdb-val {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.imdb-lbl {
+  font-size: 1.1rem !important;
+  color: var(--text-dim) !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+}
+
+.match-badge-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.8rem !important;
+  padding: 0.4rem 1.4rem 0.4rem 0.6rem !important;
+  border-radius: var(--radius-pill) !important;
+  backdrop-filter: blur(12px) !important;
+  transition: all 0.25s ease !important;
+  flex-shrink: 0 !important;
+  height: 4.2rem !important;
+  box-sizing: border-box !important;
+}
+
+.match-badge-pill.tier-emerald {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.15) !important;
+}
+
+.match-badge-pill.tier-emerald .match-badge-label,
+.match-badge-pill.tier-emerald .match-ring-pct {
+  color: #34d399 !important;
+}
+
+.match-badge-pill.tier-cyan {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.15) !important;
+}
+
+.match-badge-pill.tier-cyan .match-badge-label,
+.match-badge-pill.tier-cyan .match-ring-pct {
+  color: #38bdf8 !important;
+}
+
+.match-badge-pill.tier-indigo {
+  background: rgba(129, 140, 248, 0.12) !important;
+  border: 1px solid rgba(129, 140, 248, 0.35) !important;
+  box-shadow: 0 0 16px rgba(129, 140, 248, 0.15) !important;
+}
+
+.match-badge-pill.tier-indigo .match-badge-label,
+.match-badge-pill.tier-indigo .match-ring-pct {
+  color: #a78bfa !important;
+}
+
+.match-ring-wrapper {
+  position: relative !important;
+  width: 3.4rem !important;
+  height: 3.4rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+}
+
+.match-ring-svg {
+  width: 100% !important;
+  height: 100% !important;
+  transform: rotate(-90deg) !important;
+}
+
+.match-ring-bg {
+  fill: none !important;
+  stroke: rgba(255, 255, 255, 0.1) !important;
+  stroke-width: 4 !important;
+}
+
+.match-ring-progress {
+  fill: none !important;
+  stroke-width: 4 !important;
+  stroke-linecap: round !important;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.match-ring-text {
+  position: absolute !important;
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: center !important;
+}
+
+.match-ring-num {
+  font-family: var(--font-display) !important;
+  font-size: 1.25rem !important;
+  font-weight: 800 !important;
+  color: #ffffff !important;
+  line-height: 1 !important;
+}
+
+.match-ring-pct {
+  font-size: 0.85rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+}
+
+.match-badge-label {
+  font-family: var(--font-ui) !important;
+  font-size: 1.15rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+}
+
+

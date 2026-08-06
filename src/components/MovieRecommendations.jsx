@@ -29,28 +29,52 @@ const getOmdbKey = () => {
 const KEY = getOmdbKey();
 
 function MatchRing({ score }) {
-  const radius = 18;
+  const normalizedScore = Math.min(100, Math.max(0, Math.round(score || 0)));
+  const radius = 19;
   const circumference = 2 * Math.PI * radius;
-  const normalizedScore = Math.min(100, Math.max(0, score || 0));
   const strokeDashoffset = circumference - (normalizedScore / 100) * circumference;
 
+  let tier = "emerald";
+  let colorStart = "#34d399";
+  let colorEnd = "#10b981";
+
+  if (normalizedScore < 85 && normalizedScore >= 75) {
+    tier = "cyan";
+    colorStart = "#38bdf8";
+    colorEnd = "#0284c7";
+  } else if (normalizedScore < 75) {
+    tier = "indigo";
+    colorStart = "#a78bfa";
+    colorEnd = "#6366f1";
+  }
+
   return (
-    <div className="match-ring-wrapper" title={`${normalizedScore}% Taste Match`}>
-      <svg className="match-ring-svg" viewBox="0 0 44 44">
-        <circle className="match-ring-bg" cx="22" cy="22" r={radius} />
-        <circle
-          className="match-ring-progress"
-          cx="22"
-          cy="22"
-          r={radius}
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-        />
-      </svg>
-      <div className="match-ring-text">
-        <span className="match-ring-num">{normalizedScore}</span>
-        <span className="match-ring-pct">%</span>
+    <div className={`match-badge-pill tier-${tier}`} title={`${normalizedScore}% Taste Match`}>
+      <div className="match-ring-wrapper">
+        <svg className="match-ring-svg" viewBox="0 0 48 48">
+          <defs>
+            <linearGradient id={`matchGrad-${normalizedScore}`} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor={colorStart} />
+              <stop offset="100%" stopColor={colorEnd} />
+            </linearGradient>
+          </defs>
+          <circle className="match-ring-bg" cx="24" cy="24" r={radius} />
+          <circle
+            className="match-ring-progress"
+            cx="24"
+            cy="24"
+            r={radius}
+            stroke={`url(#matchGrad-${normalizedScore})`}
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+          />
+        </svg>
+        <div className="match-ring-text">
+          <span className="match-ring-num">{normalizedScore}</span>
+          <span className="match-ring-pct">%</span>
+        </div>
       </div>
+      <span className="match-badge-label">MATCH</span>
     </div>
   );
 }
