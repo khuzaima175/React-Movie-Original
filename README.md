@@ -1,61 +1,117 @@
-# 🍿 Movie Tracker
+# 🎬 CinemaVault
 
-A professional, feature-rich React dashboard for movie enthusiasts to search, track, and rate their cinematic experiences. Featuring a sleek glassmorphism UI with smooth animations and deep OMDb API integration.
+> **The Ultimate Cinematic Vault & AI-Powered Movie Companion**
 
-![Movie Tracker Screenshot](https://via.placeholder.com/800x450/0f172a/3b82f6?text=Movie+Tracker+Professional+Dashboard)
+CinemaVault is a high-performance, feature-rich React application designed for movie enthusiasts. Search global film databases, manage your personal watched history and watchlist, explore deep vault analytics, and consult the Google Gemini AI Oracle for tailored film recommendations—all wrapped in a sleek, cinematic glassmorphism interface.
+
+![CinemaVault Screenshot](assets/screenshot.png)
+
+---
 
 ## ✨ Key Features
 
-- **🤖 AI Assistant**: Smart movie recommendations and interactive chat powered by AI.
-- **🔍 Powerful Search**: Real-time search for movies and series with type filtering (Movies vs. Series).
-- **🔥 Trending Section**: Discovery grid showcasing popular movie suggestions when you're not searching.
-- **📋 Dual Lists**: Manage both your **Watched** history and your **Plan to Watch** watchlist with ease.
-- **🎲 Random Picker**: Can't decide what to watch? Use the integrated random picker to select a movie from your watchlist with a fun animation.
-- **📊 Detailed Stats**: Automatically calculates average ratings and total viewing time in hours/minutes.
-- **🏆 Top Rated Badge**: Highlights your highest-rated film in your personal collection.
-- **⚡ Performance First**: Debounced search inputs and optimized state management for a fluid experience.
-- **✨ Professional UI**: Custom-built with a modern blue dark theme, glassmorphism effects, and staggered entrance animations.
+- 🍿 **Featured Spotlight Hero**: Immersive dynamic showcase hero banner displaying detailed metadata, backdrop art, IMDb ratings, and quick vault action toggles.
+- 🤖 **AI Oracle (Gemini Integration)**: Smart AI recommender powered by `@google/genai`. Get personalized movie suggestions based on genre, mood, directors, or custom interactive prompts.
+- 🏛️ **Personal Movie Vault**: Manage your **Watched** films and **Watchlist** queue with ease. Add custom user ratings, notes, favorite markers, and tags.
+- 🔍 **Command-Palette Search**: Global quick-search modal accessible via keyboard shortcut (`Ctrl + K` or `Cmd + K`) with real-time debounced OMDb API queries.
+- 📊 **Deep Vault Analytics**: View comprehensive statistics on your cinematic journey, including total watch time (hours/minutes), average rating, genre distributions, and favorite directors.
+- 🎲 **Watchlist Randomizer**: Can't decide what to watch tonight? Use the interactive random picker to select a random title from your saved collection.
+- 💾 **Data Export & Backup**: Full JSON import/export capabilities so your personal movie collection remains safe and portable.
+- 🎨 **Cinematic Glassmorphism UI**: Built with dark-mode aesthetic principles, sleek glow highlights, smooth Framer Motion transitions, and Lucide React icons.
+
+---
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: [React.js](https://reactjs.org/) (Hooks, Custom Hooks)
-- **AI Integration**: Generative AI for personalized recommendations
-- **Styling**: Vanilla CSS (Modern CSS variables, Flexbox/Grid, Keyframe animations)
-- **Data Source**: [OMDb API](http://www.omdbapi.com/)
-- **State Management**: React `useState` & `useEffect` (Local storage persistence)
+| Category | Technology |
+| :--- | :--- |
+| **Framework** | [React 18](https://react.dev/) with [Vite 5](https://vitejs.dev/) |
+| **Routing** | [React Router v6](https://reactrouter.com/) |
+| **AI Engine** | [Google Gemini API](https://ai.google.dev/) (`@google/genai`) |
+| **Data Source** | [OMDb API](http://www.omdbapi.com/) |
+| **Animations** | [Framer Motion](https://www.framer.com/motion/) |
+| **Styling** | Tailwind CSS & Modern Custom CSS Variables |
+| **Icons** | [Lucide React](https://lucide.dev/) |
+
+---
 
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-You'll need an API key from:
-- **OMDb API**: Get a free one at [omdbapi.com](http://www.omdbapi.com/apikey.aspx).
+
+Make sure you have [Node.js](https://nodejs.org/) (v16 or higher) installed. You will also need API keys for:
+- **OMDb API**: Get a free key at [omdbapi.com](http://www.omdbapi.com/apikey.aspx)
+- **Google Gemini API**: Get an API key at [Google AI Studio](https://aistudio.google.com/)
 
 ### 2. Installation
-Clone the repository and install dependencies:
+
+Clone the repository and install project dependencies:
+
 ```bash
-git clone https://github.com/khzuaima175/React-Movie-Original.git
+git clone https://github.com/khuzaima175/React-Movie-Original.git
 cd movie-ratings
 npm install
 ```
 
-### 3. Environment Setup
-Create a `.env` file in the root directory and add your API key:
+### 3. Environment Configuration
+
+Create a `.env` file in the root directory (or copy from `.env.example`):
+
 ```env
-REACT_APP_OMDB_KEY=your_omdb_key_here
+VITE_OMDB_KEY=your_omdb_api_key_here
+VITE_GEMINI_KEY=your_gemini_api_key_here
 ```
 
-### 4. Run the App
+### 4. Run Development Server
+
+Start the Vite development server:
+
 ```bash
 npm start
 ```
 
-## 🎨 UI & Animations
+Open `http://localhost:5173` in your browser to explore CinemaVault!
 
-The app features a refined "Professional Blue" theme designed for low-strain night viewing. Key UI elements include:
-- **Staggered Animations**: Search results slide in sequentially for a premium feel.
-- **Micro-interactions**: Subtle hover scales on summary stats and movie cards.
-- **Glow Focus**: Enhanced search bar with a primary color glow on focus.
-- **Smooth Transitions**: Fluid switching between Watched and Watchlist tabs.
+### 5. Build for Production
+
+To create an optimized production build:
+
+```bash
+npm run build
+```
+
+Preview the production build locally:
+
+```bash
+npm run serve
+```
 
 ---
-Built with ❤️ by [Khuzaima](https://github.com/khzuaima175)
+
+## 📁 Project Structure
+
+```text
+movie-ratings/
+├── assets/                 # Static documentation assets (screenshots, images)
+├── public/                 # Web assets & favicon
+├── src/
+│   ├── components/         # Reusable UI components (NavBar, HeroBillboard, MovieCard, SearchModal, etc.)
+│   ├── context/            # Global AppContext state management
+│   ├── hooks/              # Custom React hooks (useMovies, useLocalStorageState, etc.)
+│   ├── pages/              # Application views (DashboardPage, VaultPage, AIPage, MoviePage)
+│   ├── services/           # External API integrations (geminiService, omdbService)
+│   ├── App.jsx             # Router layout and main app root
+│   ├── index.css           # Design tokens, keyframe animations, & Tailwind utilities
+│   └── index.jsx           # React DOM entrypoint
+├── .env.example            # Sample environment file configuration
+├── package.json            # Dependencies and scripts
+└── README.md               # Project documentation
+```
+
+---
+
+## 📜 License & Acknowledgments
+
+Built with ❤️ by [Khuzaima](https://github.com/khuzaima175)
+
+If you find CinemaVault helpful, give it a ⭐️ on GitHub!
