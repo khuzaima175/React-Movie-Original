@@ -28,53 +28,21 @@ const getOmdbKey = () => {
 };
 const KEY = getOmdbKey();
 
-function MatchRing({ score }) {
+function TasteMatchBadge({ score }) {
   const normalizedScore = Math.min(100, Math.max(0, Math.round(score || 0)));
-  const radius = 19;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (normalizedScore / 100) * circumference;
 
   let tier = "emerald";
-  let colorStart = "#34d399";
-  let colorEnd = "#10b981";
-
   if (normalizedScore < 85 && normalizedScore >= 75) {
     tier = "cyan";
-    colorStart = "#38bdf8";
-    colorEnd = "#0284c7";
   } else if (normalizedScore < 75) {
     tier = "indigo";
-    colorStart = "#a78bfa";
-    colorEnd = "#6366f1";
   }
 
   return (
-    <div className={`match-badge-pill tier-${tier}`} title={`${normalizedScore}% Taste Match`}>
-      <div className="match-ring-wrapper">
-        <svg className="match-ring-svg" viewBox="0 0 48 48">
-          <defs>
-            <linearGradient id={`matchGrad-${normalizedScore}`} x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor={colorStart} />
-              <stop offset="100%" stopColor={colorEnd} />
-            </linearGradient>
-          </defs>
-          <circle className="match-ring-bg" cx="24" cy="24" r={radius} />
-          <circle
-            className="match-ring-progress"
-            cx="24"
-            cy="24"
-            r={radius}
-            stroke={`url(#matchGrad-${normalizedScore})`}
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-          />
-        </svg>
-        <div className="match-ring-text">
-          <span className="match-ring-num">{normalizedScore}</span>
-          <span className="match-ring-pct">%</span>
-        </div>
-      </div>
-      <span className="match-badge-label">MATCH</span>
+    <div className={`taste-match-pill tier-${tier}`} title={`${normalizedScore}% Taste Match`}>
+      <Sparkles size={13} className="match-pill-icon" />
+      <span className="match-score-num">{normalizedScore}%</span>
+      <span className="match-score-label">MATCH</span>
     </div>
   );
 }
@@ -488,8 +456,8 @@ export default function MovieRecommendations({
                           </div>
                         )}
 
-                        {/* Circular Match Score Ring */}
-                        <MatchRing score={rec.matchScore} />
+                        {/* Taste Match Score Badge */}
+                        <TasteMatchBadge score={rec.matchScore} />
                       </div>
                     </div>
 

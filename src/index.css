@@ -8813,11 +8813,11 @@ button {
   color: #ffffff !important;
 }
 
-/* ── Upgraded Executive Taste Match Badge & Rating Group ── */
+/* ── Option 1: Executive Taste Match Badge Pill ── */
 .rec-ratings-group {
   display: flex !important;
   align-items: center !important;
-  gap: 1.2rem !important;
+  gap: 1rem !important;
   flex-shrink: 0 !important;
 }
 
@@ -8828,13 +8828,14 @@ button {
   background: rgba(251, 191, 36, 0.08) !important;
   border: 1px solid rgba(251, 191, 36, 0.28) !important;
   color: #fbbf24 !important;
-  padding: 0.75rem 1.4rem !important;
+  padding: 0.6rem 1.4rem !important;
   border-radius: var(--radius-pill) !important;
   font-size: 1.3rem !important;
   font-weight: 700 !important;
   backdrop-filter: blur(12px) !important;
-  height: 4.2rem !important;
+  height: 3.6rem !important;
   box-sizing: border-box !important;
+  white-space: nowrap !important;
 }
 
 .imdb-val {
@@ -8849,108 +8850,82 @@ button {
   text-transform: uppercase !important;
 }
 
-.match-badge-pill {
+.taste-match-pill {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 0.8rem !important;
-  padding: 0.4rem 1.4rem 0.4rem 0.6rem !important;
+  gap: 0.6rem !important;
+  padding: 0.6rem 1.4rem !important;
   border-radius: var(--radius-pill) !important;
+  font-size: 1.3rem !important;
+  font-weight: 700 !important;
   backdrop-filter: blur(12px) !important;
+  height: 3.6rem !important;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
   transition: all 0.25s ease !important;
   flex-shrink: 0 !important;
-  height: 4.2rem !important;
-  box-sizing: border-box !important;
 }
 
-.match-badge-pill.tier-emerald {
+.taste-match-pill.tier-emerald {
   background: rgba(16, 185, 129, 0.12) !important;
   border: 1px solid rgba(16, 185, 129, 0.35) !important;
-  box-shadow: 0 0 16px rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.18) !important;
 }
 
-.match-badge-pill.tier-emerald .match-badge-label,
-.match-badge-pill.tier-emerald .match-ring-pct {
+.taste-match-pill.tier-emerald .match-score-num {
+  color: #ffffff !important;
+}
+
+.taste-match-pill.tier-emerald .match-score-label,
+.taste-match-pill.tier-emerald .match-pill-icon {
   color: #34d399 !important;
 }
 
-.match-badge-pill.tier-cyan {
+.taste-match-pill.tier-cyan {
   background: rgba(56, 189, 248, 0.12) !important;
   border: 1px solid rgba(56, 189, 248, 0.35) !important;
-  box-shadow: 0 0 16px rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.18) !important;
 }
 
-.match-badge-pill.tier-cyan .match-badge-label,
-.match-badge-pill.tier-cyan .match-ring-pct {
+.taste-match-pill.tier-cyan .match-score-num {
+  color: #ffffff !important;
+}
+
+.taste-match-pill.tier-cyan .match-score-label,
+.taste-match-pill.tier-cyan .match-pill-icon {
   color: #38bdf8 !important;
 }
 
-.match-badge-pill.tier-indigo {
+.taste-match-pill.tier-indigo {
   background: rgba(129, 140, 248, 0.12) !important;
   border: 1px solid rgba(129, 140, 248, 0.35) !important;
-  box-shadow: 0 0 16px rgba(129, 140, 248, 0.15) !important;
+  color: #a78bfa !important;
+  box-shadow: 0 0 14px rgba(129, 140, 248, 0.18) !important;
 }
 
-.match-badge-pill.tier-indigo .match-badge-label,
-.match-badge-pill.tier-indigo .match-ring-pct {
+.taste-match-pill.tier-indigo .match-score-num {
+  color: #ffffff !important;
+}
+
+.taste-match-pill.tier-indigo .match-score-label,
+.taste-match-pill.tier-indigo .match-pill-icon {
   color: #a78bfa !important;
 }
 
-.match-ring-wrapper {
-  position: relative !important;
-  width: 3.4rem !important;
-  height: 3.4rem !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-shrink: 0 !important;
-}
-
-.match-ring-svg {
-  width: 100% !important;
-  height: 100% !important;
-  transform: rotate(-90deg) !important;
-}
-
-.match-ring-bg {
-  fill: none !important;
-  stroke: rgba(255, 255, 255, 0.1) !important;
-  stroke-width: 4 !important;
-}
-
-.match-ring-progress {
-  fill: none !important;
-  stroke-width: 4 !important;
-  stroke-linecap: round !important;
-  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-.match-ring-text {
-  position: absolute !important;
-  display: flex !important;
-  align-items: baseline !important;
-  justify-content: center !important;
-}
-
-.match-ring-num {
+.match-score-num {
   font-family: var(--font-display) !important;
-  font-size: 1.25rem !important;
+  font-size: 1.35rem !important;
   font-weight: 800 !important;
-  color: #ffffff !important;
-  line-height: 1 !important;
 }
 
-.match-ring-pct {
-  font-size: 0.85rem !important;
-  font-weight: 700 !important;
-  line-height: 1 !important;
-}
-
-.match-badge-label {
+.match-score-label {
   font-family: var(--font-ui) !important;
-  font-size: 1.15rem !important;
-  font-weight: 800 !important;
-  letter-spacing: 0.08em !important;
-  text-transform: uppercase !important;
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
 }
+
 
 
