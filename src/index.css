@@ -7764,9 +7764,41 @@ html, body, #root, .app {
     scroll-snap-align: start !important;
   }
 
-  /* 4. Vault Page Analytics & Grid Polish */
+  /* 4. Vault Page Analytics, Grid & Tabs Polish */
   .vault-page-container {
     padding: 0 1.6rem 6rem !important;
+  }
+
+  .vault-segmented-tabs {
+    width: 100% !important;
+    display: flex !important;
+    gap: 0.6rem !important;
+    box-sizing: border-box !important;
+  }
+
+  .tab-pill {
+    flex: 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.6rem !important;
+    padding: 0.8rem 1rem !important;
+    font-size: 1.25rem !important;
+    white-space: nowrap !important;
+  }
+
+  .tab-count-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    margin-left: 0.3rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .vault-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 1rem !important;
   }
 
   .vault-insights-strip {
@@ -7801,7 +7833,65 @@ html, body, #root, .app {
     white-space: normal !important;
   }
 
-  /* 5. AI Oracle Recommendations & Features Stack */
+  /* 5. Movie Details Modal Responsive Polish */
+  .netflix-detail-modal {
+    margin: 0 auto !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+  }
+
+  .netflix-modal-card {
+    border-radius: 0 !important;
+    border: none !important;
+    min-height: 100vh !important;
+  }
+
+  .netflix-modal-body {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2rem !important;
+    padding: 2rem 1.6rem 4rem !important;
+  }
+
+  .netflix-modal-left {
+    width: 100% !important;
+    align-items: center !important;
+  }
+
+  .netflix-modal-poster-wrap {
+    width: 100% !important;
+    max-width: 180px !important;
+    margin: 0 auto !important;
+    aspect-ratio: 2/3 !important;
+  }
+
+  .netflix-user-rating-box {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 1.6rem !important;
+  }
+
+  .vault-user-score {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: wrap !important;
+    gap: 0.6rem !important;
+  }
+
+  .netflix-movie-title {
+    font-size: clamp(2.2rem, 6vw, 3.4rem) !important;
+    word-break: break-word !important;
+    line-height: 1.15 !important;
+  }
+
+  .netflix-credits-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.4rem !important;
+  }
+
+  /* 6. AI Oracle Recommendations & Features Stack */
   .ai-page-container {
     padding: 1.6rem 1.6rem 6rem !important;
     gap: 2rem !important;
@@ -7892,7 +7982,13 @@ html, body, #root, .app {
     max-width: 70vw !important;
     font-size: 1.25rem !important;
   }
+
+  .vault-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 0.8rem !important;
+  }
 }
+
 
 
 
