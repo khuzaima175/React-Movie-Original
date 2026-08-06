@@ -168,6 +168,22 @@ body {
   pointer-events: none;
 }
 
+.theater-step {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  padding: 0.8rem 1.2rem;
+  border-radius: 0.8rem;
+  color: var(--text-dim);
+  font-size: 1.4rem;
+  transition: all 0.3s ease;
+}
+
+.step-text {
+  font-size: 1.4rem;
+  font-weight: 500;
+}
+
 /* ── Executive Floating Pill NavBar ──────────────────────── */
 .nav-bar {
   display: flex;
@@ -7941,5 +7957,527 @@ button {
   flex-shrink: 0;
 }
 
+/* ============================================================
+   AI ORACLE RECOMMENDATIONS & LOADING THEATER STYLES
+   ============================================================ */
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.spin-icon {
+  animation: spin 1.2s linear infinite;
+}
+
+/* AI Hint & Error Badges */
+.ai-hint-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.6rem 1.4rem;
+  border-radius: var(--radius-pill);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+  font-size: 1.3rem;
+  font-weight: 500;
+  margin-top: 0.4rem;
+}
+
+/* ── Loading Theater Layout ── */
+.ai-loading-theater {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: linear-gradient(135deg, rgba(19, 25, 38, 0.9) 0%, rgba(14, 19, 29, 0.95) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4.8rem 3.6rem;
+  width: 100%;
+  max-width: 90rem;
+  margin: 0 auto;
+  box-shadow: var(--shadow-deep);
+  backdrop-filter: blur(16px);
+  gap: 3.2rem;
+  animation: fadeIn 0.4s ease;
+}
+
+.theater-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.2rem;
+}
+
+.theater-header h3 {
+  font-family: var(--font-display);
+  font-size: 2.8rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.theater-subtitle {
+  font-size: 1.5rem;
+  color: var(--brand-accent);
+  margin: 0;
+  max-width: 55rem;
+  font-weight: 500;
+}
+
+/* Staged Checklist */
+.theater-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  width: 100%;
+  max-width: 46rem;
+  background: rgba(9, 12, 18, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2.2rem 2.6rem;
+  border-radius: var(--radius-sm);
+}
+
+.theater-step {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  padding: 0.8rem 1.2rem;
+  border-radius: 0.8rem;
+  color: var(--text-dim);
+  font-size: 1.4rem;
+  transition: all 0.3s ease;
+}
+
+.theater-step.active {
+  color: #38bdf8;
+  font-weight: 600;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.theater-step.done {
+  color: var(--text-mid);
+}
+
+.step-icon {
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.check-done {
+  color: #34d399;
+}
+
+.step-bullet {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Skeleton Placeholder Cards */
+.skeleton-cards-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.6rem;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+@media (max-width: 850px) {
+  .skeleton-cards-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.skeleton-card {
+  display: flex;
+  align-items: center;
+  gap: 1.6rem;
+  background: rgba(19, 25, 38, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  padding: 1.6rem;
+}
+
+.skeleton-poster {
+  width: 5.4rem;
+  height: 8.2rem;
+  border-radius: 0.6rem;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.09) 50%, rgba(255, 255, 255, 0.03) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+  flex-shrink: 0;
+}
+
+.skeleton-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+}
+
+.skeleton-line {
+  height: 1.2rem;
+  border-radius: 0.4rem;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.09) 50%, rgba(255, 255, 255, 0.03) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+}
+
+.skeleton-line.long {
+  width: 85%;
+}
+
+.skeleton-line.medium {
+  width: 60%;
+}
+
+.skeleton-line.short {
+  width: 40%;
+}
+
+/* ── Taste Profile Card ── */
+.taste-profile-card {
+  background: linear-gradient(135deg, rgba(19, 25, 38, 0.85) 0%, rgba(14, 19, 29, 0.95) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2.8rem 3.2rem;
+  margin-bottom: 3.2rem;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(16px);
+}
+
+.taste-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2.2rem;
+}
+
+.taste-header h4 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.taste-icon {
+  color: var(--brand-accent);
+}
+
+.taste-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 3.6rem;
+}
+
+@media (max-width: 768px) {
+  .taste-grid {
+    grid-template-columns: 1fr;
+    gap: 2.4rem;
+  }
+}
+
+.taste-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.taste-label {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.taste-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.taste-tag-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.taste-tag-name {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 11rem;
+}
+
+.taste-bar-outer {
+  flex: 1;
+  height: 0.8rem;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.taste-bar-inner {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand-accent) 0%, #6366f1 100%);
+  border-radius: 9999px;
+  transition: width 0.8s ease-out;
+}
+
+.taste-meta-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.taste-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 1.4rem;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-mid);
+}
+
+/* ── Recommendations Toolbar ── */
+.recs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 2.4rem;
+  padding-bottom: 1.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.recs-count {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.recs-count h4 {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.icon-sparkle {
+  color: #fbbf24;
+}
+
+.recs-badge {
+  padding: 0.4rem 1.2rem;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.recs-sort-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.sort-icon {
+  color: var(--text-dim);
+}
+
+.sort-label {
+  font-size: 1.3rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.recs-sort-select {
+  background: rgba(19, 25, 38, 0.95);
+  border: 1px solid var(--border);
+  color: #ffffff;
+  padding: 0.7rem 1.4rem;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.recs-sort-select:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+/* ── Circular Match Ring Component ── */
+.match-ring-wrapper {
+  position: relative;
+  width: 4.6rem;
+  height: 4.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.match-ring-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.match-ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 3.5;
+}
+
+.match-ring-progress {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s ease;
+}
+
+.match-ring-text {
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+}
+
+.match-ring-num {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.match-ring-pct {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--brand-accent);
+}
+
+/* ── Recommendations Cards List Overrides ── */
+.rec-rank-num {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.2rem 0.8rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 2;
+}
+
+.rec-movie-title {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.rec-ratings-group {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.imdb-rating-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  font-size: 1.3rem;
+}
+
+.imdb-lbl {
+  font-size: 1.1rem;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.rec-explanation-drawer {
+  background: rgba(9, 12, 18, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 1.8rem 2.2rem;
+  margin-top: 1.2rem;
+  animation: fadeIn 0.25s ease;
+}
+
+.drawer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.drawer-content p {
+  font-size: 1.4rem;
+  color: var(--text-mid);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.recs-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 3.6rem;
+}
