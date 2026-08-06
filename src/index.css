@@ -8368,37 +8368,6 @@ button {
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
-}
-
-.match-ring-bg {
-  fill: none;
-  stroke: rgba(255, 255, 255, 0.08);
-  stroke-width: 3.5;
-}
-
-.match-ring-progress {
-  fill: none;
-  stroke: #38bdf8;
-  stroke-width: 3.5;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 0.8s ease;
-}
-
-.match-ring-text {
-  position: absolute;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-}
-
-.match-ring-num {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  font-weight: 800;
-  color: #ffffff;
-  line-height: 1;
-}
-
 .match-ring-pct {
   font-size: 0.95rem;
   font-weight: 700;
@@ -8563,6 +8532,7 @@ button {
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
+}
 }
 
 .match-ring-bg {
@@ -8926,6 +8896,35 @@ button {
   font-weight: 700 !important;
   letter-spacing: 0.06em !important;
 }
+
+/* ── Taste Profile Genre Bars Pixel-Perfect Left Alignment ── */
+.taste-tag-bar {
+  display: flex !important;
+  align-items: center !important;
+  gap: 1.6rem !important;
+  width: 100% !important;
+}
+
+.taste-tag-name {
+  font-size: 1.35rem !important;
+  font-weight: 600 !important;
+  color: var(--text) !important;
+  width: 18rem !important;
+  min-width: 18rem !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.taste-bar-outer {
+  flex: 1 !important;
+  height: 0.8rem !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-radius: 9999px !important;
+  overflow: hidden !important;
+}
+
 
 
 
