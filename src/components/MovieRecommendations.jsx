@@ -438,7 +438,7 @@ export default function MovieRecommendations({
                   {/* Poster image */}
                   <div className="rec-poster-wrapper">
                     <PosterImage
-                      poster={rec.poster}
+                      src={rec.poster}
                       title={rec.title}
                       className="rec-poster-img"
                     />

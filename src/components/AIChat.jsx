@@ -76,7 +76,7 @@ function InlineMovieCard({ title, year }) {
     <div className="chat-inline-movie-card">
       <div className="inline-poster-wrapper">
         <PosterImage
-          poster={movieData?.Poster}
+          src={movieData?.Poster}
           title={title}
           className="inline-poster-img"
         />

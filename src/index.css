@@ -8472,6 +8472,201 @@ button {
 .drawer-content p {
   font-size: 1.4rem;
   color: var(--text-mid);
+}
+
+/* ── Recommendations Toolbar ── */
+.recs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 2.4rem;
+  padding-bottom: 1.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.recs-count {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.recs-count h4 {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.icon-sparkle {
+  color: #fbbf24;
+}
+
+.recs-badge {
+  padding: 0.4rem 1.2rem;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.recs-sort-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.sort-icon {
+  color: var(--text-dim);
+}
+
+.sort-label {
+  font-size: 1.3rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.recs-sort-select {
+  background: rgba(19, 25, 38, 0.95);
+  border: 1px solid var(--border);
+  color: #ffffff;
+  padding: 0.7rem 1.4rem;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.recs-sort-select:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+/* ── Circular Match Ring Component ── */
+.match-ring-wrapper {
+  position: relative;
+  width: 4.6rem;
+  height: 4.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.match-ring-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.match-ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 3.5;
+}
+
+.match-ring-progress {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s ease;
+}
+
+.match-ring-text {
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+}
+
+.match-ring-num {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.match-ring-pct {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--brand-accent);
+}
+
+/* ── Recommendations Cards List Overrides ── */
+.rec-rank-num {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.2rem 0.8rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 2;
+}
+
+.rec-movie-title {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.rec-ratings-group {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.imdb-rating-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  font-size: 1.3rem;
+}
+
+.imdb-lbl {
+  font-size: 1.1rem;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.rec-explanation-drawer {
+  background: rgba(9, 12, 18, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 1.8rem 2.2rem;
+  margin-top: 1.2rem;
+  animation: fadeIn 0.25s ease;
+}
+
+.drawer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.drawer-content p {
+  font-size: 1.4rem;
+  color: var(--text-mid);
   line-height: 1.6;
   margin: 0;
 }
@@ -8480,4 +8675,111 @@ button {
   display: flex;
   justify-content: center;
   margin-top: 3.6rem;
+}
+
+/* ── Definitive Recommendation Card Layout Overrides ── */
+.recommendation-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2rem !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  list-style: none !important;
+}
+
+.recommendation-card {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 2.4rem !important;
+  padding: 2.4rem !important;
+  background: var(--surface-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow-card) !important;
+  backdrop-filter: blur(16px) !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  transition: all 0.25s ease !important;
+}
+
+.recommendation-card:hover {
+  border-color: rgba(56, 189, 248, 0.35) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: var(--shadow-deep) !important;
+}
+
+.rec-poster-wrapper {
+  width: 12rem !important;
+  height: 18rem !important;
+  border-radius: 0.8rem !important;
+  overflow: hidden !important;
+  flex-shrink: 0 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(19, 25, 38, 0.8) !important;
+}
+
+.rec-poster-img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+.rec-content {
+  flex: 1 !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1.4rem !important;
+}
+
+.rec-header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 1.6rem !important;
+  width: 100% !important;
+  flex-wrap: wrap !important;
+}
+
+.rec-title-section {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.4rem !important;
+  flex: 1 !important;
+  min-width: 20rem !important;
+}
+
+.rec-reason {
+  font-size: 1.45rem !important;
+  color: var(--text-mid) !important;
+  line-height: 1.65 !important;
+  margin: 0 !important;
+  width: 100% !important;
+}
+
+.rec-actions {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 1.2rem !important;
+  width: 100% !important;
+  margin-top: 0.4rem !important;
+  flex-wrap: wrap !important;
+}
+
+@media (max-width: 640px) {
+  .recommendation-card {
+    flex-direction: column !important;
+    padding: 1.8rem !important;
+    gap: 1.6rem !important;
+  }
+  .rec-poster-wrapper {
+    width: 100% !important;
+    height: 24rem !important;
+  }
 }
