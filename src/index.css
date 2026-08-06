@@ -3571,11 +3571,6 @@ body {
     font-size: 1.9rem !important;
   }
 
-  /* Keep links container visible on mobile but styled as a floating bottom bar */
-  .nav-bar .nav-left .nav-links {
-    display: flex !important;
-  }
-
   .nav-right {
     flex: 0 0 auto !important;
   }
@@ -3583,71 +3578,6 @@ body {
   .nav-vault-quick {
     padding: 0.5rem 1rem !important;
     font-size: 1.15rem !important;
-  }
-
-  /* --- Premium Glassmorphic Bottom Navigation --- */
-  /* Re-introducing navigation links as a floating bottom navigation bar */
-  body {
-    padding-bottom: 5.5rem !important;
-  }
-
-  .nav-links {
-    display: flex !important;
-    position: fixed !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    height: 5.5rem !important;
-    background: rgba(14, 18, 27, 0.94) !important;
-    backdrop-filter: blur(24px) !important;
-    -webkit-backdrop-filter: blur(24px) !important;
-    border-top: 1px solid var(--border) !important;
-    z-index: 999 !important;
-    /* Keep floating below main modal overlay */
-    justify-content: space-around !important;
-    align-items: center !important;
-    padding: 0 1rem !important;
-    gap: 0 !important;
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
-  }
-
-  .nav-link {
-    flex: 1 !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 0.3rem !important;
-    height: 100% !important;
-    font-size: 1.05rem !important;
-    padding: 0.4rem 0 !important;
-    font-weight: 500 !important;
-    color: var(--text-dim) !important;
-    border-radius: 0 !important;
-    background: none !important;
-  }
-
-  .nav-link-icon {
-    font-size: 1.8rem !important;
-  }
-
-  .nav-link-text {
-    font-size: 1rem !important;
-  }
-
-  .nav-link:hover {
-    color: var(--text) !important;
-    background: none !important;
-  }
-
-  .nav-link.active {
-    color: var(--gold-light) !important;
-    background: none !important;
-  }
-
-  .nav-link.active::after {
-    bottom: 0.3rem !important;
-    width: 1.6rem !important;
-    height: 2px !important;
   }
 
   /* Increase modal overlay z-index to sit on top of bottom nav */
@@ -7614,60 +7544,128 @@ html, body, #root, .app {
   min-width: 0;
 }
 
+/* Mobile Bottom Bar default hidden on desktop */
+.mobile-bottom-bar {
+  display: none;
+}
+
 @media (max-width: 768px) {
-  /* 1. Nav Bar (Mobile Two-Row Layout) */
+  /* 1. Nav Bar (Mobile Top Header & Fixed Bottom Nav) */
+  body {
+    padding-bottom: 6rem !important;
+  }
+
   .nav-bar {
     display: flex !important;
-    flex-direction: column !important;
-    height: auto !important;
-    padding: 1rem 1.6rem !important;
-    gap: 1rem !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    height: 5.6rem !important;
+    padding: 0 1.4rem !important;
     position: sticky !important;
     top: 0 !important;
     z-index: 300 !important;
+    background: rgba(9, 12, 18, 0.95) !important;
+    backdrop-filter: blur(20px) !important;
+    border-bottom: 1px solid var(--border) !important;
   }
 
-  .nav-brand-row {
-    width: 100% !important;
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-  }
-
-  .desktop-only-right {
+  .desktop-nav-links {
     display: none !important;
   }
 
-  .mobile-only-right {
+  .nav-brand-group {
+    display: flex !important;
+    align-items: center !important;
+  }
+
+  .nav-right {
     display: flex !important;
     align-items: center !important;
     gap: 0.8rem !important;
   }
 
-  .nav-links {
-    width: 100% !important;
-    display: flex !important;
-    justify-content: space-around !important;
-    padding: 0.3rem !important;
-    margin-top: 0.2rem !important;
-  }
-
-  .nav-link {
-    flex: 1 !important;
-    justify-content: center !important;
-    min-height: 44px !important;
-    padding: 0.7rem 1.2rem !important;
-    font-size: 1.3rem !important;
-    text-align: center !important;
-  }
-
   .nav-search-trigger {
-    padding: 0.8rem 1.2rem !important;
-    min-height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.6rem !important;
+    padding: 0.6rem 1.2rem !important;
+    min-height: 38px !important;
+    border-radius: 9999px !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    font-size: 1.25rem !important;
   }
 
   .nav-search-trigger .search-kbd {
     display: none !important;
+  }
+
+  /* Fixed Glass Mobile Bottom Navigation */
+  .mobile-bottom-bar {
+    display: flex !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 5.8rem !important;
+    background: rgba(10, 14, 23, 0.96) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    z-index: 999 !important;
+    justify-content: space-around !important;
+    align-items: center !important;
+    padding: 0 0.8rem !important;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.7) !important;
+  }
+
+  .mobile-nav-link {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.3rem !important;
+    height: 100% !important;
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    color: var(--text-dim) !important;
+    text-decoration: none !important;
+    transition: all 0.2s ease !important;
+  }
+
+  .mobile-nav-link svg {
+    transition: transform 0.2s ease, color 0.2s ease !important;
+  }
+
+  .mobile-nav-link.active {
+    color: #ffffff !important;
+  }
+
+  .mobile-nav-link.active svg {
+    color: #38bdf8 !important;
+    transform: scale(1.15) !important;
+  }
+
+  .mobile-nav-icon-wrap {
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .mobile-nav-badge {
+    position: absolute !important;
+    top: -4px !important;
+    right: -10px !important;
+    background: rgba(56, 189, 248, 0.9) !important;
+    color: #ffffff !important;
+    font-size: 0.95rem !important;
+    font-weight: 800 !important;
+    padding: 0.1rem 0.5rem !important;
+    border-radius: 9999px !important;
+    line-height: 1 !important;
   }
 
   /* 2. Hero Billboard Fluid Scaling */
@@ -8092,8 +8090,18 @@ html, body, #root, .app {
 }
 
 @media (max-width: 480px) {
+  .nav-search-trigger {
+    padding: 0.5rem 0.9rem !important;
+    gap: 0.5rem !important;
+  }
+
   .nav-search-trigger .search-text {
-    display: none !important;
+    display: inline-block !important;
+    font-size: 1.15rem !important;
+    max-width: 100px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .carousel-see-all {
