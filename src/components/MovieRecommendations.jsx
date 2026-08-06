@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getMovieRecommendations, getFallbackPoster } from "../services/geminiService";
+import { getMovieRecommendations, getFallbackPoster, generateInputHash } from "../services/geminiService";
+import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import {
   Sparkles,
@@ -16,7 +17,11 @@ import {
   Star,
   Film,
   SlidersHorizontal,
-  AlertCircle
+  AlertCircle,
+  ThumbsUp,
+  ThumbsDown,
+  X,
+  Compass
 } from "lucide-react";
 
 const getOmdbKey = () => {
@@ -27,6 +32,22 @@ const getOmdbKey = () => {
   return key.trim();
 };
 const KEY = getOmdbKey();
+
+const MOOD_OPTIONS = [
+  { id: "any", label: "✨ Any Vibe" },
+  { id: "mind-bending", label: "🧠 Mind-Bending" },
+  { id: "dark-thriller", label: "🔥 Dark Thriller" },
+  { id: "fun-popcorn", label: "🍿 Fun Popcorn" },
+  { id: "comfort-watch", label: "🛋️ Comfort Watch" },
+  { id: "hidden-gem", label: "💎 Hidden Gem" }
+];
+
+const DISMISS_REASONS = [
+  "Already seen",
+  "Too slow",
+  "Not my genre",
+  "Predictable"
+];
 
 function TasteMatchBadge({ score }) {
   const normalizedScore = Math.min(100, Math.max(0, Math.round(score || 0)));
@@ -56,6 +77,13 @@ export default function MovieRecommendations({
   tasteProfile,
   setTasteProfile
 }) {
+  const {
+    aiRecommendationsHash,
+    aiFeedbackLog,
+    saveAiRecommendations,
+    addAiFeedback
+  } = useApp();
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
@@ -64,6 +92,11 @@ export default function MovieRecommendations({
   const [expandedRec, setExpandedRec] = useState(null);
   const [isAddingMovie, setIsAddingMovie] = useState(null);
   const [sortBy, setSortBy] = useState("match"); // "match" | "imdb" | "year"
+  const [selectedMood, setSelectedMood] = useState("any");
+  const [dismissingTitle, setDismissingTitle] = useState(null);
+
+  const currentHash = generateInputHash(watched, watchlist, selectedMood);
+  const isCacheValid = aiRecommendationsHash && aiRecommendationsHash === currentHash && recommendations && recommendations.length > 0;
 
   const loadingSteps = [
     `Reading your ${watched.length} rated films...`,
@@ -96,11 +129,17 @@ export default function MovieRecommendations({
     setError("");
     setRecommendations(null);
     setExpandedRec(null);
+    setDismissingTitle(null);
 
     try {
-      const result = await getMovieRecommendations(watched, watchlist, setProgress);
+      const result = await getMovieRecommendations(watched, watchlist, setProgress, {
+        mood: selectedMood,
+        feedbackLog: aiFeedbackLog
+      });
+      const newHash = generateInputHash(watched, watchlist, selectedMood);
       setTasteProfile(result.tasteProfile);
       setRecommendations(result.recommendations);
+      saveAiRecommendations(result.recommendations, result.tasteProfile, newHash);
     } catch (err) {
       setError(err.message || "Failed to generate recommendations. Please try again.");
     } finally {
@@ -123,6 +162,13 @@ export default function MovieRecommendations({
 
   const handleAdd = async (rec) => {
     setIsAddingMovie(rec.title);
+
+    // Record positive feedback
+    addAiFeedback({
+      title: rec.title,
+      year: rec.year,
+      action: "added_watchlist"
+    });
 
     try {
       let res = await fetch(
@@ -193,6 +239,22 @@ export default function MovieRecommendations({
     }
   };
 
+  const handleDismiss = (rec, reason) => {
+    // Record negative feedback
+    addAiFeedback({
+      title: rec.title,
+      year: rec.year,
+      action: "dismissed",
+      reason: reason
+    });
+
+    // Remove from current displayed recommendations and persist to storage
+    const updated = (recommendations || []).filter((r) => r.title !== rec.title);
+    setRecommendations(updated);
+    saveAiRecommendations(updated, tasteProfile, aiRecommendationsHash);
+    setDismissingTitle(null);
+  };
+
   const sortedRecommendations = recommendations
     ? [...recommendations].sort((a, b) => {
         if (sortBy === "match") return (b.matchScore || 0) - (a.matchScore || 0);
@@ -220,6 +282,25 @@ export default function MovieRecommendations({
 
   return (
     <div className="ai-recommendations">
+      {/* Mood Selector Chips */}
+      <div className="ai-mood-selector-bar">
+        <div className="mood-label-wrapper">
+          <Compass size={16} />
+          <span>Vibe & Mood:</span>
+        </div>
+        <div className="mood-chips">
+          {MOOD_OPTIONS.map((mood) => (
+            <button
+              key={mood.id}
+              className={`mood-chip ${selectedMood === mood.id ? "active" : ""}`}
+              onClick={() => setSelectedMood(mood.id)}
+            >
+              {mood.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Pre-run Empty State ── */}
       {!recommendations && !isLoading && (
         <div className="ai-trigger-section">
@@ -391,12 +472,21 @@ export default function MovieRecommendations({
             </div>
           )}
 
-          {/* Toolbar with Sort Dropdown */}
+          {/* Toolbar with Sort Dropdown & Cache Badge */}
           <div className="recs-toolbar">
             <div className="recs-count">
               <Sparkles size={18} className="icon-sparkle" />
               <h4>Perfect Picks For You</h4>
               <span className="recs-badge">{sortedRecommendations.length} Curated Films</span>
+              {isCacheValid ? (
+                <span className="cache-status-badge cached" title="Serving saved recommendations (0 API calls)">
+                  <CheckCircle2 size={12} /> Cached (Up to Date)
+                </span>
+              ) : (
+                <span className="cache-status-badge stale" title="Your rating list or mood selection changed - refresh for updated recommendations">
+                  <AlertCircle size={12} /> Stale (Ratings/Mood Updated)
+                </span>
+              )}
             </div>
 
             <div className="recs-sort-controls">
@@ -421,6 +511,7 @@ export default function MovieRecommendations({
               const inWatchlist = isAlreadyInWatchlist(rec.title);
               const isAdding = isAddingMovie === rec.title;
               const isExpanded = expandedRec === rec.title;
+              const isDismissing = dismissingTitle === rec.title;
 
               return (
                 <li key={index} className="recommendation-card">
@@ -495,7 +586,42 @@ export default function MovieRecommendations({
                           </>
                         )}
                       </button>
+
+                      <button
+                        className="btn-dismiss-rec"
+                        onClick={() => setDismissingTitle(isDismissing ? null : rec.title)}
+                        title="Dismiss recommendation"
+                      >
+                        <ThumbsDown size={15} />
+                        <span>Not for me</span>
+                      </button>
                     </div>
+
+                    {/* Popover Reason Chips for Dismissal */}
+                    {isDismissing && (
+                      <div className="dismiss-reasons-popover">
+                        <div className="popover-header">
+                          <span>Why isn't this a match?</span>
+                          <button
+                            className="btn-close-popover"
+                            onClick={() => setDismissingTitle(null)}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                        <div className="reason-chips">
+                          {DISMISS_REASONS.map((reason) => (
+                            <button
+                              key={reason}
+                              className="reason-chip"
+                              onClick={() => handleDismiss(rec, reason)}
+                            >
+                              {reason}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Expandable Explanation Drawer */}
                     {isExpanded && (
