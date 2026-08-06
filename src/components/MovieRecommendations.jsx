@@ -476,7 +476,7 @@ export default function MovieRecommendations({
                         className={`btn-explain ${isExpanded ? "active" : ""}`}
                         onClick={() => handleToggleExplanation(rec)}
                       >
-                        <BrainCircuit size={15} />
+                        <Sparkles size={15} className="btn-explain-icon" />
                         <span>Why this match?</span>
                         {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
