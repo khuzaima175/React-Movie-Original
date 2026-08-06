@@ -1,62 +1,113 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import VaultBanner from "../components/VaultBanner";
 import VaultAnalyticsHeader from "../components/VaultAnalyticsHeader";
+import VaultBulkBar from "../components/VaultBulkBar";
 import MovieCard from "../components/MovieCard";
 import WatchedMoviesList from "../components/WatchedMoviesList";
-import RandomPicker from "../components/RandomPicker";
 import EmptyState from "../components/EmptyState";
 import BackupManagerModal from "../components/BackupManagerModal";
 import ToastNotification from "../components/ToastNotification";
-import { LayoutGrid, List, SlidersHorizontal, Settings } from "lucide-react";
+import {
+  LayoutGrid,
+  List,
+  SlidersHorizontal,
+  Search,
+  X,
+  Bookmark,
+  Sparkles,
+  Compass,
+} from "lucide-react";
 
 export default function VaultPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { watched = [], watchlist = [], addWatched, deleteWatched, deleteWatchlist } = useApp();
+  const { watched = [], watchlist = [], addWatched, deleteWatched, deleteWatchlist, addToWatchlist } = useApp();
 
   const [activeTab, setActiveTab] = useState(
     searchParams.get("tab") === "watchlist" ? "watchlist" : "watched"
   );
+  const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("input");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [viewMode, setViewMode] = useState("grid"); // "grid" or "list"
+  const [isManageMode, setIsManageMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [toast, setToast] = useState(null);
 
   // Sync tab if URL param changes
   useEffect(() => {
-    if (searchParams.get("tab") === "watchlist") setActiveTab("watchlist");
+    if (searchParams.get("tab") === "watchlist") {
+      setActiveTab("watchlist");
+    } else if (searchParams.get("tab") === "watched") {
+      setActiveTab("watched");
+    }
   }, [searchParams]);
 
-  // Extract unique genres for filter chips
+  function handleTabChange(newTab) {
+    setActiveTab(newTab);
+    setSelectedIds([]);
+    setIsManageMode(false);
+    setSearchParams({ tab: newTab });
+  }
+
+  // Active dataset
   const currentList = activeTab === "watched" ? watched : watchlist;
-  const genresSet = new Set(["All"]);
-  currentList.forEach((m) => {
-    if (m.genre) {
-      m.genre.split(",").forEach((g) => genresSet.add(g.trim()));
+
+  // Extract unique genres for filter chips
+  const genresList = useMemo(() => {
+    const set = new Set(["All"]);
+    currentList.forEach((m) => {
+      if (m.genre) {
+        m.genre.split(",").forEach((g) => set.add(g.trim()));
+      }
+    });
+    return Array.from(set).slice(0, 9);
+  }, [currentList]);
+
+  // Search & Filter
+  const filtered = useMemo(() => {
+    let result = currentList;
+
+    // Search query filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (m) =>
+          (m.title || m.Title || "").toLowerCase().includes(q) ||
+          (m.genre || "").toLowerCase().includes(q) ||
+          (m.director || "").toLowerCase().includes(q)
+      );
     }
-  });
-  const genresList = Array.from(genresSet).slice(0, 8);
 
-  // Filter by genre
-  let filtered = currentList.filter((m) => {
-    if (selectedGenre === "All") return true;
-    return m.genre && m.genre.includes(selectedGenre);
-  });
+    // Genre filter
+    if (selectedGenre !== "All") {
+      result = result.filter((m) => m.genre && m.genre.includes(selectedGenre));
+    }
 
-  // Sort list
-  if (sortBy === "rating") filtered = [...filtered].sort((a, b) => (Number(b.imdbRating) || 0) - (Number(a.imdbRating) || 0));
-  if (sortBy === "userRating") filtered = [...filtered].sort((a, b) => (Number(b.userRating) || 0) - (Number(a.userRating) || 0));
-  if (sortBy === "runtime") filtered = [...filtered].sort((a, b) => (Number(a.runtime) || 0) - (Number(b.runtime) || 0));
-  if (sortBy === "title") filtered = [...filtered].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    // Sorting
+    const sorted = [...result];
+    if (sortBy === "rating") {
+      sorted.sort((a, b) => (Number(b.imdbRating) || 0) - (Number(a.imdbRating) || 0));
+    } else if (sortBy === "userRating") {
+      sorted.sort((a, b) => (Number(b.userRating) || 0) - (Number(a.userRating) || 0));
+    } else if (sortBy === "runtime") {
+      sorted.sort((a, b) => (Number(parseInt(b.runtime)) || 0) - (Number(parseInt(a.runtime)) || 0));
+    } else if (sortBy === "title") {
+      sorted.sort((a, b) => (a.title || a.Title || "").localeCompare(b.title || b.Title || ""));
+    }
+
+    return sorted;
+  }, [currentList, searchQuery, selectedGenre, sortBy]);
 
   function handleSelectMovie(id) {
     navigate(`/movie/${id}`);
   }
 
-  function handleDeleteItem(id) {
-    const targetItem = currentList.find((m) => m.imdbID === id);
+  function handleDeleteSingle(id) {
+    const targetItem = currentList.find((m) => (m.imdbID || m.id) === id);
     if (!targetItem) return;
 
     if (activeTab === "watched") {
@@ -66,7 +117,7 @@ export default function VaultPage() {
     }
 
     setToast({
-      title: targetItem.title,
+      title: targetItem.title || targetItem.Title,
       item: targetItem,
       tab: activeTab,
     });
@@ -81,55 +132,123 @@ export default function VaultPage() {
     if (toast?.tab === "watched") {
       addWatched(item);
     } else {
-      // Re-add to watchlist
+      addToWatchlist(item);
     }
     setToast(null);
   }
 
+  // ── Manage Vault Mode Bulk Operations ──
+  function handleToggleSelect(id) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  }
+
+  function handleSelectAll() {
+    setSelectedIds(filtered.map((m) => m.imdbID || m.id));
+  }
+
+  function handleDeselectAll() {
+    setSelectedIds([]);
+  }
+
+  function handleBulkDelete() {
+    if (selectedIds.length === 0) return;
+
+    const count = selectedIds.length;
+    selectedIds.forEach((id) => {
+      if (activeTab === "watched") {
+        deleteWatched(id);
+      } else {
+        deleteWatchlist(id);
+      }
+    });
+
+    setToast({
+      title: `${count} ${count === 1 ? "item" : "items"} removed`,
+      item: null,
+      tab: activeTab,
+    });
+
+    setSelectedIds([]);
+    setIsManageMode(false);
+  }
+
+  function handleBulkMove() {
+    if (selectedIds.length === 0) return;
+
+    const count = selectedIds.length;
+    selectedIds.forEach((id) => {
+      const item = currentList.find((m) => (m.imdbID || m.id) === id);
+      if (!item) return;
+
+      if (activeTab === "watched") {
+        // Move to watchlist
+        addToWatchlist(item);
+        deleteWatched(id);
+      } else {
+        // Move to watched
+        addWatched(item);
+        deleteWatchlist(id);
+      }
+    });
+
+    setToast({
+      title: `Moved ${count} ${count === 1 ? "item" : "items"} to ${
+        activeTab === "watched" ? "Plan to Watch" : "Watched"
+      }`,
+      item: null,
+      tab: activeTab,
+    });
+
+    setSelectedIds([]);
+    setIsManageMode(false);
+  }
+
   return (
-    <div className="vault-page">
-      {/* ── Header ── */}
-      <div className="vault-header">
-        <div className="vault-header-text">
-          <h1 className="vault-header-title">My Vault</h1>
-          <p className="vault-header-meta">
-            {watched.length} films watched · {watchlist.length} queued
-          </p>
-        </div>
-        <div className="vault-header-actions">
-          <button
-            className="vault-settings-btn"
-            onClick={() => setIsBackupOpen(true)}
-            title="Backup & Portability"
-          >
-            <Settings size={16} aria-hidden="true" /> Manage Vault
-          </button>
-        </div>
-      </div>
+    <div className="vault-page-container">
+      {/* ── 1. Vault Banner Hero with Collage & Tabs ── */}
+      <VaultBanner
+        watched={watched}
+        watchlist={watchlist}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        isManageMode={isManageMode}
+        onToggleManageMode={() => {
+          setIsManageMode((prev) => !prev);
+          setSelectedIds([]);
+        }}
+        onOpenBackup={() => setIsBackupOpen(true)}
+      />
 
-      {/* ── Tab row ── */}
-      <div className="vault-tabs-row">
-        <button
-          className={`vault-tab ${activeTab === "watched" ? "active" : ""}`}
-          onClick={() => setActiveTab("watched")}
-        >
-          🎬 Watched ({watched.length})
-        </button>
-        <button
-          className={`vault-tab ${activeTab === "watchlist" ? "active" : ""}`}
-          onClick={() => setActiveTab("watchlist")}
-        >
-          📋 Plan to Watch ({watchlist.length})
-        </button>
-      </div>
-
-      {/* ── Analytics Dashboard Strip (For Watched tab) ── */}
+      {/* ── 2. Insights Strip v2 + Insights Row (For Watched tab) ── */}
       {activeTab === "watched" && <VaultAnalyticsHeader watched={watched} />}
 
-      {/* ── Body ── */}
-      <div className="vault-body">
-        {/* ── Toolbar: Genre Filters & View Mode Controls ── */}
-        <div className="vault-toolbar">
+      {/* ── 3. Sticky Collection Toolbar ── */}
+      <div className="vault-sticky-toolbar">
+        <div className="toolbar-left-group">
+          {/* Search within vault */}
+          <div className="vault-search-box">
+            <Search size={14} className="search-icon" aria-hidden="true" />
+            <input
+              type="text"
+              placeholder={`Search ${activeTab === "watched" ? "watched films" : "watchlist"}...`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="vault-search-input"
+            />
+            {searchQuery && (
+              <button
+                className="btn-clear-search"
+                onClick={() => setSearchQuery("")}
+                aria-label="Clear search"
+              >
+                <X size={13} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          {/* Genre chips */}
           <div className="vault-genre-chips">
             {genresList.map((genre) => (
               <button
@@ -141,108 +260,150 @@ export default function VaultPage() {
               </button>
             ))}
           </div>
-
-          <div className="vault-toolbar-right">
-            <div className="vault-sort-select-wrap">
-              <SlidersHorizontal size={14} className="sort-icon" aria-hidden="true" />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="sort-select"
-                aria-label="Sort movies by"
-              >
-                <option value="input">Date Added</option>
-                <option value="rating">IMDb Rating</option>
-                <option value="userRating">Your Rating</option>
-                <option value="runtime">Runtime</option>
-                <option value="title">Title (A-Z)</option>
-              </select>
-            </div>
-
-            <div className="vault-view-toggles">
-              <button
-                className={`btn-view-toggle ${viewMode === "grid" ? "active" : ""}`}
-                onClick={() => setViewMode("grid")}
-                title="Poster Grid View"
-                aria-label="Grid view"
-              >
-                <LayoutGrid size={16} aria-hidden="true" />
-              </button>
-              <button
-                className={`btn-view-toggle ${viewMode === "list" ? "active" : ""}`}
-                onClick={() => setViewMode("list")}
-                title="Compact List View"
-                aria-label="List view"
-              >
-                <List size={16} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
         </div>
 
-        {/* ── Movie Content Render (Grid vs List) ── */}
-        {activeTab === "watched" && (
-          <>
-            {filtered.length > 0 ? (
-              viewMode === "grid" ? (
-                <div className="vault-grid">
-                  {filtered.map((movie) => (
-                    <MovieCard
-                      key={movie.imdbID || movie.id}
-                      movie={movie}
-                      onSelectMovie={handleSelectMovie}
-                      onAddWatched={null}
-                      isWatched={true}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <WatchedMoviesList
-                  watched={filtered}
-                  onDeleteWatched={handleDeleteItem}
-                  onSelectMovie={handleSelectMovie}
-                />
-              )
-            ) : (
-              <EmptyState
-                message="No movies found in your vault for this filter."
-                icon="📽️"
-              />
-            )}
-          </>
-        )}
+        <div className="toolbar-right-group">
+          {/* Item Count Display */}
+          <span className="vault-item-count">
+            Showing <strong>{filtered.length}</strong> of {currentList.length}
+          </span>
 
-        {activeTab === "watchlist" && (
-          <>
-            <RandomPicker watchlist={watchlist} onSelectMovie={handleSelectMovie} />
-            {filtered.length > 0 ? (
-              viewMode === "grid" ? (
-                <div className="vault-grid">
-                  {filtered.map((movie) => (
-                    <MovieCard
-                      key={movie.imdbID || movie.id}
-                      movie={movie}
-                      onSelectMovie={handleSelectMovie}
-                      onAddWatched={addWatched}
-                      isWatched={false}
-                    />
-                  ))}
+          {/* Sort Dropdown */}
+          <div className="vault-sort-select-wrap">
+            <SlidersHorizontal size={14} className="sort-icon" aria-hidden="true" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="sort-select"
+              aria-label="Sort films by"
+            >
+              <option value="input">Date Added</option>
+              <option value="userRating">Your Rating</option>
+              <option value="rating">IMDb Rating</option>
+              <option value="runtime">Runtime</option>
+              <option value="title">Title (A-Z)</option>
+            </select>
+          </div>
+
+          {/* Grid vs List View Toggle */}
+          <div className="vault-view-toggles">
+            <button
+              className={`btn-view-toggle ${viewMode === "grid" ? "active" : ""}`}
+              onClick={() => setViewMode("grid")}
+              title="Poster Grid View"
+              aria-label="Grid view"
+            >
+              <LayoutGrid size={16} aria-hidden="true" />
+            </button>
+            <button
+              className={`btn-view-toggle ${viewMode === "list" ? "active" : ""}`}
+              onClick={() => setViewMode("list")}
+              title="Compact Table List View"
+              aria-label="List view"
+            >
+              <List size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 4. Main Collection Grid / List View ── */}
+      <div className="vault-collection-body">
+        {filtered.length > 0 ? (
+          viewMode === "grid" ? (
+            <div className="vault-grid">
+              {filtered.map((movie) => {
+                const id = movie.imdbID || movie.id;
+                const isSelected = selectedIds.includes(id);
+
+                return (
+                  <MovieCard
+                    key={id}
+                    movie={movie}
+                    onSelectMovie={handleSelectMovie}
+                    onDeleteMovie={handleDeleteSingle}
+                    onAddWatched={activeTab === "watchlist" ? addWatched : null}
+                    isWatched={activeTab === "watched"}
+                    isManageMode={isManageMode}
+                    isSelected={isSelected}
+                    onToggleSelect={handleToggleSelect}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <WatchedMoviesList
+              watched={filtered}
+              onDeleteWatched={handleDeleteSingle}
+              onSelectMovie={handleSelectMovie}
+              isManageMode={isManageMode}
+              selectedIds={selectedIds}
+              onToggleSelect={handleToggleSelect}
+            />
+          )
+        ) : (
+          /* Empty States */
+          <div className="vault-empty-wrapper">
+            {currentList.length === 0 ? (
+              activeTab === "watchlist" ? (
+                <div className="watchlist-empty-card">
+                  <div className="empty-glow-ring">
+                    <Bookmark size={32} className="cyan-icon" aria-hidden="true" />
+                  </div>
+                  <h3>Nothing Queued Yet</h3>
+                  <p>Build your upcoming cinema watchlist — bookmark films from home or search.</p>
+                  <button className="btn-empty-cta" onClick={() => navigate("/")}>
+                    <Compass size={16} aria-hidden="true" /> Discover Films
+                  </button>
                 </div>
               ) : (
-                <WatchedMoviesList
-                  watched={filtered}
-                  onDeleteWatched={handleDeleteItem}
-                  onSelectMovie={handleSelectMovie}
-                />
+                <div className="watched-empty-card">
+                  <div className="empty-glow-ring">
+                    <Sparkles size={32} className="cyan-icon" aria-hidden="true" />
+                  </div>
+                  <h3>Your Vault is Empty</h3>
+                  <p>Start rating movies and logging screen time to generate custom analytics & trivia.</p>
+                  <button className="btn-empty-cta" onClick={() => navigate("/")}>
+                    <Compass size={16} aria-hidden="true" /> Explore Movies
+                  </button>
+                </div>
               )
             ) : (
-              <EmptyState message="Your watchlist is empty." icon="📋" />
+              <div className="filter-empty-card">
+                <EmptyState message="No films match your search or genre filter." icon="🔍" />
+                <button
+                  className="btn-clear-filters-cta"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSelectedGenre("All");
+                  }}
+                >
+                  Reset Filters
+                </button>
+              </div>
             )}
-          </>
+          </div>
         )}
       </div>
 
-      {/* ── Modals & Toast ── */}
+      {/* ── 5. Manage Vault Floating Bulk Bar ── */}
+      {isManageMode && (
+        <VaultBulkBar
+          selectedCount={selectedIds.length}
+          totalItemsCount={filtered.length}
+          activeTab={activeTab}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          onBulkDelete={handleBulkDelete}
+          onBulkMove={handleBulkMove}
+          onCancel={() => {
+            setIsManageMode(false);
+            setSelectedIds([]);
+          }}
+        />
+      )}
+
+      {/* ── 6. Modals & Toast Notifications ── */}
       <BackupManagerModal
         isOpen={isBackupOpen}
         onClose={() => setIsBackupOpen(false)}
