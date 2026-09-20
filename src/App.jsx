@@ -16,7 +16,6 @@ import { Film } from "lucide-react";
 function AppContent() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
 
   function handleSelectMovie(id) {
     if (navigate) {
@@ -38,23 +37,12 @@ function AppContent() {
       />
 
       <main className="flex-1 w-full">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            variants={reveal}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            className="w-full"
-          >
-            <Routes location={location}>
-              <Route path="/" element={<DashboardPage onOpenSearch={() => setIsSearchOpen(true)} />} />
-              <Route path="/movie/:id" element={<MoviePage />} />
-              <Route path="/vault" element={<VaultPage />} />
-              <Route path="/ai" element={<AIPage />} />
-            </Routes>
-          </motion.div>
-        </AnimatePresence>
+        <Routes>
+          <Route path="/" element={<DashboardPage onOpenSearch={() => setIsSearchOpen(true)} />} />
+          <Route path="/movie/:id" element={<MoviePage />} />
+          <Route path="/vault" element={<VaultPage />} />
+          <Route path="/ai" element={<AIPage />} />
+        </Routes>
       </main>
 
       {/* Slim Editorial Footer */}

@@ -38,7 +38,8 @@ function InlineMovieCard({ title, year }) {
         const res = await fetch(
           `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${
             year ? `&y=${year}` : ""
-          }`
+          }`,
+          { cache: "no-store" }
         );
         const data = await res.json();
         if (isMounted && data.Response === "True") {

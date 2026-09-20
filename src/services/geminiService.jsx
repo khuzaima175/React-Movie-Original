@@ -24,13 +24,13 @@ const fetchRealOMDBData = async (title, year) => {
 
         // First attempt: Try with year for precision
         let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-        let response = await fetch(url);
+        let response = await fetch(url, { cache: "no-store" });
 
         if (!response.ok || response.status === 401) {
             if (OMDB_KEY !== "b78bdecd") {
                 console.log(`🔄 Primary OMDb key failed (status ${response.status}), retrying with default key...`);
                 url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-                response = await fetch(url);
+                response = await fetch(url, { cache: "no-store" });
             }
         }
 
@@ -39,7 +39,7 @@ const fetchRealOMDBData = async (title, year) => {
         if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && OMDB_KEY !== "b78bdecd") {
             console.log(`🔄 OMDb reports key error, retrying enrichment with default key...`);
             url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-            response = await fetch(url);
+            response = await fetch(url, { cache: "no-store" });
             data = await response.json();
         }
 
@@ -48,12 +48,12 @@ const fetchRealOMDBData = async (title, year) => {
         if (data.Response !== "True" && cleanYear) {
             console.log(`🔄 Retrying "${cleanTitle}" without year constraint...`);
             url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}`;
-            response = await fetch(url);
+            response = await fetch(url, { cache: "no-store" });
 
             if (!response.ok || response.status === 401) {
                 if (OMDB_KEY !== "b78bdecd") {
                     url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}`;
-                    response = await fetch(url);
+                    response = await fetch(url, { cache: "no-store" });
                 }
             }
 
@@ -61,7 +61,7 @@ const fetchRealOMDBData = async (title, year) => {
 
             if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && OMDB_KEY !== "b78bdecd") {
                 url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}`;
-                response = await fetch(url);
+                response = await fetch(url, { cache: "no-store" });
                 data = await response.json();
             }
         }

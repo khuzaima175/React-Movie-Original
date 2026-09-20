@@ -85,11 +85,15 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
       try {
         setIsLoading(true);
         setError("");
-        let res = await fetch(`https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`);
+        let res = await fetch(`https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`, {
+          cache: "no-store",
+        });
 
         if (!res.ok || res.status === 401) {
           if (KEY !== "b78bdecd") {
-            res = await fetch(`https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`);
+            res = await fetch(`https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`, {
+              cache: "no-store",
+            });
           }
         }
 

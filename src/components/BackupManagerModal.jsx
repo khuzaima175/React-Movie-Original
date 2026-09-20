@@ -353,7 +353,7 @@ export default function BackupManagerModal({ isOpen, onClose }) {
           )}${row.year ? `&y=${row.year}` : ""}`;
         }
 
-        let res = await fetch(fetchUrl);
+        let res = await fetch(fetchUrl, { cache: "no-store" });
 
         if (!res.ok || res.status === 401) {
           if (KEY !== "b78bdecd") {
@@ -365,7 +365,7 @@ export default function BackupManagerModal({ isOpen, onClose }) {
                 row.title
               )}${row.year ? `&y=${row.year}` : ""}`;
             }
-            res = await fetch(fallbackUrl);
+            res = await fetch(fallbackUrl, { cache: "no-store" });
           }
         }
 
@@ -386,7 +386,7 @@ export default function BackupManagerModal({ isOpen, onClose }) {
               row.title
             )}${row.year ? `&y=${row.year}` : ""}`;
           }
-          const fallbackRes = await fetch(fallbackUrl);
+          const fallbackRes = await fetch(fallbackUrl, { cache: "no-store" });
           if (fallbackRes.ok) {
             data = await fallbackRes.json();
           }

@@ -58,7 +58,7 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
         const keyToUse = API_KEY || "b78bdecd";
         const res = await fetch(
           `https://www.omdbapi.com/?apikey=${keyToUse}&s=${encodeURIComponent(query)}`,
-          { signal: controller.signal }
+          { signal: controller.signal, cache: "no-store" }
         );
         if (!res.ok) throw new Error("Search network failed");
         const data = await res.json();

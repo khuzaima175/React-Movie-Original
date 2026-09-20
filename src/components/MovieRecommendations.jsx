@@ -172,13 +172,15 @@ export default function MovieRecommendations({
 
     try {
       let res = await fetch(
-        `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(rec.title)}&y=${rec.year}`
+        `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(rec.title)}&y=${rec.year}`,
+        { cache: "no-store" }
       );
 
       if (!res.ok || res.status === 401) {
         if (KEY !== "b78bdecd") {
           res = await fetch(
-            `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`
+            `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`,
+            { cache: "no-store" }
           );
         }
       }
@@ -192,7 +194,8 @@ export default function MovieRecommendations({
         KEY !== "b78bdecd"
       ) {
         const fallbackRes = await fetch(
-          `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`
+          `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`,
+          { cache: "no-store" }
         );
         if (fallbackRes.ok) {
           data = await fallbackRes.json();
