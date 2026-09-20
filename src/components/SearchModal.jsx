@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, X, Film, Star, Command, Sparkles } from "lucide-react";
+import { Search, X, Film, Sparkles, Command } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 import PosterImage from "./PosterImage";
 
 const POPULAR_SUGGESTIONS = [
@@ -16,11 +17,16 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
 
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+      setTimeout(() => inputRef.current?.focus(), 80);
+      document.body.style.overflow = "hidden";
     } else {
       setQuery("");
       setResults([]);
+      document.body.style.overflow = "";
     }
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -28,9 +34,6 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (isOpen) onClose();
-        else {
-          // Open signal handled by parent or modal
-        }
       }
       if (e.key === "Escape" && isOpen) {
         onClose();
@@ -82,94 +85,124 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <AnimatePresence>
-      <div className="search-modal-backdrop" onClick={onClose} aria-label="Close search overlay">
+      <div
+        className="fixed inset-0 z-modal flex items-start justify-center p-4 pt-[10vh] md:pt-[14vh] bg-black/75 backdrop-blur-md overflow-y-auto"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search movies"
+      >
         <motion.div
-          className="search-modal-container"
+          className="w-full max-w-2xl rounded-modal bg-surface-1 border border-hairline shadow-sh-3 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
-          initial={{ opacity: 0, scale: 0.95, y: -20 }}
+          initial={{ opacity: 0, scale: 0.96, y: -16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -20 }}
-          transition={{ duration: 0.2 }}
-          role="dialog"
-          aria-label="Command palette search"
+          exit={{ opacity: 0, scale: 0.96, y: -16 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
         >
-          <div className="search-modal-input-bar">
-            <Search className="search-modal-icon" size={20} aria-hidden="true" />
+          {/* Borderless Search Input Bar */}
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-hairline bg-surface-2/50">
+            <Search className="text-text-3 flex-shrink-0" size={20} aria-hidden="true" />
             <input
               ref={inputRef}
               type="text"
-              className="search-modal-input"
-              placeholder="Search movies, series, or directors..."
+              className="flex-1 bg-transparent text-base md:text-lg text-text-1 placeholder:text-text-3 outline-none border-none focus:outline-none focus:ring-0"
+              placeholder="Search films, series, or directors..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search movies input"
+              aria-label="Search movies query"
             />
             {query && (
               <button
-                className="search-modal-clear"
+                className="p-1 rounded-control text-text-3 hover:text-text-1 hover:bg-surface-3 transition-colors"
                 onClick={() => setQuery("")}
-                aria-label="Clear search text"
+                aria-label="Clear search query"
               >
                 <X size={16} aria-hidden="true" />
               </button>
             )}
-            <button className="search-modal-close" onClick={onClose} aria-label="Close search modal">
-              <kbd>ESC</kbd>
+            <button
+              onClick={onClose}
+              className="px-2 py-0.5 text-xs font-mono font-medium rounded-control border border-hairline bg-surface-3 text-text-3 hover:text-text-1 transition-colors"
+              aria-label="Close search"
+            >
+              ESC
             </button>
           </div>
 
-          <div className="search-modal-body">
+          {/* Results / Suggestions Body */}
+          <div className="max-h-[60vh] overflow-y-auto p-4 custom-scrollbar">
             {isLoading && (
-              <div className="search-modal-loading">
-                <Sparkles size={24} className="icon-spin-sparkle" aria-hidden="true" />
+              <div className="flex items-center justify-center gap-3 py-12 text-sm text-text-3">
+                <Sparkles size={18} className="animate-spin text-accent" aria-hidden="true" />
                 <span>Searching cinema database...</span>
               </div>
             )}
 
             {!isLoading && results.length > 0 && (
-              <div className="search-modal-results">
-                <div className="search-modal-section-title">
-                  <Film size={14} aria-hidden="true" /> Search Results ({results.length})
+              <div className="space-y-1.5">
+                <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wider text-text-3 flex items-center gap-1.5">
+                  <Film size={13} aria-hidden="true" />
+                  <span>Search Results ({results.length})</span>
                 </div>
-                {results.map((m) => (
-                  <div
-                    key={m.imdbID}
-                    className="search-modal-result-item"
-                    onClick={() => {
-                      onSelectMovie(m.imdbID);
-                      onClose();
-                    }}
-                    tabIndex={0}
-                    role="button"
-                  >
-                    <div className="search-result-poster">
-                      <PosterImage src={m.Poster} title={m.Title} alt="" />
-                    </div>
-                    <div className="search-result-info">
-                      <h4 className="search-result-title">{m.Title}</h4>
-                      <div className="search-result-meta">
-                        <span>{m.Year}</span>
-                        <span className="search-result-type">{m.Type}</span>
+                <div className="space-y-1">
+                  {results.map((m) => (
+                    <div
+                      key={m.imdbID}
+                      className="group flex items-center gap-3.5 p-2 rounded-control hover:bg-surface-2 transition-colors cursor-pointer border border-transparent hover:border-hairline"
+                      onClick={() => {
+                        onSelectMovie(m.imdbID);
+                        onClose();
+                      }}
+                      tabIndex={0}
+                      role="button"
+                    >
+                      {/* 40x60 poster thumbnail */}
+                      <div className="w-10 h-[60px] flex-shrink-0 rounded-poster overflow-hidden bg-surface-3 border border-hairline">
+                        <PosterImage
+                          src={m.Poster}
+                          title={m.Title}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-semibold text-text-1 truncate group-hover:text-accent transition-colors">
+                          {m.Title}
+                        </h4>
+                        <div className="flex items-center gap-2 mt-0.5 text-xs text-text-3">
+                          <span className="tabular-nums font-mono">{m.Year}</span>
+                          <span className="text-hairline-strong">•</span>
+                          <span className="capitalize">{m.Type || "Movie"}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!isLoading && query.length >= 3 && results.length === 0 && (
+              <div className="py-12 text-center text-sm text-text-3">
+                <p>No films found matching "{query}"</p>
+                <p className="text-xs mt-1 text-text-3/70">Try checking the spelling or searching by a different title</p>
               </div>
             )}
 
             {!isLoading && query.length < 3 && (
-              <div className="search-modal-suggestions">
-                <div className="search-modal-section-title">
-                  <Command size={14} aria-hidden="true" /> Trending Queries
+              <div className="py-2 space-y-3">
+                <div className="px-2 text-xs font-semibold uppercase tracking-wider text-text-3 flex items-center gap-1.5">
+                  <Command size={13} aria-hidden="true" />
+                  <span>Trending Searches</span>
                 </div>
-                <div className="search-modal-chips">
+                <div className="flex flex-wrap gap-2 px-2">
                   {POPULAR_SUGGESTIONS.map((term) => (
                     <button
                       key={term}
-                      className="search-modal-chip"
                       onClick={() => setQuery(term)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-control border border-hairline bg-surface-2 text-text-2 hover:text-text-1 hover:bg-surface-3 hover:border-hairline-strong transition-all"
                     >
                       {term}
                     </button>
@@ -180,6 +213,7 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
           </div>
         </motion.div>
       </div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
