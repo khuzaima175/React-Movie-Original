@@ -37,7 +37,7 @@ function AppContent() {
         onSelectMovie={handleSelectMovie}
       />
 
-      <main className="flex-1 w-full max-w-[1440px] mx-auto px-4 sm:px-6 md:px-12 py-6">
+      <main className="flex-1 w-full">
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
