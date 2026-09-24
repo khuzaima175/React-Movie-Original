@@ -7,7 +7,7 @@ import {
   getSmartCache,
   setSmartCache
 } from "../services/geminiService";
-import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS } from "../services/tmdbService";
+import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS, AVAILABLE_REGIONS } from "../services/tmdbService";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import TrailerModal from "./TrailerModal";
@@ -83,6 +83,7 @@ export default function MovieRecommendations({
     userRegion,
     setUserRegion,
     userWatchProviders,
+    setUserWatchProviders,
     toggleWatchProvider,
     aiRecommendationsHash,
     aiFeedbackLog,
@@ -311,11 +312,11 @@ export default function MovieRecommendations({
             {/* Vibe Selection Strip */}
             <div className="vibe-selection-block">
               <div className="vibe-header-row">
-                <span className="vibe-label">
-                  <Compass size={14} className="text-accent" aria-hidden="true" />
-                  Select Cinematic Mood
-                </span>
-                <span className="vibe-active-hint">{activeMoodObj.desc}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                  <Compass size={16} className="text-accent" aria-hidden="true" />
+                  <span className="vibe-label">1. Select Cinematic Mood</span>
+                </div>
+                <span className="vibe-active-hint">{activeMoodObj.label}: {activeMoodObj.desc}</span>
               </div>
 
               <div className="vibe-chips-grid">
@@ -339,42 +340,113 @@ export default function MovieRecommendations({
               </div>
             </div>
 
-            {/* Watch Providers Filter Strip */}
-            <div className="vibe-selection-block" style={{ marginTop: "1.6rem" }}>
+            {/* Watch Providers & Global Cinema Filter Strip */}
+            <div className="vibe-selection-block" style={{ marginTop: "2rem" }}>
               <div className="vibe-header-row">
                 <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                  <Tv size={14} className="text-accent" aria-hidden="true" />
-                  <span className="vibe-label">Filter by Your Streaming Subscriptions</span>
+                  <Tv size={16} className="text-accent" aria-hidden="true" />
+                  <span className="vibe-label">2. Streaming Access & Region</span>
+                  <span style={{ fontSize: "1.15rem", color: "#8a8a86", fontWeight: 500 }}>(Optional)</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                  <Globe size={13} style={{ color: "#8a8a86" }} />
-                  <select
-                    value={userRegion}
-                    onChange={(e) => setUserRegion(e.target.value)}
-                    style={{
-                      background: "#1c1d20",
-                      color: "#f4f4f2",
-                      border: "1px solid rgba(255, 255, 255, 0.12)",
-                      borderRadius: "0.6rem",
-                      padding: "0.3rem 0.8rem",
-                      fontSize: "1.2rem",
-                      fontWeight: 600,
-                      cursor: "pointer"
-                    }}
-                    aria-label="Select Streaming Region"
-                  >
-                    <option value="US">🇺🇸 United States</option>
-                    <option value="GB">🇬🇧 United Kingdom</option>
-                    <option value="CA">🇨🇦 Canada</option>
-                    <option value="AU">🇦🇺 Australia</option>
-                    <option value="IN">🇮🇳 India</option>
-                    <option value="DE">🇩🇪 Germany</option>
-                    <option value="FR">🇫🇷 France</option>
-                  </select>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "#1c1d20", border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "0.8rem", padding: "0.4rem 1rem" }}>
+                    <Globe size={14} style={{ color: "#e2b13c" }} />
+                    <select
+                      value={userRegion}
+                      onChange={(e) => setUserRegion(e.target.value)}
+                      style={{
+                        background: "transparent",
+                        color: "#f4f4f2",
+                        border: "none",
+                        fontSize: "1.25rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        outline: "none"
+                      }}
+                      aria-label="Select Streaming Region"
+                    >
+                      {AVAILABLE_REGIONS.map((reg) => (
+                        <option key={reg.code} value={reg.code} style={{ background: "#141416", color: "#f4f4f2" }}>
+                          {reg.flag} {reg.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem", marginTop: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginTop: "0.4rem" }}>
+                <p style={{ fontSize: "1.25rem", color: "#8a8a86", margin: 0 }}>
+                  {userWatchProviders.length === 0
+                    ? "✨ Recommending from the entire world cinema catalog across all platforms without restriction."
+                    : `🔒 Filtering recommendations to movies available on ${userWatchProviders.length} selected service${userWatchProviders.length > 1 ? "s" : ""}.`}
+                </p>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map(p => p.id))}
+                    style={{
+                      fontSize: "1.2rem",
+                      fontWeight: 600,
+                      color: "#8a8a86",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      padding: "0.2rem 0.4rem"
+                    }}
+                    className="hover:text-accent"
+                  >
+                    Select All
+                  </button>
+                  <span style={{ color: "rgba(255, 255, 255, 0.2)" }}>•</span>
+                  <button
+                    type="button"
+                    onClick={() => setUserWatchProviders([])}
+                    style={{
+                      fontSize: "1.2rem",
+                      fontWeight: 600,
+                      color: "#8a8a86",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      padding: "0.2rem 0.4rem"
+                    }}
+                    className="hover:text-accent"
+                  >
+                    Reset (Unlimited Access)
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.9rem", marginTop: "1.2rem" }}>
+                {/* All Platforms Universal Pill */}
+                <button
+                  type="button"
+                  onClick={() => setUserWatchProviders([])}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.8rem",
+                    padding: "0.9rem 1.6rem",
+                    borderRadius: "0.9rem",
+                    fontSize: "1.3rem",
+                    fontWeight: 700,
+                    background: userWatchProviders.length === 0 ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
+                    color: userWatchProviders.length === 0 ? "#e2b13c" : "#b6b6b2",
+                    border: userWatchProviders.length === 0 ? "1px solid rgba(226, 177, 60, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
+                    boxShadow: userWatchProviders.length === 0 ? "0 0 16px rgba(226, 177, 60, 0.2)" : "none",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease"
+                  }}
+                >
+                  <Globe size={15} />
+                  <span>All Platforms / Universal Access</span>
+                </button>
+
                 {POPULAR_WATCH_PROVIDERS.map((provider) => {
                   const isSelected = userWatchProviders.includes(provider.id);
                   return (
@@ -385,19 +457,21 @@ export default function MovieRecommendations({
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: "0.6rem",
-                        padding: "0.7rem 1.2rem",
-                        borderRadius: "0.8rem",
-                        fontSize: "1.25rem",
+                        gap: "0.7rem",
+                        padding: "0.9rem 1.4rem",
+                        borderRadius: "0.9rem",
+                        fontSize: "1.3rem",
                         fontWeight: 600,
                         background: isSelected ? "rgba(226, 177, 60, 0.15)" : "#1c1d20",
                         color: isSelected ? "#e2b13c" : "#b6b6b2",
                         border: isSelected ? "1px solid rgba(226, 177, 60, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
+                        boxShadow: isSelected ? "0 0 12px rgba(226, 177, 60, 0.15)" : "none",
                         cursor: "pointer",
                         transition: "all 0.2s ease"
                       }}
+                      className="hover:border-white/20 hover:bg-[#242528]"
                     >
-                      <span>{provider.icon}</span>
+                      <span style={{ fontSize: "1.4rem" }}>{provider.icon}</span>
                       <span>{provider.name}</span>
                     </button>
                   );
@@ -406,16 +480,41 @@ export default function MovieRecommendations({
             </div>
 
             {/* Launch CTA */}
-            <div className="ai-launch-cta-row" style={{ marginTop: "2.4rem" }}>
+            <div className="synthesis-action-bar" style={{ marginTop: "2.8rem", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: "1.2rem" }}>
+              {error && (
+                <div className="ai-error-banner" style={{ width: "100%", maxWidth: "600px", marginBottom: "1rem" }}>
+                  <AlertCircle size={16} />
+                  <span>{error}</span>
+                </div>
+              )}
+
               <button
                 type="button"
-                className="btn-launch-engine"
+                className="btn-synthesize-cinema"
                 onClick={handleGetRecommendations}
                 disabled={isLoading}
+                style={{
+                  minHeight: "5.4rem",
+                  padding: "1.5rem 4.4rem",
+                  fontSize: "1.55rem",
+                  fontWeight: 800,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  borderRadius: "1.2rem",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "1.2rem",
+                  boxShadow: "0 8px 32px -4px rgba(226, 177, 60, 0.45)"
+                }}
               >
-                <Sparkles size={18} className="btn-sparkle-icon" />
+                <Sparkles size={20} className="btn-sparkle-icon" />
                 <span>Synthesize Recommendations</span>
               </button>
+
+              <span style={{ fontSize: "1.25rem", color: "#8a8a86", textAlign: "center" }}>
+                TMDB 3-Bucket Waterfall Engine • Google Gemini 2.5 Flash Strict Re-Ranking • Zero Hallucinations
+              </span>
             </div>
           </div>
         </div>

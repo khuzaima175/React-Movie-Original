@@ -74,9 +74,9 @@ export function AppProvider({ children }) {
 
   const [userRegion, setUserRegion] = useState(() => {
     try {
-      return localStorage.getItem("cinemavault_user_region") || "US";
+      return localStorage.getItem("cinemavault_user_region") || "GLOBAL";
     } catch {
-      return "US";
+      return "GLOBAL";
     }
   });
 

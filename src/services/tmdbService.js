@@ -81,6 +81,24 @@ export const PROVIDER_MAP = {
   criterion: 258
 };
 
+export const AVAILABLE_REGIONS = [
+  { code: "GLOBAL", name: "Worldwide / Any Country", flag: "🌍" },
+  { code: "US", name: "United States", flag: "🇺🇸" },
+  { code: "GB", name: "United Kingdom", flag: "🇬🇧" },
+  { code: "CA", name: "Canada", flag: "🇨🇦" },
+  { code: "AU", name: "Australia", flag: "🇦🇺" },
+  { code: "JP", name: "Japan", flag: "🇯🇵" },
+  { code: "KR", name: "South Korea", flag: "🇰🇷" },
+  { code: "FR", name: "France", flag: "🇫🇷" },
+  { code: "DE", name: "Germany", flag: "🇩🇪" },
+  { code: "ES", name: "Spain", flag: "🇪🇸" },
+  { code: "IT", name: "Italy", flag: "🇮🇹" },
+  { code: "IN", name: "India", flag: "🇮🇳" },
+  { code: "BR", name: "Brazil", flag: "🇧🇷" },
+  { code: "MX", name: "Mexico", flag: "🇲🇽" },
+  { code: "SE", name: "Sweden", flag: "🇸🇪" }
+];
+
 export const POPULAR_WATCH_PROVIDERS = [
   { id: 8, name: "Netflix", icon: "🔴" },
   { id: 9, name: "Amazon Prime", icon: "📦" },
@@ -90,9 +108,10 @@ export const POPULAR_WATCH_PROVIDERS = [
   { id: 15, name: "Hulu", icon: "🟢" },
   { id: 531, name: "Paramount+", icon: "🏔️" },
   { id: 386, name: "Peacock", icon: "🦚" },
+  { id: 258, name: "Criterion Channel", icon: "🏛️" },
   { id: 73, name: "Tubi (Free)", icon: "📺" },
   { id: 300, name: "Pluto TV (Free)", icon: "⚡" },
-  { id: 258, name: "Criterion", icon: "🏛️" }
+  { id: 573, name: "Freevee (Free)", icon: "🎬" }
 ];
 
 export function buildProviderFilter(selectedProviders) {
@@ -338,8 +357,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
     language: "en-US",
     sort_by: sortParam,
     "vote_count.gte": voteCountGte,
-    "vote_average.gte": voteAverageGte,
-    watch_region: userRegion || "US"
+    "vote_average.gte": voteAverageGte
   });
 
   // CONDITIONAL GENRE GUARD: Never append empty with_genres
@@ -357,10 +375,13 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
     params.set("with_cast", profile.topCastIds.join(","));
   }
 
-  // WATCH PROVIDER FILTERING
+  // WATCH PROVIDER FILTERING & REGION BINDING
   const providerFilter = buildProviderFilter(userProviders);
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
+    params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
+  } else if (userRegion && userRegion !== "GLOBAL") {
+    params.set("watch_region", userRegion);
   }
 
   let candidates = [];
@@ -451,13 +472,15 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
     sort_by: "vote_average.desc",
     "vote_count.gte": "250",
     "vote_average.gte": "7.0",
-    include_adult: "false",
-    watch_region: userRegion || "US"
+    include_adult: "false"
   });
 
   const providerFilter = buildProviderFilter(userProviders);
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
+    params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
+  } else if (userRegion && userRegion !== "GLOBAL") {
+    params.set("watch_region", userRegion);
   }
 
   const candidates = [];
@@ -512,13 +535,15 @@ export async function fetchBucketC(profile, options = {}, collisionSets = {}, ta
     with_crew: String(topCrewMemberId),
     sort_by: "vote_average.desc",
     "vote_count.gte": "150",
-    include_adult: "false",
-    watch_region: userRegion || "US"
+    include_adult: "false"
   });
 
   const providerFilter = buildProviderFilter(userProviders);
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
+    params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
+  } else if (userRegion && userRegion !== "GLOBAL") {
+    params.set("watch_region", userRegion);
   }
 
   const candidates = [];
@@ -687,7 +712,9 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
     const trailerUrl = trailerObj ? `https://www.youtube.com/watch?v=${trailerObj.key}` : null;
     const imdbId = data.external_ids?.imdb_id || null;
 
-    const providerRegion = data["watch/providers"]?.results?.[userRegion] || data["watch/providers"]?.results?.US;
+    const providerRegion = (userRegion && userRegion !== "GLOBAL")
+      ? (data["watch/providers"]?.results?.[userRegion] || data["watch/providers"]?.results?.US)
+      : (data["watch/providers"]?.results?.US || Object.values(data["watch/providers"]?.results || {})[0]);
     const streamProviders = (providerRegion?.flatrate || []).map(p => ({
       id: p.provider_id,
       name: p.provider_name,
