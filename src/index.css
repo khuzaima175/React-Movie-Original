@@ -8357,12 +8357,12 @@ body,
    ============================================================ */
 .recommendation-card {
   content-visibility: auto;
-  contain-intrinsic-size: auto 100% auto 170px;
+  contain-intrinsic-size: auto 600px auto 170px;
 }
 
 .vault-list-row {
   content-visibility: auto;
-  contain-intrinsic-size: auto 100% auto 80px;
+  contain-intrinsic-size: auto 800px auto 80px;
 }
 
 .unified-movie-card {
