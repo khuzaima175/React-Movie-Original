@@ -53,33 +53,48 @@ const HERO_SLIDES = [
 export default function HeroBillboard({ watched = [], onAddWatched }) {
   const navigate = useNavigate();
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
+    if (isPaused) return;
+    const isReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (isReducedMotion) return;
+
     const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % HERO_SLIDES.length);
+      if (!document.hidden) {
+        setCurrentIndex((prev) => (prev + 1) % HERO_SLIDES.length);
+      }
     }, 8000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isPaused]);
 
   const slide = HERO_SLIDES[currentIndex];
-  const isWatched = (watched || []).some((m) => m && m.imdbID === slide.imdbID);
+  const isWatched = (watched || []).some((m) => m && (m.imdbID === slide.imdbID || m.id === slide.imdbID));
 
   function handleQuickAdd() {
     if (isWatched || !onAddWatched) return;
+    const parsedRuntime = parseInt(slide.runtime, 10) || 120;
     onAddWatched({
       imdbID: slide.imdbID,
       title: slide.title,
       year: slide.year,
       poster: slide.poster,
       imdbRating: Number(slide.imdbRating),
-      runtime: 160,
-      userRating: 9,
+      runtime: parsedRuntime,
+      userRating: 0,
       genre: slide.genre,
     });
   }
 
   return (
-    <div className="hero-billboard" aria-label="Featured Film Billboard">
+    <div
+      className="hero-billboard"
+      aria-label="Featured Film Billboard"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocus={() => setIsPaused(true)}
+      onBlur={() => setIsPaused(false)}
+    >
       <AnimatePresence mode="wait">
         <motion.div
           key={slide.imdbID}

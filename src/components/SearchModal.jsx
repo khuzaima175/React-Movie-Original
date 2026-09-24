@@ -3,6 +3,7 @@ import { Search, X, Film, Sparkles, Command } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 import PosterImage from "./PosterImage";
+import { useDebounce } from "../hooks/useDebounce";
 
 const POPULAR_SUGGESTIONS = [
   "Inception", "The Dark Knight", "Interstellar", "Dune", "Oppenheimer", "Pulp Fiction", "Avatar", "The Matrix"
@@ -10,6 +11,7 @@ const POPULAR_SUGGESTIONS = [
 
 export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY }) {
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebounce(query, 300);
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -44,7 +46,7 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
   }, [isOpen, onClose]);
 
   useEffect(() => {
-    if (query.trim().length < 3) {
+    if (!debouncedQuery || debouncedQuery.trim().length < 3) {
       setResults([]);
       setIsLoading(false);
       return;
@@ -55,9 +57,9 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
       try {
         setIsLoading(true);
         setError("");
-        const keyToUse = API_KEY || "b78bdecd";
+        const keyToUse = API_KEY || import.meta.env.VITE_OMDB_KEY || "b78bdecd";
         const res = await fetch(
-          `https://www.omdbapi.com/?apikey=${keyToUse}&s=${encodeURIComponent(query)}`,
+          `https://www.omdbapi.com/?apikey=${keyToUse}&s=${encodeURIComponent(debouncedQuery.trim())}`,
           { signal: controller.signal, cache: "no-store" }
         );
         if (!res.ok) throw new Error("Search network failed");
@@ -76,12 +78,11 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
       }
     }
 
-    const timer = setTimeout(searchMovies, 350);
+    searchMovies();
     return () => {
-      clearTimeout(timer);
       controller.abort();
     };
-  }, [query, API_KEY]);
+  }, [debouncedQuery, API_KEY]);
 
   if (!isOpen) return null;
 

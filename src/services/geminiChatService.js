@@ -27,16 +27,23 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) =
     2.  **Redirect**: If asked about anything else (life, code, math, politics), politely say: "I can only help you with movies! 🎬" and steer back to cinema.
     3.  **Personalization**: ALWAYS reference their watched history when possible. (e.g., "Since you rated ${watchedMovies?.[0]?.title || "your movies"} highly...")
     4.  **Tone**: Friendly, enthusiastic film buff. Keep answers concise (max 3-4 sentences unless asked for a deep dive).
+    5.  **Formatting**: When specifically recommending movies, always format titles as **Movie Title** (YYYY) so interactive cards can be displayed.
     `;
 
-    // 2. Build the history as a single structured prompt script
+    // 2. Build the history cleanly without duplicate user prompt
     let prompt = `${systemInstruction}\n\nCHAT HISTORY:\n`;
 
     (chatHistory || []).forEach(msg => {
-        prompt += `${msg.role === "user" ? "User" : "AI"}: ${msg.text}\n`;
+        const roleName = msg.role === "user" ? "User" : "AI";
+        prompt += `${roleName}: ${msg.text}\n`;
     });
 
-    prompt += `User: ${userMessage}\nAI:`;
+    // If chatHistory doesn't already end with userMessage, append it
+    const lastMsg = chatHistory?.[chatHistory.length - 1];
+    if (!lastMsg || lastMsg.text !== userMessage || lastMsg.role !== "user") {
+        prompt += `User: ${userMessage}\n`;
+    }
+    prompt += `AI:`;
 
     try {
         let response;

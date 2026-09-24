@@ -456,6 +456,7 @@ body {
 }
 
 @media (max-width: 768px) {
+
   .nav-links-desktop,
   .search-placeholder,
   .search-shortcut {
@@ -4894,10 +4895,13 @@ body {
 }
 
 @keyframes studioPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.8;
   }
+
   50% {
     transform: scale(1.3);
     opacity: 1;
@@ -8571,6 +8575,7 @@ body,
 }
 
 @media (max-width: 768px) {
+
   /* Flatten costly nested blurs on mobile devices to sustain 60fps scrolling */
   .unified-movie-card,
   .recommendation-card,

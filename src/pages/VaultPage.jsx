@@ -155,7 +155,9 @@ export default function VaultPage() {
     });
 
     setToast({
-      title: `${count} ${count === 1 ? "item" : "items"} removed`,
+      message: `${count} ${count === 1 ? "item" : "items"} removed from ${
+        activeTab === "watched" ? "Vault" : "Watchlist"
+      }`,
       item: null,
       tab: activeTab,
     });
@@ -184,7 +186,7 @@ export default function VaultPage() {
     });
 
     setToast({
-      title: `Moved ${count} ${count === 1 ? "item" : "items"} to ${
+      message: `Moved ${count} ${count === 1 ? "item" : "items"} to ${
         activeTab === "watched" ? "Plan to Watch" : "Watched"
       }`,
       item: null,

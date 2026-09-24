@@ -18,9 +18,15 @@ export default function ToastNotification({ toast, onUndo, onClose }) {
         <div className="flex items-center gap-3 px-4 py-3 rounded-card bg-surface-2 border border-hairline shadow-sh-3 text-text-1">
           <CheckCircle2 size={16} className="text-accent flex-shrink-0" aria-hidden="true" />
           <span className="text-xs sm:text-sm font-medium">
-            Removed <strong className="font-semibold text-text-1">{toast.title}</strong> from Vault
+            {toast.message ? (
+              toast.message
+            ) : (
+              <>
+                Removed <strong className="font-semibold text-text-1">{toast.title}</strong> from Vault
+              </>
+            )}
           </span>
-          {onUndo && (
+          {onUndo && toast.item && (
             <button
               onClick={() => onUndo(toast.item)}
               className="inline-flex items-center gap-1 ml-1 px-2 py-1 text-xs font-semibold rounded-control bg-surface-3 hover:bg-surface-1 text-accent hover:text-[#f2c968] border border-hairline transition-colors"

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AppProvider } from "./context/AppContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AnimatedBackground from "./components/AnimatedBackground";
 import NavBar from "./components/NavBar";
 import SearchModal from "./components/SearchModal";
+import RandomPicker from "./components/RandomPicker";
 import DashboardPage from "./pages/DashboardPage";
 import MoviePage from "./pages/MoviePage";
 import VaultPage from "./pages/VaultPage";
@@ -15,6 +16,7 @@ import { Film } from "lucide-react";
 
 function AppContent() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isRandomPickerOpen, setIsRandomPickerOpen] = useState(false);
   const navigate = useNavigate();
 
   function handleSelectMovie(id) {
@@ -28,11 +30,20 @@ function AppContent() {
   return (
     <div className="min-h-screen flex flex-col bg-bg text-text-1 selection:bg-accent/20 selection:text-accent">
       <AnimatedBackground />
-      <NavBar onOpenSearch={() => setIsSearchOpen(true)} />
+      <NavBar
+        onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenRandomPicker={() => setIsRandomPickerOpen(true)}
+      />
 
       <SearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
+        onSelectMovie={handleSelectMovie}
+      />
+
+      <RandomPicker
+        isOpen={isRandomPickerOpen}
+        onClose={() => setIsRandomPickerOpen(false)}
         onSelectMovie={handleSelectMovie}
       />
 
@@ -42,6 +53,7 @@ function AppContent() {
           <Route path="/movie/:id" element={<MoviePage />} />
           <Route path="/vault" element={<VaultPage />} />
           <Route path="/ai" element={<AIPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 

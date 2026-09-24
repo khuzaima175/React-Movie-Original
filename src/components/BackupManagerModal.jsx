@@ -304,134 +304,140 @@ export default function BackupManagerModal({ isOpen, onClose }) {
     const resolvedWatchlist = [];
     const total = parsedRows.length;
 
-    for (let i = 0; i < total; i++) {
+    const BATCH_SIZE = 4;
+    for (let i = 0; i < total; i += BATCH_SIZE) {
       if (cancelRef.current) break;
-      const row = parsedRows[i];
+      const batch = parsedRows.slice(i, i + BATCH_SIZE);
+      setProgress({ current: Math.min(i + batch.length, total), total, title: batch[0].title });
 
-      setProgress({ current: i + 1, total, title: row.title });
+      await Promise.all(
+        batch.map(async (row) => {
+          if (cancelRef.current) return;
 
-      const fallbackMovie = () => {
-        const tempId = row.imdbId || `csv-${Math.random().toString(36).substr(2, 9)}`;
-        const isWatchlist =
-          row.type.toLowerCase().includes("watchlist") ||
-          (!row.rating && row.type.toLowerCase() !== "watched");
+          const fallbackMovie = () => {
+            const tempId = row.imdbId || `csv-${Math.random().toString(36).substr(2, 9)}`;
+            const isWatchlist =
+              row.type.toLowerCase().includes("watchlist") ||
+              (!row.rating && row.type.toLowerCase() !== "watched");
 
-        if (isWatchlist) {
-          resolvedWatchlist.push({
-            imdbID: tempId,
-            title: row.title,
-            year: row.year || "N/A",
-            poster: "",
-            imdbRating: 0,
-            runtime: 0,
-          });
-        } else {
-          resolvedWatched.push({
-            imdbID: tempId,
-            title: row.title,
-            year: row.year || "N/A",
-            poster: "",
-            imdbRating: 0,
-            runtime: 0,
-            userRating: row.rating || 5,
-            userNote: row.note || "",
-            director: "Unknown",
-            writer: "Unknown",
-            genre: "Unknown",
-            shortPlot: "Imported via CSV backup.",
-          });
-        }
-      };
-
-      try {
-        let fetchUrl = "";
-        if (row.imdbId && row.imdbId.startsWith("tt")) {
-          fetchUrl = `https://www.omdbapi.com/?apikey=${KEY}&i=${row.imdbId}`;
-        } else {
-          fetchUrl = `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(
-            row.title
-          )}${row.year ? `&y=${row.year}` : ""}`;
-        }
-
-        let res = await fetch(fetchUrl, { cache: "no-store" });
-
-        if (!res.ok || res.status === 401) {
-          if (KEY !== "b78bdecd") {
-            let fallbackUrl = "";
-            if (row.imdbId && row.imdbId.startsWith("tt")) {
-              fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
+            if (isWatchlist) {
+              resolvedWatchlist.push({
+                imdbID: tempId,
+                title: row.title,
+                year: row.year || "N/A",
+                poster: "",
+                imdbRating: 0,
+                runtime: 0,
+              });
             } else {
-              fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(
+              resolvedWatched.push({
+                imdbID: tempId,
+                title: row.title,
+                year: row.year || "N/A",
+                poster: "",
+                imdbRating: 0,
+                runtime: 0,
+                userRating: row.rating || 5,
+                userNote: row.note || "",
+                director: "Unknown",
+                writer: "Unknown",
+                genre: "Unknown",
+                shortPlot: "Imported via CSV backup.",
+              });
+            }
+          };
+
+          try {
+            let fetchUrl = "";
+            if (row.imdbId && row.imdbId.startsWith("tt")) {
+              fetchUrl = `https://www.omdbapi.com/?apikey=${KEY}&i=${row.imdbId}`;
+            } else {
+              fetchUrl = `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(
                 row.title
               )}${row.year ? `&y=${row.year}` : ""}`;
             }
-            res = await fetch(fallbackUrl, { cache: "no-store" });
+
+            let res = await fetch(fetchUrl, { cache: "no-store" });
+
+            if (!res.ok || res.status === 401) {
+              if (KEY !== "b78bdecd") {
+                let fallbackUrl = "";
+                if (row.imdbId && row.imdbId.startsWith("tt")) {
+                  fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
+                } else {
+                  fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(
+                    row.title
+                  )}${row.year ? `&y=${row.year}` : ""}`;
+                }
+                res = await fetch(fallbackUrl, { cache: "no-store" });
+              }
+            }
+
+            if (!res.ok) throw new Error("Network issues");
+            let data = await res.json();
+
+            if (
+              data.Response === "False" &&
+              data.Error &&
+              (data.Error.includes("key") || data.Error.includes("credential")) &&
+              KEY !== "b78bdecd"
+            ) {
+              let fallbackUrl = "";
+              if (row.imdbId && row.imdbId.startsWith("tt")) {
+                fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
+              } else {
+                fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(
+                  row.title
+                )}${row.year ? `&y=${row.year}` : ""}`;
+              }
+              const fallbackRes = await fetch(fallbackUrl, { cache: "no-store" });
+              if (fallbackRes.ok) {
+                data = await fallbackRes.json();
+              }
+            }
+
+            if (data.Response === "True") {
+              const isWatchlist =
+                row.type.toLowerCase().includes("watchlist") ||
+                (row.rating === null && !row.type);
+
+              if (isWatchlist) {
+                resolvedWatchlist.push({
+                  imdbID: data.imdbID,
+                  title: data.Title,
+                  year: data.Year,
+                  poster: data.Poster !== "N/A" ? data.Poster : "",
+                  imdbRating: Number(data.imdbRating) || 0,
+                  runtime: Number(data.Runtime?.split(" ")[0] || 0),
+                });
+              } else {
+                resolvedWatched.push({
+                  imdbID: data.imdbID,
+                  title: data.Title,
+                  year: data.Year,
+                  poster: data.Poster !== "N/A" ? data.Poster : "",
+                  imdbRating: Number(data.imdbRating) || 0,
+                  runtime: Number(data.Runtime?.split(" ")[0] || 0),
+                  userRating: row.rating || 7,
+                  userNote: row.note || "",
+                  director: data.Director || "Unknown",
+                  writer: data.Writer || "Unknown",
+                  genre: data.Genre || "Unknown",
+                  shortPlot: data.Plot
+                    ? data.Plot.split(" ").slice(0, 15).join(" ") + "..."
+                    : "",
+                });
+              }
+            } else {
+              fallbackMovie();
+            }
+          } catch (err) {
+            fallbackMovie();
           }
-        }
+        })
+      );
 
-        if (!res.ok) throw new Error("Network issues");
-        let data = await res.json();
-
-        if (
-          data.Response === "False" &&
-          data.Error &&
-          (data.Error.includes("key") || data.Error.includes("credential")) &&
-          KEY !== "b78bdecd"
-        ) {
-          let fallbackUrl = "";
-          if (row.imdbId && row.imdbId.startsWith("tt")) {
-            fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
-          } else {
-            fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(
-              row.title
-            )}${row.year ? `&y=${row.year}` : ""}`;
-          }
-          const fallbackRes = await fetch(fallbackUrl, { cache: "no-store" });
-          if (fallbackRes.ok) {
-            data = await fallbackRes.json();
-          }
-        }
-
-        if (data.Response === "True") {
-          const isWatchlist =
-            row.type.toLowerCase().includes("watchlist") ||
-            (row.rating === null && !row.type);
-
-          if (isWatchlist) {
-            resolvedWatchlist.push({
-              imdbID: data.imdbID,
-              title: data.Title,
-              year: data.Year,
-              poster: data.Poster !== "N/A" ? data.Poster : "",
-              imdbRating: Number(data.imdbRating) || 0,
-              runtime: Number(data.Runtime?.split(" ")[0] || 0),
-            });
-          } else {
-            resolvedWatched.push({
-              imdbID: data.imdbID,
-              title: data.Title,
-              year: data.Year,
-              poster: data.Poster !== "N/A" ? data.Poster : "",
-              imdbRating: Number(data.imdbRating) || 0,
-              runtime: Number(data.Runtime?.split(" ")[0] || 0),
-              userRating: row.rating || 7,
-              userNote: row.note || "",
-              director: data.Director || "Unknown",
-              writer: data.Writer || "Unknown",
-              genre: data.Genre || "Unknown",
-              shortPlot: data.Plot
-                ? data.Plot.split(" ").slice(0, 15).join(" ") + "..."
-                : "",
-            });
-          }
-        } else {
-          fallbackMovie();
-        }
-      } catch (err) {
-        fallbackMovie();
-      }
-
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 40));
     }
 
     if (cancelRef.current) {

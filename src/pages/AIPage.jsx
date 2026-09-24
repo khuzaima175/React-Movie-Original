@@ -20,12 +20,6 @@ export default function AIPage() {
 
   return (
     <div className={`ai-page-wrapper ${aiSection === "chat" ? "chat-mode" : ""}`}>
-      {/* Ambient cinematic glow */}
-      <div className="ai-ambient-backdrop" aria-hidden="true">
-        <div className="ai-aura-gold" />
-        <div className="ai-aura-cyan" />
-      </div>
-
       <div className="ai-page-container">
         {/* ── Sleek Cinema Studio Header ── */}
         <header className="ai-studio-header">

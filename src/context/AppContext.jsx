@@ -173,26 +173,32 @@ export function AppProvider({ children }) {
   }
 
   function addWatched(movie) {
-    if (!movie || !movie.imdbID) return;
-    if (watched.some((m) => m.imdbID === movie.imdbID)) return;
-    setWatched((prev) => [...(prev || []), movie]);
-    setWatchlist((prev) => (prev || []).filter((m) => m.imdbID !== movie.imdbID));
+    if (!movie) return;
+    const movieId = movie.imdbID || movie.id;
+    if (!movieId) return;
+    const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId };
+    if (watched.some((m) => (m.imdbID || m.id) === movieId)) return;
+    setWatched((prev) => [...(prev || []), normalizedMovie]);
+    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id) !== movieId));
   }
 
   function deleteWatched(id) {
     if (!id) return;
-    setWatched((prev) => (prev || []).filter((m) => m.imdbID !== id));
+    setWatched((prev) => (prev || []).filter((m) => (m.imdbID || m.id) !== id));
   }
 
   function addToWatchlist(movie) {
-    if (!movie || !movie.imdbID) return;
-    if ((watchlist || []).some((m) => m.imdbID === movie.imdbID)) return;
-    setWatchlist((prev) => [...(prev || []), movie]);
+    if (!movie) return;
+    const movieId = movie.imdbID || movie.id;
+    if (!movieId) return;
+    const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId };
+    if ((watchlist || []).some((m) => (m.imdbID || m.id) === movieId)) return;
+    setWatchlist((prev) => [...(prev || []), normalizedMovie]);
   }
 
   function deleteWatchlist(id) {
     if (!id) return;
-    setWatchlist((prev) => (prev || []).filter((m) => m.imdbID !== id));
+    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id) !== id));
   }
 
   return (

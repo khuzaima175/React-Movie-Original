@@ -255,13 +255,17 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
     if (watchedMovies.length > 35) {
         // 1. ELITE ANCHORS (9-10): Chained comparator (Rating > Note > Recency), hard-capped at 25
         const elite = [...watchedMovies]
-            .filter(m => m.userRating >= 9)
+            .filter(m => (m.userRating || m.UserRating || 0) >= 9)
             .sort((a, b) => {
+                const rA = a.userRating || a.UserRating || 0;
+                const rB = b.userRating || b.UserRating || 0;
                 // Tier 1: Highest Rating (10 beats 9)
-                if (b.userRating !== a.userRating) return b.userRating - a.userRating;
+                if (rB !== rA) return rB - rA;
                 // Tier 2: User notes present (informative notes beat empty notes)
-                const aHasNote = Boolean(a.userNote && a.userNote.trim());
-                const bHasNote = Boolean(b.userNote && b.userNote.trim());
+                const aNote = a.userNote || a.UserNote || "";
+                const bNote = b.userNote || b.UserNote || "";
+                const aHasNote = Boolean(aNote.trim());
+                const bHasNote = Boolean(bNote.trim());
                 if (aHasNote !== bHasNote) return bHasNote ? 1 : -1;
                 // Tier 3: Recency (newest first)
                 return parseTimestamp(b) - parseTimestamp(a);
@@ -270,17 +274,22 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
 
         // 2. SUPPORTING TIER (7-8): Sampled and capped at 15
         const supporting = [...watchedMovies]
-            .filter(m => m.userRating >= 7 && m.userRating <= 8)
+            .filter(m => {
+                const r = m.userRating || m.UserRating || 0;
+                return r >= 7 && r <= 8;
+            })
             .sort((a, b) => {
-                if (b.userRating !== a.userRating) return b.userRating - a.userRating;
+                const rA = a.userRating || a.UserRating || 0;
+                const rB = b.userRating || b.UserRating || 0;
+                if (rB !== rA) return rB - rA;
                 return parseTimestamp(b) - parseTimestamp(a);
             })
             .slice(0, 15);
 
         // 3. ANTI-PATTERNS (<= 5): Lowest rated with criticism notes
         const low = [...watchedMovies]
-            .filter(m => m.userRating <= 5)
-            .sort((a, b) => a.userRating - b.userRating)
+            .filter(m => (m.userRating || m.UserRating || 0) <= 5)
+            .sort((a, b) => (a.userRating || a.UserRating || 0) - (b.userRating || b.UserRating || 0))
             .slice(0, 10);
 
         // 4. RECENT WATCHES (Latest 10)
@@ -291,19 +300,21 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
         // Deduplicate: Elite priority preserved via Map first-write
         const map = new Map();
         [...elite, ...supporting, ...low, ...recent].forEach(m => {
-            const key = m.imdbID || m.id || `${m.title}_${m.year || "N/A"}`;
+            const titleStr = m.title || m.Title || "Unknown";
+            const yearStr = m.year || m.Year || "N/A";
+            const key = m.imdbID || m.id || `${titleStr}_${yearStr}`;
             if (!map.has(key)) map.set(key, m);
         });
         processedWatched = Array.from(map.values());
     }
 
-    const eliteTier = processedWatched.filter(m => m.userRating >= 9);
-    const antiPatterns = processedWatched.filter(m => m.userRating <= 5);
+    const eliteTier = processedWatched.filter(m => (m.userRating || m.UserRating || 0) >= 9);
+    const antiPatterns = processedWatched.filter(m => (m.userRating || m.UserRating || 0) <= 5);
 
     // Data Encoding: Compact CSV without wasteful shortPlot (saves ~3,000 tokens)
     const header = "Title|Year|Director|Genre|Rating|UserNote";
     const rows = processedWatched.map(m =>
-        `${cleanStr(m.title)}|${cleanStr(m.year || "N/A")}|${cleanStr(m.director || "Unknown")}|${cleanStr(m.genre || "Unknown")}|${m.userRating}|${cleanStr(m.userNote)}`
+        `${cleanStr(m.title || m.Title)}|${cleanStr(m.year || m.Year || "N/A")}|${cleanStr(m.director || m.Director || "Unknown")}|${cleanStr(m.genre || m.Genre || "Unknown")}|${m.userRating || m.UserRating || 0}|${cleanStr(m.userNote || m.UserNote || "")}`
     ).join("\n");
     const historyData = `${header}\n${rows}`;
 
@@ -312,21 +323,31 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
         .map(f => cleanStr(f.title));
 
     const excludeTitles = [
-        ...watchedMovies.map(m => cleanStr(m.title)),
-        ...(watchlist || []).map(m => cleanStr(m.title)),
+        ...watchedMovies.map(m => cleanStr(m.title || m.Title)),
+        ...(watchlist || []).map(m => cleanStr(m.title || m.Title)),
         ...dismissedTitles
     ].filter(Boolean).join(", ");
 
     const watchlistTitles = (watchlist || []).length > 0
-        ? (watchlist || []).map(m => `"${cleanStr(m.title)}"`).join(", ")
+        ? (watchlist || []).map(m => `"${cleanStr(m.title || m.Title)}"`).join(", ")
         : "None";
 
     const eliteSummary = eliteTier.length > 0
-        ? eliteTier.map(m => `"${cleanStr(m.title)}" (${m.userRating}/10${m.userNote ? `: ${cleanStr(m.userNote)}` : ''})`).join(", ")
+        ? eliteTier.map(m => {
+            const titleStr = cleanStr(m.title || m.Title);
+            const ratingNum = m.userRating || m.UserRating || 0;
+            const noteStr = cleanStr(m.userNote || m.UserNote || "");
+            return `"${titleStr}" (${ratingNum}/10${noteStr ? `: ${noteStr}` : ''})`;
+        }).join(", ")
         : "Highest rated films in viewing history";
 
     const antiPatternSummary = antiPatterns.length > 0
-        ? antiPatterns.map(m => `"${cleanStr(m.title)}" (${m.userRating}/10${m.userNote ? `: ${cleanStr(m.userNote)}` : ''})`).join(", ")
+        ? antiPatterns.map(m => {
+            const titleStr = cleanStr(m.title || m.Title);
+            const ratingNum = m.userRating || m.UserRating || 0;
+            const noteStr = cleanStr(m.userNote || m.UserNote || "");
+            return `"${titleStr}" (${ratingNum}/10${noteStr ? `: ${noteStr}` : ''})`;
+        }).join(", ")
         : "No strongly disliked movies";
 
     // Format precomputed analytics block
@@ -499,11 +520,21 @@ export const getMovieRecommendations = async (watchedMovies, watchlist, onProgre
                     }
                 };
 
-                const critiqueResponse = await ai.models.generateContent({
-                    model: MODELS[1],
-                    contents: critiquePrompt,
-                    config: critiqueConfig
-                });
+                let critiqueResponse;
+                for (const modelName of MODELS) {
+                    try {
+                        critiqueResponse = await ai.models.generateContent({
+                            model: modelName,
+                            contents: critiquePrompt,
+                            config: critiqueConfig
+                        });
+                        break;
+                    } catch (e) {
+                        console.warn(`Critique model ${modelName} failed:`, e.message || e);
+                    }
+                }
+
+                if (!critiqueResponse) throw new Error("Critique generation failed across all models");
 
                 const critiqueResult = JSON.parse(critiqueResponse.text || "{}");
 

@@ -43,10 +43,11 @@ function InlineMovieCard({ title, year }) {
 
     const controller = new AbortController();
 
+    const omdbKey = import.meta.env.VITE_OMDB_KEY || "b78bdecd";
     async function fetchDetails() {
       try {
         const res = await fetch(
-          `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${
+          `https://www.omdbapi.com/?apikey=${omdbKey}&t=${encodeURIComponent(cleanTitle)}${
             year ? `&y=${year}` : ""
           }`,
           { cache: "no-store", signal: controller.signal }

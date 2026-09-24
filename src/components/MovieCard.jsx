@@ -29,13 +29,14 @@ export default function MovieCard({
     e.stopPropagation();
     if (isWatched || !onAddWatched) return;
     onAddWatched({
+      ...movie,
       imdbID: id,
       title,
       year,
       poster: poster !== "N/A" ? poster : "",
       imdbRating: Number(imdbRating) || 8.0,
-      runtime: 120,
-      userRating: 9,
+      runtime: parseInt(movie.runtime, 10) || 120,
+      userRating: Number(userRating) || 0,
     });
   }
 
