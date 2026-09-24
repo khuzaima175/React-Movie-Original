@@ -2,23 +2,13 @@ import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import VaultBanner from "../components/VaultBanner";
-import VaultAnalyticsHeader from "../components/VaultAnalyticsHeader";
 import VaultBulkBar from "../components/VaultBulkBar";
 import MovieCard from "../components/MovieCard";
 import WatchedMoviesList from "../components/WatchedMoviesList";
 import EmptyState from "../components/EmptyState";
 import BackupManagerModal from "../components/BackupManagerModal";
 import ToastNotification from "../components/ToastNotification";
-import {
-  LayoutGrid,
-  List,
-  SlidersHorizontal,
-  Search,
-  X,
-  Bookmark,
-  Sparkles,
-  Compass,
-} from "lucide-react";
+import { Bookmark, Sparkles, Compass } from "lucide-react";
 
 export default function VaultPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -207,7 +197,7 @@ export default function VaultPage() {
 
   return (
     <div className="vault-page-container">
-      {/* ── 1. Vault Banner Hero with Collage & Tabs ── */}
+      {/* ── 1. Unified Cinematic Studio Hub (Header, Metrics, Insights Drawer, Tabs & Controls) ── */}
       <VaultBanner
         watched={watched}
         watchlist={watchlist}
@@ -219,95 +209,20 @@ export default function VaultPage() {
           setSelectedIds([]);
         }}
         onOpenBackup={() => setIsBackupOpen(true)}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        selectedGenre={selectedGenre}
+        onGenreSelect={setSelectedGenre}
+        genresList={genresList}
+        sortBy={sortBy}
+        onSortChange={setSortBy}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        filteredCount={filtered.length}
+        totalCount={currentList.length}
       />
 
-      {/* ── 2. Insights Strip v2 + Insights Row (For Watched tab) ── */}
-      {activeTab === "watched" && <VaultAnalyticsHeader watched={watched} />}
-
-      {/* ── 3. Sticky Collection Toolbar ── */}
-      <div className="vault-sticky-toolbar">
-        <div className="toolbar-left-group">
-          {/* Search within vault */}
-          <div className="vault-search-box">
-            <Search size={14} className="search-icon" aria-hidden="true" />
-            <input
-              type="text"
-              placeholder={`Search ${activeTab === "watched" ? "watched films" : "watchlist"}...`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="vault-search-input"
-            />
-            {searchQuery && (
-              <button
-                className="btn-clear-search"
-                onClick={() => setSearchQuery("")}
-                aria-label="Clear search"
-              >
-                <X size={13} aria-hidden="true" />
-              </button>
-            )}
-          </div>
-
-          {/* Genre chips */}
-          <div className="vault-genre-chips">
-            {genresList.map((genre) => (
-              <button
-                key={genre}
-                className={`genre-chip ${selectedGenre === genre ? "active" : ""}`}
-                onClick={() => setSelectedGenre(genre)}
-              >
-                {genre}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="toolbar-right-group">
-          {/* Item Count Display */}
-          <span className="vault-item-count">
-            Showing <strong>{filtered.length}</strong> of {currentList.length}
-          </span>
-
-          {/* Sort Dropdown */}
-          <div className="vault-sort-select-wrap">
-            <SlidersHorizontal size={14} className="sort-icon" aria-hidden="true" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="sort-select"
-              aria-label="Sort films by"
-            >
-              <option value="input">Date Added</option>
-              <option value="userRating">Your Rating</option>
-              <option value="rating">IMDb Rating</option>
-              <option value="runtime">Runtime</option>
-              <option value="title">Title (A-Z)</option>
-            </select>
-          </div>
-
-          {/* Grid vs List View Toggle */}
-          <div className="vault-view-toggles">
-            <button
-              className={`btn-view-toggle ${viewMode === "grid" ? "active" : ""}`}
-              onClick={() => setViewMode("grid")}
-              title="Poster Grid View"
-              aria-label="Grid view"
-            >
-              <LayoutGrid size={16} aria-hidden="true" />
-            </button>
-            <button
-              className={`btn-view-toggle ${viewMode === "list" ? "active" : ""}`}
-              onClick={() => setViewMode("list")}
-              title="Compact Table List View"
-              aria-label="List view"
-            >
-              <List size={16} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── 4. Main Collection Grid / List View ── */}
+      {/* ── 2. Main Collection Grid / List View ── */}
       <div className="vault-collection-body">
         {filtered.length > 0 ? (
           viewMode === "grid" ? (

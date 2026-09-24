@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { Star, Plus, Check, Info, Trash2, CheckSquare, Square } from "lucide-react";
 import PosterImage from "./PosterImage";
 
@@ -53,7 +54,12 @@ export default function MovieCard({
   }
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+      whileHover={{ y: -5, transition: { duration: 0.18 } }}
       className={`unified-movie-card ${isManageMode ? "manage-mode" : ""} ${
         isSelected ? "selected" : ""
       } ${className}`}
@@ -149,6 +155,6 @@ export default function MovieCard({
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

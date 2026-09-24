@@ -4851,459 +4851,300 @@ body {
   }
 }
 
-/* ── 1. Vault Banner Hero with Poster Mosaic ── */
-.vault-banner-hero {
+/* ── 1. Unified Cinematic Studio Header & Control Hub ── */
+.vault-studio-header {
   position: relative;
   width: 100%;
-  min-height: 28rem;
-  border-radius: var(--radius);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
   overflow: hidden;
-  background: var(--surface-card);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: var(--shadow-card);
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  margin-top: 1.6rem;
+  box-shadow: var(--sh-2);
+  margin-top: 1.2rem;
+  transition: all var(--dur-3) var(--ease-out);
 }
 
-.vault-banner-mosaic {
+.vault-studio-backdrop {
   position: absolute;
   inset: 0;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 0.4rem;
-  opacity: 0.28;
-  filter: blur(8px) saturate(1.2);
-  transform: scale(1.06);
   pointer-events: none;
   z-index: 0;
 }
 
-.mosaic-tile {
+.backdrop-mosaic-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  opacity: 0.14;
+  filter: blur(10px) saturate(1.2);
+  transform: scale(1.06);
+  width: 100%;
+  height: 100%;
+}
+
+.mosaic-cell {
   width: 100%;
   height: 100%;
   overflow: hidden;
 }
 
-.mosaic-tile img {
+.mosaic-cell img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.mosaic-fallback-gradient {
+.backdrop-ambient-glow {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.15), transparent 70%),
-    radial-gradient(circle at 80% 70%, rgba(251, 191, 36, 0.1), transparent 70%);
+  background: radial-gradient(circle at 20% 30%, rgba(226, 177, 60, 0.08), transparent 70%),
+    radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.06), transparent 70%);
 }
 
-.vault-banner-scrim {
+.backdrop-scrim-gradient {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(9, 12, 18, 0.4) 0%, rgba(9, 12, 18, 0.85) 65%, #090c12 100%),
-    radial-gradient(ellipse at center, transparent 0%, rgba(9, 12, 18, 0.6) 100%);
-  z-index: 1;
+  background: linear-gradient(180deg, rgba(11, 11, 12, 0.5) 0%, rgba(11, 11, 12, 0.94) 80%, var(--bg) 100%);
 }
 
-.vault-banner-content {
+.vault-studio-content {
   position: relative;
-  z-index: 2;
-  padding: 3.2rem 3.2rem 0;
+  z-index: 1;
+  padding: 2.4rem 2.8rem 0;
   display: flex;
   flex-direction: column;
-  gap: 2.4rem;
+  gap: 1.8rem;
 }
 
-.banner-top-row {
+/* Studio Identity & Action Row */
+.studio-top-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 2rem;
   flex-wrap: wrap;
 }
 
-.banner-left {
+.studio-identity-group {
   display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-}
-
-.banner-badge {
-  display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  background: var(--accent-dim);
-  border: 1px solid rgba(226, 177, 60, 0.3);
-  color: var(--accent);
-  font-size: 1.15rem;
-  font-weight: 700;
-  padding: 0.3rem 1rem;
-  border-radius: var(--r-control);
-  width: fit-content;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  gap: 2.2rem;
+  flex-wrap: wrap;
 }
 
-.banner-badge-icon {
-  color: var(--accent);
+.vault-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
 }
 
-.vault-banner-title {
+.live-studio-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  animation: studioPulse 2.5s infinite;
+}
+
+@keyframes studioPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+    box-shadow: 0 0 14px var(--accent);
+  }
+}
+
+.vault-studio-title {
   font-family: var(--font-sans);
-  font-size: 4.2rem;
+  font-size: 3.2rem;
   font-weight: 800;
   color: var(--text-1);
   letter-spacing: -0.03em;
+  margin: 0;
   line-height: 1;
-  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
 }
 
-.vault-banner-meta {
+.studio-metrics-pills {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  font-size: 1.45rem;
-  color: var(--text-2);
-  font-weight: 500;
-}
-
-.vault-banner-meta .dot {
-  color: var(--text-3);
-}
-
-.vault-banner-meta .meta-star {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.vault-banner-tagline {
-  font-size: 1.35rem;
-  color: var(--text-2);
-  font-style: italic;
-}
-
-.vault-banner-tagline strong {
-  color: var(--accent);
-  font-style: normal;
-  font-weight: 600;
-}
-
-.banner-right {
-  display: flex;
-  align-items: center;
-  gap: 1.2rem;
-}
-
-.vault-manage-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  color: var(--text-1);
-  padding: 0.9rem 1.8rem;
-  border-radius: var(--r-control);
-  font-size: 1.3rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--dur-2) var(--ease-out);
-}
-
-.vault-manage-btn:hover {
-  background: var(--surface-3);
-  border-color: var(--hairline-strong);
-  color: var(--text-1);
-  box-shadow: var(--sh-1);
-}
-
-.vault-manage-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg);
-  box-shadow: var(--sh-2);
-}
-
-.vault-settings-ghost-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  color: var(--text-2);
-  padding: 0.9rem 1.6rem;
-  border-radius: var(--r-control);
-  font-size: 1.3rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--dur-2) var(--ease-out);
-}
-
-.vault-settings-ghost-btn:hover {
-  background: var(--surface-3);
-  border-color: var(--hairline-strong);
-  color: var(--text-1);
-}
-
-/* ── Integrated Segmented Banner Tabs ── */
-.vault-segmented-tabs {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: var(--surface-1);
-  backdrop-filter: blur(12px);
-  padding: 0.4rem;
-  border-radius: var(--r-control) var(--r-control) 0 0;
-  border: 1px solid var(--hairline);
-  border-bottom: none;
-  width: fit-content;
-}
-
-.tab-pill {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  padding: 0.9rem 2.2rem;
-  border-radius: var(--r-control);
-  background: transparent;
-  border: none;
-  color: var(--text-2);
-  font-size: 1.35rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--dur-2) var(--ease-out);
-}
-
-.tab-pill:hover {
-  color: var(--text-1);
-  background: var(--surface-2);
-}
-
-.tab-pill.active {
-  background: var(--surface-3);
-  color: var(--text-1);
-  box-shadow: var(--sh-1);
-}
-
-.tab-count-badge {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 0.2rem 0.7rem;
-  border-radius: var(--r-control);
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.tab-pill.active .tab-count-badge {
-  background: var(--accent);
-  color: var(--bg);
-}
-
-
-/* ── 2. Compact 4-Stat Metric Strip & Expandable Insights Drawer ── */
-.vault-analytics-compact-section {
-  display: flex;
-  flex-direction: column;
-  gap: 1.2rem;
-  width: 100%;
-}
-
-.vault-summary-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1.6rem;
-  padding: 1.2rem 2.2rem;
-  background: var(--surface-1);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-card);
-  box-shadow: var(--sh-1);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   flex-wrap: wrap;
-  transition: all var(--dur-2) var(--ease-out);
 }
 
-.vault-summary-strip:hover {
-  border-color: var(--hairline-strong);
-  box-shadow: var(--sh-2);
-}
-
-.summary-stat-cell {
-  display: flex;
+.metric-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 1.2rem;
-  padding: 0.4rem 0.8rem;
-}
-
-.stat-cell-icon {
-  width: 3.4rem;
-  height: 3.4rem;
-  border-radius: var(--r-control);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  gap: 0.6rem;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--hairline);
+  padding: 0.45rem 1.1rem;
+  border-radius: var(--r-control);
+  font-size: 1.25rem;
   color: var(--text-2);
-  flex-shrink: 0;
+  transition: all var(--dur-2) ease;
 }
 
-.stat-cell-icon.gold {
+.metric-chip strong {
+  color: var(--text-1);
+  font-weight: 700;
+}
+
+.metric-chip.gold {
   background: var(--accent-dim);
   border-color: rgba(226, 177, 60, 0.3);
   color: var(--accent);
 }
 
-.stat-cell-content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.stat-cell-label {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.stat-cell-value {
-  font-size: 1.45rem;
-  font-weight: 700;
-  color: var(--text-1);
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-}
-
-.stat-cell-unit {
-  font-size: 1.2rem;
-  font-weight: 500;
-  color: var(--text-3);
-}
-
-.stat-rating-row {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
-
-.stat-delta-chip {
-  font-size: 1.1rem;
-  font-weight: 700;
-  padding: 0.15rem 0.6rem;
-  border-radius: 4px;
-}
-
-.stat-delta-chip.positive {
-  background: var(--accent-dim);
+.metric-chip.gold strong {
   color: var(--accent);
-  border: 1px solid rgba(226, 177, 60, 0.3);
 }
 
-.stat-delta-chip.neutral {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-2);
-  border: 1px solid var(--hairline);
+.metric-sub-delta {
+  font-size: 1.1rem;
+  color: var(--text-3);
+  font-weight: 500;
+  margin-left: 0.2rem;
 }
 
-.btn-toggle-insights {
+.chip-icon {
+  color: var(--text-3);
+}
+
+.chip-icon.gold {
+  color: var(--accent);
+}
+
+.studio-actions-group {
   display: flex;
   align-items: center;
   gap: 0.8rem;
+}
+
+.btn-studio-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
   background: var(--surface-2);
   border: 1px solid var(--hairline);
-  color: var(--text-2);
-  padding: 0.85rem 1.6rem;
+  color: var(--text-1);
+  padding: 0.75rem 1.4rem;
   border-radius: var(--r-control);
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--dur-2) var(--ease-out);
-  margin-left: auto;
 }
 
-.btn-toggle-insights:hover {
+.btn-studio-action:hover {
   background: var(--surface-3);
-  color: var(--text-1);
   border-color: var(--hairline-strong);
+  box-shadow: var(--sh-1);
 }
 
-.btn-toggle-insights.active {
+.btn-insights-trigger {
+  background: rgba(226, 177, 60, 0.08);
+  border-color: rgba(226, 177, 60, 0.25);
+  color: var(--accent);
+}
+
+.btn-insights-trigger:hover,
+.btn-insights-trigger.active {
   background: var(--accent-dim);
+  border-color: rgba(226, 177, 60, 0.45);
   color: var(--accent);
-  border-color: rgba(226, 177, 60, 0.4);
+  box-shadow: 0 0 14px rgba(226, 177, 60, 0.15);
 }
 
-.btn-toggle-insights .sparkle-icon {
-  color: var(--accent);
-}
-
-/* ── Deep Insights Drawer ── */
-.vault-deep-insights-drawer {
-  background: var(--surface-1);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-card);
-  padding: 2rem;
+.btn-studio-action.manage-active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
   box-shadow: var(--sh-2);
 }
 
-.insights-drawer-grid {
+.btn-studio-action.ghost {
+  background: transparent;
+  border-color: var(--hairline);
+  color: var(--text-2);
+}
+
+.btn-studio-action.ghost:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+/* ── Collapsible Glass Insights Drawer ── */
+.studio-insights-drawer-wrapper {
+  overflow: hidden;
+  width: 100%;
+}
+
+.studio-insights-card {
+  background: rgba(18, 20, 26, 0.95);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-card);
+  padding: 2.2rem;
+  margin-top: 0.4rem;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--sh-2);
+}
+
+.insights-grid-layout {
   display: grid;
   grid-template-columns: 1fr 1fr 1.3fr;
-  gap: 2rem;
+  gap: 2.4rem;
 }
 
-.drawer-insight-card {
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-control);
-  padding: 1.8rem;
+.insight-panel-col {
   display: flex;
   flex-direction: column;
-  gap: 1.4rem;
+  gap: 1.2rem;
 }
 
-.insight-card-header {
+.panel-col-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   border-bottom: 1px solid var(--hairline);
-  padding-bottom: 1rem;
+  padding-bottom: 0.8rem;
 }
 
-.insight-title-group {
+.col-header-title {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.6rem;
 }
 
-.insight-title-group h4 {
+.col-header-title h4 {
   font-family: var(--font-sans);
-  font-size: 1.45rem;
+  font-size: 1.4rem;
   font-weight: 700;
   color: var(--text-1);
   margin: 0;
 }
 
-.insight-meta-sub {
-  font-size: 1.15rem;
+.col-header-sub {
+  font-size: 1.1rem;
   color: var(--text-3);
 }
 
-/* Ratings Histogram */
-.histogram-body-compact {
+/* Histogram */
+.histogram-bars-compact {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 0.8rem;
-  height: 10rem;
-  padding-top: 0.6rem;
+  height: 9.5rem;
+  padding-top: 0.5rem;
 }
 
-.histogram-column {
+.hist-col-item {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -5313,14 +5154,14 @@ body {
   flex: 1;
 }
 
-.hist-count {
+.hist-val-num {
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--text-2);
   min-height: 1.5rem;
 }
 
-.hist-bar-track {
+.hist-track-wrap {
   width: 2.6rem;
   height: 6rem;
   background: var(--surface-1);
@@ -5331,37 +5172,36 @@ body {
   border: 1px solid var(--hairline);
 }
 
-.hist-bar-fill {
+.hist-fill-bar {
   width: 100%;
   background: var(--text-3);
   border-radius: 2px;
-  transition: height var(--dur-3) var(--ease-out);
 }
 
-.hist-bar-fill.gold {
+.hist-fill-bar.gold {
   background: var(--accent);
 }
 
-.hist-label {
+.hist-score-lbl {
   font-size: 1.15rem;
   font-weight: 600;
   color: var(--text-3);
 }
 
-/* Genre Breakdown Progress Bars */
-.genre-progress-list {
+/* Genre Meters */
+.genre-meter-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.9rem;
 }
 
-.genre-progress-row {
+.genre-meter-row {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
 
-.genre-progress-meta {
+.genre-meter-labels {
   display: flex;
   justify-content: space-between;
   font-size: 1.25rem;
@@ -5369,7 +5209,7 @@ body {
   color: var(--text-2);
 }
 
-.genre-progress-track {
+.genre-meter-track {
   width: 100%;
   height: 0.5rem;
   background: var(--surface-1);
@@ -5378,26 +5218,26 @@ body {
   border: 1px solid var(--hairline);
 }
 
-.genre-progress-fill {
+.genre-meter-fill {
   height: 100%;
   background: var(--accent);
   border-radius: var(--r-control);
 }
 
-/* Trivia Facts Grid */
-.trivia-facts-grid {
+/* Taste DNA Facts */
+.dna-facts-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.4rem;
 }
 
-.trivia-fact {
+.dna-fact-box {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
 }
 
-.fact-label {
+.dna-fact-label {
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--text-3);
@@ -5405,7 +5245,7 @@ body {
   letter-spacing: 0.04em;
 }
 
-.fact-value {
+.dna-fact-val {
   font-size: 1.35rem;
   font-weight: 600;
   color: var(--text-1);
@@ -5414,70 +5254,122 @@ body {
   white-space: nowrap;
 }
 
-
-/* ── 4. Sticky Collection Toolbar & Genre Chips ── */
-.vault-sticky-toolbar {
-  position: sticky;
-  top: 6.4rem;
-  z-index: 100;
-  background: rgba(9, 12, 18, 0.90);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius);
-  padding: 1.2rem 2rem;
+/* ── Unified Navigation & Filter Bar ── */
+.studio-controls-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1.6rem;
+  border-top: 1px solid var(--hairline);
+  padding: 1.2rem 0;
+  margin-top: 0.4rem;
   flex-wrap: wrap;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
-.toolbar-left-group {
+.studio-segmented-tabs {
   display: flex;
   align-items: center;
-  gap: 1.6rem;
-  flex-wrap: wrap;
-  flex: 1;
+  gap: 0.4rem;
+  background: var(--surface-2);
+  padding: 0.35rem;
+  border-radius: var(--r-control);
+  border: 1px solid var(--hairline);
 }
 
-.vault-search-box {
+.studio-tab-btn {
   position: relative;
   display: flex;
   align-items: center;
-  min-width: 22rem;
+  gap: 0.75rem;
+  padding: 0.75rem 1.8rem;
+  border-radius: var(--r-control);
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 1.35rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--dur-2) ease;
+  z-index: 1;
 }
 
-.vault-search-box .search-icon {
+.studio-tab-btn.active {
+  color: var(--text-1);
+}
+
+.studio-tab-indicator {
   position: absolute;
-  left: 1.4rem;
-  color: #64748b;
+  inset: 0;
+  background: var(--surface-3);
+  border-radius: var(--r-control);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: var(--sh-1);
+  z-index: -1;
+}
+
+.tab-pill-badge {
+  font-size: 1.15rem;
+  font-weight: 700;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--r-control);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-2);
+  line-height: 1;
+}
+
+.studio-tab-btn.active .tab-pill-badge {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* Search & Filters */
+.studio-filters-group {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  flex: 1;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.studio-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 18rem;
+  flex: 1;
+  max-width: 24rem;
+}
+
+.search-field-icon {
+  position: absolute;
+  left: 1.2rem;
+  color: var(--text-3);
   pointer-events: none;
 }
 
-.vault-search-input {
+.studio-search-input {
   width: 100%;
-  background: var(--surface-1);
+  background: var(--surface-2);
   border: 1px solid var(--hairline);
   border-radius: var(--r-control);
-  padding: 0.8rem 3.4rem 0.8rem 3.6rem;
+  padding: 0.75rem 2.8rem 0.75rem 3.4rem;
   color: var(--text-1);
   font-family: var(--font-sans);
   font-size: 1.3rem;
   outline: none;
-  transition: all var(--dur-2) var(--ease-out);
+  transition: all var(--dur-2) ease;
 }
 
-.vault-search-input:focus {
+.studio-search-input:focus {
   border-color: var(--accent);
-  background: var(--surface-2);
+  background: var(--surface-3);
   box-shadow: var(--sh-1);
 }
 
-.btn-clear-search {
+.btn-clear-search-pill {
   position: absolute;
-  right: 1.2rem;
+  right: 1rem;
   background: transparent;
   border: none;
   color: var(--text-3);
@@ -5486,35 +5378,39 @@ body {
   align-items: center;
 }
 
-.vault-genre-chips {
+.studio-genre-chips {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  flex-wrap: wrap;
+  gap: 0.6rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
 }
 
-.genre-chip {
+.studio-genre-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.studio-genre-pill {
   background: var(--surface-2);
   border: 1px solid var(--hairline);
   color: var(--text-2);
-  padding: 0.65rem 1.4rem;
+  padding: 0.6rem 1.2rem;
   border-radius: var(--r-control);
   font-size: 1.25rem;
   font-weight: 500;
-  font-family: var(--font-sans);
   cursor: pointer;
-  transition: all var(--dur-2) var(--ease-out);
+  transition: all var(--dur-2) ease;
   white-space: nowrap;
 }
 
-.genre-chip:hover {
+.studio-genre-pill:hover {
   background: var(--surface-3);
   border-color: var(--hairline-strong);
   color: var(--text-1);
-  transform: translateY(-1px);
 }
 
-.genre-chip.active {
+.studio-genre-pill.active {
   background: var(--surface-3);
   border-color: var(--accent);
   color: var(--text-1);
@@ -5522,19 +5418,82 @@ body {
   box-shadow: var(--sh-1);
 }
 
-.toolbar-right-group {
+.studio-view-controls {
   display: flex;
   align-items: center;
-  gap: 1.4rem;
+  gap: 0.8rem;
 }
 
-.vault-item-count {
-  font-size: 1.3rem;
+.studio-sort-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sort-icon-muted {
+  position: absolute;
+  left: 1rem;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.studio-sort-select {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+  padding: 0.65rem 1.2rem 0.65rem 2.8rem;
+  border-radius: var(--r-control);
+  font-size: 1.25rem;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all var(--dur-2) ease;
+}
+
+.studio-sort-select:hover {
+  background: var(--surface-3);
+  border-color: var(--hairline-strong);
+  color: var(--text-1);
+}
+
+.studio-view-toggle-pills {
+  display: flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  padding: 0.25rem;
+}
+
+.view-mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  padding: 0.45rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: all 0.15s ease;
+}
+
+.view-mode-btn:hover {
+  color: var(--text-1);
+}
+
+.view-mode-btn.active {
+  background: var(--surface-3);
+  color: var(--text-1);
+  box-shadow: var(--sh-1);
+}
+
+.studio-count-lbl {
+  font-size: 1.2rem;
   color: var(--text-3);
   white-space: nowrap;
 }
 
-.vault-item-count strong {
+.studio-count-lbl strong {
   color: var(--accent);
 }
 
@@ -7990,222 +7949,155 @@ body,
     opacity: 0.15 !important;
   }
 
-  .vault-banner-content {
-    padding: 1.4rem 1.4rem 0 !important;
+  /* 4. Vault Page Mobile Cinema Polish — Unified Control Hub */
+  .vault-page-container {
+    padding: 0 1rem 6.4rem !important;
     gap: 1.2rem !important;
   }
 
-  .banner-badge,
-  .vault-banner-tagline {
-    display: none !important;
+  .vault-studio-header {
+    margin-top: 0.6rem !important;
+    border-radius: var(--r-card) !important;
   }
 
-  .banner-top-row {
+  .vault-studio-content {
+    padding: 1.2rem 1.2rem 0 !important;
+    gap: 1.2rem !important;
+  }
+
+  .studio-top-row {
     flex-direction: row !important;
     align-items: center !important;
     justify-content: space-between !important;
-    gap: 1rem !important;
-  }
-
-  .banner-left {
-    gap: 0.2rem !important;
-  }
-
-  .vault-banner-title {
-    font-size: 2.2rem !important;
-    line-height: 1.1 !important;
-  }
-
-  .vault-banner-meta {
-    font-size: 1.2rem !important;
-    gap: 0.5rem !important;
-  }
-
-  .banner-right {
-    width: auto !important;
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 0.6rem !important;
-  }
-
-  .vault-manage-btn,
-  .vault-settings-ghost-btn {
-    padding: 0.6rem 1rem !important;
-    font-size: 1.15rem !important;
-    min-height: 3.2rem !important;
-  }
-
-  .vault-segmented-tabs {
-    width: 100% !important;
-    display: flex !important;
-    gap: 0.4rem !important;
-    box-sizing: border-box !important;
-    background: rgba(15, 21, 33, 0.95) !important;
-    border-radius: var(--r-control) var(--r-control) 0 0 !important;
-    padding: 0.3rem !important;
-  }
-
-  .tab-pill {
-    flex: 1 !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 0.6rem !important;
-    padding: 0.75rem 0.6rem !important;
-    font-size: 1.25rem !important;
-    white-space: nowrap !important;
-  }
-
-  .tab-count-badge {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    position: relative !important;
-    margin-left: 0.3rem !important;
-    flex-shrink: 0 !important;
-  }
-
-  /* Compact 1-Row Metric Strip on Mobile */
-  .vault-analytics-compact-section {
     gap: 0.8rem !important;
   }
 
-  .vault-summary-strip {
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    padding: 0.8rem 1.2rem !important;
-    gap: 1.2rem !important;
-    border-radius: var(--r-control) !important;
+  .studio-identity-group {
+    gap: 0.8rem !important;
   }
 
-  .vault-summary-strip::-webkit-scrollbar {
+  .vault-studio-title {
+    font-size: 2rem !important;
+  }
+
+  .studio-metrics-pills {
     display: none !important;
   }
 
-  .summary-stat-cell {
-    padding: 0.2rem 0.4rem !important;
-    gap: 0.7rem !important;
-    flex-shrink: 0 !important;
+  .studio-actions-group {
+    gap: 0.5rem !important;
   }
 
-  .stat-cell-icon {
-    width: 2.8rem !important;
-    height: 2.8rem !important;
-  }
-
-  .stat-cell-icon svg {
-    width: 14px !important;
-    height: 14px !important;
-  }
-
-  .stat-cell-label {
-    font-size: 1rem !important;
-  }
-
-  .stat-cell-value {
-    font-size: 1.25rem !important;
-  }
-
-  .stat-delta-chip {
-    font-size: 1rem !important;
-    padding: 0.1rem 0.4rem !important;
-  }
-
-  .btn-toggle-insights {
-    padding: 0.6rem 1rem !important;
+  .btn-studio-action {
+    padding: 0.55rem 0.85rem !important;
     font-size: 1.15rem !important;
-    flex-shrink: 0 !important;
-    white-space: nowrap !important;
   }
 
-  .insights-drawer-grid {
+  .btn-studio-action .btn-text {
+    display: none !important;
+  }
+
+  .btn-insights-trigger .btn-text {
+    display: inline-block !important;
+    font-size: 1.1rem !important;
+  }
+
+  /* Drawer on Mobile */
+  .studio-insights-card {
+    padding: 1.4rem !important;
+    margin-top: 0.2rem !important;
+  }
+
+  .insights-grid-layout {
     grid-template-columns: 1fr !important;
     gap: 1.4rem !important;
   }
 
-  /* Sticky Toolbar Optimization on Mobile */
-  .vault-sticky-toolbar {
-    top: 0 !important;
-    position: sticky !important;
-    z-index: 90 !important;
-    padding: 0.8rem 1rem !important;
-    gap: 0.8rem !important;
-    border-radius: var(--r-control) !important;
+  .histogram-bars-compact {
+    height: 8rem !important;
   }
 
-  .toolbar-left-group {
+  /* Controls & Tab Bar on Mobile */
+  .studio-controls-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.8rem !important;
+    padding: 0.8rem 0 !important;
+  }
+
+  .studio-segmented-tabs {
+    width: 100% !important;
+    display: flex !important;
+    gap: 0.3rem !important;
+    padding: 0.25rem !important;
+  }
+
+  .studio-tab-btn {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 0.7rem 0.6rem !important;
+    font-size: 1.2rem !important;
+  }
+
+  .studio-filters-group {
     width: 100% !important;
     flex-direction: column !important;
     align-items: stretch !important;
     gap: 0.6rem !important;
   }
 
-  .vault-search-box {
+  .studio-search-field {
     width: 100% !important;
+    max-width: none !important;
     min-width: 0 !important;
   }
 
-  .vault-search-input {
+  .studio-search-input {
     padding: 0.7rem 1rem 0.7rem 3.2rem !important;
     font-size: 1.25rem !important;
   }
 
-  .vault-genre-chips {
+  .studio-genre-chips {
     width: 100% !important;
     display: flex !important;
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
     padding-bottom: 0.2rem !important;
-    gap: 0.5rem !important;
+    gap: 0.45rem !important;
     scrollbar-width: none !important;
   }
 
-  .vault-genre-chips::-webkit-scrollbar {
+  .studio-genre-chips::-webkit-scrollbar {
     display: none !important;
   }
 
-  .genre-chip {
-    padding: 0.45rem 1rem !important;
+  .studio-genre-pill {
+    padding: 0.45rem 0.95rem !important;
     font-size: 1.15rem !important;
     flex-shrink: 0 !important;
   }
 
-  .toolbar-right-group {
+  .studio-view-controls {
     width: 100% !important;
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    gap: 0.6rem !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-top: 1px solid var(--hairline) !important;
     padding-top: 0.6rem !important;
+    gap: 0.6rem !important;
   }
 
-  .vault-item-count {
+  .studio-sort-select {
+    padding: 0.5rem 0.8rem 0.5rem 2.6rem !important;
     font-size: 1.15rem !important;
   }
 
+  /* Grid on Mobile */
   .vault-grid {
     grid-template-columns: repeat(3, 1fr) !important;
     gap: 0.8rem !important;
     padding-bottom: 4rem !important;
-  }
-
-  .histogram-body-compact {
-    height: 8.5rem !important;
-  }
-
-  .trivia-fact .fact-value {
-    overflow-wrap: anywhere !important;
-    word-break: break-word !important;
-    white-space: normal !important;
   }
 
   /* Floating Bulk Selection Bar Mobile Polish */
