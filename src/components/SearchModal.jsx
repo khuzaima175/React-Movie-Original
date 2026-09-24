@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, X, Film, Sparkles, Command } from "lucide-react";
+import { Search, X, Film, Sparkles, Command, ArrowRight, CornerDownLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 import PosterImage from "./PosterImage";
@@ -14,13 +14,14 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
   const debouncedQuery = useDebounce(query, 300);
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 80);
+      setTimeout(() => inputRef.current?.focus(), 50);
       document.body.style.overflow = "hidden";
+      setSelectedIndex(0);
     } else {
       setQuery("");
       setResults([]);
@@ -31,6 +32,7 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
     };
   }, [isOpen]);
 
+  // Global Keyboard Shortcuts
   useEffect(() => {
     function handleKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -40,11 +42,28 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
       if (e.key === "Escape" && isOpen) {
         onClose();
       }
+      if (!isOpen) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (results.length > 0 ? (prev + 1) % results.length : 0));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((prev) => (results.length > 0 ? (prev - 1 + results.length) % results.length : 0));
+      } else if (e.key === "Enter" && results.length > 0) {
+        e.preventDefault();
+        const selected = results[selectedIndex] || results[0];
+        if (selected) {
+          onSelectMovie(selected.imdbID);
+          onClose();
+        }
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, results, selectedIndex, onSelectMovie]);
 
+  // Fetch OMDb Search Results
   useEffect(() => {
     if (!debouncedQuery || debouncedQuery.trim().length < 3) {
       setResults([]);
@@ -56,7 +75,6 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
     async function searchMovies() {
       try {
         setIsLoading(true);
-        setError("");
         const keyToUse = API_KEY || import.meta.env.VITE_OMDB_KEY || "b78bdecd";
         const res = await fetch(
           `https://www.omdbapi.com/?apikey=${keyToUse}&s=${encodeURIComponent(debouncedQuery.trim())}`,
@@ -66,12 +84,13 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
         const data = await res.json();
         if (data.Response === "True") {
           setResults(data.Search || []);
+          setSelectedIndex(0);
         } else {
           setResults([]);
         }
       } catch (err) {
         if (err.name !== "AbortError") {
-          setError("No matching films found");
+          setResults([]);
         }
       } finally {
         setIsLoading(false);
@@ -88,7 +107,7 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[9999] flex items-start justify-center p-4 pt-20 md:pt-28 bg-black/80 backdrop-blur-md overflow-y-auto"
+          className="search-modal-backdrop"
           onClick={onClose}
           role="dialog"
           aria-modal="true"
@@ -96,117 +115,127 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.16 }}
         >
           <motion.div
-            className="w-full max-w-2xl rounded-2xl bg-[#141416] border border-white/10 shadow-2xl overflow-hidden"
+            className="search-spotlight-card"
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: -16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -16 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
           >
-            {/* Borderless Search Input Bar */}
-            <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 bg-[#1c1d20]">
-              <Search className="text-[#8a8a86] flex-shrink-0" size={20} aria-hidden="true" />
+            {/* Input Header */}
+            <div className="search-input-header">
+              <Search className="search-header-icon" size={22} aria-hidden="true" />
               <input
                 ref={inputRef}
                 type="text"
-                className="flex-1 bg-transparent text-base md:text-lg text-[#f4f4f2] placeholder:text-[#8a8a86] outline-none border-none focus:outline-none focus:ring-0"
-                placeholder="Search films, series, or directors..."
+                className="search-main-input"
+                placeholder="Search films, series, directors, or keywords..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 aria-label="Search movies query"
               />
               {query && (
                 <button
-                  className="p-1 rounded-md text-[#8a8a86] hover:text-[#f4f4f2] hover:bg-[#242528] transition-colors"
+                  className="search-btn-clear"
                   onClick={() => setQuery("")}
                   aria-label="Clear search query"
                 >
-                  <X size={16} aria-hidden="true" />
+                  <X size={18} aria-hidden="true" />
                 </button>
               )}
               <button
                 onClick={onClose}
-                className="px-2 py-0.5 text-xs font-mono font-medium rounded border border-white/10 bg-[#242528] text-[#8a8a86] hover:text-[#f4f4f2] transition-colors"
+                className="search-badge-esc"
                 aria-label="Close search"
               >
                 ESC
               </button>
             </div>
 
-            {/* Results / Suggestions Body */}
-            <div className="max-h-[60vh] overflow-y-auto p-4 custom-scrollbar">
+            {/* Results / Discovery Viewport */}
+            <div className="search-results-viewport custom-scrollbar">
               {isLoading && (
-                <div className="flex items-center justify-center gap-3 py-12 text-sm text-[#8a8a86]">
-                  <Sparkles size={18} className="animate-spin text-[#e2b13c]" aria-hidden="true" />
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1.2rem", padding: "4.8rem 0", color: "#8a8a86", fontSize: "1.4rem" }}>
+                  <Sparkles size={20} className="spin-icon" style={{ color: "#e2b13c" }} aria-hidden="true" />
                   <span>Searching cinema database...</span>
                 </div>
               )}
 
               {!isLoading && results.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wider text-[#8a8a86] flex items-center gap-1.5">
-                    <Film size={13} aria-hidden="true" />
-                    <span>Search Results ({results.length})</span>
+                <div>
+                  <div className="search-section-label">
+                    <Film size={14} style={{ color: "#e2b13c" }} aria-hidden="true" />
+                    <span>Search Results ({results.length} titles)</span>
                   </div>
-                  <div className="space-y-1">
-                    {results.map((m) => (
-                      <div
-                        key={m.imdbID}
-                        className="group flex items-center gap-3.5 p-2 rounded-lg hover:bg-[#1c1d20] transition-colors cursor-pointer border border-transparent hover:border-white/10"
-                        onClick={() => {
-                          onSelectMovie(m.imdbID);
-                          onClose();
-                        }}
-                        tabIndex={0}
-                        role="button"
-                      >
-                        {/* 40x60 poster thumbnail */}
-                        <div className="w-10 h-[60px] flex-shrink-0 rounded overflow-hidden bg-[#242528] border border-white/10">
-                          <PosterImage
-                            src={m.Poster}
-                            title={m.Title}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-semibold text-[#f4f4f2] truncate group-hover:text-[#e2b13c] transition-colors">
-                            {m.Title}
-                          </h4>
-                          <div className="flex items-center gap-2 mt-0.5 text-xs text-[#8a8a86]">
-                            <span className="tabular-nums font-mono">{m.Year}</span>
-                            <span className="text-white/20">•</span>
-                            <span className="capitalize">{m.Type || "Movie"}</span>
+                  <div>
+                    {results.map((m, index) => {
+                      const isSelected = selectedIndex === index;
+                      return (
+                        <div
+                          key={m.imdbID}
+                          className="search-result-item"
+                          style={{
+                            backgroundColor: isSelected ? "#1c1d20" : "transparent",
+                            borderColor: isSelected ? "rgba(226, 177, 60, 0.3)" : "transparent"
+                          }}
+                          onClick={() => {
+                            onSelectMovie(m.imdbID);
+                            onClose();
+                          }}
+                          onMouseEnter={() => setSelectedIndex(index)}
+                          tabIndex={0}
+                          role="button"
+                        >
+                          <div className="search-poster-thumb">
+                            <PosterImage
+                              src={m.Poster}
+                              title={m.Title}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <div className="search-item-info">
+                            <h4 className="search-item-title">{m.Title}</h4>
+                            <div className="search-item-meta">
+                              <span className="search-item-year">{m.Year}</span>
+                              <span style={{ color: "rgba(255,255,255,0.2)" }}>•</span>
+                              <span className="search-item-type">{m.Type || "Movie"}</span>
+                            </div>
+                          </div>
+                          <div style={{ opacity: isSelected ? 1 : 0, transition: "opacity 0.2s", color: "#e2b13c" }}>
+                            <CornerDownLeft size={16} />
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
               {!isLoading && query.length >= 3 && results.length === 0 && (
-                <div className="py-12 text-center text-sm text-[#8a8a86]">
-                  <p>No films found matching "{query}"</p>
-                  <p className="text-xs mt-1 text-[#8a8a86]/70">Try checking the spelling or searching by a different title</p>
+                <div style={{ padding: "4.8rem 0", textAlign: "center", color: "#8a8a86", fontSize: "1.4rem" }}>
+                  <p style={{ fontWeight: 600, color: "#f4f4f2", fontSize: "1.5rem" }}>No films found matching "{query}"</p>
+                  <p style={{ fontSize: "1.3rem", marginTop: "0.6rem", color: "#8a8a86" }}>
+                    Try checking the spelling or searching by a different title
+                  </p>
                 </div>
               )}
 
               {!isLoading && query.length < 3 && (
-                <div className="py-2 space-y-3">
-                  <div className="px-2 text-xs font-semibold uppercase tracking-wider text-[#8a8a86] flex items-center gap-1.5">
-                    <Command size={13} aria-hidden="true" />
-                    <span>Trending Searches</span>
+                <div>
+                  <div className="search-section-label">
+                    <Command size={14} style={{ color: "#e2b13c" }} aria-hidden="true" />
+                    <span>Trending Discoveries</span>
                   </div>
-                  <div className="flex flex-wrap gap-2 px-2">
+                  <div className="search-trending-chips">
                     {POPULAR_SUGGESTIONS.map((term) => (
                       <button
                         key={term}
                         onClick={() => setQuery(term)}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-white/10 bg-[#1c1d20] text-[#b6b6b2] hover:text-[#f4f4f2] hover:bg-[#242528] hover:border-white/20 transition-all"
+                        className="search-trending-chip"
                       >
                         {term}
                       </button>
@@ -214,6 +243,16 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Keyboard Guide Footer */}
+            <div className="search-hint-footer">
+              <div style={{ display: "flex", alignItems: "center", gap: "1.4rem" }}>
+                <span><kbd style={{ padding: "0.2rem 0.5rem", borderRadius: "0.4rem", background: "rgba(255,255,255,0.08)", fontSize: "1.1rem" }}>↑↓</kbd> to navigate</span>
+                <span><kbd style={{ padding: "0.2rem 0.5rem", borderRadius: "0.4rem", background: "rgba(255,255,255,0.08)", fontSize: "1.1rem" }}>↵</kbd> to select</span>
+                <span><kbd style={{ padding: "0.2rem 0.5rem", borderRadius: "0.4rem", background: "rgba(255,255,255,0.08)", fontSize: "1.1rem" }}>esc</kbd> to close</span>
+              </div>
+              <span style={{ color: "#e2b13c", fontWeight: 500 }}>CinemaVault Spotlight</span>
             </div>
           </motion.div>
         </motion.div>
