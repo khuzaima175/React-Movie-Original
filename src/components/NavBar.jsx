@@ -1,118 +1,139 @@
 import { NavLink } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { Film, Search, Sparkles, Bookmark } from "lucide-react";
+import { Film, Search, Sparkles, Bookmark, Dices } from "lucide-react";
 
-export default function NavBar({ onOpenSearch }) {
-  const { watched, watchlist } = useApp();
+export default function NavBar({ onOpenSearch, onOpenRandomPicker }) {
+  const { watched = [], watchlist = [] } = useApp();
 
   return (
     <>
-      {/* Top Header Navigation Bar */}
-      <nav className="nav-bar" aria-label="Main Navigation">
-        <div className="nav-brand-group">
-          <NavLink to="/" className="logo" style={{ textDecoration: "none" }} aria-label="CinemaVault Home">
-            <Film className="logo-icon" size={24} aria-hidden="true" />
-            <h1>CinemaVault</h1>
-          </NavLink>
-        </div>
-
-        {/* Desktop Navigation Links */}
-        <div className="nav-links desktop-nav-links" role="navigation">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
-            aria-label="Home cinema dashboard"
-          >
-            <Film className="nav-link-icon" size={16} aria-hidden="true" />
-            <span className="nav-link-text">Home</span>
-          </NavLink>
-
-          <NavLink
-            to="/vault"
-            className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
-            aria-label={`My Vault (${watched.length} items)`}
-          >
-            <Bookmark className="nav-link-icon" size={16} aria-hidden="true" />
-            <span className="nav-link-text">My Vault</span>
-            {watched.length > 0 && (
-              <span className="nav-badge" aria-label={`${watched.length} movies in vault`}>
-                {watched.length}
-              </span>
-            )}
-          </NavLink>
-
-          <NavLink
-            to="/ai"
-            className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
-            aria-label="AI Oracle recommendations"
-          >
-            <Sparkles className="nav-link-icon" size={16} aria-hidden="true" />
-            <span className="nav-link-text">AI Oracle</span>
-          </NavLink>
-        </div>
-
-        {/* Right Action Items: Search & Watchlist */}
-        <div className="nav-right">
-          <button
-            className="nav-search-trigger"
-            onClick={onOpenSearch}
-            aria-label="Open movie search modal"
-            title="Search movies (Ctrl+K)"
-          >
-            <Search size={16} aria-hidden="true" />
-            <span className="search-text">Search movies...</span>
-            <kbd className="search-kbd">⌘K</kbd>
-          </button>
-
-          {watchlist.length > 0 && (
-            <NavLink
-              to="/vault?tab=watchlist"
-              className="nav-vault-quick"
-              aria-label={`Watchlist (${watchlist.length} saved)`}
-              title="Watchlist"
-            >
-              <Bookmark size={15} aria-hidden="true" />
-              <span className="nav-badge">{watchlist.length}</span>
+      {/* Top Stream-Grade Navigation Bar */}
+      <header className="nav-bar-stream" aria-label="Main Navigation">
+        <div className="nav-container">
+          {/* Brand Logo */}
+          <div className="nav-brand-group">
+            <NavLink to="/" className="brand-logo" aria-label="CinemaVault Home">
+              <div className="brand-icon-box">
+                <Film size={20} className="brand-icon" aria-hidden="true" />
+              </div>
+              <span className="brand-name">Cinema<span className="brand-accent">Vault</span></span>
             </NavLink>
-          )}
-        </div>
-      </nav>
 
-      {/* Mobile Glassmorphic Bottom Navigation Bar */}
-      <div className="mobile-bottom-bar" role="navigation" aria-label="Mobile Bottom Navigation">
+            {/* Desktop Navigation Links */}
+            <nav className="nav-links-desktop" role="navigation">
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
+              >
+                <span>Home</span>
+              </NavLink>
+
+              <NavLink
+                to="/vault"
+                className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
+              >
+                <span>My Vault</span>
+                {watched.length > 0 && (
+                  <span className="nav-count-badge" aria-label={`${watched.length} titles`}>
+                    {watched.length}
+                  </span>
+                )}
+              </NavLink>
+
+              <NavLink
+                to="/ai"
+                className={({ isActive }) => `stream-nav-link stream-nav-link-ai ${isActive ? "active" : ""}`}
+              >
+                <Sparkles size={14} className="ai-nav-icon" aria-hidden="true" />
+                <span>AI Oracle</span>
+              </NavLink>
+            </nav>
+          </div>
+
+          {/* Right Controls Group */}
+          <div className="nav-actions-group">
+            {/* Command Palette Search Button */}
+            <button
+              className="stream-search-btn"
+              onClick={onOpenSearch}
+              aria-label="Search movies"
+              title="Search films, directors, genres (Ctrl+K)"
+            >
+              <Search size={15} className="search-icon" aria-hidden="true" />
+              <span className="search-placeholder">Search films...</span>
+              <kbd className="search-shortcut">⌘K</kbd>
+            </button>
+
+            {/* Watchlist Quick Link */}
+            {watchlist.length > 0 && (
+              <NavLink
+                to="/vault?tab=watchlist"
+                className="stream-watchlist-btn"
+                aria-label={`Watchlist (${watchlist.length} saved)`}
+                title="View Watchlist"
+              >
+                <Bookmark size={15} aria-hidden="true" />
+                <span className="watchlist-count">{watchlist.length}</span>
+              </NavLink>
+            )}
+
+            {/* Random Picker Action if Watchlist has items */}
+            {watchlist.length > 0 && onOpenRandomPicker && (
+              <button
+                className="stream-random-btn"
+                onClick={onOpenRandomPicker}
+                aria-label="Pick random movie from watchlist"
+                title="Random Picker 🎲"
+              >
+                <Dices size={16} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Mobile Stream Bottom Navigation */}
+      <nav className="mobile-stream-bar" role="navigation" aria-label="Mobile Navigation">
         <NavLink
           to="/"
           end
-          className={({ isActive }) => "mobile-nav-link" + (isActive ? " active" : "")}
+          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
         >
-          <Film size={20} aria-hidden="true" />
+          <Film size={18} aria-hidden="true" />
           <span>Home</span>
         </NavLink>
 
         <NavLink
           to="/vault"
-          className={({ isActive }) => "mobile-nav-link" + (isActive ? " active" : "")}
+          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
         >
-          <div className="mobile-nav-icon-wrap">
-            <Bookmark size={20} aria-hidden="true" />
+          <div className="mobile-icon-wrap">
+            <Bookmark size={18} aria-hidden="true" />
             {watched.length > 0 && (
-              <span className="mobile-nav-badge">{watched.length}</span>
+              <span className="mobile-badge">{watched.length}</span>
             )}
           </div>
-          <span>My Vault</span>
+          <span>Vault</span>
         </NavLink>
 
         <NavLink
           to="/ai"
-          className={({ isActive }) => "mobile-nav-link" + (isActive ? " active" : "")}
+          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
         >
-          <Sparkles size={20} aria-hidden="true" />
-          <span>AI Oracle</span>
+          <Sparkles size={18} aria-hidden="true" />
+          <span>Oracle</span>
         </NavLink>
-      </div>
+
+        <button
+          className="mobile-tab"
+          onClick={onOpenSearch}
+          aria-label="Search"
+        >
+          <Search size={18} aria-hidden="true" />
+          <span>Search</span>
+        </button>
+      </nav>
     </>
   );
 }
-
-
