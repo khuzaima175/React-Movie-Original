@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getMovieRecommendations, getFallbackPoster, generateInputHash, generateFallbackId } from "../services/geminiService";
+import { getMovieRecommendations, getFallbackPoster, generateProfileHash, generateFallbackId } from "../services/geminiService";
+import { bridgeTmdbToOmdb, extractTasteProfile } from "../services/tmdbService";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import {
@@ -22,15 +23,6 @@ import {
   LayoutGrid,
   List
 } from "lucide-react";
-
-const getOmdbKey = () => {
-  const key = import.meta.env.VITE_OMDB_KEY;
-  if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "b78bdecd";
-  }
-  return key.trim();
-};
-const KEY = getOmdbKey();
 
 const MOOD_OPTIONS = [
   { id: "any", label: "Any Vibe", icon: "✨", desc: "Peak curated cinema" },
@@ -96,13 +88,14 @@ export default function MovieRecommendations({
   const [showDnaDetails, setShowDnaDetails] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "compact"
 
-  const currentHash = generateInputHash(watched, selectedMood);
+  const tasteProfileData = extractTasteProfile(watched, watchlist);
+  const currentHash = generateProfileHash(tasteProfileData, tasteProfileData.watchlistGenreIds, selectedMood);
   const isCacheValid = aiRecommendationsHash && aiRecommendationsHash === currentHash && recommendations && recommendations.length > 0;
 
   const loadingSteps = [
-    `Analyzing ${watched.length} rated films...`,
+    watched.length >= 3 ? `Analyzing ${watched.length} rated films...` : "Initializing cinematic vibe calibration...",
+    "Querying deep verified cinema catalogue...",
     "Synthesizing taste DNA & director affinities...",
-    "Querying deep cinema catalogue...",
     "Calibrating precision match scores..."
   ];
 
@@ -113,7 +106,7 @@ export default function MovieRecommendations({
       setActiveStep(0);
       timer = setInterval(() => {
         setActiveStep((prev) => (prev < loadingSteps.length - 1 ? prev + 1 : prev));
-      }, 1600);
+      }, 1400);
     } else {
       setActiveStep(0);
     }
@@ -121,11 +114,6 @@ export default function MovieRecommendations({
   }, [isLoading, watched.length]);
 
   const handleGetRecommendations = async () => {
-    if (watched.length < 3) {
-      setError("Rate at least 3 movies in your vault to unlock AI Oracle recommendations!");
-      return;
-    }
-
     setIsLoading(true);
     setError("");
     setRecommendations(null);
@@ -137,7 +125,8 @@ export default function MovieRecommendations({
         mood: selectedMood,
         feedbackLog: aiFeedbackLog
       });
-      const newHash = generateInputHash(watched, selectedMood);
+      const profile = extractTasteProfile(watched, watchlist);
+      const newHash = generateProfileHash(profile, profile.watchlistGenreIds, selectedMood);
       setTasteProfile(result.tasteProfile);
       setRecommendations(result.recommendations);
       saveAiRecommendations(result.recommendations, result.tasteProfile, newHash);
@@ -161,6 +150,7 @@ export default function MovieRecommendations({
   const watchedKeySet = new Set(
     (watched || []).flatMap((m) => [
       m.imdbID?.toLowerCase(),
+      m.id ? String(m.id).toLowerCase() : null,
       m.title ? `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` : null
     ]).filter(Boolean)
   );
@@ -168,14 +158,16 @@ export default function MovieRecommendations({
   const watchlistKeySet = new Set(
     (watchlist || []).flatMap((m) => [
       m.imdbID?.toLowerCase(),
+      m.id ? String(m.id).toLowerCase() : null,
       m.title ? `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` : null
     ]).filter(Boolean)
   );
 
-  const isAlreadyInWatchlist = (movieTitle, movieYear, imdbID) => {
+  const isAlreadyInWatchlist = (movieTitle, movieYear, imdbID, tmdbId) => {
     const cleanT = (movieTitle || "").toLowerCase().trim();
     const cleanY = String(movieYear || "").match(/\d{4}/)?.[0] || "0000";
     if (imdbID && watchlistKeySet.has(imdbID.toLowerCase())) return true;
+    if (tmdbId && watchlistKeySet.has(String(tmdbId).toLowerCase())) return true;
     return watchlistKeySet.has(`${cleanT}::${cleanY}`);
   };
 
@@ -189,72 +181,22 @@ export default function MovieRecommendations({
     });
 
     try {
-      let res = await fetch(
-        `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(rec.title)}&y=${rec.year}`,
-        { cache: "no-store" }
-      );
-
-      if (!res.ok || res.status === 401) {
-        if (KEY !== "b78bdecd") {
-          res = await fetch(
-            `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`,
-            { cache: "no-store" }
-          );
-        }
-      }
-
-      let data = await res.json();
-
-      if (
-        data.Response === "False" &&
-        data.Error &&
-        (data.Error.includes("key") || data.Error.includes("credential")) &&
-        KEY !== "b78bdecd"
-      ) {
-        const fallbackRes = await fetch(
-          `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(rec.title)}&y=${rec.year}`,
-          { cache: "no-store" }
-        );
-        if (fallbackRes.ok) {
-          data = await fallbackRes.json();
-        }
-      }
-
-      if (data.Response === "True") {
-        const newMovie = {
-          imdbID: data.imdbID,
-          title: data.Title,
-          year: data.Year,
-          poster: data.Poster !== "N/A" ? data.Poster : getFallbackPoster(rec.title),
-          runtime: data.Runtime,
-          imdbRating: data.imdbRating,
-          userRating: 0
-        };
-        onAddToWatchlist(newMovie);
-      } else {
-        const newMovie = {
-          imdbID: generateFallbackId(rec.title, rec.year),
-          title: rec.title,
-          year: rec.year,
-          poster: getFallbackPoster(rec.title),
-          runtime: "N/A",
-          imdbRating: rec.imdbRating || "N/A",
-          userRating: 0
-        };
-        onAddToWatchlist(newMovie);
+      const bridged = await bridgeTmdbToOmdb(rec);
+      if (bridged) {
+        onAddToWatchlist(bridged);
       }
     } catch (err) {
-      console.error("Failed to fetch movie data:", err);
-      const newMovie = {
-        imdbID: generateFallbackId(rec.title, rec.year),
+      console.error("Failed to add movie via schema bridge:", err);
+      const fallbackMovie = {
+        imdbID: rec.imdbID || generateFallbackId(rec.title, rec.year),
         title: rec.title,
-        year: rec.year,
-        poster: getFallbackPoster(rec.title),
+        year: rec.year || "N/A",
+        poster: rec.poster || getFallbackPoster(rec.title),
         runtime: "N/A",
         imdbRating: rec.imdbRating || "N/A",
         userRating: 0
       };
-      onAddToWatchlist(newMovie);
+      onAddToWatchlist(fallbackMovie);
     } finally {
       setIsAddingMovie(null);
     }
@@ -308,22 +250,6 @@ export default function MovieRecommendations({
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
     .map(([g]) => g);
-
-  // Empty vault state
-  if (watched.length === 0) {
-    return (
-      <div className="ai-empty-state">
-        <div className="oracle-orb-wrapper large">
-          <div className="oracle-orb-pulse" />
-          <div className="oracle-orb">
-            <Sparkles size={32} />
-          </div>
-        </div>
-        <h3>No Rating History Found</h3>
-        <p>Rate movies in your vault to unlock personalized cinematic intelligence.</p>
-      </div>
-    );
-  }
 
   const activeMoodObj = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
 
@@ -405,16 +331,23 @@ export default function MovieRecommendations({
                 type="button"
                 className="btn-synthesize-cinema"
                 onClick={handleGetRecommendations}
-                disabled={watched.length < 3}
               >
                 <Sparkles size={18} aria-hidden="true" />
-                <span>Generate {activeMoodObj.label} Recommendations</span>
+                <span>
+                  {watched.length === 0
+                    ? `Explore ${activeMoodObj.label} Cinema`
+                    : `Generate ${activeMoodObj.label} Recommendations`}
+                </span>
               </button>
 
               {watched.length < 3 && (
                 <div className="ai-hint-badge">
-                  <AlertCircle size={14} />
-                  <span>Rate at least 3 films in your Vault to calibrate taste DNA</span>
+                  <Sparkles size={14} className="text-accent" />
+                  <span>
+                    {watched.length === 0
+                      ? `Cold-Start Mode: Calibrating from ${activeMoodObj.label} vibe`
+                      : `Calibrating from ${watched.length} rated film${watched.length > 1 ? 's' : ''} + ${activeMoodObj.label} vibe`}
+                  </span>
                 </div>
               )}
 

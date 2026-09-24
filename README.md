@@ -84,6 +84,7 @@ graph TD
 - **Node.js** (v18 or higher recommended)
 - **OMDb API Key**: Free key from [omdbapi.com](http://www.omdbapi.com/apikey.aspx)
 - **Google Gemini API Key**: API key from [Google AI Studio](https://aistudio.google.com/)
+- **TMDB API Key (Optional)**: Key from [themoviedb.org](https://www.themoviedb.org/documentation/api) to enable real-time TMDB candidate retrieval and streaming-grade poster CDN integration.
 
 ### 2. Installation
 ```bash
@@ -97,6 +98,7 @@ Create a `.env` file in the project root:
 ```env
 VITE_OMDB_KEY=your_omdb_api_key_here
 VITE_GEMINI_KEY=your_gemini_api_key_here
+VITE_TMDB_KEY=your_tmdb_api_key_here
 ```
 
 ### 4. Development Server

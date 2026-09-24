@@ -1,4 +1,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import {
+    TMDB_KEY,
+    extractTasteProfile,
+    fetchCandidatePool,
+    getFallbackPoster as getTmdbFallbackPoster
+} from "./tmdbService";
 
 const MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 
@@ -24,7 +30,6 @@ const omdbMemoryCache = new Map();
 
 /**
  * Fetch real movie data from OMDB API to replace hallucinated ratings
- * FIX: If Title+Year fails, retry with Title only (handles off-by-1 year issues)
  */
 export const fetchRealOMDBData = async (title, year, signal) => {
     try {
@@ -36,7 +41,6 @@ export const fetchRealOMDBData = async (title, year, signal) => {
             return omdbMemoryCache.get(cacheKey);
         }
 
-        // First attempt: Try with year for precision
         let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
         let response = await fetch(url, { cache: "no-store", signal });
 
@@ -55,7 +59,6 @@ export const fetchRealOMDBData = async (title, year, signal) => {
             data = await response.json();
         }
 
-        // If year-specific search fails, retry without year (AI often gets release dates off by 1)
         if (data.Response !== "True" && cleanYear) {
             url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}`;
             response = await fetch(url, { cache: "no-store", signal });
@@ -83,6 +86,7 @@ export const fetchRealOMDBData = async (title, year, signal) => {
                 poster: data.Poster !== "N/A" ? data.Poster : null,
                 plot: data.Plot || "",
                 director: data.Director || "Unknown",
+                genre: data.Genre || "Cinema",
                 imdbID: data.imdbID || null,
                 verifiedTitle: data.Title,
                 verifiedYear: data.Year
@@ -91,7 +95,6 @@ export const fetchRealOMDBData = async (title, year, signal) => {
             return formatted;
         }
 
-        console.warn(`⚠️ Movie not found in OMDB: "${cleanTitle}" (${cleanYear || 'no year'})`);
         return null;
     } catch (error) {
         if (error.name !== "AbortError") {
@@ -101,15 +104,7 @@ export const fetchRealOMDBData = async (title, year, signal) => {
     }
 };
 
-/**
- * Generate a luxury offline SVG poster data URI
- */
-export const getFallbackPoster = (title = "Film") => {
-    const clean = String(title || "Film").replace(/["<>]/g, "");
-    const displayTitle = clean.length > 20 ? clean.substring(0, 18) + '...' : clean;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" width="100%" height="100%"><rect width="100%" height="100%" fill="#141416"/><rect x="10" y="10" width="280" height="430" fill="none" stroke="#e2b13c" stroke-width="1.5" stroke-opacity="0.2" rx="4"/><path d="M150 130 L180 190 L120 190 Z" fill="#e2b13c" fill-opacity="0.2"/><circle cx="150" cy="160" r="40" fill="none" stroke="#e2b13c" stroke-opacity="0.35" stroke-width="1.5"/><text x="50%" y="275" font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="600" fill="#f4f4f2" text-anchor="middle">${displayTitle}</text><text x="50%" y="310" font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="500" fill="#b6b6b2" letter-spacing="2" text-anchor="middle">CINEMAVAULT</text></svg>`;
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-};
+export const getFallbackPoster = getTmdbFallbackPoster;
 
 /**
  * Generate pure JS pre-computed taste analytics based on user rating history
@@ -122,7 +117,6 @@ export const buildTasteAnalytics = (watched = []) => {
 
     const avg = (rated.reduce((s, m) => s + m.userRating, 0) / rated.length).toFixed(1);
 
-    // Highly rated movies (>= 7)
     const liked = rated.filter(m => m.userRating >= 7);
     const genreCounts = {};
 
@@ -144,7 +138,6 @@ export const buildTasteAnalytics = (watched = []) => {
             return `${g} (${pct}% of highly rated films)`;
         });
 
-    // Top Directors (min 2 films)
     const byDirector = {};
     rated.forEach(m => {
         const d = (m.director || m.Director || "").trim();
@@ -209,413 +202,292 @@ export const generateFallbackId = (title, year) => {
 };
 
 /**
- * Generate a deterministic fingerprint hash of watched ratings, mood, and recency bias.
- * NOTE: Decoupled from watchlist items to prevent false cache invalidations, but
- * includes the 10 most recent film IDs + timestamps to invalidate when recency bias changes.
+ * Profile-Based Sliding Window Cache Hash
+ * Hashed signature incorporates Aggregated Taste Profile + Watchlist Intent + Mood
  */
-export const generateInputHash = (watched = [], mood = "any") => {
-    const watchedStr = (watched || [])
-        .map(m => `${m.imdbID || m.id || m.title}:${m.userRating || 0}:${(m.userNote || "").trim()}`)
-        .sort()
-        .join('|');
-    
-    const recentFingerprint = [...(watched || [])]
-        .sort((a, b) => parseTimestamp(b) - parseTimestamp(a))
-        .slice(0, 10)
-        .map(m => `${m.imdbID || m.id || m.title}:${parseTimestamp(m)}`)
-        .join(',');
-
+export const generateProfileHash = (profile, watchlistGenres = [], mood = "any") => {
+    const lovedStr = (profile?.lovedGenreIds || []).sort().join("-");
+    const hatedStr = (profile?.hatedGenreIds || []).sort().join("-");
+    const watchStr = (watchlistGenres || []).slice(0, 3).sort().join("-");
     const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
-    return `${watchedStr}#${cleanMood}#${recentFingerprint}`;
+    return `v2_${lovedStr}_${hatedStr}_${watchStr}_${cleanMood}`;
 };
 
 /**
- * Get AI-powered movie recommendations based on user's watched movies
+ * Backward compatibility input hasher
  */
-export const getMovieRecommendations = async (watchedMovies, watchlist, onProgress, options = {}) => {
+export const generateInputHash = (watched = [], mood = "any") => {
+    const watchedStr = (watched || [])
+        .map(m => `${m.imdbID || m.id || m.title}:${m.userRating || 0}`)
+        .sort()
+        .join('|');
+    const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
+    return `${watchedStr}#${cleanMood}`;
+};
+
+/**
+ * Executes Single-Pass TMDB Candidate Re-Ranking via Gemini
+ */
+async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options = {}) {
+    const prompt = `
+You are an elite film critic and cinema intelligence engine.
+Re-rank these REAL candidate movies retrieved from TMDB according to the user's taste profile.
+
+USER TASTE PROFILE:
+- Favorite Genres: ${profile.lovedGenreNames.join(", ") || "Diverse / Open"}
+- Disliked Anti-Patterns (MUST AVOID): ${profile.hatedGenreNames.join(", ") || "None"}
+- Top Directors: ${profile.topDirectors.join(", ") || "Varied"}
+- Selected Mood / Vibe: "${cleanStr(mood)}"
+
+CANDIDATE MOVIES (Guaranteed real titles from TMDB):
+${candidates.map(c => `ID: ${c.id} | "${c.title}" (${c.year}) | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10 | Overview: ${c.overview}`).join("\n")}
+
+TASK:
+Select and re-rank the TOP 6 best matching films. Output strict JSON with:
+1. tasteProfile: Object containing favoriteGenres (array of strings), preferredEra (string), and ratingStyle (string description).
+2. recommendations: Array of exactly 6 items with:
+   - tmdbId (number matching the candidate ID)
+   - title (string)
+   - year (string)
+   - matchScore (number 0-100 reflecting fit with taste profile and mood)
+   - reason (string: 1-2 sentence compelling cinematic explanation of WHY this film connects to their taste profile)
+`;
+
+    const generationConfig = {
+        responseMimeType: "application/json",
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                tasteProfile: {
+                    type: Type.OBJECT,
+                    properties: {
+                        favoriteGenres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        preferredEra: { type: Type.STRING },
+                        ratingStyle: { type: Type.STRING }
+                    },
+                    required: ["favoriteGenres", "preferredEra", "ratingStyle"]
+                },
+                recommendations: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            tmdbId: { type: Type.NUMBER },
+                            title: { type: Type.STRING },
+                            year: { type: Type.STRING },
+                            matchScore: { type: Type.NUMBER },
+                            reason: { type: Type.STRING }
+                        },
+                        required: ["tmdbId", "title", "year", "matchScore", "reason"]
+                    }
+                }
+            },
+            required: ["tasteProfile", "recommendations"]
+        }
+    };
+
+    let response;
+    let lastError;
+
+    for (let i = 0; i < MODELS.length; i++) {
+        const currentModel = MODELS[i];
+        try {
+            response = await ai.models.generateContent({
+                model: currentModel,
+                contents: prompt,
+                config: generationConfig
+            });
+            break;
+        } catch (err) {
+            lastError = err;
+            console.warn(`Model ${currentModel} failed for re-ranking:`, err.message || err);
+        }
+    }
+
+    if (!response) {
+        throw lastError || new Error("All Gemini models failed to re-rank candidates");
+    }
+
+    let jsonStr = response.text || "{}";
+    jsonStr = jsonStr.replace(/^```json\n|\n```$/g, "").trim();
+    const result = JSON.parse(jsonStr);
+
+    if (!result.recommendations || !Array.isArray(result.recommendations)) {
+        throw new Error("Invalid recommendation schema returned by Gemini");
+    }
+
+    // Match LLM ranked results back to guaranteed real TMDB candidates
+    const enriched = result.recommendations.map(rec => {
+        const candidate = candidates.find(c => c.id === rec.tmdbId || c.title?.toLowerCase() === rec.title?.toLowerCase()) || {};
+        return {
+            id: candidate.id || rec.tmdbId,
+            tmdbId: candidate.id || rec.tmdbId,
+            title: candidate.title || rec.title,
+            year: candidate.year || rec.year,
+            genre: candidate.genre || (profile.lovedGenreNames[0] || "Cinema"),
+            poster: candidate.poster || getFallbackPoster(rec.title),
+            backdrop: candidate.backdrop || null,
+            imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
+            matchScore: Math.min(100, Math.max(0, Math.round(rec.matchScore || 85))),
+            reason: rec.reason || "Matches your cinematic taste profile.",
+            plot: candidate.overview || rec.reason,
+            realData: true
+        };
+    });
+
+    enriched.sort((a, b) => b.matchScore - a.matchScore);
+
+    return {
+        tasteProfile: result.tasteProfile || {
+            favoriteGenres: profile.lovedGenreNames.slice(0, 3),
+            preferredEra: "Contemporary",
+            ratingStyle: "High cinematic affinity"
+        },
+        recommendations: enriched
+    };
+}
+
+/**
+ * Fallback Generative Pipeline (used when TMDB key is missing or unavailable)
+ */
+async function generateWithOmdbFallback(ai, watchedMovies, watchlist, onProgress, options = {}) {
+    onProgress?.("Synthesizing recommendations from vault history...");
+
+    const analytics = buildTasteAnalytics(watchedMovies);
+    const header = "Title|Year|Director|Genre|Rating|UserNote";
+    const rows = (watchedMovies || []).slice(0, 25).map(m =>
+        `${cleanStr(m.title || m.Title)}|${cleanStr(m.year || m.Year || "N/A")}|${cleanStr(m.director || m.Director || "Unknown")}|${cleanStr(m.genre || m.Genre || "Unknown")}|${m.userRating || m.UserRating || 0}|${cleanStr(m.userNote || m.UserNote || "")}`
+    ).join("\n");
+    const historyData = `${header}\n${rows}`;
+
+    const prompt = `
+You are an elite film critic. Select 6 distinct movie recommendations based on this viewing history:
+${historyData}
+
+Mood requested: "${cleanStr(options.mood || 'any')}"
+Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and recommendations (title, year, type, genre, matchScore, reason).
+`;
+
+    const generationConfig = {
+        responseMimeType: "application/json",
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                tasteProfile: {
+                    type: Type.OBJECT,
+                    properties: {
+                        favoriteGenres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        preferredEra: { type: Type.STRING },
+                        ratingStyle: { type: Type.STRING }
+                    },
+                    required: ["favoriteGenres", "preferredEra", "ratingStyle"]
+                },
+                recommendations: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING },
+                            year: { type: Type.STRING },
+                            type: { type: Type.STRING },
+                            genre: { type: Type.STRING },
+                            matchScore: { type: Type.NUMBER },
+                            reason: { type: Type.STRING }
+                        },
+                        required: ["title", "year", "type", "genre", "matchScore", "reason"]
+                    }
+                }
+            },
+            required: ["tasteProfile", "recommendations"]
+        }
+    };
+
+    let response;
+    for (const modelName of MODELS) {
+        try {
+            response = await ai.models.generateContent({
+                model: modelName,
+                contents: prompt,
+                config: generationConfig
+            });
+            break;
+        } catch (e) {
+            console.warn(`Fallback model ${modelName} failed:`, e.message || e);
+        }
+    }
+
+    if (!response) throw new Error("Fallback recommendation generation failed");
+
+    const result = JSON.parse(response.text || "{}");
+
+    if (result.recommendations && result.recommendations.length > 0) {
+        onProgress?.("Verifying candidate titles with OMDb...");
+        const enriched = await Promise.all(
+            result.recommendations.map(async (rec) => {
+                const omdbData = await fetchRealOMDBData(rec.title, rec.year);
+                if (omdbData) {
+                    return {
+                        ...rec,
+                        title: omdbData.verifiedTitle || rec.title,
+                        year: omdbData.verifiedYear || rec.year,
+                        imdbRating: omdbData.imdbRating || null,
+                        poster: omdbData.poster || getFallbackPoster(rec.title),
+                        genre: omdbData.genre || rec.genre || "Cinema",
+                        imdbID: omdbData.imdbID,
+                        realData: true
+                    };
+                }
+                return {
+                    ...rec,
+                    imdbRating: null,
+                    poster: getFallbackPoster(rec.title),
+                    genre: rec.genre || "Cinema",
+                    imdbID: generateFallbackId(rec.title, rec.year),
+                    realData: false
+                };
+            })
+        );
+        result.recommendations = enriched;
+    }
+
+    return result;
+}
+
+/**
+ * Main Recommendation Engine Entry Point
+ * Hybrid TMDB Discover Retrieval + Gemini Single-Pass Re-Ranking (with graceful fallback)
+ */
+export const getMovieRecommendations = async (watchedMovies = [], watchlist = [], onProgress, options = {}) => {
     const apiKey = import.meta.env.VITE_GEMINI_KEY;
 
     if (!apiKey) {
         throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
     }
 
-    if (!watchedMovies || watchedMovies.length === 0) {
-        throw new Error("No watched movies to analyze. Rate some movies first!");
-    }
-
     const ai = new GoogleGenAI({ apiKey });
+    const mood = options.mood || "any";
 
-    onProgress?.("Analyzing your unique taste profile...");
+    // 1. Synthesize statistical taste profile directly in JS
+    onProgress?.("Analyzing taste profile and genre affinities...");
+    const profile = extractTasteProfile(watchedMovies, watchlist);
 
-    // Compute statistical summary
-    const analytics = buildTasteAnalytics(watchedMovies);
+    // 2. Primary Engine: TMDB Discover Candidate Retrieval + Gemini Re-Ranking
+    if (TMDB_KEY) {
+        try {
+            onProgress?.("Retrieving verified candidate catalogue from TMDB...");
+            const candidates = await fetchCandidatePool(profile, mood, watchedMovies, watchlist);
 
-    // === Stratified Tier Sampling with 3-Tier Multi-Comparator & Hard Cap (25) ===
-    let processedWatched = watchedMovies;
-    if (watchedMovies.length > 35) {
-        // 1. ELITE ANCHORS (9-10): Chained comparator (Rating > Note > Recency), hard-capped at 25
-        const elite = [...watchedMovies]
-            .filter(m => (m.userRating || m.UserRating || 0) >= 9)
-            .sort((a, b) => {
-                const rA = a.userRating || a.UserRating || 0;
-                const rB = b.userRating || b.UserRating || 0;
-                // Tier 1: Highest Rating (10 beats 9)
-                if (rB !== rA) return rB - rA;
-                // Tier 2: User notes present (informative notes beat empty notes)
-                const aNote = a.userNote || a.UserNote || "";
-                const bNote = b.userNote || b.UserNote || "";
-                const aHasNote = Boolean(aNote.trim());
-                const bHasNote = Boolean(bNote.trim());
-                if (aHasNote !== bHasNote) return bHasNote ? 1 : -1;
-                // Tier 3: Recency (newest first)
-                return parseTimestamp(b) - parseTimestamp(a);
-            })
-            .slice(0, 25);
-
-        // 2. SUPPORTING TIER (7-8): Sampled and capped at 15
-        const supporting = [...watchedMovies]
-            .filter(m => {
-                const r = m.userRating || m.UserRating || 0;
-                return r >= 7 && r <= 8;
-            })
-            .sort((a, b) => {
-                const rA = a.userRating || a.UserRating || 0;
-                const rB = b.userRating || b.UserRating || 0;
-                if (rB !== rA) return rB - rA;
-                return parseTimestamp(b) - parseTimestamp(a);
-            })
-            .slice(0, 15);
-
-        // 3. ANTI-PATTERNS (<= 5): Lowest rated with criticism notes
-        const low = [...watchedMovies]
-            .filter(m => (m.userRating || m.UserRating || 0) <= 5)
-            .sort((a, b) => (a.userRating || a.UserRating || 0) - (b.userRating || b.UserRating || 0))
-            .slice(0, 10);
-
-        // 4. RECENT WATCHES (Latest 10)
-        const recent = [...watchedMovies]
-            .sort((a, b) => parseTimestamp(b) - parseTimestamp(a))
-            .slice(0, 10);
-
-        // Deduplicate: Elite priority preserved via Map first-write
-        const map = new Map();
-        [...elite, ...supporting, ...low, ...recent].forEach(m => {
-            const titleStr = m.title || m.Title || "Unknown";
-            const yearStr = m.year || m.Year || "N/A";
-            const key = m.imdbID || m.id || `${titleStr}_${yearStr}`;
-            if (!map.has(key)) map.set(key, m);
-        });
-        processedWatched = Array.from(map.values());
+            if (candidates && candidates.length >= 6) {
+                onProgress?.("AI Oracle re-ranking candidates against taste DNA...");
+                const result = await reRankCandidatesWithGemini(ai, profile, mood, candidates, options);
+                console.log(`✅ TMDB + Gemini RAG-lite pipeline completed (${result.recommendations?.length} films)`);
+                return result;
+            }
+        } catch (tmdbErr) {
+            console.warn("TMDB candidate retrieval failed, falling back to generative pipeline:", tmdbErr);
+        }
     }
 
-    const eliteTier = processedWatched.filter(m => (m.userRating || m.UserRating || 0) >= 9);
-    const antiPatterns = processedWatched.filter(m => (m.userRating || m.UserRating || 0) <= 5);
-
-    // Data Encoding: Compact CSV without wasteful shortPlot (saves ~3,000 tokens)
-    const header = "Title|Year|Director|Genre|Rating|UserNote";
-    const rows = processedWatched.map(m =>
-        `${cleanStr(m.title || m.Title)}|${cleanStr(m.year || m.Year || "N/A")}|${cleanStr(m.director || m.Director || "Unknown")}|${cleanStr(m.genre || m.Genre || "Unknown")}|${m.userRating || m.UserRating || 0}|${cleanStr(m.userNote || m.UserNote || "")}`
-    ).join("\n");
-    const historyData = `${header}\n${rows}`;
-
-    const dismissedTitles = (options.feedbackLog || [])
-        .filter(f => f.action === "dismissed")
-        .map(f => cleanStr(f.title));
-
-    const excludeTitles = [
-        ...watchedMovies.map(m => cleanStr(m.title || m.Title)),
-        ...(watchlist || []).map(m => cleanStr(m.title || m.Title)),
-        ...dismissedTitles
-    ].filter(Boolean).join(", ");
-
-    const watchlistTitles = (watchlist || []).length > 0
-        ? (watchlist || []).map(m => `"${cleanStr(m.title || m.Title)}"`).join(", ")
-        : "None";
-
-    const eliteSummary = eliteTier.length > 0
-        ? eliteTier.map(m => {
-            const titleStr = cleanStr(m.title || m.Title);
-            const ratingNum = m.userRating || m.UserRating || 0;
-            const noteStr = cleanStr(m.userNote || m.UserNote || "");
-            return `"${titleStr}" (${ratingNum}/10${noteStr ? `: ${noteStr}` : ''})`;
-        }).join(", ")
-        : "Highest rated films in viewing history";
-
-    const antiPatternSummary = antiPatterns.length > 0
-        ? antiPatterns.map(m => {
-            const titleStr = cleanStr(m.title || m.Title);
-            const ratingNum = m.userRating || m.UserRating || 0;
-            const noteStr = cleanStr(m.userNote || m.UserNote || "");
-            return `"${titleStr}" (${ratingNum}/10${noteStr ? `: ${noteStr}` : ''})`;
-        }).join(", ")
-        : "No strongly disliked movies";
-
-    // Format precomputed analytics block
-    const analyticsBlock = analytics ? `
-    📊 PRECOMPUTED TASTE ANALYTICS:
-    - User Average Rating: ${analytics.avgRating}/10 across ${analytics.totalRated} films
-    - Top Favorite Genres: ${analytics.topGenres.join("; ") || "Diverse"}
-    - Top Directors: ${analytics.topDirectors.join("; ") || "Various"}
-    ` : "";
-
-    // Format feedback log block if available
-    const feedbackList = options.feedbackLog || [];
-    const feedbackBlock = feedbackList.length > 0 ? `
-    💬 RECENT FEEDBACK ON PAST RECOMMENDATIONS:
-    ${feedbackList.map(f => `- ${cleanStr(f.title)} (${f.action === 'added_watchlist' ? 'Interested/Saved' : `Dismissed: ${cleanStr(f.reason) || 'Not for me'}`})`).join("\n")}
-    ` : "";
-
-    // Format requested mood if specified
-    const moodBlock = options.mood && options.mood !== "any" ? `
-    🎭 USER REQUESTED MOOD / DIRECTION:
-    The user specifically requested movies matching this mood: "${cleanStr(options.mood)}". Prioritize recommendations that capture this vibe!
-    ` : "";
-
-    const prompt = `
-    You are an elite film critic and recommendation engine. Analyze the user's viewing history and select 6 distinct recommendations.
-
-    ${analyticsBlock}
-
-    USER VIEWING HISTORY (Compact CSV format):
-    ${historyData}
-
-    👀 WATCHLIST INTENT SIGNAL:
-    User saved these films (curious about them): ${watchlistTitles}
-    → Use these titles to infer genre/tone interest, but DO NOT recommend these exact titles!
-
-    ${moodBlock}
-
-    ${feedbackBlock}
-
-    ⛔ EXCLUSION LIST (DO NOT RECOMMEND THESE):
-    ${excludeTitles}
-
-    ---------------------------------------------------
-    ### 🎯 PRIORITY RULES:
-    
-    1. PRIMARY ANCHORS (User Rated 9-10/10):
-    ${eliteSummary}
-    → Every recommendation MUST share thematic, stylistic, or storytelling qualities with at least ONE anchor movie.
-
-    2. DISQUALIFYING ANTI-PATTERNS (User Rated <= 5/10):
-    ${antiPatternSummary}
-    → DISQUALIFY any movie matching key traits/flaws of these disliked films.
-
-    3. USER REVIEWS & NOTES:
-    → Give highest priority to specific user feedback written in UserNote.
-
-    ---------------------------------------------------
-    ### 🧠 ANALYSIS & SELECTION RULES:
-    - Select exactly 6 movies (1 Safe Bet, 1 Wildcard, 4 Hidden Gems).
-    - Diversity: Max 2 movies from the same director.
-    - Reason format: "Similar to [Movie A] because of [Trait X], but with the [Trait Y] of [Movie B]."
-
-    ### OUTPUT REQUIREMENTS:
-    - Return strictly JSON matching the schema.
-    - Match Score: 0-100 confidence score based on alignment with primary anchors.
-    `;
-
-    try {
-        const generationConfig = {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    tasteProfile: {
-                        type: Type.OBJECT,
-                        properties: {
-                            favoriteGenres: { type: Type.ARRAY, items: { type: Type.STRING } },
-                            preferredEra: { type: Type.STRING },
-                            ratingStyle: { type: Type.STRING }
-                        }
-                    },
-                    recommendations: {
-                        type: Type.ARRAY,
-                        items: {
-                            type: Type.OBJECT,
-                            properties: {
-                                title: { type: Type.STRING },
-                                year: { type: Type.STRING },
-                                type: { type: Type.STRING },
-                                genre: { type: Type.STRING },
-                                matchScore: { type: Type.NUMBER },
-                                reason: { type: Type.STRING }
-                            },
-                            required: ["title", "year", "type", "genre", "matchScore", "reason"]
-                        }
-                    }
-                },
-                required: ["tasteProfile", "recommendations"]
-            }
-        };
-
-        let response;
-        let lastError;
-        for (let i = 0; i < MODELS.length; i++) {
-            const currentModel = MODELS[i];
-            try {
-                console.log(`🤖 Trying Model: ${currentModel}`);
-                response = await ai.models.generateContent({
-                    model: currentModel,
-                    contents: prompt,
-                    config: generationConfig
-                });
-                break;
-            } catch (error) {
-                lastError = error;
-                console.warn(`⚠️ Model ${currentModel} failed:`, error.message || error);
-                if (i < MODELS.length - 1) {
-                    onProgress?.(`AI busy, switching to backup model (${MODELS[i + 1]})...`);
-                }
-            }
-        }
-
-        if (!response) {
-            console.error("❌ All models failed");
-            throw lastError || new Error("All AI models failed to generate content");
-        }
-
-        onProgress?.("Validating recommendations...");
-
-        let jsonStr = response.text || "{}";
-        jsonStr = jsonStr.replace(/^```json\n|\n```$/g, "").trim();
-
-        const result = JSON.parse(jsonStr);
-
-        // === Dual-Pass Self-Critique with Native Type.BOOLEAN Schema ===
-        if (result.recommendations && result.recommendations.length > 0) {
-            onProgress?.("Running quality check...");
-
-            try {
-                const critiquePrompt = `
-                You are reviewing movie recommendations for a user. Here are the recommendations:
-                ${result.recommendations.map((r, i) => `${i}. "${r.title}" (${r.year}) - Reason: ${r.reason}`).join('\n')}
-
-                User's Elite Tier movies (9-10 rated): ${eliteSummary}
-                User's Anti-Patterns (disliked): ${antiPatternSummary}
-
-                TASK: For each candidate, evaluate whether it violates disliked anti-patterns and if its tone matches the user.
-                `;
-
-                const critiqueConfig = {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            critiques: {
-                                type: Type.ARRAY,
-                                items: {
-                                    type: Type.OBJECT,
-                                    properties: {
-                                        index: { type: Type.NUMBER },
-                                        violatesAntiPattern: { type: Type.BOOLEAN },
-                                        matchesPreferredTone: { type: Type.BOOLEAN },
-                                        issue: { type: Type.STRING }
-                                    },
-                                    required: ["index", "violatesAntiPattern", "matchesPreferredTone", "issue"]
-                                }
-                            }
-                        },
-                        required: ["critiques"]
-                    }
-                };
-
-                let critiqueResponse;
-                for (const modelName of MODELS) {
-                    try {
-                        critiqueResponse = await ai.models.generateContent({
-                            model: modelName,
-                            contents: critiquePrompt,
-                            config: critiqueConfig
-                        });
-                        break;
-                    } catch (e) {
-                        console.warn(`Critique model ${modelName} failed:`, e.message || e);
-                    }
-                }
-
-                if (!critiqueResponse) throw new Error("Critique generation failed across all models");
-
-                const critiqueResult = JSON.parse(critiqueResponse.text || "{}");
-
-                if (critiqueResult.critiques && Array.isArray(critiqueResult.critiques)) {
-                    critiqueResult.critiques.forEach(critique => {
-                        if (typeof critique.index === "number" && critique.index < result.recommendations.length) {
-                            const rec = result.recommendations[critique.index];
-                            if (critique.violatesAntiPattern === true) {
-                                rec.matchScore = Math.max(0, (rec.matchScore || 50) - 25);
-                                rec.reason += ` ⚠️ Note: ${cleanStr(critique.issue || "Potential tone mismatch with your anti-patterns")}`;
-                            } else if (critique.matchesPreferredTone === false) {
-                                rec.matchScore = Math.max(0, (rec.matchScore || 50) - 10);
-                            }
-                        }
-                    });
-                }
-            } catch (critiqueError) {
-                console.warn("Self-critique step failed, continuing without:", critiqueError);
-            }
-        }
-
-        // === Real OMDB Data Enrichment & Verification ===
-        if (result.recommendations && result.recommendations.length > 0) {
-            onProgress?.("Verifying movies exist...");
-
-            const enrichedRecommendations = await Promise.all(
-                result.recommendations.map(async (rec) => {
-                    const omdbData = await fetchRealOMDBData(rec.title, rec.year);
-
-                    if (omdbData) {
-                        return {
-                            ...rec,
-                            title: omdbData.verifiedTitle || rec.title,
-                            year: omdbData.verifiedYear || rec.year,
-                            imdbRating: omdbData.imdbRating || null,
-                            imdbVotes: omdbData.imdbVotes,
-                            poster: omdbData.poster,
-                            plot: omdbData.plot,
-                            imdbID: omdbData.imdbID,
-                            realData: true
-                        };
-                    }
-                    return {
-                        ...rec,
-                        imdbRating: null,
-                        poster: getFallbackPoster(rec.title),
-                        plot: "Detailed plot synopsis unavailable.",
-                        imdbID: generateFallbackId(rec.title, rec.year),
-                        realData: false
-                    };
-                })
-            );
-
-            result.recommendations = enrichedRecommendations;
-        }
-
-        // Sort by Match Score first, then by real IMDB rating
-        if (result.recommendations) {
-            result.recommendations.sort((a, b) => {
-                if (b.matchScore !== a.matchScore) {
-                    return (b.matchScore || 0) - (a.matchScore || 0);
-                }
-                return (b.imdbRating || 0) - (a.imdbRating || 0);
-            });
-        }
-
-        console.log(`✅ ${result.recommendations?.length || 0} verified recommendations ready`);
-        return result;
-
-    } catch (error) {
-        console.error("AI Recommendation Error:", error);
-        const errorMsg = error.message || "";
-
-        if (errorMsg.includes("API key") || errorMsg.includes("apiKey") || errorMsg.includes("401")) {
-            throw new Error("🔑 Invalid API key. Please check your VITE_GEMINI_KEY in the .env file.");
-        } else if (errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("quota") || errorMsg.includes("429")) {
-            throw new Error("API quota exceeded. Please try again later.");
-        } else if (errorMsg.includes("network") || errorMsg.includes("fetch") || errorMsg.includes("Failed to fetch")) {
-            throw new Error("📡 Connection issue. Please check your internet and try again.");
-        } else {
-            throw new Error(errorMsg || "🍿 Something went wrong. Please try again in a moment.");
-        }
-    }
+    // 3. Fallback Engine: Generative Gemini + OMDb Verification
+    return await generateWithOmdbFallback(ai, watchedMovies, watchlist, onProgress, options);
 };
