@@ -6,7 +6,7 @@ import {
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService";
 
-const MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+const MODELS = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 
 /**
  * Sanitizes strings for CSV/prompt injection safety
