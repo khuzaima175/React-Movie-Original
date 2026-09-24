@@ -4,11 +4,11 @@
 
 ![CinemaVault Banner](assets/screenshot.png)
 
-### Streaming-Grade Personal Film Vault, Taste Intelligence Engine & Cinema Analytics Studio
+### Personal Film Vault, Hybrid Taste Intelligence Engine & Cinema Analytics Studio
 
 [![React 18](https://img.shields.io/badge/React-18.3-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Vite 5](https://img.shields.io/badge/Vite-5.4-646cff?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Google Gemini](https://img.shields.io/badge/Google_Gemini-3.7_%7C_2.5_Flash-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
+[![Google Gemini](https://img.shields.io/badge/Google_Gemini-2.5_Flash-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![TMDB API](https://img.shields.io/badge/TMDB-API_v3-01b4e4?style=for-the-badge&logo=themoviedatabase&logoColor=white)](https://developer.themoviedb.org/)
 [![OMDb API](https://img.shields.io/badge/OMDb-API-f5c518?style=for-the-badge&logo=imdb&logoColor=black)](http://www.omdbapi.com/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
@@ -20,17 +20,17 @@
 
 ## 📌 Executive Overview
 
-**CinemaVault** is an enterprise-grade cinema vault, predictive taste intelligence engine, and deep film analytics platform. Engineered with a content-first luxury obsidian aesthetic, it replaces naive generative guessing with a **Deterministic 3-Bucket Waterfall Pipeline** from TMDB, a **Continuous Mathematical Taste Vector with Exponential Recency Decay**, and **Contextual Re-Ranking** powered by Google Gemini 3.7 & 2.5 Flash.
+**CinemaVault** is a personal film vault, algorithmic taste intelligence engine, and cinema analytics platform. Built with a dark obsidian aesthetic, it combines **deterministic catalog retrieval from TMDB** with **contextual LLM re-ranking powered by Google Gemini 2.5 Flash** to deliver movie recommendations grounded in verified catalog data rather than hallucinated text generation.
 
-Whether organizing personal cinema archives, analyzing viewing habits through telemetry histograms, importing lifetime Letterboxd libraries, filtering by local streaming subscriptions, or watching trailers in a dedicated zero-CLS luxury portal, CinemaVault delivers instantaneous performance, strict schema verification, and 100% data sovereignty.
+Whether tracking personal cinema logs, analyzing viewing habits through telemetry histograms, importing lifetime Letterboxd archives, exploring cold-start cinematic vibes, or filtering by worldwide streaming platforms, CinemaVault delivers zero-latency client-side performance, verified metadata schema bridges, and full data portability.
 
 ---
 
-## 🧠 Algorithmic Recommendation Engine (v3.0 "God-Tier" Architecture)
+## 🧠 Algorithmic Recommendation Engine (v3.0 Hybrid Architecture)
 
-Most AI-driven movie recommenders fail because they rely solely on raw generative text completion. Pure LLM recommendation models frequently suffer from **catalog hallucination** (inventing fake movie titles or cast), **stale echo chambers** (looping through the same 10 mainstream titles like *Inception* or *Interstellar*), and **rate-limit fragility**.
+Most AI-driven movie recommenders fail because they rely solely on raw text completion. Pure LLM recommendation prompts frequently suffer from **catalog hallucination** (inventing fake movies or mismatched cast), **echo chambers** (looping through the same 10 mainstream titles like *Inception* or *Interstellar*), and **rate-limit fragility**.
 
-CinemaVault v3.0 completely eliminates these flaws through a **Multi-Dimensional Mathematical Vector Engine** and a **Deterministic 3-Bucket Waterfall Pipeline**:
+CinemaVault solves this with a **Dual-Stage Multi-Dimensional Hybrid Pipeline**:
 
 ```mermaid
 flowchart TD
@@ -85,7 +85,7 @@ flowchart TD
 
     subgraph LLMAndCache ["5. Gemini 2.5 Flash Re-Ranking & LRU Cache"]
         CP --> GEM[Strict JSON Re-Ranking + Regex Code-Fence Sanitizer]
-        GEM --> LRU[500KB Smart LRU Cache with Real-Time Master ID Collision Guard]
+        GEM --> LRU[500KB Client-Side LRU Cache with Real-Time Master ID Collision Guard]
         LRU --> UI[Curated Showcase Deck & Streaming Badges]
     end
 ```
@@ -108,20 +108,20 @@ $$W_{\text{base}} = \max\left(0, \frac{\text{Rating} - 5}{5}\right)$$
 | **$\le$ 5 / 10** | **0.00** | Disliked / Trope Ban Extractor |
 
 #### 2. Exponential Recency Time-Decay ($W_{\text{final}}$)
-To prevent stale favorites logged years ago from dominating recommendations over current obsessions, CinemaVault applies half-life exponential time decay ($\lambda = 0.005$, half-life $\approx 140\text{ days}$):
+To prevent older favorites logged years ago from overshadowing current obsessions, CinemaVault applies half-life exponential time decay ($\lambda = 0.005$, half-life $\approx 140\text{ days}$):
 
 $$W_{\text{final}} = W_{\text{base}} \times e^{-\lambda \cdot \Delta t}$$
 
 Where $\Delta t$ is the elapsed time in days since the movie was logged or watched.
 
 #### 3. Temporally-Weighted Anchor Selection
-The anchor movie for spiritual successor matching (Bucket B) is determined by sorting all $9–10\star$ films by $W_{\text{final}}$ descending. This guarantees the algorithm anchors to your **current cinematic obsession** rather than an arbitrary first entry.
+The anchor movie for spiritual successor matching (Bucket B) is determined by sorting all $9–10\star$ films by $W_{\text{final}}$ descending. This guarantees the algorithm anchors to your **current cinema obsession** rather than an arbitrary first entry.
 
-#### 4. Surgical Negative Trope Extraction (`without_keywords`)
+#### 4. Granular Negative Trope Extraction (`without_keywords`)
 Rather than bludgeoning entire broad genres (which prevents recommending masterpieces like *The Dark Knight* just because you disliked a generic superhero movie), CinemaVault extracts granular micro-keywords from movies rated $\le 3\star$ (e.g. *slapstick*, *superhero*, *parody*) and excludes them via TMDB's `without_keywords` filter.
 
 #### 5. Star-Power Actor Graphing & Auteur Crew Vectors
-High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated star-power vector, passed to TMDB using comma-separated `,` OR syntax (`with_cast=67890,11122`), while elite directors and cinematographers are targeted via `with_crew`.
+High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated star-power vector, passed to TMDB using comma-separated `,` OR syntax (`with_cast=67890,11122`), while directors and cinematographers are targeted via `with_crew`.
 
 ---
 
@@ -140,20 +140,20 @@ High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated 
 
 ---
 
-### 🛡️ Enterprise Smart LRU Cache & Master ID Collision Guard
+### 🛡️ Client-Side LRU Cache & Collision Guard
 
 - **Master ID Cross-Referencing**: Smart Cache reads cross-reference `imdbID`, `tmdbId`, and local `id` across both Watched and Watchlist datasets. If $< 4$ unseen recommendations remain, the cache automatically busts and triggers a fresh fetch.
 - **500KB LRU Eviction Manager**: Enforces a strict 500KB local storage ceiling with automatic timestamp-based least-recently-used eviction.
 - **Resilient Regex Code-Fence Parser (`sanitizeAndParseJSON`)**: Immune to LLM markdown formatting variations (` ```json ... ``` `).
-- **Automated LLM Failover**: Chains `gemini-3.7-flash` $\to$ `gemini-2.5-flash` $\to$ `gemini-2.0-flash` $\to$ **Deterministic TMDB Fallback**.
+- **Automated LLM Failover**: Chains `gemini-2.5-flash` $\to$ `gemini-2.0-flash` $\to$ **Deterministic TMDB Fallback**.
 
 ---
 
 ## ✨ Feature Tour
 
 ### 🗄️ Personal Vault & Telemetry Analytics Studio
-- **Multi-Dimensional Filtering**: Instant search and filtering by genre, release year, runtime, and star rating.
-- **Dual Display Modes**: Switch between Criterion-style responsive poster grid and dense tabular list view.
+- **Multi-Dimensional Filtering**: Real-time filtering by genre, release year, runtime, and star rating.
+- **Dual Display Modes**: Switch between responsive poster grid and dense tabular list view.
 - **Live Vault Telemetry**:
   - Total watch time calculation (Days, Hours, Minutes).
   - Rating Delta Histogram comparing your ratings against the global IMDb baseline.
@@ -161,14 +161,14 @@ High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated 
   - Director and Actor milestone leaderboards.
 - **Floating Batch Operations (`VaultBulkBar`)**: Multi-select movies for bulk queue transfer or batch deletion.
 
-### 🎬 Luxury Zero-CLS Trailer Portal (`<TrailerModal />`)
-- Portal-mounted modal dialog with ultra-smooth 60fps animations via Framer Motion.
+### 🎬 Zero-CLS Trailer Portal (`<TrailerModal />`)
+- Portal-mounted modal dialog with smooth animations via Framer Motion.
 - Direct 16:9 YouTube player embed with `autoplay=1`, `modestbranding=1`, and background blur.
 - Full keyboard accessibility with `ESC` dismissal and backdrop click handling.
 
 ### 📺 Universal Streaming Intelligence & Global Cinema Engine
-- **"🌐 All Platforms / Universal Access" Mode**: Active by default — liberates the recommendation pipeline from single-platform walls, querying the complete global archive of cinema across Criterion, festival masterworks, indie releases, theatrical epics, and all streaming services.
-- **Granular Provider Subscriptions**: Surgical filtering across **11 major networks**:
+- **"🌐 All Platforms / Universal Access" Mode**: Active by default — queries the complete global archive of cinema across Criterion, festival masterworks, indie releases, theatrical epics, and all streaming services without platform lockouts.
+- **Granular Provider Subscriptions**: Direct filtering across **11 major networks**:
   - 🔴 Netflix
   - 📦 Amazon Prime Video
   - ✨ Disney+
@@ -182,7 +182,7 @@ High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated 
   - ⚡ Pluto TV (Free)
   - 🎬 Freevee (Free)
 - **🌍 Worldwide / Multi-Region Intelligence**:
-  - Worldwide mode removes territorial lockouts, allowing films from **Japan, South Korea, France, Italy, Spain, India, Germany, the UK, Scandinavia, and Latin America** to surface naturally based on artistic synergy.
+  - Worldwide mode removes territorial lockouts, allowing films from **Japan, South Korea, France, Italy, Spain, India, Germany, the UK, Scandinavia, and Latin America** to surface naturally.
   - Multi-country selector supporting **15 regions** (🇺🇸 US, 🇬🇧 UK, 🇨🇦 Canada, 🇦🇺 Australia, 🇯🇵 Japan, 🇰🇷 South Korea, 🇫🇷 France, 🇩🇪 Germany, 🇪🇸 Spain, 🇮🇹 Italy, 🇮🇳 India, 🇧🇷 Brazil, 🇲🇽 Mexico, 🇸🇪 Sweden).
   - Robust catalog fallback: When Worldwide mode is paired with specific streaming subscriptions, queries bind to the primary global availability baseline with clear UI provenance.
 - **Visual Provider Badges**: Real-time stream badges embedded on movie cards and cinematic breakdown drawers.
@@ -206,12 +206,12 @@ High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated 
   - Non-destructive **Merge Mode** and clean **Overwrite Mode**.
 
 ### 🎲 Vault Roulette (Random Film Picker)
-- High-energy cinema roulette with physics-eased mechanical ticker animations.
+- Cinema roulette with physics-eased mechanical ticker animations.
 - Filter roulette spins by specific genres or choose randomly from your unviewed Watchlist.
 - Instant action triggers: log directly as watched, rate, or view full cinematic breakdown.
 
 ### 🌌 Cold-Start Vibe Matrix
-- Instant curated exploration for new accounts with 0 logged ratings.
+- Curated exploration for new accounts with 0 logged ratings.
 - 8 hand-crafted cinematic vibe vectors (e.g. *Cyberpunk Noir*, *A24 Mind-Bending*, *Cozy Feel-Good*, *Slow-Burn Psychological*, *90s Cult Thrillers*).
 
 ### 💬 Context-Aware AI Film Companion
@@ -221,7 +221,7 @@ High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated 
 
 ---
 
-## 🎨 Design System: Luxury Obsidian & Vault Brass
+## 🎨 Design System: Obsidian & Vault Brass
 
 CinemaVault is designed with a streaming-grade interface inspired by Apple TV, Criterion Channel, and Linear:
 
@@ -249,7 +249,7 @@ CinemaVault is designed with a streaming-grade interface inspired by Apple TV, C
 | **Routing** | [React Router v6](https://reactrouter.com/) | Client-side routing and deep-linking |
 | **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) | Design tokens, utility architecture & Vanilla CSS |
 | **Motion Engine** | [Framer Motion](https://www.framer.com/motion/) | Spring physics, layout animations & modal gestures |
-| **Primary AI Model** | [Google Gemini 3.7 / 2.5 Flash](https://ai.google.dev/) | Candidate re-ranking with strict JSON Schema output |
+| **Primary AI Model** | [Google Gemini 2.5 Flash](https://ai.google.dev/) | Candidate re-ranking with strict JSON Schema output |
 | **Failover AI Model** | [Google Gemini 2.0 Flash](https://ai.google.dev/) | Secondary high-throughput fallback LLM |
 | **Catalog Retrieval** | [TMDB API v3](https://developer.themoviedb.org/) | Deterministic 3-Bucket Waterfall queries & provider IDs |
 | **Enrichment Data** | [OMDb API](http://www.omdbapi.com/) | IMDb ratings, Metascores, box office & poster assets |
@@ -310,7 +310,7 @@ movie-ratings/
 │   │   ├── ui/                 # Design System Primitives
 │   │   │   ├── Button.jsx      # Vault Button variants (Primary, Ghost, Danger)
 │   │   │   ├── Card.jsx        # Glassmorphic surface containers
-│   │   │   ├── Modal.jsx       # Studio-grade accessible dialog portal
+│   │   │   ├── Modal.jsx       # Accessible dialog portal
 │   │   │   ├── Tabs.jsx        # Segmented pill control switcher
 │   │   │   └── Tooltip.jsx     # Positioned metadata tooltips
 │   │   ├── AIChat.jsx          # Context-aware cinema discourse companion
@@ -319,13 +319,13 @@ movie-ratings/
 │   │   ├── MovieCard.jsx       # Responsive poster card with quick actions
 │   │   ├── MovieCarouselRow.jsx# Smooth horizontal carousel slider
 │   │   ├── MovieDetails.jsx    # Full-page cinematic breakdown & cast reel
-│   │   ├── MovieRecommendations.jsx # God-Tier 3-bucket recommendation interface
+│   │   ├── MovieRecommendations.jsx # 3-bucket recommendation interface
 │   │   ├── NavBar.jsx          # Sticky glass navigation & spotlight launcher
 │   │   ├── PosterImage.jsx     # Lazy-loaded image with shimmer placeholder
 │   │   ├── RandomPicker.jsx    # Physics-eased Vault Roulette reel
 │   │   ├── SearchModal.jsx     # Universal Command Palette (Cmd+K)
 │   │   ├── Toast.jsx           # Ephemeral action feedback alerts
-│   │   ├── TrailerModal.jsx    # Luxury zero-CLS YouTube trailer portal
+│   │   ├── TrailerModal.jsx    # Zero-CLS YouTube trailer portal
 │   │   ├── VaultAnalytics.jsx  # Watch time telemetry & score delta charts
 │   │   └── VaultBulkBar.jsx    # Multi-item batch management bar
 │   ├── context/
@@ -353,12 +353,11 @@ movie-ratings/
 
 ---
 
-## 🔒 Data Privacy & Offline Integrity
+## 🔒 Architecture & Security Notes
 
-CinemaVault values **privacy and zero lock-in**:
-- **100% Client-Side State**: All ratings, notes, custom tags, and watch history are stored in `localStorage` in the user's browser.
-- **Zero Tracking**: No telemetry or personal movie data is sold, monetized, or logged on remote servers.
-- **Unrestricted Data Portability**: Export your complete vault at any time via standardized JSON or Letterboxd-ready CSV formats.
+- **Client-Side Storage**: All ratings, reviews, timestamps, and watch history are stored locally in the browser's `localStorage`. No external database, tracking server, or account sign-up is required.
+- **Client-Side API Keys**: In this standalone frontend setup, `VITE_*` environment variables are bundled into the client build. For personal use or local hosting, this is standard. For a public multi-user deployment with private API quotas, API calls should be routed through a lightweight backend proxy (e.g. Cloudflare Workers, Next.js API routes, or Express) to keep keys server-side.
+- **Data Portability**: Full database dumps are exportable at any time via standardized JSON or Letterboxd-ready CSV formats.
 
 ---
 
