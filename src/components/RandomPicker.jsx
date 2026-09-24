@@ -54,26 +54,36 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Cinema Roulette" size="md">
-      <div className="space-y-6">
+      <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
         {/* Source Pool Selector */}
-        <div className="flex items-center justify-between border-b border-hairline pb-4">
-          <span className="text-xs font-semibold uppercase tracking-wider text-text-3">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", paddingBottom: "1.4rem" }}>
+          <span style={{ fontSize: "1.2rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "#8a8a86" }}>
             Pick Movie From
           </span>
-          <div className="flex gap-2">
+          <div style={{ display: "flex", gap: "0.8rem" }}>
             <button
               onClick={() => {
                 setSource("watchlist");
                 setPickedMovie(null);
               }}
               disabled={watchlist.length === 0}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-control border transition-colors ${
-                source === "watchlist"
-                  ? "bg-surface-3 border-accent text-accent font-semibold"
-                  : "bg-surface-2 border-hairline text-text-3 hover:text-text-1 disabled:opacity-40"
-              }`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                padding: "0.6rem 1.2rem",
+                fontSize: "1.25rem",
+                fontWeight: source === "watchlist" ? 600 : 500,
+                borderRadius: "0.8rem",
+                border: source === "watchlist" ? "1px solid #e2b13c" : "1px solid rgba(255, 255, 255, 0.1)",
+                background: source === "watchlist" ? "rgba(226, 177, 60, 0.14)" : "#1c1d20",
+                color: source === "watchlist" ? "#e2b13c" : "#b6b6b2",
+                cursor: watchlist.length === 0 ? "not-allowed" : "pointer",
+                opacity: watchlist.length === 0 ? 0.4 : 1,
+                transition: "all 0.2s ease"
+              }}
             >
-              <Bookmark size={13} aria-hidden="true" />
+              <Bookmark size={14} aria-hidden="true" />
               <span>Watchlist ({watchlist.length})</span>
             </button>
 
@@ -83,28 +93,38 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
                 setPickedMovie(null);
               }}
               disabled={watched.length === 0}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-control border transition-colors ${
-                source === "watched"
-                  ? "bg-surface-3 border-accent text-accent font-semibold"
-                  : "bg-surface-2 border-hairline text-text-3 hover:text-text-1 disabled:opacity-40"
-              }`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.6rem",
+                padding: "0.6rem 1.2rem",
+                fontSize: "1.25rem",
+                fontWeight: source === "watched" ? 600 : 500,
+                borderRadius: "0.8rem",
+                border: source === "watched" ? "1px solid #e2b13c" : "1px solid rgba(255, 255, 255, 0.1)",
+                background: source === "watched" ? "rgba(226, 177, 60, 0.14)" : "#1c1d20",
+                color: source === "watched" ? "#e2b13c" : "#b6b6b2",
+                cursor: watched.length === 0 ? "not-allowed" : "pointer",
+                opacity: watched.length === 0 ? 0.4 : 1,
+                transition: "all 0.2s ease"
+              }}
             >
-              <Film size={13} aria-hidden="true" />
+              <Film size={14} aria-hidden="true" />
               <span>Vault ({watched.length})</span>
             </button>
           </div>
         </div>
 
         {/* Roulette Display Box */}
-        <div className="flex flex-col items-center justify-center p-6 rounded-card border border-hairline bg-surface-2/60 min-h-[260px] text-center">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2.4rem", borderRadius: "1.2rem", border: "1px solid rgba(255, 255, 255, 0.1)", background: "rgba(28, 29, 32, 0.6)", minHeight: "260px", textAlign: "center" }}>
           {pickedMovie ? (
             <motion.div
               key={pickedMovie.imdbID || pickedMovie.id || pickedMovie.title}
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="flex flex-col sm:flex-row items-center gap-5 w-full max-w-sm"
+              style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "2rem", width: "100%", maxWidth: "420px", textAlign: "left" }}
             >
-              <div className="w-24 h-36 flex-shrink-0 rounded-poster overflow-hidden border border-hairline shadow-sh-2">
+              <div style={{ width: "9.6rem", height: "14.4rem", flexShrink: 0, borderRadius: "0.8rem", overflow: "hidden", border: "1px solid rgba(255, 255, 255, 0.12)", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
                 <PosterImage
                   src={pickedMovie.poster || pickedMovie.Poster}
                   title={pickedMovie.title || pickedMovie.Title}
@@ -113,19 +133,19 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
                 />
               </div>
 
-              <div className="text-left space-y-2 flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 text-xs text-accent font-medium">
-                  <Sparkles size={13} aria-hidden="true" />
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.2rem", color: "#e2b13c", fontWeight: 600 }}>
+                  <Sparkles size={14} aria-hidden="true" />
                   <span>Oracle Pick</span>
                 </div>
-                <h3 className="text-base font-bold text-text-1 truncate">
+                <h3 style={{ fontSize: "1.7rem", fontWeight: 700, color: "#f4f4f2", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {pickedMovie.title || pickedMovie.Title}
                 </h3>
-                <div className="flex items-center gap-3 text-xs text-text-3 font-mono">
+                <div style={{ display: "flex", alignItems: "center", gap: "1.2rem", fontSize: "1.25rem", color: "#8a8a86", fontFamily: "monospace" }}>
                   <span>{pickedMovie.year || pickedMovie.Year}</span>
                   {(pickedMovie.imdbRating || pickedMovie.userRating) && (
-                    <span className="flex items-center gap-1 text-text-2">
-                      <Star size={12} className="text-accent fill-current" aria-hidden="true" />
+                    <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "#f4f4f2" }}>
+                      <Star size={13} style={{ color: "#e2b13c", fill: "currentColor" }} aria-hidden="true" />
                       {pickedMovie.userRating || pickedMovie.imdbRating}
                     </span>
                   )}
@@ -138,32 +158,32 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
                       onSelectMovie?.(pickedMovie.imdbID || pickedMovie.id);
                       onClose();
                     }}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline pt-1"
+                    style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem", fontSize: "1.3rem", fontWeight: 600, color: "#e2b13c", background: "none", border: "none", cursor: "pointer", padding: "0.4rem 0", textDecoration: "underline" }}
                   >
                     <span>View Movie Details</span>
-                    <ArrowRight size={13} aria-hidden="true" />
+                    <ArrowRight size={14} aria-hidden="true" />
                   </button>
                 )}
               </div>
             </motion.div>
           ) : activePool.length === 0 ? (
-            <div className="text-text-3 text-sm space-y-2">
-              <p>No films found in your {source === "watchlist" ? "Watchlist" : "Vault"}.</p>
-              <p className="text-xs text-text-3/70">Bookmark or rate titles to activate the roulette!</p>
+            <div style={{ color: "#8a8a86", fontSize: "1.4rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
+              <p style={{ color: "#f4f4f2", fontWeight: 500 }}>No films found in your {source === "watchlist" ? "Watchlist" : "Vault"}.</p>
+              <p style={{ fontSize: "1.25rem", color: "#8a8a86" }}>Bookmark or rate titles to activate the roulette!</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="w-12 h-12 rounded-full bg-surface-3 border border-hairline flex items-center justify-center mx-auto text-accent">
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem", alignItems: "center" }}>
+              <div style={{ width: "4.8rem", height: "4.8rem", borderRadius: "50%", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c" }}>
                 <Dices size={24} aria-hidden="true" />
               </div>
-              <p className="text-sm text-text-2 font-medium">Can't decide what to watch tonight?</p>
-              <p className="text-xs text-text-3">Spin the wheel across your {activePool.length} saved titles.</p>
+              <p style={{ fontSize: "1.5rem", color: "#f4f4f2", fontWeight: 600 }}>Can't decide what to watch tonight?</p>
+              <p style={{ fontSize: "1.3rem", color: "#8a8a86" }}>Spin the wheel across your {activePool.length} saved titles.</p>
             </div>
           )}
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "1.2rem", paddingTop: "0.8rem" }}>
           <Button variant="ghost" size="md" onClick={onClose}>
             Cancel
           </Button>

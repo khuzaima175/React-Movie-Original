@@ -501,31 +501,34 @@ export default function BackupManagerModal({ isOpen, onClose }) {
 
         {/* Modal Body */}
         {isProcessing ? (
-          <div className="py-8 text-center space-y-4">
-            <div className="flex justify-center">
-              <Sparkles size={32} className="text-accent animate-spin" aria-hidden="true" />
+          <div style={{ padding: "3.2rem 0", textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.6rem" }}>
+              <Sparkles size={36} style={{ color: "#e2b13c" }} className="spin-icon" aria-hidden="true" />
             </div>
             <div>
-              <h4 className="text-base font-semibold text-text-1">Syncing with OMDb API...</h4>
-              <p className="text-xs text-text-3 mt-1 truncate max-w-md mx-auto">
-                Resolving: <strong className="text-text-2">{progress.title || "Initializing..."}</strong>
+              <h4 style={{ fontSize: "1.7rem", fontWeight: 600, color: "#f4f4f2" }}>Syncing with OMDb API...</h4>
+              <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem" }}>
+                Resolving: <strong style={{ color: "#f4f4f2" }}>{progress.title || "Initializing..."}</strong>
               </p>
             </div>
 
-            <div className="w-full max-w-md mx-auto bg-surface-3 rounded-full h-2 overflow-hidden border border-hairline">
+            <div style={{ width: "100%", maxWidth: "440px", margin: "2rem auto 1rem", background: "#242528", borderRadius: "9999px", height: "0.8rem", overflow: "hidden", border: "1px solid rgba(255,255,255,0.1)" }}>
               <div
-                className="bg-accent h-full transition-all duration-150 rounded-full"
                 style={{
+                  background: "#e2b13c",
+                  height: "100%",
+                  transition: "all 150ms ease",
+                  borderRadius: "9999px",
                   width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%`,
                 }}
               />
             </div>
 
-            <p className="text-xs font-mono text-text-3">
+            <p style={{ fontSize: "1.2rem", fontFamily: "monospace", color: "#8a8a86" }}>
               Processed {progress.current} of {progress.total} films
             </p>
 
-            <div className="pt-2">
+            <div style={{ marginTop: "1.6rem" }}>
               <Button variant="ghost" size="sm" onClick={cancelImport}>
                 Cancel Import
               </Button>
@@ -534,85 +537,124 @@ export default function BackupManagerModal({ isOpen, onClose }) {
         ) : (
           <>
             {activeTab === "export" ? (
-              <div className="space-y-4">
-                <p className="text-xs text-text-3 leading-relaxed">
-                  Download local copies of your CinemaVault collections. Use them to migrate between devices, share ratings, or maintain backups.
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.6rem" }}>
+                <p style={{ fontSize: "1.35rem", color: "#8a8a86", lineHeight: 1.6 }}>
+                  Download local copies of your CinemaVault collections. Use them to migrate between devices, share ratings, or maintain off-site backups.
                 </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "1.4rem", paddingTop: "0.8rem" }}>
+                  {/* Full JSON */}
                   <button
                     onClick={exportJSON}
-                    className="flex flex-col justify-between p-4 rounded-card border border-hairline bg-surface-2 hover:bg-surface-3 text-left transition-all hover:border-hairline-strong group"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                      padding: "2rem 1.8rem",
+                      borderRadius: "1.2rem",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      background: "#1c1d20",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    className="hover:border-[#e2b13c]/50 hover:bg-[#242528] group"
                   >
                     <div>
-                      <div className="w-9 h-9 rounded-control bg-accent/10 border border-accent/20 flex items-center justify-center text-accent mb-3">
-                        <FileJson size={18} />
+                      <div style={{ width: "4.2rem", height: "4.2rem", borderRadius: "0.8rem", background: "rgba(226, 177, 60, 0.14)", border: "1px solid rgba(226, 177, 60, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.4rem" }}>
+                        <FileJson size={20} />
                       </div>
-                      <h5 className="text-sm font-semibold text-text-1 group-hover:text-accent transition-colors">
+                      <h5 style={{ fontSize: "1.5rem", fontWeight: 600, color: "#f4f4f2" }}>
                         Full JSON Backup
                       </h5>
-                      <p className="text-xs text-text-3 mt-1 leading-normal">
+                      <p style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
                         Complete data dump with ratings, watchlists, notes, and metadata.
                       </p>
                     </div>
-                    <span className="text-xs font-medium text-accent mt-4 inline-flex items-center gap-1">
-                      Download .json
+                    <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#e2b13c", marginTop: "1.8rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                      <Download size={14} /> Download .json
                     </span>
                   </button>
 
+                  {/* General CSV */}
                   <button
                     onClick={exportGeneralCSV}
-                    className="flex flex-col justify-between p-4 rounded-card border border-hairline bg-surface-2 hover:bg-surface-3 text-left transition-all hover:border-hairline-strong group"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                      padding: "2rem 1.8rem",
+                      borderRadius: "1.2rem",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      background: "#1c1d20",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    className="hover:border-white/20 hover:bg-[#242528] group"
                   >
                     <div>
-                      <div className="w-9 h-9 rounded-control bg-surface-3 border border-hairline flex items-center justify-center text-text-2 mb-3">
-                        <FileSpreadsheet size={18} />
+                      <div style={{ width: "4.2rem", height: "4.2rem", borderRadius: "0.8rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#b6b6b2", marginBottom: "1.4rem" }}>
+                        <FileSpreadsheet size={20} />
                       </div>
-                      <h5 className="text-sm font-semibold text-text-1 group-hover:text-accent transition-colors">
+                      <h5 style={{ fontSize: "1.5rem", fontWeight: 600, color: "#f4f4f2" }}>
                         General CSV Export
                       </h5>
-                      <p className="text-xs text-text-3 mt-1 leading-normal">
+                      <p style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
                         Spreadsheet-friendly table containing ratings, genres, and directors.
                       </p>
                     </div>
-                    <span className="text-xs font-medium text-text-2 mt-4 inline-flex items-center gap-1">
-                      Download .csv
+                    <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#b6b6b2", marginTop: "1.8rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                      <Download size={14} /> Download .csv
                     </span>
                   </button>
 
+                  {/* Letterboxd CSV */}
                   <button
                     onClick={exportLetterboxdCSV}
-                    className="flex flex-col justify-between p-4 rounded-card border border-hairline bg-surface-2 hover:bg-surface-3 text-left transition-all hover:border-hairline-strong group"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                      padding: "2rem 1.8rem",
+                      borderRadius: "1.2rem",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      background: "#1c1d20",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    className="hover:border-[#e2b13c]/50 hover:bg-[#242528] group"
                   >
                     <div>
-                      <div className="w-9 h-9 rounded-control bg-surface-3 border border-hairline flex items-center justify-center text-text-2 mb-3">
-                        <Star size={18} />
+                      <div style={{ width: "4.2rem", height: "4.2rem", borderRadius: "0.8rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.4rem" }}>
+                        <Star size={20} />
                       </div>
-                      <h5 className="text-sm font-semibold text-text-1 group-hover:text-accent transition-colors">
+                      <h5 style={{ fontSize: "1.5rem", fontWeight: 600, color: "#f4f4f2" }}>
                         Letterboxd CSV
                       </h5>
-                      <p className="text-xs text-text-3 mt-1 leading-normal">
+                      <p style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
                         Formatted (Title, Year, Rating10) for importing ratings into Letterboxd.
                       </p>
                     </div>
-                    <span className="text-xs font-medium text-text-2 mt-4 inline-flex items-center gap-1">
-                      Download .csv
+                    <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#e2b13c", marginTop: "1.8rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                      <Download size={14} /> Download .csv
                     </span>
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
-                <p className="text-xs text-text-3 leading-relaxed">
-                  Upload <code className="text-text-2 font-mono">.json</code> or <code className="text-text-2 font-mono">.csv</code> files. Supports CinemaVault JSON backups and Letterboxd CSV exports.
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
+                <p style={{ fontSize: "1.35rem", color: "#8a8a86", lineHeight: 1.6 }}>
+                  Upload <code style={{ color: "#f4f4f2", background: "#242528", padding: "0.2rem 0.6rem", borderRadius: "0.4rem" }}>.json</code> or <code style={{ color: "#f4f4f2", background: "#242528", padding: "0.2rem 0.6rem", borderRadius: "0.4rem" }}>.csv</code> files. Supports CinemaVault JSON backups and Letterboxd CSV exports.
                 </p>
 
                 {/* Mode Selector */}
-                <div className="flex items-center justify-between p-3 rounded-control border border-hairline bg-surface-2">
-                  <span className="text-xs font-semibold text-text-2 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers size={14} /> Import Mode
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.4rem 1.8rem", borderRadius: "1rem", border: "1px solid rgba(255, 255, 255, 0.1)", background: "#1c1d20" }}>
+                  <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#b6b6b2", textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                    <Layers size={16} style={{ color: "#e2b13c" }} /> Import Mode
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
                     <Button
                       size="sm"
                       variant={importMode === "merge" ? "primary" : "ghost"}
@@ -632,7 +674,20 @@ export default function BackupManagerModal({ isOpen, onClose }) {
 
                 {/* Dropzone */}
                 <div
-                  className="flex flex-col items-center justify-center p-8 rounded-card border-2 border-dashed border-hairline hover:border-accent/40 bg-surface-2/30 text-center cursor-pointer transition-colors"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "3.6rem 2rem",
+                    borderRadius: "1.4rem",
+                    border: "2px dashed rgba(255, 255, 255, 0.16)",
+                    background: "rgba(28, 29, 32, 0.35)",
+                    textAlign: "center",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease"
+                  }}
+                  className="hover:border-[#e2b13c]/50 hover:bg-[#1c1d20]/50"
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
@@ -644,13 +699,13 @@ export default function BackupManagerModal({ isOpen, onClose }) {
                     onChange={handleFileChange}
                     style={{ display: "none" }}
                   />
-                  <div className="w-12 h-12 rounded-full bg-surface-3 flex items-center justify-center text-text-2 mb-3">
-                    <FileUp size={22} className="text-accent" />
+                  <div style={{ width: "5.2rem", height: "5.2rem", borderRadius: "50%", background: "#242528", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.4rem" }}>
+                    <FileUp size={24} />
                   </div>
-                  <p className="text-sm font-medium text-text-1">
-                    Drag & Drop backup file here, or <span className="text-accent underline underline-offset-4">browse</span>
+                  <p style={{ fontSize: "1.5rem", fontWeight: 500, color: "#f4f4f2" }}>
+                    Drag & Drop backup file here, or <span style={{ color: "#e2b13c", textDecoration: "underline", textUnderlineOffset: "4px" }}>browse</span>
                   </p>
-                  <span className="text-xs text-text-3 mt-1">
+                  <span style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem" }}>
                     Supported: CinemaVault .json backup, Letterboxd .csv export
                   </span>
                 </div>
@@ -658,18 +713,34 @@ export default function BackupManagerModal({ isOpen, onClose }) {
                 {/* Result alerts */}
                 {resultMessage && (
                   <div
-                    className={`flex items-start gap-2.5 p-3 rounded-control border text-xs ${
-                      resultMessage.type === "success"
-                        ? "bg-match/10 border-match/30 text-match"
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "1.2rem",
+                      padding: "1.4rem 1.6rem",
+                      borderRadius: "0.8rem",
+                      fontSize: "1.3rem",
+                      background: resultMessage.type === "success"
+                        ? "rgba(70, 211, 105, 0.1)"
                         : resultMessage.type === "warning"
-                        ? "bg-accent/10 border-accent/30 text-accent"
-                        : "bg-danger/10 border-danger/30 text-danger"
-                    }`}
+                        ? "rgba(226, 177, 60, 0.1)"
+                        : "rgba(229, 72, 77, 0.1)",
+                      border: resultMessage.type === "success"
+                        ? "1px solid rgba(70, 211, 105, 0.3)"
+                        : resultMessage.type === "warning"
+                        ? "1px solid rgba(226, 177, 60, 0.3)"
+                        : "1px solid rgba(229, 72, 77, 0.3)",
+                      color: resultMessage.type === "success"
+                        ? "#46d369"
+                        : resultMessage.type === "warning"
+                        ? "#e2b13c"
+                        : "#e5484d"
+                    }}
                   >
-                    {resultMessage.type === "success" && <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />}
-                    {resultMessage.type === "warning" && <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />}
-                    {resultMessage.type === "error" && <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />}
-                    <span>{resultMessage.text}</span>
+                    {resultMessage.type === "success" && <CheckCircle2 size={18} style={{ flexShrink: 0, marginTop: "0.2rem" }} />}
+                    {resultMessage.type === "warning" && <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: "0.2rem" }} />}
+                    {resultMessage.type === "error" && <AlertCircle size={18} style={{ flexShrink: 0, marginTop: "0.2rem" }} />}
+                    <span style={{ lineHeight: 1.5 }}>{resultMessage.text}</span>
                   </div>
                 )}
               </div>

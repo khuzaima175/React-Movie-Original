@@ -26,11 +26,11 @@ export function Modal({ isOpen, onClose, children, title, size = 'md' }) {
 
   if (!isOpen) return null;
 
-  const sizeClasses = {
-    sm: 'max-w-md',
-    md: 'max-w-xl',
-    lg: 'max-w-3xl',
-    full: 'max-w-5xl'
+  const sizeStyles = {
+    sm: { maxWidth: "480px" },
+    md: { maxWidth: "620px" },
+    lg: { maxWidth: "780px" },
+    full: { maxWidth: "980px" }
   };
 
   return createPortal(
@@ -39,28 +39,35 @@ export function Modal({ isOpen, onClose, children, title, size = 'md' }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-        className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[15vh] backdrop-blur-sm"
+        transition={{ duration: 0.18 }}
+        className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-black/80 p-4 pt-16 sm:pt-24 backdrop-blur-md"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
       >
         <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 20 }}
+          initial={{ opacity: 0, scale: 0.96, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: 20 }}
+          exit={{ opacity: 0, scale: 0.96, y: 16 }}
           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          className={`w-full ${sizeClasses[size]} rounded-modal bg-surface-1 shadow-sh-3 ring-1 ring-hairline`}
+          style={sizeStyles[size] || sizeStyles.md}
+          className="w-full rounded-2xl bg-[#141416] border border-white/10 shadow-2xl overflow-hidden my-4"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between border-b border-hairline px-6 py-4">
-            <h2 id="modal-title" className="text-lg font-semibold text-text-1">{title}</h2>
-            <button onClick={onClose} className="rounded-control p-1 text-text-3 hover:bg-surface-2 hover:text-text-1 transition-colors focus:outline-none focus:ring-2 focus:ring-accent">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4 bg-[#1c1d20]">
+            <h2 id="modal-title" className="text-lg sm:text-xl font-semibold text-[#f4f4f2] tracking-tight">{title}</h2>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-[#8a8a86] hover:bg-[#242528] hover:text-[#f4f4f2] transition-colors focus:outline-none focus:ring-2 focus:ring-[#e2b13c]"
+              aria-label="Close modal"
+            >
               <X size={20} />
             </button>
           </div>
-          <div className="p-6">{children}</div>
+          {/* Modal Content */}
+          <div className="p-6 sm:p-7">{children}</div>
         </motion.div>
       </motion.div>
     </AnimatePresence>,
