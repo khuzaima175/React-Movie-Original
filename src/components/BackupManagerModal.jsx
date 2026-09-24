@@ -488,31 +488,30 @@ export default function BackupManagerModal({ isOpen, onClose }) {
       title="Vault Data Manager"
       size="lg"
     >
-      <div className="space-y-6">
+      <div style={{ display: "flex", flexDirection: "column", gap: "2.4rem" }}>
         {/* Navigation Tabs */}
         {!isProcessing && (
           <Tabs
             tabs={modalTabs}
             activeTab={activeTab}
             onChange={setActiveTab}
-            layoutId="backup-modal-tabs"
           />
         )}
 
         {/* Modal Body */}
         {isProcessing ? (
-          <div style={{ padding: "3.2rem 0", textAlign: "center" }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.6rem" }}>
-              <Sparkles size={36} style={{ color: "#e2b13c" }} className="spin-icon" aria-hidden="true" />
+          <div style={{ padding: "3.6rem 0", textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.8rem" }}>
+              <Sparkles size={38} style={{ color: "#e2b13c" }} className="spin-icon" aria-hidden="true" />
             </div>
             <div>
-              <h4 style={{ fontSize: "1.7rem", fontWeight: 600, color: "#f4f4f2" }}>Syncing with OMDb API...</h4>
-              <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem" }}>
+              <h4 style={{ fontSize: "1.8rem", fontWeight: 700, color: "#f4f4f2" }}>Syncing with OMDb API...</h4>
+              <p style={{ fontSize: "1.35rem", color: "#8a8a86", marginTop: "0.8rem" }}>
                 Resolving: <strong style={{ color: "#f4f4f2" }}>{progress.title || "Initializing..."}</strong>
               </p>
             </div>
 
-            <div style={{ width: "100%", maxWidth: "440px", margin: "2rem auto 1rem", background: "#242528", borderRadius: "9999px", height: "0.8rem", overflow: "hidden", border: "1px solid rgba(255,255,255,0.1)" }}>
+            <div style={{ width: "100%", maxWidth: "460px", margin: "2.4rem auto 1.2rem", background: "#242528", borderRadius: "9999px", height: "0.8rem", overflow: "hidden", border: "1px solid rgba(255,255,255,0.1)" }}>
               <div
                 style={{
                   background: "#e2b13c",
@@ -524,11 +523,11 @@ export default function BackupManagerModal({ isOpen, onClose }) {
               />
             </div>
 
-            <p style={{ fontSize: "1.2rem", fontFamily: "monospace", color: "#8a8a86" }}>
+            <p style={{ fontSize: "1.25rem", fontFamily: "monospace", color: "#8a8a86" }}>
               Processed {progress.current} of {progress.total} films
             </p>
 
-            <div style={{ marginTop: "1.6rem" }}>
+            <div style={{ marginTop: "2rem" }}>
               <Button variant="ghost" size="sm" onClick={cancelImport}>
                 Cancel Import
               </Button>
@@ -537,110 +536,164 @@ export default function BackupManagerModal({ isOpen, onClose }) {
         ) : (
           <>
             {activeTab === "export" ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "1.6rem" }}>
-                <p style={{ fontSize: "1.35rem", color: "#8a8a86", lineHeight: 1.6 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
+                <p style={{ fontSize: "1.4rem", color: "#8a8a86", lineHeight: 1.6 }}>
                   Download local copies of your CinemaVault collections. Use them to migrate between devices, share ratings, or maintain off-site backups.
                 </p>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "1.4rem", paddingTop: "0.8rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1.6rem", paddingTop: "0.4rem" }}>
                   {/* Full JSON */}
-                  <button
-                    onClick={exportJSON}
+                  <div
                     style={{
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "space-between",
-                      padding: "2rem 1.8rem",
-                      borderRadius: "1.2rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      background: "#1c1d20",
+                      padding: "2.4rem 2rem",
+                      borderRadius: "1.4rem",
+                      border: "1px solid rgba(255, 255, 255, 0.09)",
+                      background: "#18191c",
                       textAlign: "left",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease"
+                      transition: "all 0.25s ease"
                     }}
-                    className="hover:border-[#e2b13c]/50 hover:bg-[#242528] group"
+                    className="hover:border-[#e2b13c]/50 hover:bg-[#1e1f23] group"
                   >
                     <div>
-                      <div style={{ width: "4.2rem", height: "4.2rem", borderRadius: "0.8rem", background: "rgba(226, 177, 60, 0.14)", border: "1px solid rgba(226, 177, 60, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.4rem" }}>
-                        <FileJson size={20} />
+                      <div style={{ width: "4.6rem", height: "4.6rem", borderRadius: "1rem", background: "rgba(226, 177, 60, 0.14)", border: "1px solid rgba(226, 177, 60, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.6rem" }}>
+                        <FileJson size={22} />
                       </div>
-                      <h5 style={{ fontSize: "1.5rem", fontWeight: 600, color: "#f4f4f2" }}>
+                      <h5 style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>
                         Full JSON Backup
                       </h5>
-                      <p style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
+                      <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
                         Complete data dump with ratings, watchlists, notes, and metadata.
                       </p>
                     </div>
-                    <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#e2b13c", marginTop: "1.8rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                      <Download size={14} /> Download .json
-                    </span>
-                  </button>
+                    <button
+                      onClick={exportJSON}
+                      style={{
+                        fontSize: "1.35rem",
+                        fontWeight: 600,
+                        color: "#e2b13c",
+                        marginTop: "2rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "0.6rem",
+                        padding: "0.9rem 1.4rem",
+                        borderRadius: "0.8rem",
+                        background: "rgba(226, 177, 60, 0.12)",
+                        border: "1px solid rgba(226, 177, 60, 0.3)",
+                        cursor: "pointer",
+                        width: "100%",
+                        transition: "all 0.2s ease"
+                      }}
+                      className="hover:bg-[#e2b13c] hover:text-[#0b0b0c]"
+                    >
+                      <Download size={15} /> Download .json
+                    </button>
+                  </div>
 
                   {/* General CSV */}
-                  <button
-                    onClick={exportGeneralCSV}
+                  <div
                     style={{
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "space-between",
-                      padding: "2rem 1.8rem",
-                      borderRadius: "1.2rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      background: "#1c1d20",
+                      padding: "2.4rem 2rem",
+                      borderRadius: "1.4rem",
+                      border: "1px solid rgba(255, 255, 255, 0.09)",
+                      background: "#18191c",
                       textAlign: "left",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease"
+                      transition: "all 0.25s ease"
                     }}
-                    className="hover:border-white/20 hover:bg-[#242528] group"
+                    className="hover:border-white/20 hover:bg-[#1e1f23] group"
                   >
                     <div>
-                      <div style={{ width: "4.2rem", height: "4.2rem", borderRadius: "0.8rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#b6b6b2", marginBottom: "1.4rem" }}>
-                        <FileSpreadsheet size={20} />
+                      <div style={{ width: "4.6rem", height: "4.6rem", borderRadius: "1rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#b6b6b2", marginBottom: "1.6rem" }}>
+                        <FileSpreadsheet size={22} />
                       </div>
-                      <h5 style={{ fontSize: "1.5rem", fontWeight: 600, color: "#f4f4f2" }}>
+                      <h5 style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>
                         General CSV Export
                       </h5>
-                      <p style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
+                      <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
                         Spreadsheet-friendly table containing ratings, genres, and directors.
                       </p>
                     </div>
-                    <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#b6b6b2", marginTop: "1.8rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                      <Download size={14} /> Download .csv
-                    </span>
-                  </button>
+                    <button
+                      onClick={exportGeneralCSV}
+                      style={{
+                        fontSize: "1.35rem",
+                        fontWeight: 600,
+                        color: "#b6b6b2",
+                        marginTop: "2rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "0.6rem",
+                        padding: "0.9rem 1.4rem",
+                        borderRadius: "0.8rem",
+                        background: "#242528",
+                        border: "1px solid rgba(255, 255, 255, 0.12)",
+                        cursor: "pointer",
+                        width: "100%",
+                        transition: "all 0.2s ease"
+                      }}
+                      className="hover:bg-white/10 hover:text-[#f4f4f2]"
+                    >
+                      <Download size={15} /> Download .csv
+                    </button>
+                  </div>
 
                   {/* Letterboxd CSV */}
-                  <button
-                    onClick={exportLetterboxdCSV}
+                  <div
                     style={{
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "space-between",
-                      padding: "2rem 1.8rem",
-                      borderRadius: "1.2rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      background: "#1c1d20",
+                      padding: "2.4rem 2rem",
+                      borderRadius: "1.4rem",
+                      border: "1px solid rgba(255, 255, 255, 0.09)",
+                      background: "#18191c",
                       textAlign: "left",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease"
+                      transition: "all 0.25s ease"
                     }}
-                    className="hover:border-[#e2b13c]/50 hover:bg-[#242528] group"
+                    className="hover:border-[#e2b13c]/50 hover:bg-[#1e1f23] group"
                   >
                     <div>
-                      <div style={{ width: "4.2rem", height: "4.2rem", borderRadius: "0.8rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.4rem" }}>
-                        <Star size={20} />
+                      <div style={{ width: "4.6rem", height: "4.6rem", borderRadius: "1rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.6rem" }}>
+                        <Star size={22} />
                       </div>
-                      <h5 style={{ fontSize: "1.5rem", fontWeight: 600, color: "#f4f4f2" }}>
+                      <h5 style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>
                         Letterboxd CSV
                       </h5>
-                      <p style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
+                      <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
                         Formatted (Title, Year, Rating10) for importing ratings into Letterboxd.
                       </p>
                     </div>
-                    <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#e2b13c", marginTop: "1.8rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                      <Download size={14} /> Download .csv
-                    </span>
-                  </button>
+                    <button
+                      onClick={exportLetterboxdCSV}
+                      style={{
+                        fontSize: "1.35rem",
+                        fontWeight: 600,
+                        color: "#e2b13c",
+                        marginTop: "2rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "0.6rem",
+                        padding: "0.9rem 1.4rem",
+                        borderRadius: "0.8rem",
+                        background: "rgba(226, 177, 60, 0.12)",
+                        border: "1px solid rgba(226, 177, 60, 0.3)",
+                        cursor: "pointer",
+                        width: "100%",
+                        transition: "all 0.2s ease"
+                      }}
+                      className="hover:bg-[#e2b13c] hover:text-[#0b0b0c]"
+                    >
+                      <Download size={15} /> Download .csv
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (

@@ -1,113 +1,206 @@
 # CinemaVault
 
-> **Streaming-Grade Personal Film Vault, Taste Intelligence & Cinema Analytics Platform**
+<div align="center">
 
-CinemaVault is a high-performance web application designed for film tracking and curation. It provides comprehensive personal vault management, deep collection analytics, bidirectional Letterboxd CSV / JSON portability, real-time command-palette search, and an AI recommendation engine powered by Google Gemini and OMDb API.
+![CinemaVault Banner](assets/screenshot.png)
 
-![CinemaVault Screenshot](assets/screenshot.png)
+### Streaming-Grade Personal Film Vault, Taste Intelligence Engine & Cinema Analytics Studio
 
----
+[![React 18](https://img.shields.io/badge/React-18.3-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![Vite 5](https://img.shields.io/badge/Vite-5.4-646cff?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Google Gemini](https://img.shields.io/badge/Google_Gemini-2.5_Flash-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
+[![TMDB API](https://img.shields.io/badge/TMDB-API_v3-01b4e4?style=for-the-badge&logo=themoviedatabase&logoColor=white)](https://developer.themoviedb.org/)
+[![OMDb API](https://img.shields.io/badge/OMDb-API-f5c518?style=for-the-badge&logo=imdb&logoColor=black)](http://www.omdbapi.com/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![License](https://img.shields.io/badge/License-MIT-e2b13c?style=for-the-badge)](LICENSE)
 
-## 🎨 Design System & Architecture
-
-CinemaVault is engineered with a **content-first, streaming-platform design system**. The interface prioritizes clean typography, neutral surface hierarchies, and micro-interactions without visual clutter.
-
-### Key Architectural & Design Principles
-- **Neutral Charcoal Surface System**: Structured multi-tier surface elevation (`--bg: #0b0b0c`, `--surface-1: #141416`, `--surface-2: #1c1d20`, `--surface-3: #242528`) paired with subtle hairline dividers (`rgba(255, 255, 255, 0.08)`).
-- **Curated Vault Brass Accent**: High-contrast brand accent (`#e2b13c`) applied selectively to interactive focus rings, active navigation indicators, and rating stars.
-- **Editorial Typography**: Typography powered by **Inter** with tabular font figures for ratings, runtimes, and statistical telemetry.
-- **Featured Spotlight Billboard**: Dynamic hero showcase highlighting acclaimed cinema titles with synchronized backdrop art, runtime metadata, storyline overviews, and instant vault actions.
-- **Command-Palette Search (`Ctrl + K` / `Cmd + K`)**: Global modal search providing debounced OMDb queries, title/year filtering, 40×60 thumbnail previews, and keyboard navigation.
-- **Personal Vault & Analytics Studio**:
-  - Multi-criteria filtering by genre, title, release year, runtime, and user rating.
-  - Dual layout switcher (Criterion-style responsive card grid and tabular list view).
-  - Computed telemetry: total watch time (days, hours, minutes), rating delta against IMDb, score distribution histograms, and director/actor milestones.
-  - Floating batch actions toolbar (`VaultBulkBar`) for multi-select deletion and queue transfers.
-- **Bidirectional Data Portability**: Letterboxd-compatible CSV import/export, general CSV backup, and structured JSON vault exports with conflict-free merge and overwrite modes.
-- **Hardware-Accelerated Motion**: Framer Motion spring physics for page transitions, tab underlines, and modal interactions with full `prefers-reduced-motion` compliance.
+</div>
 
 ---
 
-## 🧠 Recommendation Engine & Data Pipeline
+## 📌 Executive Overview
 
-CinemaVault combines deterministic statistical profiling with generative AI re-ranking to deliver grounded, relevant film recommendations.
+**CinemaVault** is a modern film vault, algorithmic taste intelligence engine, and cinema analytics platform. Built with a content-first luxury obsidian aesthetic, it combines **deterministic catalog retrieval** from the TMDB database with **generative re-ranking** powered by Google Gemini 2.5/2.0 Flash.
+
+Whether tracking personal cinema logs, analyzing viewing habits through telemetry histograms, importing lifetime Letterboxd archives, or exploring cold-start cinematic vibes, CinemaVault delivers zero-latency performance, strict schema verification, and complete data sovereignty.
+
+---
+
+## 🧠 Algorithmic Recommendation Engine (v2.0)
+
+Most AI-driven movie recommenders fail because they rely solely on raw generative text completion. Pure LLM recommendation models frequently suffer from **catalog hallucination** (inventing fake movie titles/years), **stale echo chambers** (looping through the same 10 mainstream titles like *Inception* or *Interstellar*), and **rate-limit fragility**.
+
+CinemaVault solves this with a **Dual-Stage Hybrid Recommendation Pipeline**:
 
 ```mermaid
-graph TD
-    A[User Vault & Watchlist] --> B[Statistical Profile Extractor]
-    A --> C[Stratified Tier Sampling & Priority Weights]
-    A --> D[Composite Title-Year Collision Filter]
-    B --> E[Structured Context Encoder]
-    C --> E
-    F[Watchlist Intent & Mood Signals] --> E
-    G[Adaptive Dismissal & Feedback History] --> E
-    E --> H[Multi-Model AI Engine\nGemini 2.5 / 2.0 Flash]
-    H --> I[Single-Pass Structured JSON Output]
-    I --> J[OMDb Entity Verification & Enrichment]
-    J --> K[Confidence Match Ranking]
-    K --> L[Verified Curated Recommendations]
+flowchart TD
+    subgraph UserProfile ["1. Statistical Taste Extraction"]
+        V[Personal Vault & Watchlist] --> ST[Stratified Tier Sampler]
+        V --> TP[Taste Analytics Engine]
+        TP -->|Genre Affinities, Temporal Bias, Anti-Patterns| TV[Taste Vector]
+        ST -->|Elite Anchors 9-10★, Baseline 7-8★, Disliked <=5★| TV
+        MB[Dynamic Mood Vector] --> TV
+    end
+
+    subgraph Stage1 ["2. Deterministic Candidate Retrieval (TMDB)"]
+        TV --> QG[Dynamic Discover Query Generator]
+        QG -->|Pipe OR with_genres, without_genres, Era Bounds| TMDB[TMDB Discover API]
+        TMDB -->|Multi-Page Pagination Harvest 40+ Films| PL[Pagination Loop & Filter]
+        PL -->|Runtime > 60m, Vote Count > 150, Adult: False| CF[Candidate Pool]
+        V -->|Composite Collision Key imdbID + title::year| CF
+    end
+
+    subgraph Stage2 ["3. Contextual LLM Re-Ranking (Gemini 2.5 Flash)"]
+        CF --> GRR[Gemini Structured Re-Ranking Engine]
+        TV --> GRR
+        GRR -->|Single-Pass Strict JSON Schema| RR[Ranked Candidate Output]
+    end
+
+    subgraph Stage3 ["4. Entity Normalization & Resilience"]
+        RR -->|append_to_response=external_ids,credits,videos| SB[Schema Bridge bridgeTmdbToOmdb]
+        SB -->|Normalized OMDb Schema| UI[Curated Recommendation Deck]
+        GRR -.->|Failover on Rate Limit| DET[Deterministic Fallback Engine]
+        DET --> UI
+    end
 ```
 
-### Core Algorithms & Data Integrity Measures
+### Deep Architectural Breakdown
 
-| Module / Technique | Implementation | Description |
-| :--- | :--- | :--- |
-| **Composite Collision Prevention** | `watchedKeySet` & `watchlistKeySet` | Tracks composite keys (`title::year`) alongside `imdbID` to distinguish remakes and franchise entries with identical titles. |
-| **Statistical Taste Profiling** | `buildTasteAnalytics` | Computes mean ratings, top genre affinity percentages, and director leaderboards before constructing AI prompts. |
-| **Stratified Tier Sampling** | `getMovieRecommendations` | Preserves **Elite Anchors (9–10/10)**, samples **Supporting Titles (7–8/10)**, captures **Disliked Anti-Patterns (≤ 5/10)**, and prioritizes recent viewing history. |
-| **Adaptive Feedback Loop** | `aiFeedbackLog` & `handleDismiss` | Records user dismissals (*"Too slow"*, *"Not my genre"*, *"Already seen"*) to dynamically penalize matching traits in future recommendations. |
-| **Multi-Model Failover Routing** | `MODELS` Failover Pipeline | Implements an automated failover chain (`gemini-2.5-flash` → `gemini-2.0-flash`) ensuring high availability under rate limits. |
-| **OMDb Data Enrichment** | `fetchRealOMDBData` | Fetches verified metadata, IMDb vote counts, and official artwork for all suggestions, with automatic title-only retry fallbacks. |
-| **Concurrent Batch Import** | `BackupManagerModal` | Employs chunked asynchronous batching (`BATCH_SIZE = 4`) to accelerate Letterboxd CSV imports by over 75%. |
-| **Domain-Bounded AI Companion** | `sendChatMessage` | Interactive film companion restricted to cinema discourse, referencing user viewing history and outputting structured film cards. |
+#### 1. Statistical Taste Extraction & Composite Collision Guard
+- **Taste Profile Vector**: Computes weighted genre affinities, top directors, preferred release eras, and anti-patterns:
+  $$\text{Affinity}(g) = \frac{\sum_{m \in \text{Rated}} \text{Rating}(m) \cdot \mathbb{I}(g \in m.\text{genres})}{\sum_{m \in \text{Rated}} \mathbb{I}(g \in m.\text{genres})}$$
+- **Anti-Pattern Isolation**: Films rated $\le 5/10$ or explicitly marked with negative sentiment are cataloged to prevent negative genre bleed.
+- **Composite Key Collision Prevention**: CinemaVault tracks both `imdbID` and composite string keys (`title::year`) across both Watched and Watchlist datasets, ensuring **$0\%$ duplicate recommendations** even across remakes and franchise titles.
+
+#### 2. Multi-Page Deterministic Retrieval (`tmdbService.js`)
+- **Boolean Pipe `|` Syntax**: Queries TMDB `/discover/movie` using union pipe syntax (`with_genres=28|878`) to prevent over-restrictive empty sets while preserving taste diversity.
+- **Exclusion Filters**: Applies anti-pattern exclusions (`without_genres=27|10749`) to guarantee hated genres never contaminate the candidate pool.
+- **Pagination Loop**: Iterates through multiple TMDB pages until at least $40+$ unseen candidate films are harvested, filtering out short films ($<60$ min) and low-reputation titles ($<150$ votes).
+
+#### 3. Structured LLM Re-Ranking (`geminiService.js`)
+- **Single-Pass Strict Output Schema**: Transmits the structured candidate pool to `gemini-2.5-flash` with a strict `responseSchema` (`Type.OBJECT` with `ranked_imdb_ids`, `score`, and `reasoning`).
+- **Cinematic Synergy Scoring**: The LLM evaluates narrative depth, directorial tone, and thematic synergy against the user's specific viewing history rather than generating blind guesses.
+- **Automated Failover Chain**: If Gemini experiences network hiccups or rate limits, the system seamlessly transitions from `gemini-2.5-flash` $\to$ `gemini-2.0-flash` $\to$ **Deterministic TMDB Fallback Engine**, guaranteeing a 100% uninterrupted user experience.
+
+#### 4. Unified Schema Bridge (`bridgeTmdbToOmdb`)
+- TMDB payload structures are normalized into unified, OMDb-compatible records with verified IMDb IDs, high-resolution CDN posters, runtime figures, and metadata, allowing instant one-click logging into the user's personal vault.
 
 ---
 
-## 🛠️ Tech Stack
+## ✨ Feature Tour
 
-| Category | Technology |
-| :--- | :--- |
-| **Framework** | [React 18](https://react.dev/) |
-| **Build Tool** | [Vite 5](https://vitejs.dev/) |
-| **Routing** | [React Router v6](https://reactrouter.com/) |
-| **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) & Custom Design Tokens |
-| **AI SDK** | [Google Gen AI SDK](https://ai.google.dev/) (`@google/genai`) |
-| **Data Source** | [OMDb API](http://www.omdbapi.com/) |
-| **Motion & Animation** | [Framer Motion](https://www.framer.com/motion/) |
-| **Icons** | [Lucide React](https://lucide.dev/) |
+### 🗄️ Personal Vault & Telemetry Analytics Studio
+- **Multi-Dimensional Filtering**: Real-time filtering by genre, release year, runtime, and star rating.
+- **Dual Display Modes**: Switch between Criterion-style responsive poster grid and dense tabular list view.
+- **Live Vault Telemetry**:
+  - Total watch time calculation (Days, Hours, Minutes).
+  - Rating Delta Histogram comparing your ratings against the global IMDb baseline.
+  - Score distribution charts (1–10 star breakdowns).
+  - Director and Actor milestone leaderboards.
+- **Floating Batch Operations (`VaultBulkBar`)**: Multi-select movies for bulk queue transfer or batch deletion.
+
+### 🔍 Spotlight Command Search (`Cmd + K` / `Ctrl + K`)
+- High-speed global spotlight palette inspired by macOS Spotlight and Linear.
+- Debounced live search querying the complete OMDb database with instant poster thumbnails.
+- Full keyboard navigation support (`↑` / `↓` arrows, `↵ Enter` to inspect, `ESC` to close).
+- Trending search chips and recent inquiry history.
+
+### 🔄 Bidirectional Data Portability & Letterboxd Sync
+- **Full JSON Vault Archive**: Complete database dump with user ratings, custom reviews, watchlists, timestamps, and metadata.
+- **Spreadsheet CSV Export**: Clean, tabular CSV format compatible with Microsoft Excel, Google Sheets, and Notion databases.
+- **Letterboxd Two-Way Portability**:
+  - Export ratings in native Letterboxd CSV format (`Title, Year, Rating10`).
+  - High-speed Letterboxd CSV importer with chunked asynchronous OMDb batching (`BATCH_SIZE = 4`) to import hundreds of ratings in seconds.
+  - Non-destructive **Merge Mode** and clean **Overwrite Mode**.
+
+### 🎲 Vault Roulette (Random Film Picker)
+- High-energy cinema roulette with physics-eased mechanical ticker animations.
+- Filter roulette spins by specific genres or choose randomly from your unviewed Watchlist.
+- Instant action triggers: log directly as watched, rate, or view full cinematic breakdown.
+
+### 🌌 Cold-Start Vibe Matrix
+- Instant curated exploration for new accounts with 0 logged ratings.
+- 8 hand-crafted cinematic vibe vectors (e.g. *Cyberpunk Noir*, *A24 Mind-Bending*, *Cozy Feel-Good*, *Slow-Burn Psychological*, *90s Cult Thrillers*).
+
+### 💬 Context-Aware AI Film Companion
+- Interactive conversational cinema assistant powered by Google Gemini.
+- Bounded to film discourse with access to your personal watch history and rating habits.
+- Renders structured interactive film cards directly inside the conversation stream.
+
+---
+
+## 🎨 Design System: Luxury Obsidian & Vault Brass
+
+CinemaVault is designed with a streaming-grade interface inspired by Apple TV, Criterion Channel, and Linear:
+
+```text
+--bg:          #0b0b0c  (Deep Space Obsidian)
+--surface-1:   #141416  (Elevated Charcoal Card Surface)
+--surface-2:   #1c1d20  (Interactive Component Surface)
+--surface-3:   #242528  (Pill & Control Surface)
+--accent:      #e2b13c  (Curated Vault Brass Gold)
+--border:      rgba(255, 255, 255, 0.08) (Subtle Hairline Divider)
+```
+
+- **Fluid Typography**: Dynamic scaling powered by **Inter** with tabular monospace figures for numerical telemetry.
+- **Micro-Interactions**: Hardware-accelerated transitions via Framer Motion with full `prefers-reduced-motion` accessibility support.
+- **Zero Layout Shift**: Fixed-aspect poster skeletons and image fallback states.
+
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Frontend Framework** | [React 18.3](https://react.dev/) | Component architecture, state management & hooks |
+| **Build & Tooling** | [Vite 5.4](https://vitejs.dev/) | Lightning-fast HMR and optimized production bundling |
+| **Routing** | [React Router v6](https://reactrouter.com/) | Client-side routing and deep-linking |
+| **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) | Design tokens, utility architecture & Vanilla CSS |
+| **Motion Engine** | [Framer Motion](https://www.framer.com/motion/) | Spring physics, layout animations & modal gestures |
+| **Primary AI Model** | [Google Gemini 2.5 Flash](https://ai.google.dev/) | Candidate re-ranking with strict JSON Schema output |
+| **Failover AI Model** | [Google Gemini 2.0 Flash](https://ai.google.dev/) | Secondary high-throughput fallback LLM |
+| **Catalog Retrieval** | [TMDB API v3](https://developer.themoviedb.org/) | Deterministic `/discover/movie` multi-page queries |
+| **Enrichment Data** | [OMDb API](http://www.omdbapi.com/) | IMDb ratings, Metascores, box office & poster assets |
+| **Icons** | [Lucide React](https://lucide.dev/) | Vector UI iconography |
 
 ---
 
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-- **Node.js** (v18 or higher recommended)
-- **OMDb API Key**: Free key from [omdbapi.com](http://www.omdbapi.com/apikey.aspx)
-- **Google Gemini API Key**: API key from [Google AI Studio](https://aistudio.google.com/)
-- **TMDB API Key (Optional)**: Key from [themoviedb.org](https://www.themoviedb.org/documentation/api) to enable real-time TMDB candidate retrieval and streaming-grade poster CDN integration.
+- **Node.js** (v18.0.0 or higher recommended)
+- **npm** or **yarn** / **pnpm**
+- **OMDb API Key**: Get a free API key from [omdbapi.com](http://www.omdbapi.com/apikey.aspx)
+- **Google Gemini API Key**: Get an API key from [Google AI Studio](https://aistudio.google.com/)
+- **TMDB API Key (Recommended)**: Get a free v3 API key from [themoviedb.org](https://www.themoviedb.org/documentation/api)
 
-### 2. Installation
+### 2. Clone and Install Dependencies
 ```bash
 git clone https://github.com/khuzaima175/React-Movie-Original.git
 cd movie-ratings
 npm install
 ```
 
-### 3. Environment Configuration
-Create a `.env` file in the project root:
+### 3. Environment Variables Setup
+Create a `.env` file in the root directory:
 ```env
-VITE_OMDB_KEY=your_omdb_api_key_here
-VITE_GEMINI_KEY=your_gemini_api_key_here
-VITE_TMDB_KEY=your_tmdb_api_key_here
+# OMDb API Key for metadata and search
+VITE_OMDB_KEY=your_omdb_key_here
+
+# Google Gemini API Key for recommendation re-ranking & AI companion
+VITE_GEMINI_KEY=your_gemini_key_here
+
+# TMDB API Key for deterministic candidate discovery
+VITE_TMDB_KEY=your_tmdb_key_here
 ```
 
-### 4. Development Server
+### 4. Run Development Server
 ```bash
 npm start
 ```
-The application will launch on `http://localhost:3000`.
+The application will be accessible at `http://localhost:3000`.
 
-### 5. Production Build
+### 5. Production Build & Validation
 ```bash
 npm run build
 npm run serve
@@ -115,40 +208,69 @@ npm run serve
 
 ---
 
-## 📁 Project Structure
+## 📂 Project Architecture
 
 ```text
 movie-ratings/
-├── assets/                 # Documentation assets and screenshots
-├── public/                 # Static web assets and icons
+├── public/                     # Static icons, manifest, and assets
 ├── src/
-│   ├── components/         # Application components
-│   │   ├── ui/             # Core UI primitives (Button, Modal, Tabs, etc.)
-│   │   ├── AIChat.jsx      # Conversational film companion
-│   │   ├── HeroBillboard.jsx
-│   │   ├── MovieCard.jsx
-│   │   ├── MovieCarouselRow.jsx
-│   │   ├── MovieDetails.jsx
-│   │   ├── MovieRecommendations.jsx
-│   │   ├── NavBar.jsx
-│   │   ├── RandomPicker.jsx
-│   │   ├── SearchModal.jsx
-│   │   └── VaultBanner.jsx
-│   ├── context/            # Global AppContext state & storage eviction
-│   ├── hooks/              # Custom utility hooks (useDebounce)
-│   ├── pages/              # Route views (Dashboard, Vault, AIPage, MoviePage)
-│   ├── services/           # AI services & OMDb integrations
-│   ├── motion.js           # Standardized Framer Motion curves & presets
-│   ├── index.css           # Global design tokens and layout styling
-│   ├── App.jsx             # Shell architecture, router, and modal coordinator
-│   └── index.jsx           # Application entrypoint
-├── package.json
-└── README.md
+│   ├── components/             # Reusable UI & Feature components
+│   │   ├── ui/                 # Design System Primitives
+│   │   │   ├── Button.jsx      # Vault Button variants (Primary, Ghost, Danger)
+│   │   │   ├── Card.jsx        # Glassmorphic surface containers
+│   │   │   ├── Modal.jsx       # Studio-grade accessible dialog portal
+│   │   │   ├── Tabs.jsx        # Segmented pill control switcher
+│   │   │   └── Tooltip.jsx     # Positioned metadata tooltips
+│   │   ├── AIChat.jsx          # Context-aware cinema discourse companion
+│   │   ├── BackupManagerModal.jsx # 3-tier export grid & Letterboxd CSV importer
+│   │   ├── HeroBillboard.jsx   # Spotlight backdrop billboard with trailer preview
+│   │   ├── MovieCard.jsx       # Responsive poster card with quick actions
+│   │   ├── MovieCarouselRow.jsx# Smooth horizontal carousel slider
+│   │   ├── MovieDetails.jsx    # Full-page cinematic breakdown & cast reel
+│   │   ├── MovieRecommendations.jsx # Dual-engine recommendation interface
+│   │   ├── NavBar.jsx          # Sticky glass navigation & spotlight launcher
+│   │   ├── PosterImage.jsx     # Lazy-loaded image with shimmer placeholder
+│   │   ├── RandomPicker.jsx    # Physics-eased Vault Roulette reel
+│   │   ├── SearchModal.jsx     # Universal Command Palette (Cmd+K)
+│   │   ├── Toast.jsx           # Ephemeral action feedback alerts
+│   │   ├── VaultAnalytics.jsx  # Watch time telemetry & score delta charts
+│   │   └── VaultBulkBar.jsx    # Multi-item batch management bar
+│   ├── context/
+│   │   └── AppContext.jsx      # Global vault state, storage sync & cache eviction
+│   ├── hooks/
+│   │   └── useDebounce.js      # Input debounce utility for search APIs
+│   ├── pages/
+│   │   ├── DashboardPage.jsx   # Curated billboard & recommendation hubs
+│   │   ├── VaultPage.jsx       # Personal collection, watchlist & analytics
+│   │   ├── AIPage.jsx          # Dedicated AI exploration & chat center
+│   │   └── MoviePage.jsx       # Canonical film detail routing view
+│   ├── services/
+│   │   ├── geminiService.js    # Gemini 2.5 Flash re-ranking & chat client
+│   │   ├── tmdbService.js      # TMDB Discover engine, genre mapping & schema bridge
+│   │   └── omdbService.js      # OMDb API client & fallbacks
+│   ├── motion.js               # Framer Motion spring physics configurations
+│   ├── index.css               # Design system tokens, utilities & animations
+│   ├── App.jsx                 # Application shell, router & modal coordinator
+│   └── index.jsx               # React DOM root entrypoint
+├── .env.example                # Template environment variables
+├── package.json                # Project dependencies & build scripts
+├── vite.config.js              # Vite configuration & dev server proxy
+└── README.md                   # Technical documentation
 ```
 
 ---
 
-## 📜 Author & License
+## 🔒 Data Privacy & Offline Integrity
 
-Developed by **[Khuzaima](https://github.com/khuzaima175)**.
-Released under the MIT License.
+CinemaVault values **privacy and zero lock-in**:
+- **100% Client-Side State**: All ratings, notes, custom tags, and watch history are stored in `localStorage` in the user's browser.
+- **Zero Tracking**: No telemetry or personal movie data is sold, monetized, or logged on remote servers.
+- **Unrestricted Data Portability**: Export your complete vault at any time via standardized JSON or Letterboxd-ready CSV formats.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+Developed with precision by **[Khuzaima](https://github.com/khuzaima175)**.
