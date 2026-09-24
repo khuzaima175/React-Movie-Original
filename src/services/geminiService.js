@@ -19,6 +19,23 @@ export const cleanStr = (val) => {
 };
 
 /**
+ * Normalizes matchScore to a valid percentage (70 - 99)
+ * Corrects LLM decimal probabilities (e.g., 0.94 -> 94) and raw 1s
+ */
+export const normalizeMatchScore = (val) => {
+    let n = typeof val === "number" ? val : parseFloat(val);
+    if (isNaN(n) || n <= 0) return 88;
+    // If LLM returned a decimal ratio (0.01 - 1.0) or edge 1
+    if (n <= 1.0) {
+        if (n <= 0.1) return Math.min(99, Math.max(75, Math.round(n * 1000))); // e.g. 0.09 -> 90
+        return Math.min(99, Math.max(75, Math.round(n * 100)));
+    }
+    // If accidentally scored 1 (integer 1), map to realistic 88%
+    if (n <= 5) return 88;
+    return Math.min(99, Math.max(70, Math.round(n)));
+};
+
+/**
  * Resilient JSON Sanitizer & Parser
  * Handles markdown code-blocks (```json ... ```) and raw string quirks from LLMs
  */
@@ -57,7 +74,10 @@ export function getSmartCache(hash, watched = [], watchlist = []) {
             ]).filter(Boolean)
         ]);
 
-        const validRecs = (entry.data.recommendations || []).filter(rec => {
+        const validRecs = (entry.data.recommendations || []).map(rec => ({
+            ...rec,
+            matchScore: normalizeMatchScore(rec.matchScore)
+        })).filter(rec => {
             const recIds = [
                 rec.imdbID ? String(rec.imdbID).toLowerCase() : null,
                 rec.tmdbId ? String(rec.tmdbId).toLowerCase() : null,
@@ -332,7 +352,7 @@ Select and re-rank the TOP 6 best matching films. Output strict JSON with:
    - tmdbId (number matching the candidate ID)
    - title (string)
    - year (string)
-   - matchScore (number 0-100 reflecting fit with taste profile and mood)
+   - matchScore (integer from 75 to 98, representing match percentage with taste profile)
    - reason (string: 1-2 sentence compelling cinematic explanation of WHY this film connects to their taste profile)
 `;
 
@@ -409,7 +429,7 @@ Select and re-rank the TOP 6 best matching films. Output strict JSON with:
             poster: candidate.poster || getFallbackPoster(rec.title),
             backdrop: candidate.backdrop || null,
             imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
-            matchScore: Math.min(100, Math.max(0, Math.round(rec.matchScore || 85))),
+            matchScore: normalizeMatchScore(rec.matchScore),
             reason: rec.reason || "Matches your cinematic taste profile.",
             plot: candidate.overview || rec.reason,
             sourceBucket: candidate.sourceBucket || "TMDB",
@@ -516,6 +536,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
                         poster: omdbData.poster || getFallbackPoster(rec.title),
                         genre: omdbData.genre || rec.genre || "Cinema",
                         imdbID: omdbData.imdbID,
+                        matchScore: normalizeMatchScore(rec.matchScore),
                         realData: true
                     };
                 }
@@ -525,6 +546,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
                     poster: getFallbackPoster(rec.title),
                     genre: rec.genre || "Cinema",
                     imdbID: generateFallbackId(rec.title, rec.year),
+                    matchScore: normalizeMatchScore(rec.matchScore),
                     realData: false
                 };
             })

@@ -52,12 +52,22 @@ const DISMISS_REASONS = [
 ];
 
 function TasteMatchBadge({ score }) {
-  const normalizedScore = Math.min(100, Math.max(0, Math.round(score || 0)));
+  let val = typeof score === "number" ? score : parseFloat(score);
+  if (isNaN(val) || val <= 0) val = 88;
+  // If model returned a decimal ratio (0.01 - 1.0)
+  if (val <= 1.0) {
+    if (val <= 0.1) val = val * 1000;
+    else val = val * 100;
+  } else if (val <= 5) {
+    // If raw 1-5 integer was passed from legacy cache
+    val = 88;
+  }
+  const normalizedScore = Math.min(99, Math.max(70, Math.round(val)));
 
   let tier = "emerald";
-  if (normalizedScore < 85 && normalizedScore >= 75) {
+  if (normalizedScore < 88 && normalizedScore >= 78) {
     tier = "cyan";
-  } else if (normalizedScore < 75) {
+  } else if (normalizedScore < 78) {
     tier = "indigo";
   }
 
