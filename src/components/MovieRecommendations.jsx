@@ -522,16 +522,22 @@ export default function MovieRecommendations({
 
       {/* ── Loading Theater ── */}
       {isLoading && (
-        <div className="ai-theater-stage">
+        <div className="ai-loading-theater">
           <div className="theater-radar-box">
             <div className="radar-glow-ring" />
-            <Sparkles size={38} className="theater-main-spinner spin-icon" />
+            <div className="radar-orbit-ring" />
+            <Sparkles size={38} className="theater-main-spinner text-accent" />
           </div>
 
-          <h3 className="theater-title">Calibrating TMDB 3-Bucket Engine</h3>
-          <p className="theater-status-text">{progress || "Synthesizing recommendations..."}</p>
+          <div className="theater-header">
+            <h3 className="theater-title">Calibrating TMDB 3-Bucket Engine</h3>
+            <div className="theater-status-badge">
+              <Loader2 size={13} className="spin-icon" />
+              <span>{progress || "Synthesizing recommendations..."}</span>
+            </div>
+          </div>
 
-          <div className="theater-steps-reel">
+          <div className="theater-checklist">
             {loadingSteps.map((stepText, idx) => {
               const isDone = activeStep > idx;
               const isCurrent = activeStep === idx;
