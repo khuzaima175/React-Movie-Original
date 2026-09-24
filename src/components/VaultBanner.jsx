@@ -98,11 +98,13 @@ export default function VaultBanner({
             >
               {isManageMode ? (
                 <>
-                  <XSquare size={16} aria-hidden="true" /> Done Selection
+                  <XSquare size={16} aria-hidden="true" />
+                  <span>Done Selection</span>
                 </>
               ) : (
                 <>
-                  <CheckSquare size={16} aria-hidden="true" /> Manage Vault
+                  <CheckSquare size={16} aria-hidden="true" />
+                  <span>Manage Vault</span>
                 </>
               )}
             </button>
@@ -112,7 +114,8 @@ export default function VaultBanner({
               onClick={onOpenBackup}
               title="Backup & Portability"
             >
-              <Settings size={16} aria-hidden="true" /> Portability
+              <Settings size={16} aria-hidden="true" />
+              <span>Portability</span>
             </button>
           </div>
         </div>

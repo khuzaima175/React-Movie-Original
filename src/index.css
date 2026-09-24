@@ -7974,43 +7974,66 @@ body,
     scroll-snap-align: start !important;
   }
 
-  /* 4. Vault Page Analytics, Grid & Tabs Polish */
-  /* 4. Vault Page Analytics, Grid & Tabs Polish */
+  /* 4. Vault Page Mobile Cinema Polish — Immediate Movie Visibility */
   .vault-page-container {
-    padding: 0 1.2rem 6rem !important;
+    padding: 0 1.2rem 6.4rem !important;
+    gap: 1.2rem !important;
   }
 
   .vault-banner-hero {
     min-height: auto !important;
-    margin-top: 1rem !important;
+    margin-top: 0.6rem !important;
+    border-radius: var(--r-card) !important;
+  }
+
+  .vault-banner-mosaic {
+    opacity: 0.15 !important;
   }
 
   .vault-banner-content {
-    padding: 2rem 1.6rem 0 !important;
-    gap: 1.6rem !important;
+    padding: 1.4rem 1.4rem 0 !important;
+    gap: 1.2rem !important;
   }
 
-  .vault-banner-title {
-    font-size: 2.8rem !important;
+  .banner-badge,
+  .vault-banner-tagline {
+    display: none !important;
   }
 
   .banner-top-row {
-    flex-direction: column !important;
-    align-items: flex-start !important;
-    gap: 1.4rem !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 1rem !important;
+  }
+
+  .banner-left {
+    gap: 0.2rem !important;
+  }
+
+  .vault-banner-title {
+    font-size: 2.2rem !important;
+    line-height: 1.1 !important;
+  }
+
+  .vault-banner-meta {
+    font-size: 1.2rem !important;
+    gap: 0.5rem !important;
   }
 
   .banner-right {
-    width: 100% !important;
-    justify-content: flex-start !important;
-    flex-wrap: wrap !important;
-    gap: 0.8rem !important;
+    width: auto !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 0.6rem !important;
   }
 
   .vault-manage-btn,
   .vault-settings-ghost-btn {
-    padding: 0.7rem 1.4rem !important;
-    font-size: 1.2rem !important;
+    padding: 0.6rem 1rem !important;
+    font-size: 1.15rem !important;
+    min-height: 3.2rem !important;
   }
 
   .vault-segmented-tabs {
@@ -8019,7 +8042,8 @@ body,
     gap: 0.4rem !important;
     box-sizing: border-box !important;
     background: rgba(15, 21, 33, 0.95) !important;
-    border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+    border-radius: var(--r-control) var(--r-control) 0 0 !important;
+    padding: 0.3rem !important;
   }
 
   .tab-pill {
@@ -8028,7 +8052,7 @@ body,
     align-items: center !important;
     justify-content: center !important;
     gap: 0.6rem !important;
-    padding: 0.85rem 0.8rem !important;
+    padding: 0.75rem 0.6rem !important;
     font-size: 1.25rem !important;
     white-space: nowrap !important;
   }
@@ -8042,25 +8066,95 @@ body,
     flex-shrink: 0 !important;
   }
 
+  /* Compact 1-Row Metric Strip on Mobile */
+  .vault-analytics-compact-section {
+    gap: 0.8rem !important;
+  }
+
+  .vault-summary-strip {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding: 0.8rem 1.2rem !important;
+    gap: 1.2rem !important;
+    border-radius: var(--r-control) !important;
+  }
+
+  .vault-summary-strip::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .summary-stat-cell {
+    padding: 0.2rem 0.4rem !important;
+    gap: 0.7rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .stat-cell-icon {
+    width: 2.8rem !important;
+    height: 2.8rem !important;
+  }
+
+  .stat-cell-icon svg {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .stat-cell-label {
+    font-size: 1rem !important;
+  }
+
+  .stat-cell-value {
+    font-size: 1.25rem !important;
+  }
+
+  .stat-delta-chip {
+    font-size: 1rem !important;
+    padding: 0.1rem 0.4rem !important;
+  }
+
+  .btn-toggle-insights {
+    padding: 0.6rem 1rem !important;
+    font-size: 1.15rem !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .insights-drawer-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.4rem !important;
+  }
+
   /* Sticky Toolbar Optimization on Mobile */
   .vault-sticky-toolbar {
-    top: 5.4rem !important;
-    padding: 1rem 1.2rem !important;
-    gap: 1rem !important;
-    border-radius: var(--radius-sm) !important;
-    z-index: 95 !important;
+    top: 0 !important;
+    position: sticky !important;
+    z-index: 90 !important;
+    padding: 0.8rem 1rem !important;
+    gap: 0.8rem !important;
+    border-radius: var(--r-control) !important;
   }
 
   .toolbar-left-group {
     width: 100% !important;
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 0.8rem !important;
+    gap: 0.6rem !important;
   }
 
   .vault-search-box {
     width: 100% !important;
     min-width: 0 !important;
+  }
+
+  .vault-search-input {
+    padding: 0.7rem 1rem 0.7rem 3.2rem !important;
+    font-size: 1.25rem !important;
   }
 
   .vault-genre-chips {
@@ -8069,8 +8163,8 @@ body,
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
-    padding-bottom: 0.4rem !important;
-    gap: 0.6rem !important;
+    padding-bottom: 0.2rem !important;
+    gap: 0.5rem !important;
     scrollbar-width: none !important;
   }
 
@@ -8079,7 +8173,7 @@ body,
   }
 
   .genre-chip {
-    padding: 0.55rem 1.2rem !important;
+    padding: 0.45rem 1rem !important;
     font-size: 1.15rem !important;
     flex-shrink: 0 !important;
   }
@@ -8089,9 +8183,9 @@ body,
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    gap: 0.8rem !important;
+    gap: 0.6rem !important;
     border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-    padding-top: 0.8rem !important;
+    padding-top: 0.6rem !important;
   }
 
   .vault-item-count {
@@ -8099,37 +8193,16 @@ body,
   }
 
   .vault-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 1rem !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 0.8rem !important;
+    padding-bottom: 4rem !important;
   }
 
-  .vault-insights-strip {
-    grid-template-columns: 1fr !important;
-    gap: 1.4rem !important;
+  .histogram-body-compact {
+    height: 8.5rem !important;
   }
 
-  .vault-insights-row-2 {
-    grid-template-columns: 1fr !important;
-    gap: 1.6rem !important;
-  }
-
-  .histogram-card .histogram-body {
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: flex-end !important;
-    gap: 1rem !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    padding-bottom: 0.8rem !important;
-    min-width: 0 !important;
-  }
-
-  .histogram-col {
-    flex: 1 !important;
-    min-width: 44px !important;
-  }
-
-  .trivia-value {
+  .trivia-fact .fact-value {
     overflow-wrap: anywhere !important;
     word-break: break-word !important;
     white-space: normal !important;
