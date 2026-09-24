@@ -2,6 +2,55 @@ import { createContext, useContext, useState, useEffect } from "react";
 
 const AppContext = createContext(null);
 
+/**
+ * Safe LocalStorage setter with tiered LRU eviction policy.
+ * Evicts derivative AI caches first to protect primary user movie data.
+ */
+export const safeSetItem = (key, value) => {
+  const serialized = JSON.stringify(value);
+  try {
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (e) {
+    if (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014) {
+      console.warn("⚠️ LocalStorage quota exceeded. Purging non-critical AI caches to protect user vault...");
+      
+      // Eviction priority list: derivative AI models and temporary logs
+      const purgeOrder = [
+        "cinemavault_explanations_v1",
+        "cinemavault_recs_v1",
+        "cinemavault_recs_hash_v1",
+        "cinemavault_feedback_v1"
+      ];
+
+      for (const purgeKey of purgeOrder) {
+        if (purgeKey !== key) {
+          localStorage.removeItem(purgeKey);
+          try {
+            localStorage.setItem(key, serialized);
+            console.log(`✅ Recovered storage by purging ${purgeKey}`);
+            return true;
+          } catch (_) {
+            // Continue to next eviction candidate
+          }
+        }
+      }
+
+      console.error("❌ Critical: Storage completely full even after derivative cache eviction.");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("storage-critical-error", {
+            detail: "Your browser storage is nearly full. Please export a JSON backup from My Vault > Portability."
+          })
+        );
+      }
+      return false;
+    }
+    console.error(`Storage error saving ${key}:`, e);
+    return false;
+  }
+};
+
 export function AppProvider({ children }) {
   const [watched, setWatched] = useState(() => {
     try {
@@ -65,63 +114,39 @@ export function AppProvider({ children }) {
   const [searchType, setSearchType] = useState("");
 
   useEffect(() => {
-    try {
-      localStorage.setItem("watchedMovies", JSON.stringify(watched || []));
-    } catch (e) {
-      console.warn("Error saving watchedMovies:", e);
-    }
+    safeSetItem("watchedMovies", watched || []);
   }, [watched]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("watchlist", JSON.stringify(watchlist || []));
-    } catch (e) {
-      console.warn("Error saving watchlist:", e);
-    }
+    safeSetItem("watchlist", watchlist || []);
   }, [watchlist]);
 
   useEffect(() => {
-    try {
-      if (aiRecommendations) {
-        localStorage.setItem("cinemavault_recs_v1", JSON.stringify(aiRecommendations));
-      } else {
-        localStorage.removeItem("cinemavault_recs_v1");
-      }
-    } catch (e) {
-      console.warn("Error saving cinemavault_recs_v1:", e);
+    if (aiRecommendations) {
+      safeSetItem("cinemavault_recs_v1", aiRecommendations);
+    } else {
+      localStorage.removeItem("cinemavault_recs_v1");
     }
   }, [aiRecommendations]);
 
   useEffect(() => {
-    try {
-      if (aiTasteProfile) {
-        localStorage.setItem("cinemavault_taste_v1", JSON.stringify(aiTasteProfile));
-      } else {
-        localStorage.removeItem("cinemavault_taste_v1");
-      }
-    } catch (e) {
-      console.warn("Error saving cinemavault_taste_v1:", e);
+    if (aiTasteProfile) {
+      safeSetItem("cinemavault_taste_v1", aiTasteProfile);
+    } else {
+      localStorage.removeItem("cinemavault_taste_v1");
     }
   }, [aiTasteProfile]);
 
   useEffect(() => {
-    try {
-      if (aiRecommendationsHash) {
-        localStorage.setItem("cinemavault_recs_hash_v1", aiRecommendationsHash);
-      } else {
-        localStorage.removeItem("cinemavault_recs_hash_v1");
-      }
-    } catch (e) {
-      console.warn("Error saving cinemavault_recs_hash_v1:", e);
+    if (aiRecommendationsHash) {
+      safeSetItem("cinemavault_recs_hash_v1", aiRecommendationsHash);
+    } else {
+      localStorage.removeItem("cinemavault_recs_hash_v1");
     }
   }, [aiRecommendationsHash]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("cinemavault_feedback_v1", JSON.stringify(aiFeedbackLog || []));
-    } catch (e) {
-      console.warn("Error saving cinemavault_feedback_v1:", e);
-    }
+    safeSetItem("cinemavault_feedback_v1", aiFeedbackLog || []);
   }, [aiFeedbackLog]);
 
   function saveAiRecommendations(recs, profile, hash) {
@@ -143,7 +168,6 @@ export function AppProvider({ children }) {
           ts: new Date().toISOString()
         }
       ];
-      // Cap at 15 most recent items to avoid prompt bloat
       return updated.slice(-15);
     });
   }

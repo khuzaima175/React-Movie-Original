@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getMovieRecommendations, getFallbackPoster, generateInputHash } from "../services/geminiService";
+import { getMovieRecommendations, getFallbackPoster, generateInputHash, generateFallbackId } from "../services/geminiService";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import {
@@ -95,7 +95,7 @@ export default function MovieRecommendations({
   const [selectedMood, setSelectedMood] = useState("any");
   const [dismissingTitle, setDismissingTitle] = useState(null);
 
-  const currentHash = generateInputHash(watched, watchlist, selectedMood);
+  const currentHash = generateInputHash(watched, selectedMood);
   const isCacheValid = aiRecommendationsHash && aiRecommendationsHash === currentHash && recommendations && recommendations.length > 0;
 
   const loadingSteps = [
@@ -136,7 +136,7 @@ export default function MovieRecommendations({
         mood: selectedMood,
         feedbackLog: aiFeedbackLog
       });
-      const newHash = generateInputHash(watched, watchlist, selectedMood);
+      const newHash = generateInputHash(watched, selectedMood);
       setTasteProfile(result.tasteProfile);
       setRecommendations(result.recommendations);
       saveAiRecommendations(result.recommendations, result.tasteProfile, newHash);
@@ -156,8 +156,26 @@ export default function MovieRecommendations({
     }
   };
 
-  const isAlreadyInWatchlist = (movieTitle) => {
-    return watchlist?.some((m) => m.title.toLowerCase() === movieTitle.toLowerCase());
+  // Composite key sets to avoid title collisions (e.g. A Star is Born / The Thing remakes)
+  const watchedKeySet = new Set(
+    (watched || []).flatMap((m) => [
+      m.imdbID?.toLowerCase(),
+      m.title ? `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` : null
+    ]).filter(Boolean)
+  );
+
+  const watchlistKeySet = new Set(
+    (watchlist || []).flatMap((m) => [
+      m.imdbID?.toLowerCase(),
+      m.title ? `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` : null
+    ]).filter(Boolean)
+  );
+
+  const isAlreadyInWatchlist = (movieTitle, movieYear, imdbID) => {
+    const cleanT = (movieTitle || "").toLowerCase().trim();
+    const cleanY = String(movieYear || "").match(/\d{4}/)?.[0] || "0000";
+    if (imdbID && watchlistKeySet.has(imdbID.toLowerCase())) return true;
+    return watchlistKeySet.has(`${cleanT}::${cleanY}`);
   };
 
   const handleAdd = async (rec) => {
@@ -215,7 +233,7 @@ export default function MovieRecommendations({
         onAddToWatchlist(newMovie);
       } else {
         const newMovie = {
-          imdbID: Math.random().toString(36).substr(2, 9),
+          imdbID: generateFallbackId(rec.title, rec.year),
           title: rec.title,
           year: rec.year,
           poster: getFallbackPoster(rec.title),
@@ -228,7 +246,7 @@ export default function MovieRecommendations({
     } catch (err) {
       console.error("Failed to fetch movie data:", err);
       const newMovie = {
-        imdbID: Math.random().toString(36).substr(2, 9),
+        imdbID: generateFallbackId(rec.title, rec.year),
         title: rec.title,
         year: rec.year,
         poster: getFallbackPoster(rec.title),
@@ -258,14 +276,21 @@ export default function MovieRecommendations({
     setDismissingTitle(null);
   };
 
-  const sortedRecommendations = recommendations
-    ? [...recommendations].sort((a, b) => {
-        if (sortBy === "match") return (b.matchScore || 0) - (a.matchScore || 0);
-        if (sortBy === "imdb") return (parseFloat(b.imdbRating) || 0) - (parseFloat(a.imdbRating) || 0);
-        if (sortBy === "year") return (parseInt(b.year) || 0) - (parseInt(a.year) || 0);
-        return 0;
-      })
-    : [];
+  const sortedRecommendations = (recommendations || [])
+    .filter((rec) => {
+      // Exclude titles that the user watched in this session
+      const id = rec.imdbID?.toLowerCase();
+      const compKey = `${(rec.title || "").toLowerCase().trim()}::${String(rec.year || "").match(/\d{4}/)?.[0] || "0000"}`;
+      if (id && watchedKeySet.has(id)) return false;
+      if (watchedKeySet.has(compKey)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "match") return (b.matchScore || 0) - (a.matchScore || 0);
+      if (sortBy === "imdb") return (parseFloat(b.imdbRating) || 0) - (parseFloat(a.imdbRating) || 0);
+      if (sortBy === "year") return (parseInt(b.year) || 0) - (parseInt(a.year) || 0);
+      return 0;
+    });
 
   // Empty vault state
   if (watched.length === 0) {
@@ -511,7 +536,7 @@ export default function MovieRecommendations({
           <ul className="recommendation-list">
             {sortedRecommendations.map((rec, index) => {
               const rankNum = index + 1;
-              const inWatchlist = isAlreadyInWatchlist(rec.title);
+              const inWatchlist = isAlreadyInWatchlist(rec.title, rec.year, rec.imdbID);
               const isAdding = isAddingMovie === rec.title;
               const isExpanded = expandedRec === rec.title;
               const isDismissing = dismissingTitle === rec.title;

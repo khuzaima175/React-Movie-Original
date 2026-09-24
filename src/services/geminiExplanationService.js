@@ -4,7 +4,6 @@ const MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 
 /**
  * Explains WHY a specific movie was recommended based on user's taste
- * Uses Gemini 1.5 Flash for detailed analysis
  */
 export const getRecommendationExplanation = async (movieTitle, userTasteProfile, watchedMovies) => {
     const apiKey = import.meta.env.VITE_GEMINI_KEY;
@@ -16,7 +15,7 @@ export const getRecommendationExplanation = async (movieTitle, userTasteProfile,
     const ai = new GoogleGenAI({ apiKey });
 
     // Get a snapshot of user's high-rated movies (8+)
-    const favorites = watchedMovies
+    const favorites = (watchedMovies || [])
         .filter(m => m.userRating >= 8)
         .map(m => m.title)
         .slice(0, 5)
@@ -55,11 +54,9 @@ Keep it conversational and convincing. Do NOT use markdown or special formatting
             throw lastError || new Error("All explanation models failed");
         }
 
-        // Access text property directly (same pattern as geminiService.js)
         return response.text || "This movie matches your taste profile based on your viewing history.";
     } catch (error) {
         console.error("AI Explanation Service Error:", error);
-        // Return a fallback instead of throwing
         return `"${movieTitle}" was chosen because it aligns with your preference for ${userTasteProfile?.favoriteGenres?.[0] || "quality"} films.`;
     }
 };

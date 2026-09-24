@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { sendChatMessage } from "../services/geminiChatService";
-import { getFallbackPoster } from "../services/geminiService";
+import { getFallbackPoster, generateFallbackId } from "../services/geminiService";
 import PosterImage from "./PosterImage";
 import {
   Sparkles,
@@ -21,6 +21,8 @@ const SUGGESTED_PROMPTS = [
   "Surprise me with a hidden gem"
 ];
 
+const inlineMovieCache = new Map();
+
 function InlineMovieCard({ title, year }) {
   const { watchlist, addToWatchlist } = useApp();
   const [movieData, setMovieData] = useState(null);
@@ -31,34 +33,47 @@ function InlineMovieCard({ title, year }) {
   );
 
   useEffect(() => {
-    let isMounted = true;
+    const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
+    const cacheKey = `${cleanTitle.toLowerCase()}::${year || "noyear"}`;
+
+    if (inlineMovieCache.has(cacheKey)) {
+      setMovieData(inlineMovieCache.get(cacheKey));
+      return;
+    }
+
+    const controller = new AbortController();
+
     async function fetchDetails() {
       try {
-        const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
         const res = await fetch(
           `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${
             year ? `&y=${year}` : ""
           }`,
-          { cache: "no-store" }
+          { cache: "no-store", signal: controller.signal }
         );
         const data = await res.json();
-        if (isMounted && data.Response === "True") {
+        if (data.Response === "True") {
+          inlineMovieCache.set(cacheKey, data);
           setMovieData(data);
         }
       } catch (err) {
-        console.warn("Inline movie fetch failed:", err);
+        if (err.name !== "AbortError") {
+          console.warn("Inline movie fetch failed:", err);
+        }
       }
     }
+
     fetchDetails();
+
     return () => {
-      isMounted = false;
+      controller.abort();
     };
   }, [title, year]);
 
   const handleAdd = () => {
     setIsAdding(true);
     const movieObj = {
-      imdbID: movieData?.imdbID || Math.random().toString(36).substr(2, 9),
+      imdbID: movieData?.imdbID || generateFallbackId(title, year),
       title: movieData?.Title || title,
       year: movieData?.Year || year || "N/A",
       poster:

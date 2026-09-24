@@ -14,6 +14,9 @@ const getOmdbKey = () => {
 };
 const KEY = getOmdbKey();
 
+// Module-level session cache to avoid duplicate OMDb fetches
+const omdbDetailsSessionCache = new Map();
+
 export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, onAddToWatchlist, watched = [], watchlist = [] }) {
   const [movie, setMovie] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -81,18 +84,30 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
   }
 
   useEffect(() => {
+    if (!selectedId) return;
+
+    if (omdbDetailsSessionCache.has(selectedId)) {
+      setMovie(omdbDetailsSessionCache.get(selectedId));
+      setIsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
     async function getMovieDetails() {
       try {
         setIsLoading(true);
         setError("");
         let res = await fetch(`https://www.omdbapi.com/?apikey=${KEY}&i=${selectedId}`, {
           cache: "no-store",
+          signal: controller.signal,
         });
 
         if (!res.ok || res.status === 401) {
           if (KEY !== "b78bdecd") {
             res = await fetch(`https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`, {
               cache: "no-store",
+              signal: controller.signal,
             });
           }
         }
@@ -100,15 +115,24 @@ export default function MovieDetails({ selectedId, onCloseMovie, onAddWatched, o
         if (!res.ok) throw new Error("Failed to fetch movie details");
 
         let data = await res.json();
-        if (data.Response === "False") throw new Error(data.Error);
+        if (data.Response === "False") throw new Error(data.Error || "Movie not found");
+        
+        omdbDetailsSessionCache.set(selectedId, data);
         setMovie(data);
       } catch (err) {
-        setError(err.message);
+        if (err.name !== "AbortError") {
+          setError(err.message || "Failed to load movie details");
+        }
       } finally {
         setIsLoading(false);
       }
     }
-    if (selectedId) getMovieDetails();
+
+    getMovieDetails();
+
+    return () => {
+      controller.abort();
+    };
   }, [selectedId]);
 
   useEffect(() => {
