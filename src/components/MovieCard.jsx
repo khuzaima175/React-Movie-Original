@@ -86,10 +86,10 @@ export default function MovieCard({
         {!isManageMode && (userRating || isPerfectTen) && (
           <div
             className={`card-corner-badge ${isPerfectTen ? "badge-gold" : "badge-glass"}`}
-            title={userRating ? `Your Rating: ${userRating}/10★` : "Masterpiece 10★"}
+            title={userRating ? `Your Rating: ${userRating}/10` : "Masterpiece 10"}
           >
-            <Star size={10} className={isPerfectTen ? "icon-star-dark" : "icon-star-accent"} aria-hidden="true" />
-            <span>{userRating ? `${userRating}★` : "10★"}</span>
+            <Star size={11} className={isPerfectTen ? "icon-star-dark" : "icon-star-accent"} aria-hidden="true" />
+            <span>{userRating ? userRating : "10"}</span>
           </div>
         )}
 

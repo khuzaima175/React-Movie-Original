@@ -17,6 +17,7 @@ import {
   Star,
   TrendingUp,
   Trophy,
+  Filter,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -41,12 +42,6 @@ export default function VaultBanner({
   totalCount = 0,
 }) {
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
-
-  // Background collage posters
-  const collagePosters = watched
-    .map((m) => m.poster || m.Poster)
-    .filter((p) => p && p !== "N/A")
-    .slice(0, 10);
 
   // Computed Cinema Metrics
   const totalMovies = watched.length;
@@ -120,343 +115,314 @@ export default function VaultBanner({
   const topRatedFilmStr = topRatedFilm ? `${topRatedFilm.title || topRatedFilm.Title} (★ ${topRatedFilm.userRating || topRatedFilm.imdbRating})` : "N/A";
 
   return (
-    <div className="vault-studio-header" aria-label="Vault Control Hub">
-      {/* ── Ambient Backdrop Vignette ── */}
-      <div className="vault-studio-backdrop">
-        {collagePosters.length > 0 ? (
-          <div className="backdrop-mosaic-grid">
-            {collagePosters.map((src, idx) => (
-              <div key={idx} className="mosaic-cell">
-                <img src={src} alt="" aria-hidden="true" loading="lazy" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="backdrop-ambient-glow" />
-        )}
-        <div className="backdrop-scrim-gradient" />
-      </div>
-
-      {/* ── Main Studio Control Content ── */}
-      <div className="vault-studio-content">
-        {/* Row 1: Studio Identity & Action Hub */}
-        <div className="studio-top-row">
-          <div className="studio-identity-group">
-            <div className="vault-title-wrap">
-              <span className="live-studio-dot" aria-hidden="true" />
-              <h1 className="vault-studio-title">My Vault</h1>
-            </div>
-
-            {/* Micro Cinema Stats Pills */}
-            <div className="studio-metrics-pills">
-              <span className="metric-chip">
-                <Film size={12} className="chip-icon text-accent" aria-hidden="true" />
-                <strong>{totalMovies}</strong> films
-              </span>
-              {totalMinutes > 0 && (
-                <span className="metric-chip">
-                  <Clock size={12} className="chip-icon" aria-hidden="true" />
-                  {timeString}
-                </span>
-              )}
-              {totalMovies > 0 && (
-                <span className="metric-chip gold">
-                  <Star size={12} className="chip-icon gold" aria-hidden="true" />
-                  <strong>★ {avgUser}</strong>
-                  <span className="metric-sub-delta">
-                    ({isHigherThanImdb ? `+${ratingDelta}` : ratingDelta} vs IMDb)
-                  </span>
-                </span>
-              )}
-              {topGenre && totalMovies > 0 && (
-                <span className="metric-chip desktop-only">
-                  <TrendingUp size={12} className="chip-icon" aria-hidden="true" />
-                  {topGenre}
-                </span>
-              )}
-            </div>
+    <div className="vault-studio-header-spacious" aria-label="Vault Control Center">
+      {/* ── Tier 1: Spacious Title & Executive Actions ── */}
+      <div className="studio-hero-tier">
+        <div className="studio-hero-left">
+          <div className="hero-title-line">
+            <span className="live-studio-pulse" aria-hidden="true" />
+            <h1 className="vault-spacious-title">My Vault</h1>
+            <span className="vault-count-pill">{totalMovies} titles</span>
           </div>
 
-          {/* Action Buttons Group */}
-          <div className="studio-actions-group">
-            {/* Deep Insights Toggle Button */}
-            {activeTab === "watched" && totalMovies > 0 && (
-              <button
-                className={`btn-studio-action btn-insights-trigger ${isInsightsOpen ? "active" : ""}`}
-                onClick={() => setIsInsightsOpen((prev) => !prev)}
-                aria-expanded={isInsightsOpen}
-                title="Toggle Deep Insights & Taste DNA"
-              >
-                <Sparkles size={14} className="icon-sparkle" aria-hidden="true" />
-                <span className="btn-text">{isInsightsOpen ? "Hide Insights" : "Insights & DNA"}</span>
-                {isInsightsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              </button>
+          <p className="vault-spacious-meta">
+            <span>{timeString} screen time</span>
+            {totalMovies > 0 && (
+              <>
+                <span className="meta-sep">•</span>
+                <span className="meta-star-stat">
+                  <Star size={13} className="text-accent fill-current" aria-hidden="true" />
+                  <strong>{avgUser}</strong> avg ({isHigherThanImdb ? `+${ratingDelta}` : ratingDelta} vs IMDb)
+                </span>
+                {topGenre && (
+                  <>
+                    <span className="meta-sep">•</span>
+                    <span className="meta-genre-tag">Top: <strong>{topGenre}</strong></span>
+                  </>
+                )}
+              </>
             )}
-
-            {/* Manage Mode Toggle */}
-            <button
-              className={`btn-studio-action ${isManageMode ? "manage-active" : ""}`}
-              onClick={onToggleManageMode}
-              title={isManageMode ? "Exit Selection Mode" : "Manage Vault (Select & Bulk Delete)"}
-            >
-              {isManageMode ? (
-                <>
-                  <XSquare size={14} aria-hidden="true" />
-                  <span className="btn-text">Done Selection</span>
-                </>
-              ) : (
-                <>
-                  <CheckSquare size={14} aria-hidden="true" />
-                  <span className="btn-text">Manage</span>
-                </>
-              )}
-            </button>
-
-            {/* Portability / Backup */}
-            <button
-              className="btn-studio-action ghost"
-              onClick={onOpenBackup}
-              title="Backup, Export & Import Collection"
-            >
-              <Settings size={14} aria-hidden="true" />
-              <span className="btn-text desktop-only">Portability</span>
-            </button>
-          </div>
+          </p>
         </div>
 
-        {/* ── Collapsible Glass Insights Drawer ── */}
-        <AnimatePresence>
-          {isInsightsOpen && activeTab === "watched" && (
-            <motion.div
-              initial={{ opacity: 0, height: 0, y: -8 }}
-              animate={{ opacity: 1, height: "auto", y: 0 }}
-              exit={{ opacity: 0, height: 0, y: -8 }}
-              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-              className="studio-insights-drawer-wrapper"
+        {/* Executive Action Buttons */}
+        <div className="studio-hero-actions">
+          {activeTab === "watched" && totalMovies > 0 && (
+            <button
+              className={`btn-executive btn-insights-glow ${isInsightsOpen ? "active" : ""}`}
+              onClick={() => setIsInsightsOpen((prev) => !prev)}
+              aria-expanded={isInsightsOpen}
+              title="Toggle Detailed Histogram and Taste DNA"
             >
-              <div className="studio-insights-card">
-                <div className="insights-grid-layout">
-                  {/* Column 1: Rating Histogram */}
-                  <div className="insight-panel-col">
-                    <div className="panel-col-header">
-                      <div className="col-header-title">
-                        <Trophy size={14} className="text-accent" aria-hidden="true" />
-                        <h4>Score Histogram</h4>
-                      </div>
-                      <span className="col-header-sub">Score Frequency (6★ → 10★)</span>
-                    </div>
+              <Sparkles size={15} className="text-accent" aria-hidden="true" />
+              <span>{isInsightsOpen ? "Close DNA" : "Taste DNA"}</span>
+              {isInsightsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          )}
 
-                    <div className="histogram-bars-compact">
-                      {[10, 9, 8, 7, 6].map((score) => {
-                        const count = distCounts[score];
-                        const pct = Math.round((count / maxDistCount) * 100);
-                        return (
-                          <div key={score} className="hist-col-item" title={`${score}★: ${count} films`}>
-                            <span className="hist-val-num">{count > 0 ? count : ""}</span>
-                            <div className="hist-track-wrap">
-                              <motion.div
-                                initial={{ height: 0 }}
-                                animate={{ height: count > 0 ? `${Math.max(16, pct)}%` : "4px" }}
-                                transition={{ duration: 0.4, delay: (10 - score) * 0.05 }}
-                                className={`hist-fill-bar ${score === 10 ? "gold" : ""}`}
-                              />
-                            </div>
-                            <span className="hist-score-lbl">{score}★</span>
-                          </div>
-                        );
-                      })}
+          <button
+            className={`btn-executive ${isManageMode ? "manage-active" : ""}`}
+            onClick={onToggleManageMode}
+            title={isManageMode ? "Exit Selection Mode" : "Manage Vault (Bulk Move & Delete)"}
+          >
+            {isManageMode ? (
+              <>
+                <XSquare size={15} aria-hidden="true" />
+                <span>Done</span>
+              </>
+            ) : (
+              <>
+                <CheckSquare size={15} aria-hidden="true" />
+                <span>Manage</span>
+              </>
+            )}
+          </button>
+
+          <button
+            className="btn-executive ghost"
+            onClick={onOpenBackup}
+            title="Backup & Portability"
+          >
+            <Settings size={15} aria-hidden="true" />
+            <span className="desktop-only">Backup</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ── Collapsible Glass Insights Drawer ── */}
+      <AnimatePresence>
+        {isInsightsOpen && activeTab === "watched" && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, y: -10 }}
+            animate={{ opacity: 1, height: "auto", y: 0 }}
+            exit={{ opacity: 0, height: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="studio-insights-drawer-wrapper"
+          >
+            <div className="studio-insights-glass-card">
+              <div className="insights-three-col-grid">
+                {/* Column 1: Rating Histogram */}
+                <div className="insight-panel-card">
+                  <div className="panel-title-bar">
+                    <div className="panel-title-text">
+                      <Trophy size={15} className="text-accent" aria-hidden="true" />
+                      <h4>Score Distribution</h4>
                     </div>
+                    <span className="panel-sub-label">6★ → 10★ frequency</span>
                   </div>
 
-                  {/* Column 2: Genre Affinities */}
-                  <div className="insight-panel-col">
-                    <div className="panel-col-header">
-                      <div className="col-header-title">
-                        <TrendingUp size={14} className="text-accent" aria-hidden="true" />
-                        <h4>Genre Affinities</h4>
-                      </div>
-                      <span className="col-header-sub">Dominant Taste</span>
-                    </div>
-
-                    <div className="genre-meter-list">
-                      {sortedGenres.map(([genre, count]) => {
-                        const pct = Math.round((count / totalGenreHits) * 100);
-                        return (
-                          <div key={genre} className="genre-meter-row">
-                            <div className="genre-meter-labels">
-                              <span className="genre-meter-name">{genre}</span>
-                              <span className="genre-meter-pct">{pct}%</span>
-                            </div>
-                            <div className="genre-meter-track">
-                              <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${pct}%` }}
-                                transition={{ duration: 0.5, ease: "easeOut" }}
-                                className="genre-meter-fill"
-                              />
-                            </div>
+                  <div className="histogram-bars-spacious">
+                    {[10, 9, 8, 7, 6].map((score) => {
+                      const count = distCounts[score];
+                      const pct = Math.round((count / maxDistCount) * 100);
+                      return (
+                        <div key={score} className="hist-column-item" title={`${score}★: ${count} films`}>
+                          <span className="hist-count-num">{count > 0 ? count : ""}</span>
+                          <div className="hist-track-housing">
+                            <motion.div
+                              initial={{ height: 0 }}
+                              animate={{ height: count > 0 ? `${Math.max(16, pct)}%` : "4px" }}
+                              transition={{ duration: 0.45, delay: (10 - score) * 0.05 }}
+                              className={`hist-bar-fill ${score === 10 ? "gold" : ""}`}
+                            />
                           </div>
-                        );
-                      })}
+                          <span className="hist-label-text">{score}★</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Column 2: Genre Affinities */}
+                <div className="insight-panel-card">
+                  <div className="panel-title-bar">
+                    <div className="panel-title-text">
+                      <TrendingUp size={15} className="text-accent" aria-hidden="true" />
+                      <h4>Genre Affinities</h4>
                     </div>
+                    <span className="panel-sub-label">Dominant affinities</span>
                   </div>
 
-                  {/* Column 3: Taste DNA Trivia */}
-                  <div className="insight-panel-col">
-                    <div className="panel-col-header">
-                      <div className="col-header-title">
-                        <Sparkles size={14} className="text-accent" aria-hidden="true" />
-                        <h4>Taste DNA</h4>
-                      </div>
-                      <span className="col-header-sub">Vault Milestones</span>
-                    </div>
+                  <div className="genre-progress-group">
+                    {sortedGenres.map(([genre, count]) => {
+                      const pct = Math.round((count / totalGenreHits) * 100);
+                      return (
+                        <div key={genre} className="genre-progress-item">
+                          <div className="genre-progress-labels">
+                            <span className="genre-name">{genre}</span>
+                            <span className="genre-pct">{pct}%</span>
+                          </div>
+                          <div className="genre-progress-track">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${pct}%` }}
+                              transition={{ duration: 0.5, ease: "easeOut" }}
+                              className="genre-progress-fill"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                    <div className="dna-facts-grid">
-                      <div className="dna-fact-box">
-                        <span className="dna-fact-label">Top Director</span>
-                        <span className="dna-fact-val" title={topDirector}>{topDirector}</span>
-                      </div>
-                      <div className="dna-fact-box">
-                        <span className="dna-fact-label">Top Lead</span>
-                        <span className="dna-fact-val" title={topActor}>{topActor}</span>
-                      </div>
-                      <div className="dna-fact-box">
-                        <span className="dna-fact-label">Longest Runtime</span>
-                        <span className="dna-fact-val" title={longestFilmStr}>{longestFilmStr}</span>
-                      </div>
-                      <div className="dna-fact-box">
-                        <span className="dna-fact-label">Top Rated</span>
-                        <span className="dna-fact-val text-accent font-semibold" title={topRatedFilmStr}>{topRatedFilmStr}</span>
-                      </div>
+                {/* Column 3: Taste DNA Trivia */}
+                <div className="insight-panel-card">
+                  <div className="panel-title-bar">
+                    <div className="panel-title-text">
+                      <Sparkles size={15} className="text-accent" aria-hidden="true" />
+                      <h4>Taste DNA</h4>
+                    </div>
+                    <span className="panel-sub-label">Collection milestones</span>
+                  </div>
+
+                  <div className="dna-metrics-grid">
+                    <div className="dna-metric-card">
+                      <span className="dna-label">Top Director</span>
+                      <span className="dna-value" title={topDirector}>{topDirector}</span>
+                    </div>
+                    <div className="dna-metric-card">
+                      <span className="dna-label">Top Lead</span>
+                      <span className="dna-value" title={topActor}>{topActor}</span>
+                    </div>
+                    <div className="dna-metric-card">
+                      <span className="dna-label">Longest Runtime</span>
+                      <span className="dna-value" title={longestFilmStr}>{longestFilmStr}</span>
+                    </div>
+                    <div className="dna-metric-card">
+                      <span className="dna-label">Highest Rated</span>
+                      <span className="dna-value text-accent font-semibold" title={topRatedFilmStr}>{topRatedFilmStr}</span>
                     </div>
                   </div>
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Row 2: Unified Navigation & Filter Bar */}
-        <div className="studio-controls-bar">
-          {/* Left: Buttery Sliding Tabs */}
-          <div className="studio-segmented-tabs" role="tablist">
-            <button
-              role="tab"
-              aria-selected={activeTab === "watched"}
-              className={`studio-tab-btn ${activeTab === "watched" ? "active" : ""}`}
-              onClick={() => onTabChange("watched")}
-            >
-              {activeTab === "watched" && (
-                <motion.div
-                  layoutId="vaultActiveTabPill"
-                  className="studio-tab-indicator"
-                  transition={{ type: "spring", stiffness: 450, damping: 32 }}
-                />
-              )}
-              <Film size={14} className="tab-btn-icon" aria-hidden="true" />
-              <span className="tab-btn-text">Watched</span>
-              <span className="tab-pill-badge">{watched.length}</span>
-            </button>
-
-            <button
-              role="tab"
-              aria-selected={activeTab === "watchlist"}
-              className={`studio-tab-btn ${activeTab === "watchlist" ? "active" : ""}`}
-              onClick={() => onTabChange("watchlist")}
-            >
-              {activeTab === "watchlist" && (
-                <motion.div
-                  layoutId="vaultActiveTabPill"
-                  className="studio-tab-indicator"
-                  transition={{ type: "spring", stiffness: 450, damping: 32 }}
-                />
-              )}
-              <Bookmark size={14} className="tab-btn-icon" aria-hidden="true" />
-              <span className="tab-btn-text">Plan to Watch</span>
-              <span className="tab-pill-badge">{watchlist.length}</span>
-            </button>
-          </div>
-
-          {/* Center/Right: Quick Search & Genre Filter */}
-          <div className="studio-filters-group">
-            {/* Search Input */}
-            <div className="studio-search-field">
-              <Search size={14} className="search-field-icon" aria-hidden="true" />
-              <input
-                type="text"
-                placeholder={`Search ${activeTab === "watched" ? "watched films" : "watchlist"}...`}
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                className="studio-search-input"
-                aria-label="Filter vault movies"
+      {/* ── Tier 2: Spacious Navigation & Filter Toolbar ── */}
+      <div className="studio-toolbar-tier">
+        {/* Left: Clean Sliding Pill Tabs */}
+        <div className="studio-tabs-cluster" role="tablist">
+          <button
+            role="tab"
+            aria-selected={activeTab === "watched"}
+            className={`spacious-tab-pill ${activeTab === "watched" ? "active" : ""}`}
+            onClick={() => onTabChange("watched")}
+          >
+            {activeTab === "watched" && (
+              <motion.div
+                layoutId="vaultSpaciousTabHighlight"
+                className="spacious-tab-highlight"
+                transition={{ type: "spring", stiffness: 450, damping: 32 }}
               />
-              {searchQuery && (
-                <button
-                  className="btn-clear-search-pill"
-                  onClick={() => onSearchChange("")}
-                  aria-label="Clear search query"
-                >
-                  <X size={12} aria-hidden="true" />
-                </button>
-              )}
-            </div>
+            )}
+            <Film size={15} className="tab-icon" aria-hidden="true" />
+            <span className="tab-title">Watched</span>
+            <span className="tab-badge">{watched.length}</span>
+          </button>
 
-            {/* Genre Filter Chips (Horizontal Swipe) */}
-            <div className="studio-genre-chips" role="group" aria-label="Genre filters">
-              {genresList.map((genre) => (
-                <button
-                  key={genre}
-                  className={`studio-genre-pill ${selectedGenre === genre ? "active" : ""}`}
-                  onClick={() => onGenreSelect(genre)}
-                >
-                  {genre}
-                </button>
-              ))}
-            </div>
+          <button
+            role="tab"
+            aria-selected={activeTab === "watchlist"}
+            className={`spacious-tab-pill ${activeTab === "watchlist" ? "active" : ""}`}
+            onClick={() => onTabChange("watchlist")}
+          >
+            {activeTab === "watchlist" && (
+              <motion.div
+                layoutId="vaultSpaciousTabHighlight"
+                className="spacious-tab-highlight"
+                transition={{ type: "spring", stiffness: 450, damping: 32 }}
+              />
+            )}
+            <Bookmark size={15} className="tab-icon" aria-hidden="true" />
+            <span className="tab-title">Plan to Watch</span>
+            <span className="tab-badge">{watchlist.length}</span>
+          </button>
+        </div>
 
-            {/* Secondary Controls: Sort & View Toggle */}
-            <div className="studio-view-controls">
-              <div className="studio-sort-wrapper">
-                <SlidersHorizontal size={13} className="sort-icon-muted" aria-hidden="true" />
-                <select
-                  value={sortBy}
-                  onChange={(e) => onSortChange(e.target.value)}
-                  className="studio-sort-select"
-                  aria-label="Sort collection by"
-                >
-                  <option value="input">Date Added</option>
-                  <option value="userRating">Your Rating</option>
-                  <option value="rating">IMDb Score</option>
-                  <option value="runtime">Runtime</option>
-                  <option value="title">Title (A-Z)</option>
-                </select>
-              </div>
-
-              {/* View Mode Toggle */}
-              <div className="studio-view-toggle-pills">
-                <button
-                  className={`view-mode-btn ${viewMode === "grid" ? "active" : ""}`}
-                  onClick={() => onViewModeChange("grid")}
-                  title="Grid Poster View"
-                  aria-label="Grid view"
-                >
-                  <LayoutGrid size={15} aria-hidden="true" />
-                </button>
-                <button
-                  className={`view-mode-btn ${viewMode === "list" ? "active" : ""}`}
-                  onClick={() => onViewModeChange("list")}
-                  title="Table List View"
-                  aria-label="List view"
-                >
-                  <List size={15} aria-hidden="true" />
-                </button>
-              </div>
-
-              <span className="studio-count-lbl desktop-only">
-                <strong>{filteredCount}</strong>/{totalCount}
-              </span>
-            </div>
+        {/* Right: Clean, Uncluttered Search & Filters */}
+        <div className="studio-controls-cluster">
+          {/* Quick Search Input */}
+          <div className="spacious-search-box">
+            <Search size={14} className="search-icon-muted" aria-hidden="true" />
+            <input
+              type="text"
+              placeholder={`Search ${activeTab === "watched" ? "watched films" : "watchlist"}...`}
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="spacious-search-input"
+              aria-label="Filter collection"
+            />
+            {searchQuery && (
+              <button
+                className="btn-clear-spacious-search"
+                onClick={() => onSearchChange("")}
+                aria-label="Clear search"
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            )}
           </div>
+
+          {/* Genre Dropdown Select */}
+          <div className="spacious-filter-select-wrap">
+            <Filter size={13} className="select-icon-muted" aria-hidden="true" />
+            <select
+              value={selectedGenre}
+              onChange={(e) => onGenreSelect(e.target.value)}
+              className="spacious-filter-select"
+              aria-label="Filter by genre"
+            >
+              {genresList.map((genre) => (
+                <option key={genre} value={genre}>
+                  {genre === "All" ? "All Genres" : genre}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="spacious-filter-select-wrap">
+            <SlidersHorizontal size={13} className="select-icon-muted" aria-hidden="true" />
+            <select
+              value={sortBy}
+              onChange={(e) => onSortChange(e.target.value)}
+              className="spacious-filter-select"
+              aria-label="Sort collection by"
+            >
+              <option value="input">Date Added</option>
+              <option value="userRating">Your Rating</option>
+              <option value="rating">IMDb Score</option>
+              <option value="runtime">Runtime</option>
+              <option value="title">Title (A-Z)</option>
+            </select>
+          </div>
+
+          {/* View Mode Toggle */}
+          <div className="spacious-view-toggle">
+            <button
+              className={`btn-view-choice ${viewMode === "grid" ? "active" : ""}`}
+              onClick={() => onViewModeChange("grid")}
+              title="Poster Grid View"
+              aria-label="Grid view"
+            >
+              <LayoutGrid size={15} aria-hidden="true" />
+            </button>
+            <button
+              className={`btn-view-choice ${viewMode === "list" ? "active" : ""}`}
+              onClick={() => onViewModeChange("list")}
+              title="Table List View"
+              aria-label="List view"
+            >
+              <List size={15} aria-hidden="true" />
+            </button>
+          </div>
+
+          <span className="spacious-count-indicator desktop-only">
+            <strong>{filteredCount}</strong>/{totalCount}
+          </span>
         </div>
       </div>
     </div>
