@@ -2,6 +2,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 
+/**
+ * Sanitizes strings for CSV/prompt injection safety
+ */
+export const cleanStr = (val) => {
+    if (val === null || val === undefined) return "";
+    return String(val).replace(/[|\r\n\t]/g, " ").replace(/\s+/g, " ").trim();
+};
+
 const getOmdbKey = () => {
     const key = import.meta.env.VITE_OMDB_KEY;
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {

@@ -292,6 +292,26 @@ export default function MovieRecommendations({
       return 0;
     });
 
+  // Compute real taste DNA preview for pre-run state
+  const topAnchors = [...(watched || [])]
+    .filter((m) => (Number(m.userRating) || Number(m.imdbRating) || 0) >= 8.5)
+    .sort((a, b) => (Number(b.userRating) || Number(b.imdbRating) || 0) - (Number(a.userRating) || Number(a.imdbRating) || 0))
+    .slice(0, 4);
+
+  const genreHits = {};
+  (watched || []).forEach((m) => {
+    if (m.genre) {
+      m.genre.split(",").forEach((g) => {
+        const name = g.trim();
+        genreHits[name] = (genreHits[name] || 0) + 1;
+      });
+    }
+  });
+  const topGenresList = Object.entries(genreHits)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([g]) => g);
+
   // Empty vault state
   if (watched.length === 0) {
     return (
@@ -310,92 +330,97 @@ export default function MovieRecommendations({
 
   return (
     <div className="ai-recommendations">
-      {/* Mood Selector Chips */}
-      <div className="ai-mood-selector-bar">
-        <div className="mood-label-wrapper">
-          <Compass size={16} />
-          <span>Vibe & Mood:</span>
-        </div>
-        <div className="mood-chips">
-          {MOOD_OPTIONS.map((mood) => (
-            <button
-              key={mood.id}
-              className={`mood-chip ${selectedMood === mood.id ? "active" : ""}`}
-              onClick={() => setSelectedMood(mood.id)}
-            >
-              {mood.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Pre-run Empty State ── */}
+      {/* ── Pre-run Discovery & Taste Showcase State ── */}
       {!recommendations && !isLoading && (
-        <div className="ai-trigger-section">
-          <div className="ai-intro-card">
-            <div className="oracle-orb-wrapper large">
-              <div className="oracle-orb-pulse"></div>
-              <div className="oracle-orb">
-                <Sparkles size={36} />
+        <div className="ai-discovery-stage">
+          {/* Cinema Taste Intelligence Showcase Card */}
+          <div className="ai-taste-showcase-card">
+            <div className="showcase-top">
+              <div className="showcase-header-left">
+                <div className="showcase-badge">
+                  <Sparkles size={13} className="text-accent" aria-hidden="true" />
+                  <span>Cinematic Intelligence Engine</span>
+                </div>
+                <h2 className="showcase-title">Synthesize Your Next Cinema Obsession</h2>
+                <p className="showcase-subtitle">
+                  Autonomous film synthesis trained on your <strong>{watched.length} rated titles</strong>. Cross-references narrative themes, director styles, and IMDb verified metadata.
+                </p>
               </div>
             </div>
-            <div className="ai-intro-content">
-              <h3>Discover Your Next Favorite Film</h3>
-              <p>
-                Analyzes your <strong>{watched.length}</strong> rated movies, cross-referencing theme, director style, and genre preference to find your highest-match picks.
-              </p>
 
+            {/* Live Taste DNA Signals derived from real vault */}
+            <div className="showcase-dna-strip">
+              {topAnchors.length > 0 && (
+                <div className="showcase-dna-col">
+                  <span className="dna-strip-label">Primary Anchors</span>
+                  <div className="dna-anchors-pills">
+                    {topAnchors.map((m) => (
+                      <span key={m.imdbID || m.id || m.title} className="dna-anchor-pill">
+                        <Star size={11} className="text-accent fill-current" />
+                        <strong>{m.title || m.Title}</strong>
+                        <span className="anchor-score">★ {m.userRating || m.imdbRating}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {topGenresList.length > 0 && (
+                <div className="showcase-dna-col">
+                  <span className="dna-strip-label">Dominant Taste DNA</span>
+                  <div className="dna-anchors-pills">
+                    {topGenresList.map((genre) => (
+                      <span key={genre} className="dna-genre-pill">
+                        {genre}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Vibe & Mood Selector embedded seamlessly */}
+            <div className="showcase-mood-section">
+              <span className="mood-section-label">
+                <Compass size={14} className="text-accent" />
+                Select Desired Vibe or Direction:
+              </span>
+              <div className="showcase-mood-chips">
+                {MOOD_OPTIONS.map((mood) => (
+                  <button
+                    key={mood.id}
+                    className={`showcase-mood-pill ${selectedMood === mood.id ? "active" : ""}`}
+                    onClick={() => setSelectedMood(mood.id)}
+                  >
+                    {mood.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Big Shimmering Action Button */}
+            <div className="showcase-action-row">
               <button
-                className="btn-ai-generate"
+                className="btn-synthesize-cinema"
                 onClick={handleGetRecommendations}
                 disabled={watched.length < 3}
               >
-                <Sparkles size={18} />
-                <span>Get AI Recommendations</span>
+                <Sparkles size={18} aria-hidden="true" />
+                <span>Synthesize 6 Curated Recommendations</span>
               </button>
 
               {watched.length < 3 && (
                 <div className="ai-hint-badge">
                   <AlertCircle size={14} />
-                  <span>Rate at least 3 movies to unlock recommendations</span>
+                  <span>Rate at least 3 movies in your Vault to unlock synthesis</span>
                 </div>
               )}
+
               {error && (
-                <p className="ai-error">
-                  <AlertCircle size={14} /> {error}
+                <p className="ai-error-banner">
+                  <AlertCircle size={15} /> {error}
                 </p>
               )}
-            </div>
-          </div>
-
-          {/* 3 Mini Feature Explainer Cards */}
-          <div className="ai-features-grid">
-            <div className="ai-feature-card">
-              <div className="feature-icon-wrapper">
-                <Dna size={22} />
-              </div>
-              <div className="feature-text">
-                <h4>Taste DNA Analysis</h4>
-                <p>Deconstructs favorite genres, directors, decade bias, and rating patterns.</p>
-              </div>
-            </div>
-            <div className="ai-feature-card">
-              <div className="feature-icon-wrapper">
-                <Target size={22} />
-              </div>
-              <div className="feature-text">
-                <h4>Match Precision</h4>
-                <p>Calculates a 0–100% match score using your top-rated anchors.</p>
-              </div>
-            </div>
-            <div className="ai-feature-card">
-              <div className="feature-icon-wrapper">
-                <BrainCircuit size={22} />
-              </div>
-              <div className="feature-text">
-                <h4>Deep Match Reasoning</h4>
-                <p>Provides inline breakdowns explaining why each film fits your taste.</p>
-              </div>
             </div>
           </div>
         </div>
@@ -408,7 +433,7 @@ export default function MovieRecommendations({
             <div className="oracle-orb-wrapper large">
               <div className="oracle-orb-pulse"></div>
               <div className="oracle-orb">
-                <Loader2 size={32} className="spin-icon" />
+                <Loader2 size={32} className="spin-icon text-accent" />
               </div>
             </div>
             <h3>Oracle Engine Active</h3>
@@ -453,19 +478,19 @@ export default function MovieRecommendations({
         </div>
       )}
 
-      {/* ── Results V2 State ── */}
+      {/* ── Results State ── */}
       {recommendations && (
-        <div className="ai-results">
+        <div className="ai-results-stage">
           {tasteProfile && (
             <div className="taste-profile-card">
               <div className="taste-header">
-                <Target size={20} className="taste-icon" />
-                <h4>Your Taste Profile</h4>
+                <Target size={18} className="taste-icon" />
+                <h4>Synthesized Taste DNA Profile</h4>
               </div>
 
               <div className="taste-grid">
                 <div className="taste-section">
-                  <span className="taste-label">Top Genres</span>
+                  <span className="taste-label">Top Genre Affinities</span>
                   <div className="taste-tags">
                     {tasteProfile.favoriteGenres?.map((genre, i) => (
                       <div key={i} className="taste-tag-bar">
@@ -482,16 +507,16 @@ export default function MovieRecommendations({
                 </div>
 
                 <div className="taste-section">
-                  <span className="taste-label">Preferred Era & Style</span>
+                  <span className="taste-label">Detected Era & Aesthetic</span>
                   <div className="taste-meta-badges">
                     {tasteProfile.preferredEra && (
                       <span className="taste-badge">
-                        <Film size={14} /> {tasteProfile.preferredEra}
+                        <Film size={14} className="text-accent" /> {tasteProfile.preferredEra}
                       </span>
                     )}
                     {tasteProfile.ratingStyle && (
                       <span className="taste-badge">
-                        <Star size={14} /> {tasteProfile.ratingStyle}
+                        <Star size={14} className="text-accent" /> {tasteProfile.ratingStyle}
                       </span>
                     )}
                   </div>
@@ -500,33 +525,34 @@ export default function MovieRecommendations({
             </div>
           )}
 
-          {/* Toolbar with Sort Dropdown & Cache Badge */}
+          {/* Toolbar with Sort Dropdown, Mood Changer & Cache Badge */}
           <div className="recs-toolbar">
             <div className="recs-count">
               <Sparkles size={18} className="icon-sparkle" />
-              <h4>Perfect Picks For You</h4>
-              <span className="recs-badge">{sortedRecommendations.length} Curated Films</span>
+              <h4>Curated Recommendations</h4>
+              <span className="recs-badge">{sortedRecommendations.length} Films</span>
               {isCacheValid ? (
-                <span className="cache-status-badge cached" title="Serving saved recommendations (0 API calls)">
-                  <CheckCircle2 size={12} /> Cached (Up to Date)
+                <span className="cache-status-badge cached" title="Instant cache from storage">
+                  <CheckCircle2 size={12} /> Instant Cache
                 </span>
               ) : (
-                <span className="cache-status-badge stale" title="Your rating list or mood selection changed - refresh for updated recommendations">
-                  <AlertCircle size={12} /> Stale (Ratings/Mood Updated)
+                <span className="cache-status-badge stale" title="Ratings or mood updated">
+                  <AlertCircle size={12} /> Live Re-ranked
                 </span>
               )}
             </div>
 
             <div className="recs-sort-controls">
               <SlidersHorizontal size={14} className="sort-icon" />
-              <span className="sort-label">Sort by:</span>
+              <span className="sort-label">Sort:</span>
               <select
                 className="recs-sort-select"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
+                aria-label="Sort recommendations"
               >
                 <option value="match">Match Score (%)</option>
-                <option value="imdb">IMDb Rating</option>
+                <option value="imdb">IMDb Score</option>
                 <option value="year">Release Year</option>
               </select>
             </div>
@@ -543,7 +569,7 @@ export default function MovieRecommendations({
 
               return (
                 <li key={index} className="recommendation-card">
-                  {/* Rank Numeral (#1, #2, etc.) */}
+                  {/* Rank Numeral */}
                   <div className="rec-rank-num">#{rankNum}</div>
 
                   {/* Poster image */}
@@ -558,7 +584,7 @@ export default function MovieRecommendations({
                   <div className="rec-content">
                     <div className="rec-header">
                       <div className="rec-title-section">
-                        <h5 className="rec-movie-title">{rec.title}</h5>
+                        <h3 className="rec-movie-title">{rec.title}</h3>
                         <span className="rec-meta">
                           {rec.year} • {rec.genre} {rec.type === "series" ? "• TV Series" : ""}
                         </span>
@@ -566,8 +592,8 @@ export default function MovieRecommendations({
 
                       <div className="rec-ratings-group">
                         {rec.imdbRating && (
-                          <div className="imdb-rating-badge" title="IMDb Rating">
-                            <Star size={14} className="star-gold" />
+                          <div className="imdb-rating-badge" title="Verified IMDb Rating">
+                            <Star size={13} className="star-gold" />
                             <span className="imdb-val">
                               {parseFloat(rec.imdbRating).toFixed(1)}
                             </span>
@@ -580,18 +606,16 @@ export default function MovieRecommendations({
                       </div>
                     </div>
 
-                    <p className="rec-reason">{rec.reason}</p>
+                    {/* Styled Critique Box */}
+                    <div className="rec-reason-box">
+                      <p className="rec-reason">
+                        <span className="reason-quote-mark">“</span>
+                        {rec.reason}
+                        <span className="reason-quote-mark">”</span>
+                      </p>
+                    </div>
 
                     <div className="rec-actions">
-                      <button
-                        className={`btn-explain ${isExpanded ? "active" : ""}`}
-                        onClick={() => handleToggleExplanation(rec)}
-                      >
-                        <Sparkles size={15} className="btn-explain-icon" />
-                        <span>Why this match?</span>
-                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </button>
-
                       <button
                         className={`btn-add-watchlist ${inWatchlist ? "added" : ""}`}
                         onClick={() => handleAdd(rec)}
@@ -600,12 +624,12 @@ export default function MovieRecommendations({
                         {isAdding ? (
                           <>
                             <Loader2 size={15} className="spin-icon" />
-                            <span>Adding...</span>
+                            <span>Saving...</span>
                           </>
                         ) : inWatchlist ? (
                           <>
                             <Check size={15} />
-                            <span>In Watchlist</span>
+                            <span>In Plan to Watch</span>
                           </>
                         ) : (
                           <>
@@ -616,11 +640,20 @@ export default function MovieRecommendations({
                       </button>
 
                       <button
+                        className={`btn-explain ${isExpanded ? "active" : ""}`}
+                        onClick={() => handleToggleExplanation(rec)}
+                      >
+                        <Sparkles size={14} className="btn-explain-icon" />
+                        <span>{isExpanded ? "Hide Breakdown" : "Match Breakdown"}</span>
+                        {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      </button>
+
+                      <button
                         className="btn-dismiss-rec"
                         onClick={() => setDismissingTitle(isDismissing ? null : rec.title)}
                         title="Dismiss recommendation"
                       >
-                        <ThumbsDown size={15} />
+                        <ThumbsDown size={14} />
                         <span>Not for me</span>
                       </button>
                     </div>
@@ -633,6 +666,7 @@ export default function MovieRecommendations({
                           <button
                             className="btn-close-popover"
                             onClick={() => setDismissingTitle(null)}
+                            aria-label="Close"
                           >
                             <X size={14} />
                           </button>
@@ -656,12 +690,12 @@ export default function MovieRecommendations({
                       <div className="rec-explanation-drawer">
                         <div className="drawer-content">
                           <p>
-                            <strong>Rationale:</strong> {rec.reason}
+                            <strong>Thematic Connection:</strong> {rec.reason}
                           </p>
                           <p className="rec-detail-text">
-                            Aligned with your preference for{" "}
-                            {rec.genre || tasteProfile?.favoriteGenres?.[0] || "quality films"}
-                            {tasteProfile?.preferredEra ? ` and content from ${tasteProfile.preferredEra}` : ""}.
+                            Selected because of its strong stylistic overlap with your affinity for{" "}
+                            <strong>{rec.genre || tasteProfile?.favoriteGenres?.[0] || "cinematic gems"}</strong>
+                            {tasteProfile?.preferredEra ? ` and filmmaking from ${tasteProfile.preferredEra}` : ""}.
                           </p>
                         </div>
                       </div>
@@ -680,7 +714,7 @@ export default function MovieRecommendations({
               disabled={isLoading}
             >
               <RefreshCw size={16} className={isLoading ? "spin-icon" : ""} />
-              <span>Get Fresh Recommendations</span>
+              <span>Synthesize Fresh Picks</span>
             </button>
           </div>
         </div>
