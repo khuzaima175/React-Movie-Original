@@ -377,11 +377,18 @@ export default function MovieRecommendations({
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginTop: "0.4rem" }}>
-                <p style={{ fontSize: "1.25rem", color: "#8a8a86", margin: 0 }}>
-                  {userWatchProviders.length === 0
-                    ? "✨ Recommending from the entire world cinema catalog across all platforms without restriction."
-                    : `🔒 Filtering recommendations to movies available on ${userWatchProviders.length} selected service${userWatchProviders.length > 1 ? "s" : ""}.`}
-                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                  <p style={{ fontSize: "1.25rem", color: "#8a8a86", margin: 0 }}>
+                    {userWatchProviders.length === 0
+                      ? "✨ Recommending from the entire world cinema catalog across all platforms without restriction."
+                      : `🔒 Filtering recommendations to movies available on ${userWatchProviders.length} selected service${userWatchProviders.length > 1 ? "s" : ""}.`}
+                  </p>
+                  {userRegion === "GLOBAL" && userWatchProviders.length > 0 && (
+                    <span style={{ fontSize: "1.15rem", color: "#e2b13c", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                      <span>💡 Worldwide catalog: Streaming verified against primary global catalog. Select a specific country above for local licensing.</span>
+                    </span>
+                  )}
+                </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
                   <button

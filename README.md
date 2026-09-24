@@ -166,10 +166,30 @@ High-rated films ($\ge 8\star$) contribute their lead cast IDs to an aggregated 
 - Direct 16:9 YouTube player embed with `autoplay=1`, `modestbranding=1`, and background blur.
 - Full keyboard accessibility with `ESC` dismissal and backdrop click handling.
 
-### 📺 Streaming Provider Intelligence
-- Region-aware watch provider detection via TMDB (`watch/providers`).
-- Direct filtering by **Netflix, Amazon Prime, Disney+, Max (HBO), Apple TV+, Hulu, Paramount+, Peacock, Tubi, Pluto TV, and Criterion Channel**.
-- Visual provider badges on movie detail views and recommendation cards.
+### 📺 Universal Streaming Intelligence & Global Cinema Engine
+- **"🌐 All Platforms / Universal Access" Mode**: Active by default — liberates the recommendation pipeline from single-platform walls, querying the complete global archive of cinema across Criterion, festival masterworks, indie releases, theatrical epics, and all streaming services.
+- **Granular Provider Subscriptions**: Surgical filtering across **11 major networks**:
+  - 🔴 Netflix
+  - 📦 Amazon Prime Video
+  - ✨ Disney+
+  - 🟣 Max (HBO)
+  - 🍏 Apple TV+
+  - 🟢 Hulu
+  - 🏔️ Paramount+
+  - 🦚 Peacock
+  - 🏛️ Criterion Channel
+  - 📺 Tubi (Free)
+  - ⚡ Pluto TV (Free)
+  - 🎬 Freevee (Free)
+- **🌍 Worldwide / Multi-Region Intelligence**:
+  - Worldwide mode removes territorial lockouts, allowing films from **Japan, South Korea, France, Italy, Spain, India, Germany, the UK, Scandinavia, and Latin America** to surface naturally based on artistic synergy.
+  - Multi-country selector supporting **15 regions** (🇺🇸 US, 🇬🇧 UK, 🇨🇦 Canada, 🇦🇺 Australia, 🇯🇵 Japan, 🇰🇷 South Korea, 🇫🇷 France, 🇩🇪 Germany, 🇪🇸 Spain, 🇮🇹 Italy, 🇮🇳 India, 🇧🇷 Brazil, 🇲🇽 Mexico, 🇸🇪 Sweden).
+  - Robust catalog fallback: When Worldwide mode is paired with specific streaming subscriptions, queries bind to the primary global availability baseline with clear UI provenance.
+- **Visual Provider Badges**: Real-time stream badges embedded on movie cards and cinematic breakdown drawers.
+
+### 🛰️ Animated Intelligence Loading Theater
+- Hardware-accelerated **orbital radar core** with dual counter-rotating dashed rings and ambient pulse glows.
+- Real-time **stratified checklist** tracking personal vault ingestion, TMDB 3-bucket waterfall querying, and Gemini structured re-ranking.
 
 ### 🔍 Spotlight Command Search (`Cmd + K` / `Ctrl + K`)
 - High-speed global spotlight palette inspired by macOS Spotlight and Linear.
