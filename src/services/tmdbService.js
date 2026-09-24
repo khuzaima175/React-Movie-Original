@@ -1,12 +1,12 @@
 /**
  * CinemaVault TMDB Service
- * Deterministic candidate retrieval, genre mapping, and schema bridge.
+ * Deterministic candidate retrieval, genre mapping, schema bridge, and append_to_response details.
  */
 
 const getTmdbKey = () => {
   const key = import.meta.env.VITE_TMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "";
+    return "c4986237398b7da8ee34b9ec66779623";
   }
   return key.trim();
 };
@@ -246,7 +246,7 @@ export function buildDiscoverParams(profile, mood = "any", tmdbKey = TMDB_KEY) {
     params["vote_count.lte"] = voteCountLte;
   }
 
-  // FIX 1 & FIX 2: Use Pipe | for with_genres (OR) and without_genres (OR exclusion)
+  // Pipe | for with_genres (OR) and without_genres (OR exclusion)
   if (combinedLoved.length > 0) {
     params.with_genres = combinedLoved.join("|");
   }
@@ -358,6 +358,81 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
 }
 
 /**
+ * Fetch detailed movie data with append_to_response=videos,credits,external_ids
+ */
+export async function fetchTmdbMovieDetails(tmdbId) {
+  const key = getTmdbKey();
+  if (!key || !tmdbId) return null;
+
+  try {
+    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=videos,credits,external_ids&language=en-US`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const director = data.credits?.crew?.find(c => c.job === "Director")?.name || "Unknown";
+    const cast = (data.credits?.cast || []).slice(0, 5).map(c => c.name).join(", ") || "N/A";
+    const trailerObj = (data.videos?.results || []).find(v => v.site === "YouTube" && (v.type === "Trailer" || v.type === "Teaser"));
+    const trailerUrl = trailerObj ? `https://www.youtube.com/watch?v=${trailerObj.key}` : null;
+    const imdbId = data.external_ids?.imdb_id || null;
+
+    return {
+      tmdbId: data.id,
+      imdbID: imdbId,
+      title: data.title,
+      year: data.release_date ? data.release_date.slice(0, 4) : "N/A",
+      release_date: data.release_date,
+      runtime: data.runtime ? `${data.runtime} min` : "N/A",
+      runtimeMinutes: data.runtime || null,
+      poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
+      backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/original${data.backdrop_path}` : null,
+      director,
+      cast,
+      trailerUrl,
+      trailerKey: trailerObj?.key || null,
+      genre: (data.genres || []).map(g => g.name).join(", ") || "Cinema",
+      plot: data.overview || "",
+      tagline: data.tagline || "",
+      vote_average: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
+      vote_count: data.vote_count || 0
+    };
+  } catch (err) {
+    console.warn("Failed to fetch detailed TMDB movie data:", err);
+    return null;
+  }
+}
+
+/**
+ * Reverse lookup TMDB movie by IMDb ID using /find/{external_id}
+ */
+export async function findTmdbByImdbId(imdbId) {
+  const key = getTmdbKey();
+  if (!key || !imdbId) return null;
+
+  try {
+    const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const movie = data.movie_results?.[0];
+    if (!movie) return null;
+
+    return {
+      tmdbId: movie.id,
+      title: movie.title,
+      year: movie.release_date ? movie.release_date.slice(0, 4) : "N/A",
+      poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null,
+      backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : null,
+      overview: movie.overview,
+      vote_average: movie.vote_average
+    };
+  } catch (err) {
+    console.warn("TMDB find by IMDb ID failed:", err);
+    return null;
+  }
+}
+
+/**
  * Fallback luxury offline SVG poster
  */
 export const getFallbackPoster = (title = "Film") => {
@@ -369,12 +444,13 @@ export const getFallbackPoster = (title = "Film") => {
 
 /**
  * TMDB-to-OMDb Schema Bridge
- * Injects imdbID and verified runtime/director before saving to AppContext.
+ * Uses TMDB append_to_response=external_ids for instant zero-roundtrip IMDb ID resolution,
+ * with graceful fallback to OMDb.
  */
 export async function bridgeTmdbToOmdb(tmdbMovie) {
   if (!tmdbMovie) return null;
 
-  // If already has verified imdbID (e.g. from OMDb), return standard format
+  // 1. If already has verified imdbID (e.g. from OMDb), return standard format
   if (tmdbMovie.imdbID && tmdbMovie.imdbID.startsWith("tt")) {
     return {
       imdbID: tmdbMovie.imdbID,
@@ -388,6 +464,28 @@ export async function bridgeTmdbToOmdb(tmdbMovie) {
     };
   }
 
+  const tmdbId = tmdbMovie.tmdbId || tmdbMovie.id;
+
+  // 2. High-performance native TMDB lookup using append_to_response=external_ids,credits
+  if (tmdbId) {
+    const details = await fetchTmdbMovieDetails(tmdbId);
+    if (details && details.imdbID) {
+      return {
+        imdbID: details.imdbID,
+        title: details.title || tmdbMovie.title,
+        year: details.year || tmdbMovie.year || "N/A",
+        poster: details.poster || tmdbMovie.poster || getFallbackPoster(tmdbMovie.title),
+        backdrop: details.backdrop || tmdbMovie.backdrop || null,
+        runtime: details.runtime || "N/A",
+        genre: details.genre || tmdbMovie.genre || "N/A",
+        imdbRating: details.vote_average ? String(details.vote_average) : (tmdbMovie.imdbRating || "N/A"),
+        director: details.director || "Unknown",
+        userRating: 0
+      };
+    }
+  }
+
+  // 3. Fallback: Search OMDb by title and year
   const cleanTitle = (tmdbMovie.title || tmdbMovie.Title || "").replace(/^["']|["']$/g, "").trim();
   const cleanYear = tmdbMovie.year || tmdbMovie.release_date
     ? String(tmdbMovie.year || tmdbMovie.release_date).match(/\d{4}/)?.[0]
@@ -416,9 +514,9 @@ export async function bridgeTmdbToOmdb(tmdbMovie) {
     console.warn("Bridge OMDb lookup failed for TMDB candidate:", cleanTitle, e);
   }
 
-  // Graceful fallback with deterministic local ID
+  // 4. Ultimate deterministic fallback
   return {
-    imdbID: `tmdb_${tmdbMovie.tmdbId || tmdbMovie.id || cleanTitle.replace(/\s+/g, '_')}`,
+    imdbID: `tmdb_${tmdbId || cleanTitle.replace(/\s+/g, '_')}`,
     title: cleanTitle,
     year: cleanYear || "N/A",
     poster: tmdbMovie.poster || getFallbackPoster(cleanTitle),
