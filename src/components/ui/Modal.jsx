@@ -40,7 +40,7 @@ export function Modal({ isOpen, onClose, children, title, size = 'md' }) {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
-        className="fixed inset-0 z-modal flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[15vh] backdrop-blur-sm"
+        className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[15vh] backdrop-blur-sm"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         role="dialog"
         aria-modal="true"

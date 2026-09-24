@@ -6,7 +6,7 @@
 const getTmdbKey = () => {
   const key = import.meta.env.VITE_TMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "c4986237398b7da8ee34b9ec66779623";
+    return "";
   }
   return key.trim();
 };
