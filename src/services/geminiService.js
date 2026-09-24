@@ -97,23 +97,32 @@ export function getSmartCache(hash, watched = [], watchlist = []) {
 }
 
 /**
- * 500KB LRU Cache Eviction Manager
+ * 500KB LRU Cache Eviction Manager (Single-Pass O(N log N) Eviction)
  */
 export function setSmartCache(hash, data) {
     try {
         let cache = JSON.parse(localStorage.getItem(SMART_CACHE_KEY) || '{}');
         cache[hash] = { data, ts: Date.now() };
 
-        let cacheStr = JSON.stringify(cache);
-        while (cacheStr.length * 2 > MAX_CACHE_BYTES && Object.keys(cache).length > 1) {
-            const oldestKey = Object.keys(cache).reduce((oldest, key) =>
-                (cache[key]?.ts || 0) < (cache[oldest]?.ts || 0) ? key : oldest
-            );
-            delete cache[oldestKey];
-            cacheStr = JSON.stringify(cache);
+        const keys = Object.keys(cache);
+        if (keys.length > 1) {
+            // Sort keys from oldest to newest
+            const sortedKeys = keys.sort((a, b) => (cache[a]?.ts || 0) - (cache[b]?.ts || 0));
+            
+            // Single serialization check
+            let serialized = JSON.stringify(cache);
+            let idx = 0;
+            while (serialized.length * 2 > MAX_CACHE_BYTES && idx < sortedKeys.length - 1) {
+                delete cache[sortedKeys[idx]];
+                idx++;
+            }
+            if (idx > 0) {
+                serialized = JSON.stringify(cache);
+            }
+            localStorage.setItem(SMART_CACHE_KEY, serialized);
+        } else {
+            localStorage.setItem(SMART_CACHE_KEY, JSON.stringify(cache));
         }
-
-        localStorage.setItem(SMART_CACHE_KEY, cacheStr);
     } catch (e) {
         console.warn("SmartCache write failed, resetting cache:", e);
         try { localStorage.removeItem(SMART_CACHE_KEY); } catch (_) {}

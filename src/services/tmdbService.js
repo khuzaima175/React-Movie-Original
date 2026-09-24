@@ -150,7 +150,7 @@ export async function extractTasteProfile(watched = [], watchlist = []) {
   const hatedKeywordCounts = {};
   const castScores = {};
   const crewScores = {};
-  const DECAY_RATE = 0.005; // ~140 day half-life
+  const DECAY_RATE = 0.002; // ~346 day (~11.5 month) cinema-appropriate half-life
 
   // Calculate continuous weights with exponential time decay
   const weightedRated = rated.map(movie => {
@@ -169,10 +169,11 @@ export async function extractTasteProfile(watched = [], watchlist = []) {
       genreScores[id] = (genreScores[id] || 0) + finalWeight;
     });
 
-    // 2. Surgical Negative Trope Extraction (from 1-3 star films)
+    // 2. Surgical Negative Trope Extraction (from 1-3 star films with slower psychological dislike decay)
     if (rating <= 3 && movie.tmdbKeywords && Array.isArray(movie.tmdbKeywords)) {
+      const negativeDecay = Math.exp(-(DECAY_RATE / 2) * daysSince);
       movie.tmdbKeywords.forEach(kId => {
-        hatedKeywordCounts[kId] = (hatedKeywordCounts[kId] || 0) + 1;
+        hatedKeywordCounts[kId] = (hatedKeywordCounts[kId] || 0) + negativeDecay;
       });
     }
 
@@ -365,7 +366,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
     params.set("with_genres", combinedLoved.join("|"));
   }
 
-  // SURGICAL TROPE EXCLUSION: Pipe-separated for keyword OR logic
+  // SURGICAL TROPE EXCLUSION: Pipe-separated for keyword OR logic (excludes films matching ANY hated trope)
   if (profile.hatedKeywordIds && profile.hatedKeywordIds.length > 0) {
     params.set("without_keywords", profile.hatedKeywordIds.join("|"));
   }
@@ -418,7 +419,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
   // CINEPHILE FALLBACK: If user has seen all popular titles, switch to deep critical acclaim
   if (candidates.length < Math.min(targetCount, 5) && sortParam === "popularity.desc") {
     params.set("sort_by", "vote_average.desc");
-    params.set("vote_count.gte", "400");
+    params.set("vote_count.gte", "500");
     page = 1;
 
     while (candidates.length < targetCount && page <= 5) {
@@ -470,7 +471,7 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
     api_key: key,
     with_keywords: keywords.slice(0, 3).join("|"),
     sort_by: "vote_average.desc",
-    "vote_count.gte": "250",
+    "vote_count.gte": "500",
     "vote_average.gte": "7.0",
     include_adult: "false"
   });
@@ -690,32 +691,89 @@ function normalizeTmdbItem(m, sourceBucket = "TMDB") {
 }
 
 /**
- * Fetch detailed movie data with append_to_response=videos,credits,external_ids,watch/providers,keywords
+ * Extract Exact Official Trailer with strict hierarchical scoring
+ */
+export function extractOfficialTrailerKey(videosList = []) {
+  if (!Array.isArray(videosList) || videosList.length === 0) return null;
+
+  const youtubeVideos = videosList.filter(v => v && v.site === "YouTube" && v.key);
+  if (youtubeVideos.length === 0) return null;
+
+  const scored = [...youtubeVideos].sort((a, b) => {
+    const scoreVideo = (v) => {
+      let score = 0;
+      const isTrailer = v.type === "Trailer";
+      const isTeaser = v.type === "Teaser";
+      const isOfficial = v.official === true || (v.name && /official/i.test(v.name));
+      const isEnglish = v.iso_639_1 === "en" || !v.iso_639_1;
+      const isMain = v.name && /(main|official|theatrical|final trailer)/i.test(v.name);
+      const isBehindScenes = v.type === "Behind the Scenes" || v.type === "Featurette" || v.type === "Clip";
+
+      if (isTrailer) score += 200;
+      else if (isTeaser) score += 80;
+      else if (isBehindScenes) score -= 50;
+
+      if (isOfficial) score += 100;
+      if (isEnglish) score += 40;
+      if (isMain) score += 30;
+
+      return score;
+    };
+    return scoreVideo(b) - scoreVideo(a);
+  });
+
+  return scored[0]?.key || null;
+}
+
+/**
+ * Fetch detailed movie data with append_to_response=videos,credits,external_ids,watch/providers,keywords,release_dates
  */
 export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
   const key = getTmdbKey();
   if (!key || !tmdbId) return null;
 
   try {
-    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=videos,credits,external_ids,keywords,watch/providers&language=en-US`;
+    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=videos,credits,external_ids,keywords,watch/providers,release_dates&language=en-US`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return null;
     const data = await res.json();
 
-    const director = data.credits?.crew?.find(c => c.job === "Director")?.name || "Unknown";
-    const crewPersonId = data.credits?.crew?.find(c => ["Director of Photography", "Original Music Composer", "Screenplay", "Director"].includes(c.job))?.id || null;
-    const cast = (data.credits?.cast || []).slice(0, 5).map(c => c.name).join(", ") || "N/A";
-    const castIds = (data.credits?.cast || []).slice(0, 5).map(c => c.id);
+    const directorObj = data.credits?.crew?.find(c => c.job === "Director");
+    const director = directorObj?.name || "Unknown";
+    const cinematographer = data.credits?.crew?.find(c => c.job === "Director of Photography")?.name || null;
+    const composer = data.credits?.crew?.find(c => c.job === "Original Music Composer" || c.job === "Music")?.name || null;
+    const writers = data.credits?.crew?.filter(c => ["Screenplay", "Writer", "Story"].includes(c.job)).map(c => c.name).slice(0, 3).join(", ") || null;
+
+    const fallbackCrew = data.credits?.crew?.find(c => ["Director of Photography", "Original Music Composer", "Screenplay", "Writer"].includes(c.job));
+    const crewPersonId = (directorObj || fallbackCrew)?.id || null;
+
+    const cast = (data.credits?.cast || []).slice(0, 6).map(c => c.name).join(", ") || "N/A";
+    const castIds = (data.credits?.cast || []).slice(0, 6).map(c => c.id);
+    const castDetails = (data.credits?.cast || []).slice(0, 8).map(c => ({
+      id: c.id,
+      name: c.name,
+      character: c.character,
+      profile: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null
+    }));
+
     const tmdbKeywords = (data.keywords?.keywords || []).slice(0, 10).map(k => k.id);
+    const keywordNames = (data.keywords?.keywords || []).slice(0, 10).map(k => k.name);
     const tmdbGenreIds = (data.genres || []).map(g => g.id);
-    const trailerObj = (data.videos?.results || []).find(v => v.site === "YouTube" && (v.type === "Trailer" || v.type === "Teaser"));
-    const trailerUrl = trailerObj ? `https://www.youtube.com/watch?v=${trailerObj.key}` : null;
+
+    const trailerKey = extractOfficialTrailerKey(data.videos?.results || []);
+    const trailerUrl = trailerKey ? `https://www.youtube.com/watch?v=${trailerKey}` : null;
     const imdbId = data.external_ids?.imdb_id || null;
 
     const providerRegion = (userRegion && userRegion !== "GLOBAL")
       ? (data["watch/providers"]?.results?.[userRegion] || data["watch/providers"]?.results?.US)
       : (data["watch/providers"]?.results?.US || Object.values(data["watch/providers"]?.results || {})[0]);
+
     const streamProviders = (providerRegion?.flatrate || []).map(p => ({
+      id: p.provider_id,
+      name: p.provider_name,
+      logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
+    }));
+    const buyRentProviders = (providerRegion?.rent || providerRegion?.buy || []).map(p => ({
       id: p.provider_id,
       name: p.provider_name,
       logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
@@ -726,10 +784,19 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
       logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
     }));
 
+    // Extract US / Regional certification rating
+    let mpaaRating = null;
+    const usRelease = data.release_dates?.results?.find(r => r.iso_3166_1 === "US");
+    if (usRelease?.release_dates) {
+      const cert = usRelease.release_dates.find(d => d.certification)?.certification;
+      if (cert) mpaaRating = cert;
+    }
+
     return {
       tmdbId: data.id,
       imdbID: imdbId,
       title: data.title,
+      original_title: data.original_title,
       year: data.release_date ? data.release_date.slice(0, 4) : "N/A",
       release_date: data.release_date,
       runtime: data.runtime ? `${data.runtime} min` : "N/A",
@@ -737,19 +804,32 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
       poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
       backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/original${data.backdrop_path}` : null,
       director,
+      cinematographer,
+      composer,
+      writers,
       crewPersonId,
       cast,
       castIds,
+      castDetails,
       tmdbKeywords,
+      keywordNames,
       tmdbGenreIds,
       trailerUrl,
-      trailerKey: trailerObj?.key || null,
+      trailerKey: trailerKey || null,
       genre: (data.genres || []).map(g => g.name).join(", ") || "Cinema",
       plot: data.overview || "",
       tagline: data.tagline || "",
       vote_average: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
       vote_count: data.vote_count || 0,
+      popularity: data.popularity || 0,
+      budget: data.budget ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(data.budget) : null,
+      revenue: data.revenue ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(data.revenue) : null,
+      productionCompanies: (data.production_companies || []).slice(0, 3).map(c => c.name).join(", ") || null,
+      originCountry: (data.origin_country || data.production_countries?.map(c => c.iso_3166_1) || []).join(", ") || null,
+      spokenLanguages: (data.spoken_languages || []).map(l => l.english_name).join(", ") || null,
+      mpaaRating,
       streamProviders,
+      buyRentProviders,
       freeProviders
     };
   } catch (err) {
@@ -784,6 +864,40 @@ export async function findTmdbByImdbId(imdbId) {
     };
   } catch (err) {
     console.warn("TMDB find by IMDb ID failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Lookup TMDB movie by title and year
+ */
+export async function findTmdbByTitleAndYear(title, year) {
+  const key = getTmdbKey();
+  if (!key || !title) return null;
+
+  try {
+    const cleanTitle = String(title).replace(/^["']|["']$/g, "").trim();
+    const cleanYear = year ? String(year).match(/\d{4}/)?.[0] : "";
+    let url = `https://api.themoviedb.org/3/search/movie?api_key=${key}&query=${encodeURIComponent(cleanTitle)}&include_adult=false`;
+    if (cleanYear) url += `&year=${cleanYear}`;
+
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const movie = data.results?.[0];
+    if (!movie) return null;
+
+    return {
+      tmdbId: movie.id,
+      title: movie.title,
+      year: movie.release_date ? movie.release_date.slice(0, 4) : "N/A",
+      poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null,
+      backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : null,
+      overview: movie.overview,
+      vote_average: movie.vote_average
+    };
+  } catch (err) {
+    console.warn("TMDB search by title/year failed:", err);
     return null;
   }
 }

@@ -204,8 +204,13 @@ export function AppProvider({ children }) {
     const movieId = movie.imdbID || movie.id || movie.tmdbId;
     if (!movieId) return;
     const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId };
-    if (watched.some((m) => (m.imdbID || m.id || m.tmdbId) === movieId)) return;
-    setWatched((prev) => [...(prev || []), normalizedMovie]);
+    setWatched((prev) => {
+      const exists = (prev || []).some((m) => (m.imdbID || m.id || m.tmdbId) === movieId);
+      if (exists) {
+        return (prev || []).map((m) => ((m.imdbID || m.id || m.tmdbId) === movieId ? { ...m, ...normalizedMovie } : m));
+      }
+      return [...(prev || []), normalizedMovie];
+    });
     setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== movieId));
   }
 

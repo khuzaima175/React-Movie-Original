@@ -113,26 +113,52 @@ export default function TrailerModal({ isOpen, onClose, trailerKey, title = "Tra
               </div>
             </div>
 
-            <button
-              onClick={onClose}
-              style={{
-                width: "3.6rem",
-                height: "3.6rem",
-                borderRadius: "0.8rem",
-                background: "#242528",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                color: "#8a8a86",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                transition: "all 0.2s ease"
-              }}
-              className="hover:text-[#f4f4f2] hover:border-[#e2b13c]/40 hover:bg-[#2c2d32]"
-              aria-label="Close trailer modal"
-            >
-              <X size={18} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+              <a
+                href={`https://www.youtube.com/watch?v=${trailerKey}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                  padding: "0.6rem 1.2rem",
+                  borderRadius: "0.8rem",
+                  background: "#e2b13c",
+                  color: "#141416",
+                  fontSize: "1.25rem",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  transition: "all 0.2s ease"
+                }}
+                className="hover:brightness-110"
+                aria-label="Open trailer directly on YouTube"
+              >
+                <Play size={14} fill="currentColor" />
+                <span>Open on YouTube</span>
+              </a>
+
+              <button
+                onClick={onClose}
+                style={{
+                  width: "3.6rem",
+                  height: "3.6rem",
+                  borderRadius: "0.8rem",
+                  background: "#242528",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  color: "#8a8a86",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                className="hover:text-[#f4f4f2] hover:border-[#e2b13c]/40 hover:bg-[#2c2d32]"
+                aria-label="Close trailer modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* 16:9 Video Container */}

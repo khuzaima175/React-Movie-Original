@@ -23,7 +23,7 @@
 **CinemaVault** is a client-side film logging, discovery, and analytics application built with React, Vite, and Tailwind CSS. It replaces naive generative guessing with a **two-stage hybrid recommendation pipeline**: deterministic 3-bucket candidate retrieval from TMDB coupled with contextual re-ranking via Google Gemini 2.5 Flash.
 
 > 📖 **Looking for the deep technical breakdown?**  
-> Check out the complete [Architecture & Mathematics Specification (ARCHITECTURE.md)](./ARCHITECTURE.md) for full mathematical derivations, taste profile vector formulas, and waterfall algorithms.
+> Check out the complete [Architecture & Mathematics Specification (ARCHITECTURE.md)](./ARCHITECTURE.md) for full mathematical derivations, taste profile vector formulas, TMDB grammar rules, and waterfall algorithms.
 
 ---
 
@@ -31,10 +31,12 @@
 
 - **Hybrid Recommendation Pipeline**: TMDB 3-bucket waterfall candidate harvesting (keyword spiritual successors, auteur networks, and semantic discovery) re-ranked by Google Gemini with strict JSON schemas.
 - **Mathematical Taste Vectors**: Continuous rating weights ($W_{\text{base}}$), exponential recency time-decay ($e^{-\lambda \cdot \Delta t}$), and surgical negative keyword trope exclusions.
-- **Universal Streaming Access**: Unrestricted global discovery across cinema history, with optional filtering across 11 major streaming platforms and 15 country regions.
-- **Zero-CLS Trailer Portal**: Portal-mounted responsive 16:9 YouTube trailer overlay with keyboard `ESC` dismissal and backdrop blur.
+- **Cinematic Movie Details & 4-Source Score Matrix**: 1080p/4K landscape hero backdrops, official taglines, unified critical score cards (IMDb, Rotten Tomatoes 🍅, Metacritic Metascore, TMDB Community), and creative crew (DoP, Screenplay, Score).
+- **Luxury Rating Deck & Cinephile Reviewer**: Synchronized 10-star rating bar and 1–10 numeric dial strip, dynamic taste-anchor tier badges, quick review tags (`#Masterpiece`, `#PlotTwist`), and personalized notes.
+- **Universal Streaming & Region Matrix**: Global watch provider integration across 11 major platforms with localized region selection (`GLOBAL`, `US`, `GB`, `CA`, etc.).
+- **Zero-Flicker Official Trailer Pipeline**: Hierarchical trailer ranking algorithm that selects the official studio trailer with high-priority direct YouTube launch (eliminating iframe Error 153).
 - **Telemetry Analytics Studio**: Rating Delta Histograms comparing your scores to IMDb baselines, total watch time metrics, and score distributions.
-- **Two-Way Portability**: Full JSON database export and bidirectional Letterboxd CSV import/export.
+- **Two-Way Portability**: Full JSON database backup and bidirectional Letterboxd CSV import/export with merge and overwrite options.
 - **Spotlight Command Palette (`Cmd + K` / `Ctrl + K`)**: Debounced live search querying the complete OMDb database with keyboard navigation.
 
 ---

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   getMovieRecommendations,
   getFallbackPoster,
@@ -10,7 +10,6 @@ import {
 import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS, AVAILABLE_REGIONS } from "../services/tmdbService";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
-import TrailerModal from "./TrailerModal";
 import {
   Sparkles,
   Target,
@@ -32,7 +31,8 @@ import {
   List,
   Play,
   Tv,
-  Globe
+  Globe,
+  RotateCcw
 } from "lucide-react";
 
 const MOOD_OPTIONS = [
@@ -112,11 +112,11 @@ export default function MovieRecommendations({
   const [selectedMood, setSelectedMood] = useState("any");
   const [dismissingTitle, setDismissingTitle] = useState(null);
   const [showDnaDetails, setShowDnaDetails] = useState(false);
-  const [showProviderSettings, setShowProviderSettings] = useState(false);
+  const [showFilterDeck, setShowFilterDeck] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "compact"
-  const [activeTrailer, setActiveTrailer] = useState(null); // { trailerKey, title }
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
+  const activeRequestRef = useRef(0);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -160,9 +160,9 @@ export default function MovieRecommendations({
     return () => clearInterval(timer);
   }, [isLoading, watched.length]);
 
-  // Real-time cache verification with Master ID collision filter on mount or hash change
+  // Real-time cache verification with Master ID collision filter on mount or hash change (guarded against in-flight requests)
   useEffect(() => {
-    if (!recommendations && currentHash) {
+    if (!recommendations && currentHash && !isLoading) {
       const cached = getSmartCache(currentHash, watched, watchlist);
       if (cached && cached.recommendations?.length >= 4) {
         setTasteProfile(cached.tasteProfile);
@@ -170,12 +170,13 @@ export default function MovieRecommendations({
         saveAiRecommendations(cached.recommendations, cached.tasteProfile, currentHash);
       }
     }
-  }, [currentHash]);
+  }, [currentHash, isLoading]);
 
   const handleGetRecommendations = async () => {
+    const requestId = ++activeRequestRef.current;
     setIsLoading(true);
+    setRecommendations(null); // Clear out previous recommendations immediately to prevent ghost cards during loading
     setError("");
-    setRecommendations(null);
     setExpandedRec(null);
     setDismissingTitle(null);
 
@@ -187,6 +188,8 @@ export default function MovieRecommendations({
         feedbackLog: aiFeedbackLog
       });
 
+      if (activeRequestRef.current !== requestId) return;
+
       const profile = await extractTasteProfile(watched, watchlist);
       const newHash = generateProfileHash(profile, profile.watchlistGenreIds, selectedMood, userWatchProviders);
 
@@ -194,12 +197,27 @@ export default function MovieRecommendations({
       setRecommendations(result.recommendations);
       saveAiRecommendations(result.recommendations, result.tasteProfile, newHash);
       setSmartCache(newHash, result);
+      setShowFilterDeck(false);
     } catch (err) {
+      if (activeRequestRef.current !== requestId) return;
       setError(err.message || "Failed to generate recommendations. Please try again.");
     } finally {
-      setIsLoading(false);
-      setProgress("");
+      if (activeRequestRef.current === requestId) {
+        setIsLoading(false);
+        setProgress("");
+      }
     }
+  };
+
+  const handleResetSearch = () => {
+    activeRequestRef.current++;
+    setIsLoading(false);
+    setProgress("");
+    setError("");
+    setRecommendations(null);
+    setTasteProfile(null);
+    saveAiRecommendations(null, null, "");
+    setShowFilterDeck(false);
   };
 
   const handleToggleExplanation = (rec) => {
@@ -303,237 +321,274 @@ export default function MovieRecommendations({
 
   const activeMoodObj = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
 
-  return (
-    <div className="ai-recommendations">
-      {/* Dedicated Luxury Trailer Modal */}
-      {activeTrailer && (
-        <TrailerModal
-          isOpen={Boolean(activeTrailer)}
-          onClose={() => setActiveTrailer(null)}
-          trailerKey={activeTrailer.trailerKey}
-          title={activeTrailer.title}
-        />
+  const renderStudioDeck = (isDrawer = false) => (
+    <div className={`ai-studio-deck ${isDrawer ? "drawer-mode" : ""}`} style={isDrawer ? { marginBottom: "2.4rem", border: "1px solid rgba(226, 177, 60, 0.35)", boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)" } : {}}>
+      {isDrawer && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.6rem", paddingBottom: "1.2rem", borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+            <SlidersHorizontal size={16} className="text-accent" />
+            <h3 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>Refine Mood & Streaming Preferences</h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowFilterDeck(false)}
+            style={{ background: "transparent", border: "none", color: "#8a8a86", cursor: "pointer", padding: "0.4rem" }}
+            aria-label="Close Filter Drawer"
+          >
+            <X size={18} />
+          </button>
+        </div>
       )}
 
+      {/* Vibe Selection Strip */}
+      <div className="vibe-selection-block">
+        <div className="vibe-header-row">
+          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+            <Compass size={16} className="text-accent" aria-hidden="true" />
+            <span className="vibe-label">1. Select Cinematic Mood</span>
+          </div>
+          <span className="vibe-active-hint">{activeMoodObj.label}: {activeMoodObj.desc}</span>
+        </div>
+
+        <div className="vibe-chips-grid">
+          {MOOD_OPTIONS.map((mood) => {
+            const isSelected = selectedMood === mood.id;
+            return (
+              <button
+                key={mood.id}
+                type="button"
+                className={`vibe-chip-card ${isSelected ? "active" : ""}`}
+                onClick={() => setSelectedMood(mood.id)}
+              >
+                <span className="vibe-icon">{mood.icon}</span>
+                <div className="vibe-meta">
+                  <strong className="vibe-title">{mood.label}</strong>
+                  <span className="vibe-sub">{mood.desc}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Watch Providers & Global Cinema Filter Strip */}
+      <div className="vibe-selection-block" style={{ marginTop: "2rem" }}>
+        <div className="vibe-header-row">
+          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+            <Tv size={16} className="text-accent" aria-hidden="true" />
+            <span className="vibe-label">2. Streaming Access & Region</span>
+            <span style={{ fontSize: "1.15rem", color: "#8a8a86", fontWeight: 500 }}>(Optional)</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "#1c1d20", border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "0.8rem", padding: "0.4rem 1rem" }}>
+              <Globe size={14} style={{ color: "#e2b13c" }} />
+              <select
+                value={userRegion}
+                onChange={(e) => setUserRegion(e.target.value)}
+                style={{
+                  background: "transparent",
+                  color: "#f4f4f2",
+                  border: "none",
+                  fontSize: "1.25rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none"
+                }}
+                aria-label="Select Streaming Region"
+              >
+                {AVAILABLE_REGIONS.map((reg) => (
+                  <option key={reg.code} value={reg.code} style={{ background: "#141416", color: "#f4f4f2" }}>
+                    {reg.flag} {reg.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginTop: "0.4rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+            <p style={{ fontSize: "1.25rem", color: "#8a8a86", margin: 0 }}>
+              {userWatchProviders.length === 0
+                ? "✨ Recommending from the entire world cinema catalog across all platforms without restriction."
+                : `🔒 Filtering recommendations to movies available on ${userWatchProviders.length} selected service${userWatchProviders.length > 1 ? "s" : ""}.`}
+            </p>
+            {userRegion === "GLOBAL" && userWatchProviders.length > 0 && (
+              <span style={{ fontSize: "1.15rem", color: "#e2b13c", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <span>💡 Worldwide catalog: Streaming verified against primary global catalog. Select a specific country above for local licensing.</span>
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+            <button
+              type="button"
+              onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map(p => p.id))}
+              style={{
+                fontSize: "1.2rem",
+                fontWeight: 600,
+                color: "#8a8a86",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                textDecoration: "underline",
+                padding: "0.2rem 0.4rem"
+              }}
+              className="hover:text-accent"
+            >
+              Select All
+            </button>
+            <span style={{ color: "rgba(255, 255, 255, 0.2)" }}>•</span>
+            <button
+              type="button"
+              onClick={() => setUserWatchProviders([])}
+              style={{
+                fontSize: "1.2rem",
+                fontWeight: 600,
+                color: "#8a8a86",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                textDecoration: "underline",
+                padding: "0.2rem 0.4rem"
+              }}
+              className="hover:text-accent"
+            >
+              Reset (Unlimited Access)
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.9rem", marginTop: "1.2rem" }}>
+          {/* All Platforms Universal Pill */}
+          <button
+            type="button"
+            onClick={() => setUserWatchProviders([])}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.8rem",
+              padding: "0.9rem 1.6rem",
+              borderRadius: "0.9rem",
+              fontSize: "1.3rem",
+              fontWeight: 700,
+              background: userWatchProviders.length === 0 ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
+              color: userWatchProviders.length === 0 ? "#e2b13c" : "#b6b6b2",
+              border: userWatchProviders.length === 0 ? "1px solid rgba(226, 177, 60, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
+              boxShadow: userWatchProviders.length === 0 ? "0 0 16px rgba(226, 177, 60, 0.2)" : "none",
+              cursor: "pointer",
+              transition: "all 0.2s ease"
+            }}
+          >
+            <Globe size={15} />
+            <span>All Platforms / Universal Access</span>
+          </button>
+
+          {POPULAR_WATCH_PROVIDERS.map((provider) => {
+            const isSelected = userWatchProviders.includes(provider.id);
+            return (
+              <button
+                key={provider.id}
+                type="button"
+                onClick={() => toggleWatchProvider(provider.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.7rem",
+                  padding: "0.9rem 1.4rem",
+                  borderRadius: "0.9rem",
+                  fontSize: "1.3rem",
+                  fontWeight: 600,
+                  background: isSelected ? "rgba(226, 177, 60, 0.15)" : "#1c1d20",
+                  color: isSelected ? "#e2b13c" : "#b6b6b2",
+                  border: isSelected ? "1px solid rgba(226, 177, 60, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
+                  boxShadow: isSelected ? "0 0 12px rgba(226, 177, 60, 0.15)" : "none",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                className="hover:border-white/20 hover:bg-[#242528]"
+              >
+                <span style={{ fontSize: "1.4rem" }}>{provider.icon}</span>
+                <span>{provider.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Launch CTA */}
+      <div className="synthesis-action-bar" style={{ marginTop: "2.8rem", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: "1.2rem" }}>
+        {error && (
+          <div className="ai-error-banner" style={{ width: "100%", maxWidth: "600px", marginBottom: "1rem" }}>
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div style={{ display: "flex", alignItems: "center", gap: "1.2rem", flexWrap: "wrap", justifyContent: "center" }}>
+          <button
+            type="button"
+            className="btn-synthesize-cinema"
+            onClick={handleGetRecommendations}
+            disabled={isLoading}
+            style={{
+              minHeight: "5.4rem",
+              padding: "1.5rem 4.4rem",
+              fontSize: "1.55rem",
+              fontWeight: 800,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              borderRadius: "1.2rem",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "1.2rem",
+              boxShadow: "0 8px 32px -4px rgba(226, 177, 60, 0.45)"
+            }}
+          >
+            <Sparkles size={20} className="btn-sparkle-icon" />
+            <span>{isDrawer ? "Update Recommendations" : "Synthesize Recommendations"}</span>
+          </button>
+
+          {isDrawer && (
+            <button
+              type="button"
+              onClick={handleResetSearch}
+              style={{
+                minHeight: "5.4rem",
+                padding: "1.5rem 2.4rem",
+                fontSize: "1.4rem",
+                fontWeight: 600,
+                borderRadius: "1.2rem",
+                background: "transparent",
+                color: "#8a8a86",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.8rem"
+              }}
+            >
+              <RotateCcw size={15} />
+              <span>Start Over</span>
+            </button>
+          )}
+        </div>
+
+        <span style={{ fontSize: "1.25rem", color: "#8a8a86", textAlign: "center" }}>
+          TMDB 3-Bucket Waterfall Engine • Google Gemini Strict Re-Ranking • Zero Hallucinations
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="ai-recommendations">
       {/* ── Pre-run Discovery Stage ── */}
       {!recommendations && !isLoading && (
         <div className="ai-discovery-stage">
-          <div className="ai-studio-deck">
-            {/* Vibe Selection Strip */}
-            <div className="vibe-selection-block">
-              <div className="vibe-header-row">
-                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                  <Compass size={16} className="text-accent" aria-hidden="true" />
-                  <span className="vibe-label">1. Select Cinematic Mood</span>
-                </div>
-                <span className="vibe-active-hint">{activeMoodObj.label}: {activeMoodObj.desc}</span>
-              </div>
-
-              <div className="vibe-chips-grid">
-                {MOOD_OPTIONS.map((mood) => {
-                  const isSelected = selectedMood === mood.id;
-                  return (
-                    <button
-                      key={mood.id}
-                      type="button"
-                      className={`vibe-chip-card ${isSelected ? "active" : ""}`}
-                      onClick={() => setSelectedMood(mood.id)}
-                    >
-                      <span className="vibe-icon">{mood.icon}</span>
-                      <div className="vibe-meta">
-                        <strong className="vibe-title">{mood.label}</strong>
-                        <span className="vibe-sub">{mood.desc}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Watch Providers & Global Cinema Filter Strip */}
-            <div className="vibe-selection-block" style={{ marginTop: "2rem" }}>
-              <div className="vibe-header-row">
-                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                  <Tv size={16} className="text-accent" aria-hidden="true" />
-                  <span className="vibe-label">2. Streaming Access & Region</span>
-                  <span style={{ fontSize: "1.15rem", color: "#8a8a86", fontWeight: 500 }}>(Optional)</span>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "#1c1d20", border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "0.8rem", padding: "0.4rem 1rem" }}>
-                    <Globe size={14} style={{ color: "#e2b13c" }} />
-                    <select
-                      value={userRegion}
-                      onChange={(e) => setUserRegion(e.target.value)}
-                      style={{
-                        background: "transparent",
-                        color: "#f4f4f2",
-                        border: "none",
-                        fontSize: "1.25rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        outline: "none"
-                      }}
-                      aria-label="Select Streaming Region"
-                    >
-                      {AVAILABLE_REGIONS.map((reg) => (
-                        <option key={reg.code} value={reg.code} style={{ background: "#141416", color: "#f4f4f2" }}>
-                          {reg.flag} {reg.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginTop: "0.4rem" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                  <p style={{ fontSize: "1.25rem", color: "#8a8a86", margin: 0 }}>
-                    {userWatchProviders.length === 0
-                      ? "✨ Recommending from the entire world cinema catalog across all platforms without restriction."
-                      : `🔒 Filtering recommendations to movies available on ${userWatchProviders.length} selected service${userWatchProviders.length > 1 ? "s" : ""}.`}
-                  </p>
-                  {userRegion === "GLOBAL" && userWatchProviders.length > 0 && (
-                    <span style={{ fontSize: "1.15rem", color: "#e2b13c", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                      <span>💡 Worldwide catalog: Streaming verified against primary global catalog. Select a specific country above for local licensing.</span>
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map(p => p.id))}
-                    style={{
-                      fontSize: "1.2rem",
-                      fontWeight: 600,
-                      color: "#8a8a86",
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                      padding: "0.2rem 0.4rem"
-                    }}
-                    className="hover:text-accent"
-                  >
-                    Select All
-                  </button>
-                  <span style={{ color: "rgba(255, 255, 255, 0.2)" }}>•</span>
-                  <button
-                    type="button"
-                    onClick={() => setUserWatchProviders([])}
-                    style={{
-                      fontSize: "1.2rem",
-                      fontWeight: 600,
-                      color: "#8a8a86",
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                      padding: "0.2rem 0.4rem"
-                    }}
-                    className="hover:text-accent"
-                  >
-                    Reset (Unlimited Access)
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.9rem", marginTop: "1.2rem" }}>
-                {/* All Platforms Universal Pill */}
-                <button
-                  type="button"
-                  onClick={() => setUserWatchProviders([])}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.8rem",
-                    padding: "0.9rem 1.6rem",
-                    borderRadius: "0.9rem",
-                    fontSize: "1.3rem",
-                    fontWeight: 700,
-                    background: userWatchProviders.length === 0 ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
-                    color: userWatchProviders.length === 0 ? "#e2b13c" : "#b6b6b2",
-                    border: userWatchProviders.length === 0 ? "1px solid rgba(226, 177, 60, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
-                    boxShadow: userWatchProviders.length === 0 ? "0 0 16px rgba(226, 177, 60, 0.2)" : "none",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease"
-                  }}
-                >
-                  <Globe size={15} />
-                  <span>All Platforms / Universal Access</span>
-                </button>
-
-                {POPULAR_WATCH_PROVIDERS.map((provider) => {
-                  const isSelected = userWatchProviders.includes(provider.id);
-                  return (
-                    <button
-                      key={provider.id}
-                      type="button"
-                      onClick={() => toggleWatchProvider(provider.id)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.7rem",
-                        padding: "0.9rem 1.4rem",
-                        borderRadius: "0.9rem",
-                        fontSize: "1.3rem",
-                        fontWeight: 600,
-                        background: isSelected ? "rgba(226, 177, 60, 0.15)" : "#1c1d20",
-                        color: isSelected ? "#e2b13c" : "#b6b6b2",
-                        border: isSelected ? "1px solid rgba(226, 177, 60, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
-                        boxShadow: isSelected ? "0 0 12px rgba(226, 177, 60, 0.15)" : "none",
-                        cursor: "pointer",
-                        transition: "all 0.2s ease"
-                      }}
-                      className="hover:border-white/20 hover:bg-[#242528]"
-                    >
-                      <span style={{ fontSize: "1.4rem" }}>{provider.icon}</span>
-                      <span>{provider.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Launch CTA */}
-            <div className="synthesis-action-bar" style={{ marginTop: "2.8rem", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: "1.2rem" }}>
-              {error && (
-                <div className="ai-error-banner" style={{ width: "100%", maxWidth: "600px", marginBottom: "1rem" }}>
-                  <AlertCircle size={16} />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="btn-synthesize-cinema"
-                onClick={handleGetRecommendations}
-                disabled={isLoading}
-                style={{
-                  minHeight: "5.4rem",
-                  padding: "1.5rem 4.4rem",
-                  fontSize: "1.55rem",
-                  fontWeight: 800,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  borderRadius: "1.2rem",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "1.2rem",
-                  boxShadow: "0 8px 32px -4px rgba(226, 177, 60, 0.45)"
-                }}
-              >
-                <Sparkles size={20} className="btn-sparkle-icon" />
-                <span>Synthesize Recommendations</span>
-              </button>
-
-              <span style={{ fontSize: "1.25rem", color: "#8a8a86", textAlign: "center" }}>
-                TMDB 3-Bucket Waterfall Engine • Google Gemini 2.5 Flash Strict Re-Ranking • Zero Hallucinations
-              </span>
-            </div>
-          </div>
+          {renderStudioDeck(false)}
         </div>
       )}
 
@@ -578,8 +633,15 @@ export default function MovieRecommendations({
       )}
 
       {/* ── Results State ── */}
-      {recommendations && (
+      {!isLoading && recommendations && recommendations.length > 0 && (
         <div className="ai-results-stage">
+          {/* Collapsible/Expandable Studio Deck for Mood & Streaming Refinements */}
+          {showFilterDeck && (
+            <div className="ai-discovery-stage in-results" style={{ marginBottom: "2.4rem" }}>
+              {renderStudioDeck(true)}
+            </div>
+          )}
+
           {/* Compact Taste Genome Bar */}
           {tasteProfile && (
             <div className="taste-genome-bar">
@@ -661,6 +723,41 @@ export default function MovieRecommendations({
             </div>
 
             <div className="recs-actions-group">
+              {/* Refine / Change Mood & Filters toggle */}
+              <button
+                type="button"
+                className={`btn-refine-filters-toggle ${showFilterDeck ? "active" : ""}`}
+                onClick={() => setShowFilterDeck(!showFilterDeck)}
+                title="Change Cinematic Mood & Streaming Platforms"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.7rem",
+                  padding: "0.6rem 1.2rem",
+                  borderRadius: "0.8rem",
+                  fontSize: "1.25rem",
+                  fontWeight: 700,
+                  background: showFilterDeck ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
+                  color: showFilterDeck ? "#e2b13c" : "#f4f4f2",
+                  border: showFilterDeck ? "1px solid rgba(226, 177, 60, 0.45)" : "1px solid rgba(255, 255, 255, 0.1)",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+              >
+                <SlidersHorizontal size={13} className="text-accent" />
+                <span>{showFilterDeck ? "Hide Filters" : "Change Mood / Filters"}</span>
+                <span style={{
+                  fontSize: "1.1rem",
+                  padding: "0.15rem 0.5rem",
+                  borderRadius: "0.4rem",
+                  background: "rgba(0, 0, 0, 0.35)",
+                  color: "#e2b13c",
+                  border: "1px solid rgba(226, 177, 60, 0.25)"
+                }}>
+                  {activeMoodObj.icon} {activeMoodObj.label}
+                </span>
+                {showFilterDeck ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
               {/* View mode toggle */}
               <div className="view-mode-toggle" role="group" aria-label="View Mode">
                 <button
@@ -712,40 +809,47 @@ export default function MovieRecommendations({
                   {/* Rank Numeral */}
                   <div className="rec-rank-num">#{rankNum}</div>
 
-                  {/* Poster Image with Trailer Play Overlay */}
-                  <div className="rec-poster-wrapper" style={{ position: "relative" }}>
-                    <PosterImage
-                      src={rec.poster}
-                      title={rec.title}
-                      className="rec-poster-img"
-                    />
-                    {rec.trailerKey && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveTrailer({ trailerKey: rec.trailerKey, title: rec.title })}
-                        style={{
-                          position: "absolute",
-                          bottom: "0.8rem",
-                          right: "0.8rem",
-                          width: "3.2rem",
-                          height: "3.2rem",
-                          borderRadius: "50%",
-                          background: "rgba(0, 0, 0, 0.75)",
-                          border: "1px solid rgba(226, 177, 60, 0.4)",
-                          color: "#e2b13c",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: "pointer",
-                          transition: "all 0.2s ease"
-                        }}
-                        title="Watch Trailer"
-                        aria-label={`Play trailer for ${rec.title}`}
-                      >
-                        <Play size={14} fill="#e2b13c" />
-                      </button>
-                    )}
-                  </div>
+                    {/* Poster Image with Direct YouTube Trailer Link */}
+                    <div className="rec-poster-wrapper" style={{ position: "relative" }}>
+                      <PosterImage
+                        src={rec.poster}
+                        title={rec.title}
+                        className="rec-poster-img"
+                      />
+                      {(rec.trailerKey || rec.title) && (
+                        <a
+                          href={
+                            rec.trailerKey
+                              ? `https://www.youtube.com/watch?v=${rec.trailerKey}`
+                              : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${rec.title} ${rec.year || ""} official trailer`)}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            position: "absolute",
+                            bottom: "0.8rem",
+                            right: "0.8rem",
+                            width: "3.2rem",
+                            height: "3.2rem",
+                            borderRadius: "50%",
+                            background: "rgba(0, 0, 0, 0.8)",
+                            border: "1px solid rgba(226, 177, 60, 0.45)",
+                            color: "#e2b13c",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: "pointer",
+                            transition: "all 0.2s ease",
+                            zIndex: 5
+                          }}
+                          className="hover:scale-110 hover:bg-[#e2b13c] hover:text-[#141416]"
+                          title="Watch Official Trailer on YouTube"
+                          aria-label={`Watch official trailer for ${rec.title} on YouTube (opens in new tab)`}
+                        >
+                          <Play size={13} fill="currentColor" />
+                        </a>
+                      )}
+                    </div>
 
                   <div className="rec-content">
                     <div className="rec-header">
@@ -899,8 +1003,8 @@ export default function MovieRecommendations({
             })}
           </ul>
 
-          {/* Refresh Action */}
-          <div className="recs-footer">
+          {/* Refresh Action Toolbar */}
+          <div className="recs-footer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1.2rem", flexWrap: "wrap", marginTop: "3rem" }}>
             <button
               type="button"
               className="btn-refresh-recs"
@@ -909,6 +1013,57 @@ export default function MovieRecommendations({
             >
               <RefreshCw size={15} className={isLoading ? "spin-icon" : ""} />
               <span>Synthesize Fresh Picks</span>
+            </button>
+
+            <button
+              type="button"
+              className="btn-change-vibe"
+              onClick={() => {
+                setShowFilterDeck(true);
+                window.scrollTo({ top: 120, behavior: "smooth" });
+              }}
+              disabled={isLoading}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.8rem",
+                padding: "1.2rem 2.2rem",
+                borderRadius: "0.8rem",
+                background: "#1c1d20",
+                color: "#f4f4f2",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                fontSize: "1.35rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}
+            >
+              <SlidersHorizontal size={14} className="text-accent" />
+              <span>Change Mood & Filters</span>
+            </button>
+
+            <button
+              type="button"
+              className="btn-reset-search"
+              onClick={handleResetSearch}
+              disabled={isLoading}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.8rem",
+                padding: "1.2rem 2.2rem",
+                borderRadius: "0.8rem",
+                background: "transparent",
+                color: "#8a8a86",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                fontSize: "1.35rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}
+            >
+              <RotateCcw size={14} />
+              <span>Start New Search</span>
             </button>
           </div>
         </div>

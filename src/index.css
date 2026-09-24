@@ -5898,278 +5898,871 @@ body {
    PHASE 5 — NETFLIX-STYLE CINEMA DETAIL MODAL
    ═══════════════════════════════════════════════════════════ */
 
+/* ============================================================
+   CINEMAVAULT — LUXURY MOVIE DETAILS & HERO BACKDROP OVERHAUL
+   ============================================================ */
+
 .netflix-detail-modal {
   width: 100%;
-  max-width: 108rem;
+  max-width: 118rem;
   margin: 2rem auto 6rem;
   padding: 0 2rem;
 }
 
-.netflix-modal-card {
-  background: var(--surface-1);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-modal);
-  box-shadow: var(--sh-3);
+.netflix-modal-card.luxury-detail-card {
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.8rem;
+  box-shadow: 0 32px 80px -16px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.05);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
-.netflix-modal-topbar {
+/* Hero Cinematic Backdrop Banner */
+.movie-backdrop-hero {
+  position: relative;
+  width: 100%;
+  min-height: 38rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2.4rem 3.6rem;
+}
+
+.movie-backdrop-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+  filter: brightness(0.65) saturate(1.15);
+  transform: scale(1.02);
+  transition: transform 0.6s ease;
+}
+
+.movie-backdrop-placeholder {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 60% 40%, #24252a 0%, #141416 100%);
+}
+
+.movie-backdrop-gradient-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14rem;
+  background: linear-gradient(180deg, rgba(20, 20, 22, 0.88) 0%, transparent 100%);
+  pointer-events: none;
+}
+
+.movie-backdrop-gradient-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 26rem;
+  background: linear-gradient(0deg, #141416 0%, rgba(20, 20, 22, 0.85) 55%, transparent 100%);
+  pointer-events: none;
+}
+
+.movie-hero-nav-bar {
+  position: relative;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1.6rem 2.4rem;
-  border-bottom: 1px solid var(--hairline);
-  background: var(--surface-1);
-}
-
-.btn-modal-back {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  color: var(--text-1);
-  padding: 0.6rem 1.4rem;
-  border-radius: var(--r-control);
-  font-size: 1.3rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--dur-2) var(--ease-out);
-}
-
-.btn-modal-back:hover {
-  background: var(--surface-3);
-  border-color: var(--hairline-strong);
-}
-
-.netflix-modal-body {
-  display: grid;
-  grid-template-columns: 32rem 1fr;
-  gap: 3.6rem;
-  padding: 3.6rem;
-}
-
-/* Left Column */
-.netflix-modal-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.netflix-modal-poster-wrap {
-  width: 100%;
-  aspect-ratio: 2/3;
-  border-radius: var(--r-poster);
-  overflow: hidden;
-  border: 1px solid var(--hairline);
-  box-shadow: var(--sh-2);
-}
-
-.netflix-user-rating-box {
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-card);
-  padding: 1.8rem;
-  display: flex;
-  flex-direction: column;
   gap: 1.2rem;
 }
 
-.rating-box-title {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.user-note-input {
-  width: 100%;
-  min-height: 7rem;
-  background: var(--surface-1);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-control);
-  padding: 1rem;
-  color: var(--text-1);
-  font-family: var(--font-sans);
-  font-size: 1.25rem;
-  resize: vertical;
-  outline: none;
-}
-
-.user-note-input:focus {
-  border-color: var(--accent);
-}
-
-.rating-box-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-}
-
-.btn-vault-primary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.8rem;
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-fg);
-  border: 1px solid transparent;
-  padding: 1rem 1.8rem;
-  border-radius: var(--r-control);
-  font-size: 1.35rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all var(--dur-2) var(--ease-out);
-}
-
-.btn-vault-primary:hover {
-  background: var(--btn-primary-hover);
-  transform: translateY(-1px);
-}
-
-.btn-vault-secondary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.8rem;
-  background: var(--btn-secondary-bg);
-  border: 1px solid var(--hairline);
-  color: var(--text-1);
-  padding: 1rem 1.8rem;
-  border-radius: var(--r-control);
+.glassmorphic-btn {
+  background: rgba(20, 20, 22, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f4f4f2;
+  padding: 0.8rem 1.6rem;
+  border-radius: 0.8rem;
   font-size: 1.35rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--dur-2) var(--ease-out);
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  transition: all 0.2s ease;
 }
 
-.btn-vault-secondary:hover {
-  background: var(--btn-secondary-hover);
-  color: var(--text-1);
+.glassmorphic-btn:hover {
+  background: rgba(226, 177, 60, 0.18);
+  border-color: rgba(226, 177, 60, 0.45);
+  color: #e2b13c;
+  transform: translateY(-1px);
 }
 
-.vault-rated-badge-box {
+.btn-hero-trailer-play {
+  background: linear-gradient(135deg, #e2b13c, #b3861b);
+  color: #141416;
+  border: none;
+  padding: 0.85rem 1.8rem;
+  border-radius: 0.8rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  box-shadow: 0 4px 20px rgba(226, 177, 60, 0.35);
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.btn-hero-trailer-play:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 26px rgba(226, 177, 60, 0.5);
+  filter: brightness(1.08);
+}
+
+.movie-hero-title-group {
+  position: relative;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
-  background: rgba(70, 211, 105, 0.08);
-  border: 1px solid rgba(70, 211, 105, 0.25);
-  border-radius: var(--r-control);
-  padding: 1.4rem;
+  margin-top: 5rem;
 }
 
-.vault-rated-header {
+.movie-hero-tagline {
+  font-size: 1.55rem;
+  font-style: italic;
+  color: #e2b13c;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.movie-hero-title {
+  font-size: 4.4rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.9);
+  margin: 0;
+}
+
+.movie-hero-chips {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--match);
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
 }
 
-.vault-user-score {
-  display: flex;
-  justify-content: space-between;
-  font-size: 1.3rem;
-  color: var(--text-2);
-}
-
-.user-score-gold {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.vault-user-note {
-  font-style: italic;
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #d1d5db;
+  padding: 0.4rem 1rem;
+  border-radius: 0.6rem;
   font-size: 1.25rem;
-  color: var(--text-3);
+  font-weight: 600;
 }
 
-/* Right Column */
+.hero-chip-rated {
+  border-color: rgba(226, 177, 60, 0.35);
+  color: #e2b13c;
+  background: rgba(226, 177, 60, 0.12);
+  font-weight: 700;
+}
+
+/* Main Body 2-Column Grid */
+.netflix-modal-body.luxury-detail-body {
+  display: grid;
+  grid-template-columns: 34rem 1fr;
+  gap: 3.6rem;
+  padding: 2.4rem 3.6rem 4rem;
+  position: relative;
+  z-index: 10;
+}
+
+.netflix-modal-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4rem;
+}
+
+.elevated-poster-card {
+  width: 100%;
+  aspect-ratio: 2/3;
+  border-radius: 1.4rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  background: #1c1d20;
+}
+
+/* 🌟 LUXURY RATING & VAULT ACTION DECK */
+.luxury-rating-deck {
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.4rem;
+  padding: 2rem;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.interactive-rating-module {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.rating-module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rating-module-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.rating-module-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f4f4f2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.rating-score-badge-preview {
+  font-size: 1.35rem;
+  font-weight: 800;
+  padding: 0.3rem 0.9rem;
+  border-radius: 0.6rem;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+/* Dynamic Tier Banner (Rock-solid fixed height prevents layout shifts) */
+.rating-tier-banner {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.8rem 1.4rem;
+  min-height: 5.6rem;
+  height: 5.6rem;
+  border-radius: 1rem;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tier-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.tier-text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.tier-name {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tier-desc {
+  font-size: 1.15rem;
+  color: #a1a1aa;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 10 Glowing Interactive Stars */
+.glowing-stars-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.2rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.star-touch-btn {
+  background: transparent;
+  border: none;
+  width: 3.2rem;
+  height: 3.2rem;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.star-touch-btn .star-svg-icon {
+  pointer-events: none;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease;
+}
+
+.star-touch-btn:hover .star-svg-icon {
+  transform: scale(1.22);
+}
+
+.star-active-glow {
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+/* 1 to 10 Numeric Dial Strip */
+.rating-numeric-dial {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 0.4rem;
+  background: #121315;
+  padding: 0.5rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
+}
+
+.dial-pill {
+  height: 3.2rem;
+  background: #1f2024;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.6rem;
+  color: #8a8a86;
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  outline: none;
+}
+
+.dial-pill:hover {
+  background: #2a2b30;
+  color: #f4f4f2;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dial-pill.dial-selected {
+  font-weight: 800;
+}
+
+.dial-selected {
+  font-weight: 800;
+  transform: translateY(-1px);
+}
+
+/* Quick Cinephile Tag Pills */
+.quick-tags-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+}
+
+.quick-tags-label {
+  font-size: 1.15rem;
+  color: #71717a;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.quick-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.quick-tag-chip {
+  background: #1f2024;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  font-size: 1.15rem;
+  font-weight: 500;
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.6rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quick-tag-chip:hover {
+  background: #282930;
+  color: #e2b13c;
+  border-color: rgba(226, 177, 60, 0.3);
+}
+
+.quick-tag-chip.tag-active {
+  background: rgba(226, 177, 60, 0.18);
+  border-color: rgba(226, 177, 60, 0.45);
+  color: #e2b13c;
+  font-weight: 600;
+}
+
+/* Personal Notes Area */
+.luxury-notes-area {
+  width: 100%;
+  min-height: 7.5rem;
+  background: #121315;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.8rem;
+  padding: 1rem 1.2rem;
+  color: #f4f4f2;
+  font-family: inherit;
+  font-size: 1.3rem;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.luxury-notes-area:focus {
+  border-color: #e2b13c;
+  background: #16171a;
+  box-shadow: 0 0 0 2px rgba(226, 177, 60, 0.15);
+}
+
+/* Rating Box Action Group */
+.rating-box-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+}
+
+/* Luxury Save Button */
+.luxury-save-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #e2b13c, #c9931b);
+  color: #141416;
+  border: none;
+  font-size: 1.4rem;
+  font-weight: 700;
+  padding: 1.15rem 2rem;
+  border-radius: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  box-shadow: 0 4px 20px rgba(226, 177, 60, 0.25);
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.luxury-save-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(226, 177, 60, 0.45);
+  filter: brightness(1.08);
+}
+
+.luxury-save-btn.is-saved {
+  background: #10b981;
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.35);
+}
+
+.btn-vault-secondary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  background: #1f2024;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f4f4f2;
+  padding: 1.15rem 1.8rem;
+  border-radius: 0.8rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.btn-vault-secondary:hover {
+  background: #2a2b32;
+  border-color: rgba(226, 177, 60, 0.4);
+  color: #e2b13c;
+  transform: translateY(-1px);
+}
+
+.watchlist-badge {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #10b981;
+  padding: 1.15rem 1.8rem;
+  border-radius: 0.8rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+
+.btn-cancel-edit {
+  width: 100%;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a1a1aa;
+  padding: 0.8rem;
+  border-radius: 0.8rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-cancel-edit:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+/* Vault Saved Status Card */
+.vault-saved-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 1.2rem;
+  padding: 1.8rem;
+}
+
+.vault-saved-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.vault-emblem-badge {
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 0.8rem;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vault-saved-title {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #f4f4f2;
+  margin: 0;
+}
+
+.vault-saved-subtitle {
+  font-size: 1.15rem;
+  color: #10b981;
+  font-weight: 600;
+}
+
+.vault-saved-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.vault-score-num {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #e2b13c;
+}
+
+.vault-score-denom {
+  font-size: 1.4rem;
+  color: #8a8a86;
+  margin-left: 0.3rem;
+}
+
+.vault-tier-pill {
+  padding: 0.4rem 1rem;
+  border-radius: 0.6rem;
+  border: 1px solid transparent;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.vault-saved-notes-box {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 0.8rem;
+  padding: 1rem 1.2rem;
+  border-left: 3px solid #e2b13c;
+}
+
+.vault-saved-notes-text {
+  font-size: 1.3rem;
+  color: #d4d4d8;
+  font-style: italic;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.btn-edit-vault-rating {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  background: #24252a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f4f4f2;
+  padding: 0.9rem;
+  border-radius: 0.8rem;
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-edit-vault-rating:hover {
+  background: #2f3036;
+  border-color: #e2b13c;
+  color: #e2b13c;
+}
+
+/* ============================================================
+   RIGHT COLUMN: CRITICAL SCORES, CAST, CREW, STREAMING
+   ============================================================ */
+
 .netflix-modal-right {
   display: flex;
   flex-direction: column;
   gap: 2.2rem;
 }
 
-.netflix-movie-title {
-  font-family: var(--font-sans);
-  font-size: 4rem;
-  font-weight: 700;
-  color: var(--text-1);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-}
-
-.netflix-meta-badges {
-  display: flex;
-  align-items: center;
+/* Critical Scores Matrix */
+.critical-scores-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
   gap: 1.2rem;
-  margin-top: 1rem;
-  flex-wrap: wrap;
+  width: 100%;
 }
 
-.meta-badge-item {
+.score-matrix-card {
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.2rem;
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.score-matrix-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.score-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.score-emoji {
+  font-size: 1.5rem;
+}
+
+.score-source-name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #8a8a86;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.score-card-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.score-main-num {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #f4f4f2;
+  line-height: 1.1;
+}
+
+.score-sub-num {
   font-size: 1.3rem;
-  color: var(--text-2);
-  font-weight: 500;
+  color: #71717a;
+  font-weight: 600;
 }
 
-.meta-badge-rated {
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--r-poster);
+.score-meta-text {
   font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--text-1);
+  color: #71717a;
 }
 
-.meta-badge-imdb {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: var(--accent-dim);
-  border: 1px solid rgba(226, 177, 60, 0.3);
-  color: var(--accent);
-  font-weight: 700;
-  font-size: 1.3rem;
-  padding: 0.3rem 0.9rem;
-  border-radius: var(--r-control);
+.metascore-pill {
+  color: #10b981;
 }
 
-.meta-badge-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  color: var(--text-2);
-  font-weight: 700;
-  font-size: 1.3rem;
-  padding: 0.3rem 0.9rem;
-  border-radius: var(--r-control);
-}
-
+/* Genres */
 .netflix-genres-row {
   display: flex;
   gap: 0.8rem;
   flex-wrap: wrap;
 }
 
-.netflix-genre-tag {
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  color: var(--text-2);
-  padding: 0.4rem 1.2rem;
-  border-radius: var(--r-control);
-  font-size: 1.2rem;
+.luxury-genre-tag {
+  background: #1f2024;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+  padding: 0.45rem 1.2rem;
+  border-radius: 0.6rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Where to Stream Providers Card */
+.streaming-providers-card {
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.2rem;
+  padding: 1.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.stream-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stream-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f4f4f2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stream-region-tag {
+  font-size: 1.15rem;
+  color: #8a8a86;
+  background: #121315;
+  padding: 0.25rem 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   font-weight: 600;
 }
 
+.stream-sections-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.stream-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.stream-group-label {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #a1a1aa;
+}
+
+.stream-logos-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.stream-provider-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  background: #222328;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.8rem;
+  padding: 0.5rem 1.1rem;
+  transition: all 0.2s ease;
+}
+
+.stream-provider-pill:hover {
+  background: #2b2c32;
+  border-color: rgba(226, 177, 60, 0.4);
+  transform: translateY(-1px);
+}
+
+.stream-logo-img {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+}
+
+.stream-provider-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f4f4f2;
+}
+
+.stream-free-pill {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.stream-rent-pill {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #1a1b1e;
+}
+
+/* Synopsis Narrative */
 .netflix-plot-block {
   display: flex;
   flex-direction: column;
@@ -6179,21 +6772,104 @@ body {
 .section-subtitle {
   font-size: 1.3rem;
   font-weight: 700;
-  color: #64748b;
+  color: #71717a;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  margin: 0;
 }
 
-.netflix-plot-text {
+.luxury-plot-text {
   font-size: 1.55rem;
-  line-height: 1.65;
-  color: #cbd5e1;
+  line-height: 1.7;
+  color: #d1d5db;
+  margin: 0;
 }
 
-/* Credits Grid */
-.netflix-credits-grid {
+/* Cast & Characters Gallery with Headshots */
+.cast-gallery-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.cast-gallery-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+  gap: 1rem;
+}
+
+.cast-actor-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.8rem;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1.2rem;
+  padding: 1.4rem 1rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.cast-actor-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(226, 177, 60, 0.35);
+  background: #1c1d22;
+}
+
+.cast-avatar-wrap {
+  width: 5.6rem;
+  height: 5.6rem;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(226, 177, 60, 0.3);
+  background: #222328;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+
+.cast-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cast-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #24252a;
+}
+
+.cast-info-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.cast-actor-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.cast-character-name {
+  font-size: 1.15rem;
+  color: #8a8a86;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Creative Credits Matrix */
+.luxury-credits-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 1.6rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-top: 2rem;
@@ -6205,17 +6881,13 @@ body {
   gap: 0.4rem;
 }
 
-.credit-item.full-row {
-  grid-column: 1 / -1;
-}
-
 .credit-label {
   display: flex;
   align-items: center;
   gap: 0.6rem;
   font-size: 1.2rem;
   font-weight: 700;
-  color: #64748b;
+  color: #71717a;
   text-transform: uppercase;
 }
 
@@ -6225,20 +6897,90 @@ body {
   color: #ffffff;
 }
 
-.cast-chips-wrap {
+/* Financial & Studio Production Intel */
+.production-intel-strip {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.2rem;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1.2rem;
+  padding: 1.6rem;
+}
+
+.intel-stat-item {
   display: flex;
-  gap: 0.8rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.intel-stat-item.full-width {
+  grid-column: 1 / -1;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 1rem;
   margin-top: 0.4rem;
 }
 
-.cast-chip {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.intel-stat-label {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.intel-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #f4f4f2;
+}
+
+.studio-text {
+  font-size: 1.3rem;
   color: #cbd5e1;
-  padding: 0.4rem 1.2rem;
-  border-radius: 0.4rem;
-  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+/* Thematic Keywords */
+.thematic-keywords-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.keywords-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.keywords-chip-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.theme-keyword-chip {
+  background: rgba(226, 177, 60, 0.06);
+  border: 1px solid rgba(226, 177, 60, 0.2);
+  color: #d4d4d8;
+  font-size: 1.2rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 0.6rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.theme-keyword-chip:hover {
+  border-color: #e2b13c;
+  color: #e2b13c;
+  background: rgba(226, 177, 60, 0.14);
+  transform: translateY(-1px);
 }
 
 /* ── Responsive Polish for Vault Overhaul ── */
@@ -8308,54 +9050,61 @@ body,
     max-width: 100vw !important;
   }
 
-  .netflix-modal-card {
+  .netflix-modal-card.luxury-detail-card {
     border-radius: 0 !important;
     border: none !important;
     min-height: 100vh !important;
   }
 
-  .netflix-modal-body {
+  .movie-backdrop-hero {
+    min-height: 26rem !important;
+    padding: 1.6rem !important;
+  }
+
+  .movie-hero-title {
+    font-size: clamp(2.4rem, 7vw, 3.4rem) !important;
+  }
+
+  .netflix-modal-body.luxury-detail-body {
     display: flex !important;
     flex-direction: column !important;
-    gap: 2rem !important;
-    padding: 2rem 1.6rem 4rem !important;
+    gap: 2.4rem !important;
+    padding: 1.6rem 1.6rem 4rem !important;
   }
 
   .netflix-modal-left {
     width: 100% !important;
-    align-items: center !important;
+    align-items: stretch !important;
   }
 
-  .netflix-modal-poster-wrap {
+  .elevated-poster-card {
     width: 100% !important;
-    max-width: 180px !important;
+    max-width: 220px !important;
     margin: 0 auto !important;
     aspect-ratio: 2/3 !important;
   }
 
-  .netflix-user-rating-box {
+  .luxury-rating-deck {
     width: 100% !important;
     box-sizing: border-box !important;
     padding: 1.6rem !important;
   }
 
-  .vault-user-score {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    flex-wrap: wrap !important;
-    gap: 0.6rem !important;
+  .critical-scores-matrix {
+    grid-template-columns: repeat(2, 1fr) !important;
   }
 
-  .netflix-movie-title {
-    font-size: clamp(2.2rem, 6vw, 3.4rem) !important;
-    word-break: break-word !important;
-    line-height: 1.15 !important;
+  .cast-gallery-grid {
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)) !important;
   }
 
-  .netflix-credits-grid {
+  .luxury-credits-grid {
     grid-template-columns: 1fr !important;
     gap: 1.4rem !important;
+  }
+
+  .production-intel-strip {
+    grid-template-columns: 1fr !important;
   }
 
   /* 6. AI Oracle Recommendations & Features Stack */
@@ -8877,3 +9626,1169 @@ body,
   font-size: 1.2rem;
   color: #8a8a86;
 }
+
+/* ============================================================
+   CINEMAVAULT — LUXURY MOVIE DETAILS & RATING DECK
+   ============================================================ */
+
+.movie-page-wrapper {
+  min-height: 100vh;
+  background: #0b0b0c;
+  padding: 2.4rem 1.6rem 6rem;
+  display: flex;
+  justify-content: center;
+  animation: fadeInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeInModal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.netflix-detail-modal {
+  width: 100%;
+  max-width: 118rem;
+  margin: 0 auto;
+}
+
+.luxury-detail-card {
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.6rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+/* ── Hero Backdrop & Cinema Header ───────────────────────── */
+.movie-backdrop-hero {
+  position: relative;
+  width: 100%;
+  height: 38rem;
+  overflow: hidden;
+  background: #0e0e11;
+}
+
+.movie-backdrop-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  filter: brightness(0.6) saturate(1.15);
+  transform: scale(1.01);
+  transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.luxury-detail-card:hover .movie-backdrop-img {
+  transform: scale(1.03);
+}
+
+.movie-backdrop-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1c1d20 0%, #0e0e11 100%);
+}
+
+.movie-backdrop-gradient-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 12rem;
+  background: linear-gradient(180deg, rgba(11, 11, 12, 0.85) 0%, transparent 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.movie-backdrop-gradient-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 22rem;
+  background: linear-gradient(0deg, #141416 0%, rgba(20, 20, 22, 0.9) 35%, rgba(20, 20, 22, 0.3) 70%, transparent 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.movie-hero-nav-bar {
+  position: absolute;
+  top: 2rem;
+  left: 2.4rem;
+  right: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 10;
+}
+
+.glassmorphic-btn,
+.btn-modal-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem 1.6rem;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.8rem;
+  color: #f4f4f2;
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.glassmorphic-btn:hover,
+.btn-modal-back:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.btn-hero-trailer-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem 1.8rem;
+  background: linear-gradient(135deg, #e50914 0%, #b81d24 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.8rem;
+  color: #ffffff;
+  font-size: 1.3rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 4px 18px rgba(229, 9, 20, 0.45);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: pointer;
+}
+
+.btn-hero-trailer-play:hover {
+  transform: scale(1.04) translateY(-2px);
+  box-shadow: 0 8px 25px rgba(229, 9, 20, 0.65);
+  color: #ffffff;
+}
+
+.movie-hero-title-group {
+  position: absolute;
+  bottom: 2.2rem;
+  left: 2.4rem;
+  right: 2.4rem;
+  z-index: 5;
+}
+
+.movie-hero-tagline {
+  font-size: 1.4rem;
+  font-style: italic;
+  font-weight: 500;
+  color: #e2b13c;
+  margin-bottom: 0.6rem;
+  letter-spacing: 0.02em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+.movie-hero-title {
+  font-size: 3.4rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.15;
+  margin-bottom: 1.2rem;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.95);
+}
+
+.movie-hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.6rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #d1d5db;
+}
+
+.hero-chip-rated {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+/* ── Modal Body Layout ───────────────────────────────────── */
+.luxury-detail-body {
+  display: grid;
+  grid-template-columns: 34rem 1fr;
+  gap: 3.2rem;
+  padding: 2.8rem;
+  align-items: start;
+}
+
+.netflix-modal-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.elevated-poster-card {
+  width: 100%;
+  border-radius: 1.2rem;
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1c1d20;
+}
+
+.elevated-poster-card img,
+.netflix-modal-poster-wrap img {
+  width: 100%;
+  aspect-ratio: 2/3;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── 🌟 LUXURY RATING & VAULT DECK ───────────────────────── */
+.luxury-rating-deck {
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.2rem;
+  padding: 2rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.rating-module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.4rem;
+}
+
+.rating-module-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.rating-module-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #f4f4f2;
+}
+
+.rating-score-badge-preview {
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 0.3rem 0.9rem;
+  border-radius: 0.6rem;
+  border: 1px solid;
+  transition: all 0.2s ease;
+}
+
+/* Dynamic Tier Banner (Fixed height to prevent layout shift) */
+.rating-tier-banner {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.9rem 1.4rem;
+  border-radius: 0.9rem;
+  border: 1px solid;
+  margin-bottom: 1.4rem;
+  min-height: 5.8rem;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.tier-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.tier-text-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.tier-name {
+  font-size: 1.35rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.tier-desc {
+  font-size: 1.15rem;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 10 Glowing Interactive Stars (Matching dial width & bounds) */
+.glowing-stars-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.4rem;
+  padding: 0.4rem 0;
+  margin-bottom: 0.8rem;
+  box-sizing: border-box;
+}
+
+.star-touch-btn {
+  flex: 1;
+  min-width: 0;
+  height: 3.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 0.4rem;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.star-svg-icon {
+  width: 2rem;
+  height: 2rem;
+  max-width: 90%;
+  max-height: 90%;
+  pointer-events: none;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease;
+}
+
+.star-touch-btn:hover .star-svg-icon {
+  transform: scale(1.18);
+}
+
+.star-active-glow {
+  filter: drop-shadow(0 0 4px rgba(226, 177, 60, 0.45));
+}
+
+/* 1 to 10 Numeric Dial Strip */
+.rating-numeric-dial {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.4rem;
+  margin-bottom: 1.6rem;
+  box-sizing: border-box;
+}
+
+.dial-pill {
+  flex: 1;
+  min-width: 0;
+  height: 3.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.6rem;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.dial-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dial-selected {
+  font-weight: 800;
+}
+
+/* Quick Review Tags */
+.quick-tags-section {
+  margin-bottom: 1.4rem;
+}
+
+.quick-tags-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.8rem;
+}
+
+.quick-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.quick-tag-chip {
+  font-size: 1.15rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #b6b6b2;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-tag-chip:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.quick-tag-chip.tag-active {
+  background: rgba(226, 177, 60, 0.18);
+  border-color: rgba(226, 177, 60, 0.5);
+  color: #e2b13c;
+  box-shadow: 0 0 10px rgba(226, 177, 60, 0.2);
+}
+
+/* Luxury Notes Area */
+.luxury-notes-area {
+  width: 100%;
+  min-height: 7.2rem;
+  padding: 1rem 1.2rem;
+  border-radius: 0.8rem;
+  background: #0f0f11;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #f4f4f2;
+  font-family: inherit;
+  font-size: 1.3rem;
+  line-height: 1.5;
+  resize: vertical;
+  margin-bottom: 1.6rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.luxury-notes-area:focus {
+  outline: none;
+  border-color: rgba(226, 177, 60, 0.55);
+  box-shadow: 0 0 0 3px rgba(226, 177, 60, 0.12);
+}
+
+.luxury-notes-area::placeholder {
+  color: #52525b;
+}
+
+/* ── Action Buttons in Rating Deck ───────────────────────── */
+.rating-box-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+}
+
+.btn-vault-primary,
+.luxury-save-btn {
+  width: 100%;
+  height: 4.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  background: linear-gradient(135deg, #e2b13c 0%, #c89523 100%);
+  color: #0b0b0c;
+  font-size: 1.4rem;
+  font-weight: 800;
+  border: none;
+  border-radius: 0.8rem;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(226, 177, 60, 0.35);
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.luxury-save-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 26px rgba(226, 177, 60, 0.5);
+}
+
+.luxury-save-btn.is-saved {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 18px rgba(16, 185, 129, 0.4);
+}
+
+.btn-vault-secondary {
+  width: 100%;
+  height: 4.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.8rem;
+  color: #e5e7eb;
+  font-size: 1.35rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.btn-vault-secondary:hover {
+  background: rgba(226, 177, 60, 0.12);
+  border-color: rgba(226, 177, 60, 0.45);
+  color: #e2b13c;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(226, 177, 60, 0.2);
+}
+
+.watchlist-active-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(226, 177, 60, 0.08);
+  border: 1px solid rgba(226, 177, 60, 0.25);
+  border-radius: 0.8rem;
+}
+
+.watchlist-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #e2b13c;
+  padding: 0.4rem 0.6rem;
+}
+
+.btn-watchlist-remove {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.6rem;
+  color: #f87171;
+  font-size: 1.15rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-watchlist-remove:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ffffff;
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.btn-cancel-edit {
+  width: 100%;
+  height: 3.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.8rem;
+  color: #9ca3af;
+  font-size: 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-cancel-edit:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* In-Vault Saved Status Card */
+.vault-saved-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.vault-saved-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.vault-emblem-badge {
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vault-saved-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.vault-saved-subtitle {
+  font-size: 1.15rem;
+  color: #10b981;
+  font-weight: 600;
+}
+
+.vault-saved-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.vault-score-display {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.vault-score-num {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: #e2b13c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.vault-score-denom {
+  font-size: 1.3rem;
+  color: #9ca3af;
+}
+
+.vault-tier-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border-radius: 0.6rem;
+  border: 1px solid;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.vault-saved-notes-box {
+  background: #0f0f11;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.8rem;
+  padding: 1.2rem;
+}
+
+.vault-saved-notes-text {
+  font-size: 1.3rem;
+  font-style: italic;
+  color: #d1d5db;
+  line-height: 1.5;
+}
+
+.btn-edit-vault-rating {
+  width: 100%;
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0.8rem;
+  color: #f4f4f2;
+  font-size: 1.3rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-edit-vault-rating:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Right Column: Rich Metadata Matrix ──────────────────── */
+.netflix-modal-right {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4rem;
+}
+
+.critical-scores-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1.2rem;
+}
+
+.score-matrix-card {
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  padding: 1.2rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  transition: all 0.2s ease;
+}
+
+.score-matrix-card:hover {
+  background: #1f2024;
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+}
+
+.score-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.score-card-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.score-main-num {
+  font-size: 2rem;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #ffffff;
+}
+
+.score-sub-num {
+  font-size: 1.2rem;
+  color: #6b7280;
+}
+
+.metascore-pill {
+  color: #10b981;
+}
+
+.score-meta-text {
+  font-size: 1.1rem;
+  color: #71717a;
+}
+
+.netflix-genres-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.luxury-genre-tag {
+  display: inline-block;
+  padding: 0.4rem 1.1rem;
+  background: rgba(226, 177, 60, 0.08);
+  border: 1px solid rgba(226, 177, 60, 0.25);
+  border-radius: 0.6rem;
+  color: #e2b13c;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Where to Stream Providers */
+.streaming-providers-card {
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  padding: 1.6rem;
+}
+
+.stream-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.2rem;
+}
+
+.stream-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.stream-region-tag {
+  font-size: 1.1rem;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.4rem;
+}
+
+.stream-sections-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.stream-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.stream-group-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #8a8a86;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stream-logos-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.stream-provider-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.9rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.6rem;
+}
+
+.stream-logo-img {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.4rem;
+  object-fit: cover;
+}
+
+.stream-provider-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.stream-free-pill {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.stream-rent-pill {
+  border-color: rgba(6, 182, 212, 0.3);
+  background: rgba(6, 182, 212, 0.08);
+}
+
+/* Narrative & Synopsis */
+.netflix-plot-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.section-subtitle {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.4rem;
+}
+
+.luxury-plot-text {
+  font-size: 1.45rem;
+  line-height: 1.7;
+  color: #d1d5db;
+}
+
+/* Cast Gallery */
+.cast-gallery-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.cast-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1.2rem;
+}
+
+.cast-actor-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.8rem;
+  padding: 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.cast-actor-card:hover {
+  background: #202126;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.cast-avatar-wrap {
+  width: 4rem;
+  height: 4rem;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #242528;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.cast-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cast-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cast-info-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cast-actor-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f4f4f2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cast-character-name {
+  font-size: 1.1rem;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Creative Credits Matrix */
+.luxury-credits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.2rem;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1rem;
+  padding: 1.6rem;
+}
+
+.credit-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.credit-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.credit-value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+/* Production & Box Office Intel Strip */
+.production-intel-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.6rem;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1rem;
+  padding: 1.4rem;
+}
+
+.intel-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 12rem;
+}
+
+.intel-stat-item.full-width {
+  width: 100%;
+}
+
+.intel-stat-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.intel-stat-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f4f4f2;
+}
+
+.studio-text {
+  font-size: 1.25rem;
+  color: #b6b6b2;
+  font-weight: 500;
+}
+
+/* Thematic Keywords */
+.thematic-keywords-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.keywords-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.keywords-chip-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.theme-keyword-chip {
+  font-size: 1.15rem;
+  font-weight: 500;
+  padding: 0.3rem 0.8rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  color: #9ca3af;
+}
+
+/* Responsive adjustments */
+@media (max-width: 960px) {
+  .luxury-detail-body {
+    grid-template-columns: 1fr;
+    gap: 2.4rem;
+    padding: 1.8rem;
+  }
+
+  .netflix-modal-poster-wrap {
+    max-width: 24rem;
+    margin: 0 auto;
+  }
+
+  .movie-backdrop-hero {
+    height: 28rem;
+  }
+
+  .movie-hero-title {
+    font-size: 2.6rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .movie-page-wrapper {
+    padding: 0.8rem 0.8rem 6rem;
+  }
+
+  .movie-backdrop-hero {
+    height: 22rem;
+  }
+
+  .movie-hero-title {
+    font-size: 2rem;
+  }
+
+  .movie-hero-nav-bar {
+    top: 1.2rem;
+    left: 1.2rem;
+    right: 1.2rem;
+  }
+
+  .movie-hero-title-group {
+    bottom: 1.4rem;
+    left: 1.2rem;
+    right: 1.2rem;
+  }
+
+  .critical-scores-matrix {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .glowing-stars-bar {
+    gap: 0;
+  }
+
+  .star-touch-btn {
+    width: 2.8rem;
+    height: 2.8rem;
+  }
+
+  .star-svg-icon {
+    width: 1.9rem;
+    height: 1.9rem;
+  }
+}
