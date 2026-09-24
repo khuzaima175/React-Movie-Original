@@ -20,35 +20,33 @@ export default function AIPage() {
 
   return (
     <div className={`ai-page-wrapper ${aiSection === "chat" ? "chat-mode" : ""}`}>
-      {/* Ambient cinema glow */}
+      {/* Ambient cinematic glow */}
       <div className="ai-ambient-backdrop" aria-hidden="true">
         <div className="ai-aura-gold" />
         <div className="ai-aura-cyan" />
       </div>
 
       <div className="ai-page-container">
-        {/* ── Tier 1: Open Spacious Hero Tier ── */}
-        <div className="ai-studio-hero-tier">
-          <div className="ai-hero-left">
-            <div className="ai-title-row">
+        {/* ── Sleek Cinema Studio Header ── */}
+        <header className="ai-studio-header">
+          <div className="ai-studio-brand">
+            <div className="ai-brand-headline">
               <span className="live-ai-pulse" aria-hidden="true" />
-              <h1 className="ai-spacious-title">AI Oracle</h1>
+              <h1 className="ai-studio-title">AI Oracle</h1>
               <span className="ai-sync-pill">
                 <span className="status-dot" aria-hidden="true" />
                 {watched.length > 0
-                  ? `Synced · ${watched.length} films analyzed`
-                  : "Ready to analyze"}
+                  ? `${watched.length} Films Synced`
+                  : "Syncing Ready"}
               </span>
             </div>
-            <p className="ai-spacious-meta">
-              {watched.length > 0
-                ? "Autonomous cinematic intelligence synthesized from your viewing history, director affinities, and ratings."
-                : "Rate movies in your vault to unlock high-precision recommendations tailored to your taste."}
+            <p className="ai-studio-desc">
+              Cinematic intelligence trained on your personal vault affinities and ratings.
             </p>
           </div>
 
           {/* Sub-Tabs: AI Recommendations vs Cinema Companion Chat */}
-          <div className="ai-tabs-cluster" role="tablist">
+          <nav className="ai-tabs-cluster" role="tablist" aria-label="AI Oracle Modes">
             <button
               role="tab"
               aria-selected={aiSection === "recs"}
@@ -62,7 +60,7 @@ export default function AIPage() {
                   transition={{ type: "spring", stiffness: 450, damping: 32 }}
                 />
               )}
-              <Sparkles size={15} className="tab-icon" aria-hidden="true" />
+              <Sparkles size={14} className="tab-icon" aria-hidden="true" />
               <span>AI Picks</span>
             </button>
 
@@ -79,14 +77,14 @@ export default function AIPage() {
                   transition={{ type: "spring", stiffness: 450, damping: 32 }}
                 />
               )}
-              <MessageSquare size={15} className="tab-icon" aria-hidden="true" />
+              <MessageSquare size={14} className="tab-icon" aria-hidden="true" />
               <span>Film Companion</span>
             </button>
-          </div>
-        </div>
+          </nav>
+        </header>
 
-        {/* ── Tier 2: Body (Recommendations or Chat) ── */}
-        <div className="ai-page-body">
+        {/* ── Body (Recommendations or Chat) ── */}
+        <main className="ai-page-body">
           {aiSection === "recs" && (
             <MovieRecommendations
               watched={watched}
@@ -100,8 +98,9 @@ export default function AIPage() {
           )}
 
           {aiSection === "chat" && <AIChat watched={watched} />}
-        </div>
+        </main>
       </div>
     </div>
   );
 }
+
