@@ -1,8 +1,16 @@
 import { useState, useEffect } from "react";
-import { getMovieRecommendations, getFallbackPoster, generateProfileHash, generateFallbackId } from "../services/geminiService";
-import { bridgeTmdbToOmdb, extractTasteProfile } from "../services/tmdbService";
+import {
+  getMovieRecommendations,
+  getFallbackPoster,
+  generateProfileHash,
+  generateFallbackId,
+  getSmartCache,
+  setSmartCache
+} from "../services/geminiService";
+import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS } from "../services/tmdbService";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
+import TrailerModal from "./TrailerModal";
 import {
   Sparkles,
   Target,
@@ -21,7 +29,10 @@ import {
   Compass,
   Layers,
   LayoutGrid,
-  List
+  List,
+  Play,
+  Tv,
+  Globe
 } from "lucide-react";
 
 const MOOD_OPTIONS = [
@@ -69,6 +80,10 @@ export default function MovieRecommendations({
   setTasteProfile
 }) {
   const {
+    userRegion,
+    setUserRegion,
+    userWatchProviders,
+    toggleWatchProvider,
     aiRecommendationsHash,
     aiFeedbackLog,
     saveAiRecommendations,
@@ -86,16 +101,37 @@ export default function MovieRecommendations({
   const [selectedMood, setSelectedMood] = useState("any");
   const [dismissingTitle, setDismissingTitle] = useState(null);
   const [showDnaDetails, setShowDnaDetails] = useState(false);
+  const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "compact"
+  const [activeTrailer, setActiveTrailer] = useState(null); // { trailerKey, title }
 
-  const tasteProfileData = extractTasteProfile(watched, watchlist);
-  const currentHash = generateProfileHash(tasteProfileData, tasteProfileData.watchlistGenreIds, selectedMood);
-  const isCacheValid = aiRecommendationsHash && aiRecommendationsHash === currentHash && recommendations && recommendations.length > 0;
+  const [tasteProfileData, setTasteProfileData] = useState(null);
+
+  useEffect(() => {
+    let isSubscribed = true;
+    async function loadTaste() {
+      const data = await extractTasteProfile(watched, watchlist);
+      if (isSubscribed) setTasteProfileData(data);
+    }
+    loadTaste();
+    return () => { isSubscribed = false; };
+  }, [watched, watchlist]);
+
+  const currentHash = tasteProfileData
+    ? generateProfileHash(tasteProfileData, tasteProfileData.watchlistGenreIds, selectedMood, userWatchProviders)
+    : "";
+
+  const isCacheValid = Boolean(
+    aiRecommendationsHash &&
+    aiRecommendationsHash === currentHash &&
+    recommendations &&
+    recommendations.length > 0
+  );
 
   const loadingSteps = [
-    watched.length >= 3 ? `Analyzing ${watched.length} rated films...` : "Initializing cinematic vibe calibration...",
-    "Querying deep verified cinema catalogue...",
-    "Synthesizing taste DNA & director affinities...",
+    watched.length >= 3 ? `Analyzing ${watched.length} rated films with mathematical weights...` : "Initializing cold-start vibe calibration...",
+    "Querying TMDB 3-Bucket waterfall engine...",
+    "Synthesizing taste DNA & time-decay affinities...",
     "Calibrating precision match scores..."
   ];
 
@@ -113,6 +149,18 @@ export default function MovieRecommendations({
     return () => clearInterval(timer);
   }, [isLoading, watched.length]);
 
+  // Real-time cache verification with Master ID collision filter on mount or hash change
+  useEffect(() => {
+    if (!recommendations && currentHash) {
+      const cached = getSmartCache(currentHash, watched, watchlist);
+      if (cached && cached.recommendations?.length >= 4) {
+        setTasteProfile(cached.tasteProfile);
+        setRecommendations(cached.recommendations);
+        saveAiRecommendations(cached.recommendations, cached.tasteProfile, currentHash);
+      }
+    }
+  }, [currentHash]);
+
   const handleGetRecommendations = async () => {
     setIsLoading(true);
     setError("");
@@ -123,13 +171,18 @@ export default function MovieRecommendations({
     try {
       const result = await getMovieRecommendations(watched, watchlist, setProgress, {
         mood: selectedMood,
+        userRegion,
+        userProviders: userWatchProviders,
         feedbackLog: aiFeedbackLog
       });
-      const profile = extractTasteProfile(watched, watchlist);
-      const newHash = generateProfileHash(profile, profile.watchlistGenreIds, selectedMood);
+
+      const profile = await extractTasteProfile(watched, watchlist);
+      const newHash = generateProfileHash(profile, profile.watchlistGenreIds, selectedMood, userWatchProviders);
+
       setTasteProfile(result.tasteProfile);
       setRecommendations(result.recommendations);
       saveAiRecommendations(result.recommendations, result.tasteProfile, newHash);
+      setSmartCache(newHash, result);
     } catch (err) {
       setError(err.message || "Failed to generate recommendations. Please try again.");
     } finally {
@@ -146,29 +199,28 @@ export default function MovieRecommendations({
     }
   };
 
-  // Composite key sets to avoid title collisions
-  const watchedKeySet = new Set(
-    (watched || []).flatMap((m) => [
-      m.imdbID?.toLowerCase(),
+  // Master Composite Collision Set
+  const currentIds = new Set([
+    ...(watched || []).flatMap((m) => [
+      m.imdbID ? String(m.imdbID).toLowerCase() : null,
+      m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
+      m.id ? String(m.id).toLowerCase() : null,
+      m.title ? `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` : null
+    ]).filter(Boolean),
+    ...(watchlist || []).flatMap((m) => [
+      m.imdbID ? String(m.imdbID).toLowerCase() : null,
+      m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
       m.id ? String(m.id).toLowerCase() : null,
       m.title ? `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` : null
     ]).filter(Boolean)
-  );
-
-  const watchlistKeySet = new Set(
-    (watchlist || []).flatMap((m) => [
-      m.imdbID?.toLowerCase(),
-      m.id ? String(m.id).toLowerCase() : null,
-      m.title ? `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` : null
-    ]).filter(Boolean)
-  );
+  ]);
 
   const isAlreadyInWatchlist = (movieTitle, movieYear, imdbID, tmdbId) => {
     const cleanT = (movieTitle || "").toLowerCase().trim();
     const cleanY = String(movieYear || "").match(/\d{4}/)?.[0] || "0000";
-    if (imdbID && watchlistKeySet.has(imdbID.toLowerCase())) return true;
-    if (tmdbId && watchlistKeySet.has(String(tmdbId).toLowerCase())) return true;
-    return watchlistKeySet.has(`${cleanT}::${cleanY}`);
+    if (imdbID && currentIds.has(String(imdbID).toLowerCase())) return true;
+    if (tmdbId && currentIds.has(String(tmdbId).toLowerCase())) return true;
+    return currentIds.has(`${cleanT}::${cleanY}`);
   };
 
   const handleAdd = async (rec) => {
@@ -181,7 +233,7 @@ export default function MovieRecommendations({
     });
 
     try {
-      const bridged = await bridgeTmdbToOmdb(rec);
+      const bridged = await bridgeTmdbToOmdb(rec, userRegion);
       if (bridged) {
         onAddToWatchlist(bridged);
       }
@@ -193,6 +245,7 @@ export default function MovieRecommendations({
         year: rec.year || "N/A",
         poster: rec.poster || getFallbackPoster(rec.title),
         runtime: "N/A",
+        genre: rec.genre || "Cinema",
         imdbRating: rec.imdbRating || "N/A",
         userRating: 0
       };
@@ -219,10 +272,16 @@ export default function MovieRecommendations({
   const sortedRecommendations = (recommendations || [])
     .filter((rec) => {
       const id = rec.imdbID?.toLowerCase();
+      const tmdbId = rec.tmdbId ? String(rec.tmdbId).toLowerCase() : null;
       const compKey = `${(rec.title || "").toLowerCase().trim()}::${String(rec.year || "").match(/\d{4}/)?.[0] || "0000"}`;
-      if (id && watchedKeySet.has(id)) return false;
-      if (watchedKeySet.has(compKey)) return false;
-      return true;
+      
+      const isWatched = (watched || []).some(m => {
+        return (m.imdbID && m.imdbID.toLowerCase() === id) ||
+               (m.tmdbId && String(m.tmdbId).toLowerCase() === tmdbId) ||
+               (m.title && `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` === compKey);
+      });
+
+      return !isWatched;
     })
     .sort((a, b) => {
       if (sortBy === "match") return (b.matchScore || 0) - (a.matchScore || 0);
@@ -231,34 +290,23 @@ export default function MovieRecommendations({
       return 0;
     });
 
-  // Top anchor titles with posters
-  const topAnchors = [...(watched || [])]
-    .filter((m) => (Number(m.userRating) || Number(m.imdbRating) || 0) >= 8)
-    .sort((a, b) => (Number(b.userRating) || Number(b.imdbRating) || 0) - (Number(a.userRating) || Number(a.imdbRating) || 0))
-    .slice(0, 8);
-
-  const genreHits = {};
-  (watched || []).forEach((m) => {
-    if (m.genre) {
-      m.genre.split(",").forEach((g) => {
-        const name = g.trim();
-        genreHits[name] = (genreHits[name] || 0) + 1;
-      });
-    }
-  });
-  const topGenresList = Object.entries(genreHits)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([g]) => g);
-
   const activeMoodObj = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
 
   return (
     <div className="ai-recommendations">
-      {/* ── Pre-run Discovery Showcase ── */}
+      {/* Dedicated Luxury Trailer Modal */}
+      {activeTrailer && (
+        <TrailerModal
+          isOpen={Boolean(activeTrailer)}
+          onClose={() => setActiveTrailer(null)}
+          trailerKey={activeTrailer.trailerKey}
+          title={activeTrailer.title}
+        />
+      )}
+
+      {/* ── Pre-run Discovery Stage ── */}
       {!recommendations && !isLoading && (
         <div className="ai-discovery-stage">
-          {/* Main Interactive Studio Deck */}
           <div className="ai-studio-deck">
             {/* Vibe Selection Strip */}
             <div className="vibe-selection-block">
@@ -291,71 +339,83 @@ export default function MovieRecommendations({
               </div>
             </div>
 
-            {/* Live Vault Taste Anchors Reel */}
-            {topAnchors.length > 0 && (
-              <div className="vault-taste-reel-block">
-                <div className="taste-reel-header">
-                  <div className="reel-title-group">
-                    <span className="reel-label">Your Vault Anchor Signals</span>
-                    <span className="reel-genres">
-                      {topGenresList.join(" • ")}
-                    </span>
-                  </div>
-                  <span className="reel-count-tag">{topAnchors.length} High-Rated Films</span>
+            {/* Watch Providers Filter Strip */}
+            <div className="vibe-selection-block" style={{ marginTop: "1.6rem" }}>
+              <div className="vibe-header-row">
+                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                  <Tv size={14} className="text-accent" aria-hidden="true" />
+                  <span className="vibe-label">Filter by Your Streaming Subscriptions</span>
                 </div>
-
-                <div className="taste-reel-filmstrip">
-                  {topAnchors.map((m) => {
-                    const score = m.userRating || m.imdbRating || "8+";
-                    return (
-                      <div key={m.imdbID || m.id || m.title} className="filmstrip-item" title={`${m.title || m.Title} (${m.year || ""})`}>
-                        <div className="filmstrip-poster-box">
-                          <PosterImage
-                            src={m.poster || m.Poster}
-                            title={m.title || m.Title}
-                            className="filmstrip-poster-img"
-                          />
-                          <span className="filmstrip-score">★ {score}</span>
-                        </div>
-                        <span className="filmstrip-title">{m.title || m.Title}</span>
-                      </div>
-                    );
-                  })}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                  <Globe size={13} style={{ color: "#8a8a86" }} />
+                  <select
+                    value={userRegion}
+                    onChange={(e) => setUserRegion(e.target.value)}
+                    style={{
+                      background: "#1c1d20",
+                      color: "#f4f4f2",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      borderRadius: "0.6rem",
+                      padding: "0.3rem 0.8rem",
+                      fontSize: "1.2rem",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                    aria-label="Select Streaming Region"
+                  >
+                    <option value="US">🇺🇸 United States</option>
+                    <option value="GB">🇬🇧 United Kingdom</option>
+                    <option value="CA">🇨🇦 Canada</option>
+                    <option value="AU">🇦🇺 Australia</option>
+                    <option value="IN">🇮🇳 India</option>
+                    <option value="DE">🇩🇪 Germany</option>
+                    <option value="FR">🇫🇷 France</option>
+                  </select>
                 </div>
               </div>
-            )}
 
-            {/* Instant Cinema Synthesis Action */}
-            <div className="synthesis-action-bar">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.8rem", marginTop: "1rem" }}>
+                {POPULAR_WATCH_PROVIDERS.map((provider) => {
+                  const isSelected = userWatchProviders.includes(provider.id);
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      onClick={() => toggleWatchProvider(provider.id)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.6rem",
+                        padding: "0.7rem 1.2rem",
+                        borderRadius: "0.8rem",
+                        fontSize: "1.25rem",
+                        fontWeight: 600,
+                        background: isSelected ? "rgba(226, 177, 60, 0.15)" : "#1c1d20",
+                        color: isSelected ? "#e2b13c" : "#b6b6b2",
+                        border: isSelected ? "1px solid rgba(226, 177, 60, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease"
+                      }}
+                    >
+                      <span>{provider.icon}</span>
+                      <span>{provider.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Launch CTA */}
+            <div className="ai-launch-cta-row" style={{ marginTop: "2.4rem" }}>
               <button
                 type="button"
-                className="btn-synthesize-cinema"
+                className="btn-launch-engine"
                 onClick={handleGetRecommendations}
+                disabled={isLoading}
               >
-                <Sparkles size={18} aria-hidden="true" />
-                <span>
-                  {watched.length === 0
-                    ? `Explore ${activeMoodObj.label} Cinema`
-                    : `Generate ${activeMoodObj.label} Recommendations`}
-                </span>
+                <Sparkles size={18} className="btn-sparkle-icon" />
+                <span>Synthesize Recommendations</span>
               </button>
-
-              {watched.length < 3 && (
-                <div className="ai-hint-badge">
-                  <Sparkles size={14} className="text-accent" />
-                  <span>
-                    {watched.length === 0
-                      ? `Cold-Start Mode: Calibrating from ${activeMoodObj.label} vibe`
-                      : `Calibrating from ${watched.length} rated film${watched.length > 1 ? 's' : ''} + ${activeMoodObj.label} vibe`}
-                  </span>
-                </div>
-              )}
-
-              {error && (
-                <p className="ai-error-banner" role="alert">
-                  <AlertCircle size={15} /> {error}
-                </p>
-              )}
             </div>
           </div>
         </div>
@@ -363,20 +423,16 @@ export default function MovieRecommendations({
 
       {/* ── Loading Theater ── */}
       {isLoading && (
-        <div className="ai-loading-theater">
-          <div className="theater-header">
-            <div className="oracle-orb-wrapper large">
-              <div className="oracle-orb-pulse" />
-              <div className="oracle-orb">
-                <Loader2 size={32} className="spin-icon text-accent" />
-              </div>
-            </div>
-            <h3>Oracle Engine Active</h3>
-            <p className="theater-subtitle">{progress || "Synthesizing your cinematic taste profile..."}</p>
+        <div className="ai-theater-stage">
+          <div className="theater-radar-box">
+            <div className="radar-glow-ring" />
+            <Sparkles size={38} className="theater-main-spinner spin-icon" />
           </div>
 
-          {/* Staged Progress Checklist */}
-          <div className="theater-checklist">
+          <h3 className="theater-title">Calibrating TMDB 3-Bucket Engine</h3>
+          <p className="theater-status-text">{progress || "Synthesizing recommendations..."}</p>
+
+          <div className="theater-steps-reel">
             {loadingSteps.map((stepText, idx) => {
               const isDone = activeStep > idx;
               const isCurrent = activeStep === idx;
@@ -473,11 +529,11 @@ export default function MovieRecommendations({
               <span className="recs-badge">{sortedRecommendations.length} Films</span>
               {isCacheValid ? (
                 <span className="cache-status-badge cached" title="Instant cache from storage">
-                  <Check size={11} /> Instant Cache
+                  <Check size={11} /> 500KB LRU Cache
                 </span>
               ) : (
                 <span className="cache-status-badge stale" title="Ratings or mood updated">
-                  <AlertCircle size={11} /> Live Re-ranked
+                  <AlertCircle size={11} /> Live 3-Bucket Re-ranked
                 </span>
               )}
             </div>
@@ -524,23 +580,49 @@ export default function MovieRecommendations({
           <ul className={`recommendation-container ${viewMode === "grid" ? "recommendation-grid-2col" : "recommendation-list"}`}>
             {sortedRecommendations.map((rec, index) => {
               const rankNum = index + 1;
-              const inWatchlist = isAlreadyInWatchlist(rec.title, rec.year, rec.imdbID);
+              const inWatchlist = isAlreadyInWatchlist(rec.title, rec.year, rec.imdbID, rec.tmdbId);
               const isAdding = isAddingMovie === rec.title;
               const isExpanded = expandedRec === rec.title;
               const isDismissing = dismissingTitle === rec.title;
 
               return (
-                <li key={index} className="recommendation-card">
+                <li key={rec.id || index} className="recommendation-card">
                   {/* Rank Numeral */}
                   <div className="rec-rank-num">#{rankNum}</div>
 
-                  {/* Poster Image */}
-                  <div className="rec-poster-wrapper">
+                  {/* Poster Image with Trailer Play Overlay */}
+                  <div className="rec-poster-wrapper" style={{ position: "relative" }}>
                     <PosterImage
                       src={rec.poster}
                       title={rec.title}
                       className="rec-poster-img"
                     />
+                    {rec.trailerKey && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTrailer({ trailerKey: rec.trailerKey, title: rec.title })}
+                        style={{
+                          position: "absolute",
+                          bottom: "0.8rem",
+                          right: "0.8rem",
+                          width: "3.2rem",
+                          height: "3.2rem",
+                          borderRadius: "50%",
+                          background: "rgba(0, 0, 0, 0.75)",
+                          border: "1px solid rgba(226, 177, 60, 0.4)",
+                          color: "#e2b13c",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          transition: "all 0.2s ease"
+                        }}
+                        title="Watch Trailer"
+                        aria-label={`Play trailer for ${rec.title}`}
+                      >
+                        <Play size={14} fill="#e2b13c" />
+                      </button>
+                    )}
                   </div>
 
                   <div className="rec-content">
@@ -548,7 +630,7 @@ export default function MovieRecommendations({
                       <div className="rec-title-section">
                         <h3 className="rec-movie-title">{rec.title}</h3>
                         <span className="rec-meta">
-                          {rec.year} • {rec.genre} {rec.type === "series" ? "• TV Series" : ""}
+                          {rec.year} • {rec.genre}
                         </span>
                       </div>
 
@@ -574,6 +656,29 @@ export default function MovieRecommendations({
                         <span className="reason-quote-mark">”</span>
                       </p>
                     </div>
+
+                    {/* Streaming Provider Badges */}
+                    {rec.streamProviders && rec.streamProviders.length > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.8rem" }}>
+                        <span style={{ fontSize: "1.1rem", fontWeight: 600, color: "#8a8a86", textTransform: "uppercase", letterSpacing: "0.05em" }}>Stream on:</span>
+                        {rec.streamProviders.slice(0, 3).map((p, pIdx) => (
+                          <span
+                            key={pIdx}
+                            style={{
+                              fontSize: "1.15rem",
+                              fontWeight: 600,
+                              color: "#f4f4f2",
+                              background: "#1c1d20",
+                              border: "1px solid rgba(255, 255, 255, 0.1)",
+                              padding: "0.2rem 0.6rem",
+                              borderRadius: "0.4rem"
+                            }}
+                          >
+                            {p.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Action Bar */}
                     <div className="rec-actions">
@@ -660,9 +765,8 @@ export default function MovieRecommendations({
                             <strong>Thematic Connection:</strong> {rec.reason}
                           </p>
                           <p className="rec-detail-text">
-                            Selected because of its strong stylistic overlap with your affinity for{" "}
-                            <strong>{rec.genre || tasteProfile?.favoriteGenres?.[0] || "cinematic storytelling"}</strong>
-                            {tasteProfile?.preferredEra ? ` and filmmaking from ${tasteProfile.preferredEra}` : ""}.
+                            Harvested via <strong>{rec.sourceBucket || "TMDB 3-Bucket Engine"}</strong> with strong stylistic overlap with your taste profile for{" "}
+                            <strong>{rec.genre || tasteProfile?.favoriteGenres?.[0] || "cinematic storytelling"}</strong>.
                           </p>
                         </div>
                       </div>
@@ -690,4 +794,3 @@ export default function MovieRecommendations({
     </div>
   );
 }
-

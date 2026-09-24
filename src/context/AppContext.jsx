@@ -15,8 +15,8 @@ export const safeSetItem = (key, value) => {
     if (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014) {
       console.warn("⚠️ LocalStorage quota exceeded. Purging non-critical AI caches to protect user vault...");
       
-      // Eviction priority list: derivative AI models and temporary logs
       const purgeOrder = [
+        "cinemavault_smart_cache_v3",
         "cinemavault_explanations_v1",
         "cinemavault_recs_v1",
         "cinemavault_recs_hash_v1",
@@ -72,6 +72,23 @@ export function AppProvider({ children }) {
     }
   });
 
+  const [userRegion, setUserRegion] = useState(() => {
+    try {
+      return localStorage.getItem("cinemavault_user_region") || "US";
+    } catch {
+      return "US";
+    }
+  });
+
+  const [userWatchProviders, setUserWatchProviders] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cinemavault_user_providers");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [aiRecommendations, setAiRecommendations] = useState(() => {
     try {
       const saved = localStorage.getItem("cinemavault_recs_v1");
@@ -120,6 +137,16 @@ export function AppProvider({ children }) {
   useEffect(() => {
     safeSetItem("watchlist", watchlist || []);
   }, [watchlist]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cinemavault_user_region", userRegion);
+    } catch (_) {}
+  }, [userRegion]);
+
+  useEffect(() => {
+    safeSetItem("cinemavault_user_providers", userWatchProviders || []);
+  }, [userWatchProviders]);
 
   useEffect(() => {
     if (aiRecommendations) {
@@ -174,31 +201,40 @@ export function AppProvider({ children }) {
 
   function addWatched(movie) {
     if (!movie) return;
-    const movieId = movie.imdbID || movie.id;
+    const movieId = movie.imdbID || movie.id || movie.tmdbId;
     if (!movieId) return;
     const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId };
-    if (watched.some((m) => (m.imdbID || m.id) === movieId)) return;
+    if (watched.some((m) => (m.imdbID || m.id || m.tmdbId) === movieId)) return;
     setWatched((prev) => [...(prev || []), normalizedMovie]);
-    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id) !== movieId));
+    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== movieId));
   }
 
   function deleteWatched(id) {
     if (!id) return;
-    setWatched((prev) => (prev || []).filter((m) => (m.imdbID || m.id) !== id));
+    setWatched((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== id));
   }
 
   function addToWatchlist(movie) {
     if (!movie) return;
-    const movieId = movie.imdbID || movie.id;
+    const movieId = movie.imdbID || movie.id || movie.tmdbId;
     if (!movieId) return;
     const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId };
-    if ((watchlist || []).some((m) => (m.imdbID || m.id) === movieId)) return;
+    if ((watchlist || []).some((m) => (m.imdbID || m.id || m.tmdbId) === movieId)) return;
     setWatchlist((prev) => [...(prev || []), normalizedMovie]);
   }
 
   function deleteWatchlist(id) {
     if (!id) return;
-    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id) !== id));
+    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== id));
+  }
+
+  function toggleWatchProvider(providerId) {
+    setUserWatchProviders((prev) => {
+      if (prev.includes(providerId)) {
+        return prev.filter((id) => id !== providerId);
+      }
+      return [...prev, providerId];
+    });
   }
 
   return (
@@ -208,6 +244,11 @@ export function AppProvider({ children }) {
         setWatched,
         watchlist: watchlist || [],
         setWatchlist,
+        userRegion,
+        setUserRegion,
+        userWatchProviders,
+        setUserWatchProviders,
+        toggleWatchProvider,
         addWatched,
         deleteWatched,
         addToWatchlist,

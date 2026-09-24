@@ -7,14 +7,110 @@ import {
 } from "./tmdbService";
 
 const MODELS = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
+const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
 
 /**
- * Sanitizes strings for CSV/prompt injection safety
+ * Sanitizes strings for prompt safety
  */
 export const cleanStr = (val) => {
     if (val === null || val === undefined) return "";
     return String(val).replace(/[|\r\n\t]/g, " ").replace(/\s+/g, " ").trim();
 };
+
+/**
+ * Resilient JSON Sanitizer & Parser
+ * Handles markdown code-blocks (```json ... ```) and raw string quirks from LLMs
+ */
+export function sanitizeAndParseJSON(rawText) {
+    if (!rawText) throw new Error("Empty response from AI engine");
+    let cleaned = String(rawText).trim();
+    const jsonMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+        cleaned = jsonMatch[1].trim();
+    }
+    return JSON.parse(cleaned);
+}
+
+/**
+ * Master ID Cross-Referencing Collision Guard for LRU Cache
+ */
+export function getSmartCache(hash, watched = [], watchlist = []) {
+    try {
+        const cache = JSON.parse(localStorage.getItem(SMART_CACHE_KEY) || '{}');
+        const entry = cache[hash];
+        if (!entry || !entry.data || (Date.now() - (entry.ts || 0) > 24 * 60 * 60 * 1000)) {
+            return null;
+        }
+
+        // Build master set of all known identifiers across vault and watchlist
+        const currentIds = new Set([
+            ...watched.flatMap(m => [
+                m.imdbID ? String(m.imdbID).toLowerCase() : null,
+                m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
+                m.id ? String(m.id).toLowerCase() : null
+            ]).filter(Boolean),
+            ...watchlist.flatMap(m => [
+                m.imdbID ? String(m.imdbID).toLowerCase() : null,
+                m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
+                m.id ? String(m.id).toLowerCase() : null
+            ]).filter(Boolean)
+        ]);
+
+        const validRecs = (entry.data.recommendations || []).filter(rec => {
+            const recIds = [
+                rec.imdbID ? String(rec.imdbID).toLowerCase() : null,
+                rec.tmdbId ? String(rec.tmdbId).toLowerCase() : null,
+                rec.id ? String(rec.id).toLowerCase() : null
+            ].filter(Boolean);
+
+            return !recIds.some(id => currentIds.has(id));
+        });
+
+        if (validRecs.length >= 4) {
+            return { ...entry.data, recommendations: validRecs };
+        }
+    } catch (e) {
+        console.warn("SmartCache read failed:", e);
+    }
+    return null;
+}
+
+/**
+ * 500KB LRU Cache Eviction Manager
+ */
+export function setSmartCache(hash, data) {
+    try {
+        let cache = JSON.parse(localStorage.getItem(SMART_CACHE_KEY) || '{}');
+        cache[hash] = { data, ts: Date.now() };
+
+        let cacheStr = JSON.stringify(cache);
+        while (cacheStr.length * 2 > MAX_CACHE_BYTES && Object.keys(cache).length > 1) {
+            const oldestKey = Object.keys(cache).reduce((oldest, key) =>
+                (cache[key]?.ts || 0) < (cache[oldest]?.ts || 0) ? key : oldest
+            );
+            delete cache[oldestKey];
+            cacheStr = JSON.stringify(cache);
+        }
+
+        localStorage.setItem(SMART_CACHE_KEY, cacheStr);
+    } catch (e) {
+        console.warn("SmartCache write failed, resetting cache:", e);
+        try { localStorage.removeItem(SMART_CACHE_KEY); } catch (_) {}
+    }
+}
+
+export function clearSmartCache(hash) {
+    try {
+        let cache = JSON.parse(localStorage.getItem(SMART_CACHE_KEY) || '{}');
+        if (hash) {
+            delete cache[hash];
+            localStorage.setItem(SMART_CACHE_KEY, JSON.stringify(cache));
+        } else {
+            localStorage.removeItem(SMART_CACHE_KEY);
+        }
+    } catch (_) {}
+}
 
 const getOmdbKey = () => {
     const key = import.meta.env.VITE_OMDB_KEY;
@@ -169,17 +265,6 @@ export const buildTasteAnalytics = (watched = []) => {
 };
 
 /**
- * Helper to parse timestamps safely
- */
-export const parseTimestamp = (m) => {
-    if (!m) return 0;
-    const raw = m.watchedAt || m.addedAt || m.createdAt || m.date;
-    if (!raw) return 0;
-    const parsed = typeof raw === "number" ? raw : new Date(raw).getTime();
-    return isNaN(parsed) ? 0 : parsed;
-};
-
-/**
  * Generate deterministic fallback ID based on title and year using Base64URL
  */
 export const generateFallbackId = (title, year) => {
@@ -203,14 +288,14 @@ export const generateFallbackId = (title, year) => {
 
 /**
  * Profile-Based Sliding Window Cache Hash
- * Hashed signature incorporates Aggregated Taste Profile + Watchlist Intent + Mood
  */
-export const generateProfileHash = (profile, watchlistGenres = [], mood = "any") => {
+export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = []) => {
     const lovedStr = (profile?.lovedGenreIds || []).sort().join("-");
-    const hatedStr = (profile?.hatedGenreIds || []).sort().join("-");
+    const hatedStr = (profile?.hatedKeywordIds || []).sort().join("-");
     const watchStr = (watchlistGenres || []).slice(0, 3).sort().join("-");
+    const provStr = (providers || []).sort().join("-");
     const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
-    return `v2_${lovedStr}_${hatedStr}_${watchStr}_${cleanMood}`;
+    return `v3_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${cleanMood}`;
 };
 
 /**
@@ -235,8 +320,6 @@ Re-rank these REAL candidate movies retrieved from TMDB according to the user's 
 
 USER TASTE PROFILE:
 - Favorite Genres: ${profile.lovedGenreNames.join(", ") || "Diverse / Open"}
-- Disliked Anti-Patterns (MUST AVOID): ${profile.hatedGenreNames.join(", ") || "None"}
-- Top Directors: ${profile.topDirectors.join(", ") || "Varied"}
 - Selected Mood / Vibe: "${cleanStr(mood)}"
 
 CANDIDATE MOVIES (Guaranteed real titles from TMDB):
@@ -308,9 +391,7 @@ Select and re-rank the TOP 6 best matching films. Output strict JSON with:
         throw lastError || new Error("All Gemini models failed to re-rank candidates");
     }
 
-    let jsonStr = response.text || "{}";
-    jsonStr = jsonStr.replace(/^```json\n|\n```$/g, "").trim();
-    const result = JSON.parse(jsonStr);
+    const result = sanitizeAndParseJSON(response.text);
 
     if (!result.recommendations || !Array.isArray(result.recommendations)) {
         throw new Error("Invalid recommendation schema returned by Gemini");
@@ -331,6 +412,7 @@ Select and re-rank the TOP 6 best matching films. Output strict JSON with:
             matchScore: Math.min(100, Math.max(0, Math.round(rec.matchScore || 85))),
             reason: rec.reason || "Matches your cinematic taste profile.",
             plot: candidate.overview || rec.reason,
+            sourceBucket: candidate.sourceBucket || "TMDB",
             realData: true
         };
     });
@@ -418,7 +500,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
 
     if (!response) throw new Error("Fallback recommendation generation failed");
 
-    const result = JSON.parse(response.text || "{}");
+    const result = sanitizeAndParseJSON(response.text);
 
     if (result.recommendations && result.recommendations.length > 0) {
         onProgress?.("Verifying candidate titles with OMDb...");
@@ -455,7 +537,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
 
 /**
  * Main Recommendation Engine Entry Point
- * Hybrid TMDB Discover Retrieval + Gemini Single-Pass Re-Ranking (with graceful fallback)
+ * Hybrid Waterfall TMDB Candidate Engine + Gemini Re-Ranking
  */
 export const getMovieRecommendations = async (watchedMovies = [], watchlist = [], onProgress, options = {}) => {
     const apiKey = import.meta.env.VITE_GEMINI_KEY;
@@ -466,21 +548,26 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
 
     const ai = new GoogleGenAI({ apiKey });
     const mood = options.mood || "any";
+    const userRegion = options.userRegion || "US";
+    const userProviders = options.userProviders || [];
 
-    // 1. Synthesize statistical taste profile directly in JS
-    onProgress?.("Analyzing taste profile and genre affinities...");
-    const profile = extractTasteProfile(watchedMovies, watchlist);
+    // 1. Synthesize statistical taste profile with mathematical weighting
+    onProgress?.("Analyzing taste DNA and mathematical affinities...");
+    const profile = await extractTasteProfile(watchedMovies, watchlist);
 
-    // 2. Primary Engine: TMDB Discover Candidate Retrieval + Gemini Re-Ranking
+    // 2. Primary Engine: Dynamic Waterfall TMDB Retrieval + Gemini Re-Ranking
     if (TMDB_KEY) {
         try {
-            onProgress?.("Retrieving verified candidate catalogue from TMDB...");
-            const candidates = await fetchCandidatePool(profile, mood, watchedMovies, watchlist);
+            onProgress?.("Harvesting 3-bucket verified candidate catalogue from TMDB...");
+            const candidates = await fetchCandidatePool(profile, mood, watchedMovies, watchlist, {
+                userRegion,
+                userProviders
+            });
 
             if (candidates && candidates.length >= 6) {
                 onProgress?.("AI Oracle re-ranking candidates against taste DNA...");
                 const result = await reRankCandidatesWithGemini(ai, profile, mood, candidates, options);
-                console.log(`✅ TMDB + Gemini RAG-lite pipeline completed (${result.recommendations?.length} films)`);
+                console.log(`✅ TMDB 3-Bucket + Gemini engine completed (${result.recommendations?.length} films)`);
                 return result;
             }
         } catch (tmdbErr) {

@@ -1,6 +1,16 @@
 /**
- * CinemaVault TMDB Service
- * Deterministic candidate retrieval, genre mapping, schema bridge, and append_to_response details.
+ * CinemaVault TMDB Service (v3.0 God-Tier Engine)
+ * - Deterministic Waterfall 3-Bucket Candidate Engine:
+ *   - Bucket A: Semantic Discover (Loved Genres + Watch Providers + Surgical Negative Tropes + Star Power with_cast)
+ *   - Bucket B: Spiritual Successors (Top Anchor Keywords with Critical Acclaim Sort)
+ *   - Bucket C: Auteur & Creative Crew (Single Top Auteur Crew Member with_crew)
+ *   - Cold-Start Bypass: Safe routing for accounts with < 3 ratings
+ * - Mathematical Taste Vector:
+ *   - Continuous Rating Multiplier: W_base = (Rating - 5) / 5
+ *   - Exponential Recency Decay: W_final = W_base * e^(-0.005 * Delta_days)
+ *   - Temporal Anchor Selection: Highest W_final film selected as anchor
+ * - Watch Provider ID Mapping (Netflix, Prime, Disney+, Max, Apple, Hulu, Tubi, Pluto, Freevee)
+ * - Schema Bridge Metadata Persistence (castIds, tmdbKeywords, tmdbGenreIds, streamProviders)
  */
 
 const getTmdbKey = () => {
@@ -54,24 +64,43 @@ export const TMDB_ID_TO_GENRE = Object.entries(TMDB_GENRE_MAP).reduce((acc, [nam
 }, {});
 
 /**
- * Optional runtime sync of live TMDB genre definitions
+ * Direct TMDB Provider IDs Mapping
  */
-export async function initializeTmdbGenres() {
-  const key = getTmdbKey();
-  if (!key) return;
-  try {
-    const res = await fetch(`https://api.themoviedb.org/3/genre/movie/list?api_key=${key}&language=en-US`);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.genres && Array.isArray(data.genres)) {
-      data.genres.forEach(g => {
-        TMDB_GENRE_MAP[g.name.toLowerCase()] = g.id;
-        TMDB_ID_TO_GENRE[g.id] = g.name;
-      });
-    }
-  } catch (err) {
-    console.warn("TMDB Live Genre Sync skipped, using static dictionary fallback:", err);
-  }
+export const PROVIDER_MAP = {
+  netflix: 8,
+  prime: 9,
+  max: 1899,
+  disney: 337,
+  hulu: 15,
+  apple: 350,
+  paramount: 531,
+  peacock: 386,
+  tubi: 73,
+  pluto: 300,
+  freevee: 573,
+  criterion: 258
+};
+
+export const POPULAR_WATCH_PROVIDERS = [
+  { id: 8, name: "Netflix", icon: "🔴" },
+  { id: 9, name: "Amazon Prime", icon: "📦" },
+  { id: 337, name: "Disney+", icon: "✨" },
+  { id: 1899, name: "Max (HBO)", icon: "🟣" },
+  { id: 350, name: "Apple TV+", icon: "🍏" },
+  { id: 15, name: "Hulu", icon: "🟢" },
+  { id: 531, name: "Paramount+", icon: "🏔️" },
+  { id: 386, name: "Peacock", icon: "🦚" },
+  { id: 73, name: "Tubi (Free)", icon: "📺" },
+  { id: 300, name: "Pluto TV (Free)", icon: "⚡" },
+  { id: 258, name: "Criterion", icon: "🏛️" }
+];
+
+export function buildProviderFilter(selectedProviders) {
+  if (!selectedProviders || selectedProviders.length === 0) return null;
+  const providerIds = selectedProviders
+    .map(p => typeof p === "number" ? p : PROVIDER_MAP[p])
+    .filter(Boolean);
+  return providerIds.length > 0 ? providerIds.join("|") : null;
 }
 
 /**
@@ -89,50 +118,93 @@ export function mapOmdbToTmdbGenreIds(omdbGenreStr = "") {
 }
 
 /**
- * Extracts statistical taste profile and anti-patterns directly in JavaScript
+ * Mathematical Weighted Taste Profiler
+ * Integrates Continuous Rating Weights + Exponential Time-Decay + Surgical Trope Math
  */
-export function extractTasteProfile(watched = [], watchlist = []) {
+export async function extractTasteProfile(watched = [], watchlist = []) {
   const rated = (watched || []).filter(m => {
     const r = Number(m.userRating || m.UserRating || 0);
     return !isNaN(r) && r > 0;
   });
 
-  const liked = rated.filter(m => (Number(m.userRating || m.UserRating || 0)) >= 7);
-  const disliked = rated.filter(m => (Number(m.userRating || m.UserRating || 0)) <= 5);
+  const genreScores = {};
+  const hatedKeywordCounts = {};
+  const castScores = {};
+  const crewScores = {};
+  const DECAY_RATE = 0.005; // ~140 day half-life
 
-  // Genre Frequency Calculation for Liked Films
-  const likedGenreCounts = {};
-  liked.forEach(m => {
-    const rawGenre = m.genre || m.Genre || "";
-    const ids = mapOmdbToTmdbGenreIds(rawGenre);
-    ids.forEach(id => {
-      likedGenreCounts[id] = (likedGenreCounts[id] || 0) + 1;
+  // Calculate continuous weights with exponential time decay
+  const weightedRated = rated.map(movie => {
+    const rating = Number(movie.userRating || movie.UserRating || 0);
+    const addedTime = new Date(movie.dateWatched || movie.addedAt || Date.now()).getTime();
+    const daysSince = Math.max(0, (Date.now() - addedTime) / (1000 * 60 * 60 * 24));
+    const timeDecay = Math.exp(-DECAY_RATE * daysSince);
+
+    // Continuous Weight: 10/10 = 1.0, 9/10 = 0.8, 8/10 = 0.6, 7/10 = 0.4, <=5 = 0
+    const baseWeight = Math.max(0, (rating - 5) / 5);
+    const finalWeight = baseWeight * timeDecay;
+
+    // 1. Positive Genre Weighting (Direct TMDB IDs or string fallback)
+    const genreIds = movie.tmdbGenreIds || mapOmdbToTmdbGenreIds(movie.genre || movie.Genre || "");
+    genreIds.forEach(id => {
+      genreScores[id] = (genreScores[id] || 0) + finalWeight;
     });
+
+    // 2. Surgical Negative Trope Extraction (from 1-3 star films)
+    if (rating <= 3 && movie.tmdbKeywords && Array.isArray(movie.tmdbKeywords)) {
+      movie.tmdbKeywords.forEach(kId => {
+        hatedKeywordCounts[kId] = (hatedKeywordCounts[kId] || 0) + 1;
+      });
+    }
+
+    // 3. Star Power Cast & Auteur Crew Scoring (from >= 8/10 films)
+    if (rating >= 8) {
+      if (movie.castIds && Array.isArray(movie.castIds)) {
+        movie.castIds.slice(0, 3).forEach(cId => {
+          castScores[cId] = (castScores[cId] || 0) + finalWeight;
+        });
+      }
+      if (movie.crewPersonId) {
+        crewScores[movie.crewPersonId] = (crewScores[movie.crewPersonId] || 0) + finalWeight;
+      }
+    }
+
+    return { ...movie, finalWeight };
   });
 
-  // Top Loved Genre IDs sorted by frequency
-  const lovedGenreIds = Object.entries(likedGenreCounts)
+  // Sort weighted movies descending by finalWeight (captures current obsession)
+  weightedRated.sort((a, b) => b.finalWeight - a.finalWeight);
+
+  const lovedGenreIds = Object.entries(genreScores)
     .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
     .map(([id]) => Number(id));
 
-  // Genre Frequency Calculation for Disliked Films (Anti-Patterns)
-  const dislikedGenreCounts = {};
-  disliked.forEach(m => {
-    const rawGenre = m.genre || m.Genre || "";
-    const ids = mapOmdbToTmdbGenreIds(rawGenre);
-    ids.forEach(id => {
-      dislikedGenreCounts[id] = (dislikedGenreCounts[id] || 0) + 1;
-    });
-  });
-
-  // Hated Genre IDs (appear in disliked films and NOT among top loved genres)
-  const hatedGenreIds = Object.entries(dislikedGenreCounts)
-    .filter(([id, count]) => count >= 1 && !lovedGenreIds.slice(0, 3).includes(Number(id)))
+  const topCastIds = Object.entries(castScores)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
     .map(([id]) => Number(id));
+
+  const topCrewMemberId = Object.entries(crewScores)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 1)
+    .map(([id]) => Number(id))[0] || null;
+
+  const hatedKeywordIds = Object.entries(hatedKeywordCounts)
+    .filter(([_, count]) => count >= 1)
+    .slice(0, 5)
+    .map(([id]) => Number(id));
+
+  // Top anchor film selected from highest finalWeight
+  const eliteAnchors = weightedRated.filter(m => Number(m.userRating || 0) >= 9);
+  let anchorTmdbId = null;
+  if (eliteAnchors.length > 0) {
+    anchorTmdbId = eliteAnchors[0].tmdbId || (await findTmdbByImdbId(eliteAnchors[0].imdbID))?.tmdbId || null;
+  }
 
   // Top Directors (2+ high rated films)
   const dirMap = {};
-  liked.forEach(m => {
+  rated.filter(m => Number(m.userRating || 0) >= 7).forEach(m => {
     const d = (m.director || m.Director || "").trim();
     if (d && d !== "N/A" && d !== "Unknown") {
       dirMap[d] = (dirMap[d] || 0) + 1;
@@ -147,9 +219,8 @@ export function extractTasteProfile(watched = [], watchlist = []) {
   // Watchlist Intent Genres
   const watchlistGenreCounts = {};
   (watchlist || []).forEach(m => {
-    const rawGenre = m.genre || m.Genre || "";
-    const ids = mapOmdbToTmdbGenreIds(rawGenre);
-    ids.forEach(id => {
+    const genreIds = m.tmdbGenreIds || mapOmdbToTmdbGenreIds(m.genre || m.Genre || "");
+    genreIds.forEach(id => {
       watchlistGenreCounts[id] = (watchlistGenreCounts[id] || 0) + 1;
     });
   });
@@ -159,30 +230,61 @@ export function extractTasteProfile(watched = [], watchlist = []) {
     .slice(0, 3)
     .map(([id]) => Number(id));
 
-  const lovedGenreNames = lovedGenreIds.slice(0, 4).map(id => TMDB_ID_TO_GENRE[id] || `Genre ${id}`);
-  const hatedGenreNames = hatedGenreIds.slice(0, 3).map(id => TMDB_ID_TO_GENRE[id] || `Genre ${id}`);
-
   return {
     lovedGenreIds,
-    lovedGenreNames,
-    hatedGenreIds,
-    hatedGenreNames,
+    lovedGenreNames: lovedGenreIds.map(id => TMDB_ID_TO_GENRE[id] || `Genre ${id}`),
     topDirectors,
+    topCastIds,
+    topCrewMemberId,
+    anchorTmdbId,
+    hatedKeywordIds,
     watchlistGenreIds,
-    totalRated: rated.length,
-    totalLiked: liked.length
+    totalRated: rated.length
   };
 }
 
 /**
- * Builds dynamic TMDB /discover/movie query parameters mapped to User Mood
+ * Fetch keywords and creative crew for an anchor film
  */
-export function buildDiscoverParams(profile, mood = "any", tmdbKey = TMDB_KEY) {
+export async function fetchMovieKeywordsAndCrew(tmdbId) {
+  const key = getTmdbKey();
+  if (!key || !tmdbId) return { keywords: [], crewPersonIds: [] };
+
+  try {
+    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=keywords,credits&language=en-US`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return { keywords: [], crewPersonIds: [] };
+    const data = await res.json();
+
+    const keywords = (data.keywords?.keywords || []).slice(0, 5).map(k => k.id);
+
+    // Extract Cinematographer, Composer, Screenplay
+    const crewPersonIds = (data.credits?.crew || [])
+      .filter(c => ["Director of Photography", "Original Music Composer", "Screenplay", "Writer", "Director"].includes(c.job))
+      .slice(0, 3)
+      .map(c => c.id);
+
+    return { keywords, crewPersonIds };
+  } catch (err) {
+    console.warn("Failed to fetch keywords/crew for anchor movie:", tmdbId, err);
+    return { keywords: [], crewPersonIds: [] };
+  }
+}
+
+/**
+ * BUCKET A: Semantic Discover with Conditional Genre Guard & Comma with_cast
+ */
+export async function fetchBucketA(profile, mood = "any", options = {}, collisionSets = {}, targetCount = 8) {
+  const key = getTmdbKey();
+  if (!key) return [];
+
+  const { userRegion = "US", userProviders = [] } = options;
+  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
+
   const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim();
 
   let sortParam = "popularity.desc";
   let voteCountGte = "150";
-  let voteCountLte = null;
   let voteAverageGte = "6.8";
   let moodBoostGenreIds = [];
 
@@ -191,33 +293,31 @@ export function buildDiscoverParams(profile, mood = "any", tmdbKey = TMDB_KEY) {
       sortParam = "vote_average.desc";
       voteCountGte = "250";
       voteAverageGte = "7.5";
-      moodBoostGenreIds = [9648, 878]; // Mystery, Sci-Fi
+      moodBoostGenreIds = [9648, 878];
       break;
     case "dark-thriller":
       sortParam = "popularity.desc";
       voteCountGte = "120";
       voteAverageGte = "6.8";
-      moodBoostGenreIds = [80, 53]; // Crime, Thriller
+      moodBoostGenreIds = [80, 53];
       break;
     case "hidden-gem":
       sortParam = "vote_average.desc";
       voteCountGte = "50";
-      voteCountLte = "800";
       voteAverageGte = "7.3";
       break;
     case "comfort-watch":
       sortParam = "vote_average.desc";
       voteCountGte = "180";
       voteAverageGte = "7.2";
-      moodBoostGenreIds = [35, 18, 10751]; // Comedy, Drama, Family
+      moodBoostGenreIds = [35, 18, 10751];
       break;
     case "fun-popcorn":
       sortParam = "popularity.desc";
       voteCountGte = "250";
       voteAverageGte = "6.5";
-      moodBoostGenreIds = [28, 12]; // Action, Adventure
+      moodBoostGenreIds = [28, 12];
       break;
-    case "any":
     default:
       sortParam = "popularity.desc";
       voteCountGte = "150";
@@ -225,51 +325,247 @@ export function buildDiscoverParams(profile, mood = "any", tmdbKey = TMDB_KEY) {
       break;
   }
 
-  // Combine loved genres + watchlist intent + mood boost into single OR list
   const combinedLoved = Array.from(new Set([
     ...(profile.lovedGenreIds || []).slice(0, 4),
     ...(profile.watchlistGenreIds || []).slice(0, 2),
     ...moodBoostGenreIds
   ]));
 
-  const params = {
-    api_key: tmdbKey,
+  const params = new URLSearchParams({
+    api_key: key,
     include_adult: "false",
     include_video: "false",
     language: "en-US",
     sort_by: sortParam,
     "vote_count.gte": voteCountGte,
-    "vote_average.gte": voteAverageGte
-  };
+    "vote_average.gte": voteAverageGte,
+    watch_region: userRegion || "US"
+  });
 
-  if (voteCountLte) {
-    params["vote_count.lte"] = voteCountLte;
-  }
-
-  // Pipe | for with_genres (OR) and without_genres (OR exclusion)
+  // CONDITIONAL GENRE GUARD: Never append empty with_genres
   if (combinedLoved.length > 0) {
-    params.with_genres = combinedLoved.join("|");
+    params.set("with_genres", combinedLoved.join("|"));
   }
 
-  if (profile.hatedGenreIds && profile.hatedGenreIds.length > 0) {
-    params.without_genres = profile.hatedGenreIds.join("|");
+  // SURGICAL TROPE EXCLUSION: Pipe-separated for keyword OR logic
+  if (profile.hatedKeywordIds && profile.hatedKeywordIds.length > 0) {
+    params.set("without_keywords", profile.hatedKeywordIds.join("|"));
   }
 
-  return params;
+  // STAR POWER INJECTION: Comma-separated for people OR logic
+  if (profile.topCastIds && profile.topCastIds.length > 0) {
+    params.set("with_cast", profile.topCastIds.join(","));
+  }
+
+  // WATCH PROVIDER FILTERING
+  const providerFilter = buildProviderFilter(userProviders);
+  if (providerFilter) {
+    params.set("with_watch_providers", providerFilter);
+  }
+
+  let candidates = [];
+  let page = 1;
+
+  while (candidates.length < targetCount && page <= 5) {
+    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
+    try {
+      const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
+      if (!res.ok) break;
+      const data = await res.json();
+      if (!data.results || data.results.length === 0) break;
+
+      for (const m of data.results) {
+        if (!m || !m.title || !m.overview) continue;
+        const titleClean = m.title.toLowerCase().trim();
+        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
+        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
+
+        if (watchedIdSet?.has(String(m.id))) continue;
+        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
+        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+        if (candidates.some(c => c.id === m.id)) continue;
+
+        candidates.push(normalizeTmdbItem(m, "Bucket A: Semantic"));
+        if (candidates.length >= targetCount) break;
+      }
+      page++;
+    } catch (err) {
+      break;
+    }
+  }
+
+  // CINEPHILE FALLBACK: If user has seen all popular titles, switch to deep critical acclaim
+  if (candidates.length < Math.min(targetCount, 5) && sortParam === "popularity.desc") {
+    params.set("sort_by", "vote_average.desc");
+    params.set("vote_count.gte", "400");
+    page = 1;
+
+    while (candidates.length < targetCount && page <= 5) {
+      const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
+      try {
+        const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
+        if (!res.ok) break;
+        const data = await res.json();
+        if (!data.results || data.results.length === 0) break;
+
+        for (const m of data.results) {
+          if (!m || !m.title || !m.overview) continue;
+          const titleClean = m.title.toLowerCase().trim();
+          const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
+          const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
+
+          if (watchedIdSet?.has(String(m.id))) continue;
+          if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
+          if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+          if (candidates.some(c => c.id === m.id)) continue;
+
+          candidates.push(normalizeTmdbItem(m, "Bucket A: Cinephile Critical"));
+          if (candidates.length >= targetCount) break;
+        }
+        page++;
+      } catch (err) {
+        break;
+      }
+    }
+  }
+
+  return candidates;
 }
 
 /**
- * Paginated Candidate Pool Retrieval
- * Paginates up to 5 pages until exactly 20 unwatched candidate movies are found.
+ * BUCKET B: Keyword Spiritual Successor (Safe Keyword Match without Genre Blacklisting)
  */
-export async function fetchCandidatePool(profile, mood = "any", watchedMovies = [], watchlistMovies = []) {
+export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {}, targetCount = 8) {
+  const key = getTmdbKey();
+  if (!key || !anchorTmdbId) return [];
+
+  const { userRegion = "US", userProviders = [] } = options;
+  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
+
+  const { keywords } = await fetchMovieKeywordsAndCrew(anchorTmdbId);
+  if (!keywords || keywords.length === 0) return [];
+
+  const params = new URLSearchParams({
+    api_key: key,
+    with_keywords: keywords.slice(0, 3).join("|"),
+    sort_by: "vote_average.desc",
+    "vote_count.gte": "250",
+    "vote_average.gte": "7.0",
+    include_adult: "false",
+    watch_region: userRegion || "US"
+  });
+
+  const providerFilter = buildProviderFilter(userProviders);
+  if (providerFilter) {
+    params.set("with_watch_providers", providerFilter);
+  }
+
+  const candidates = [];
+  let page = 1;
+
+  while (candidates.length < targetCount && page <= 4) {
+    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
+    try {
+      const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
+      if (!res.ok) break;
+      const data = await res.json();
+      if (!data.results || data.results.length === 0) break;
+
+      for (const m of data.results) {
+        if (!m || !m.title || !m.overview) continue;
+        const titleClean = m.title.toLowerCase().trim();
+        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
+        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
+
+        if (watchedIdSet?.has(String(m.id))) continue;
+        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
+        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+        if (candidates.some(c => c.id === m.id)) continue;
+
+        candidates.push(normalizeTmdbItem(m, "Bucket B: Spiritual Successor"));
+        if (candidates.length >= targetCount) break;
+      }
+      page++;
+    } catch (err) {
+      break;
+    }
+  }
+
+  return candidates;
+}
+
+/**
+ * BUCKET C: Single Auteur Crew Member Query (with_crew={singleId})
+ */
+export async function fetchBucketC(profile, options = {}, collisionSets = {}, targetCount = 4) {
+  const key = getTmdbKey();
+  if (!key) return [];
+
+  const { topCrewMemberId } = profile;
+  if (!topCrewMemberId) return [];
+
+  const { userRegion = "US", userProviders = [] } = options;
+  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
+
+  const params = new URLSearchParams({
+    api_key: key,
+    with_crew: String(topCrewMemberId),
+    sort_by: "vote_average.desc",
+    "vote_count.gte": "150",
+    include_adult: "false",
+    watch_region: userRegion || "US"
+  });
+
+  const providerFilter = buildProviderFilter(userProviders);
+  if (providerFilter) {
+    params.set("with_watch_providers", providerFilter);
+  }
+
+  const candidates = [];
+  let page = 1;
+
+  while (candidates.length < targetCount && page <= 3) {
+    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
+    try {
+      const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
+      if (!res.ok) break;
+      const data = await res.json();
+      if (!data.results || data.results.length === 0) break;
+
+      for (const m of data.results) {
+        if (!m || !m.title || !m.overview) continue;
+        const titleClean = m.title.toLowerCase().trim();
+        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
+        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
+
+        if (watchedIdSet?.has(String(m.id))) continue;
+        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
+        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+        if (candidates.some(c => c.id === m.id)) continue;
+
+        candidates.push(normalizeTmdbItem(m, "Bucket C: Auteur Crew"));
+        if (candidates.length >= targetCount) break;
+      }
+      page++;
+    } catch (err) {
+      break;
+    }
+  }
+
+  return candidates;
+}
+
+/**
+ * 3-Bucket Dynamic Waterfall Candidate Pool Orchestrator with Cold-Start Bypass
+ */
+export async function fetchCandidatePool(profile, mood = "any", watchedMovies = [], watchlistMovies = [], options = {}) {
   const key = getTmdbKey();
   if (!key) {
     throw new Error("TMDB_KEY_MISSING");
   }
 
   const watchedIdSet = new Set(
-    (watchedMovies || []).map(m => String(m.id || m.imdbID || "")).filter(Boolean)
+    (watchedMovies || []).map(m => String(m.id || m.imdbID || m.tmdbId || "")).filter(Boolean)
   );
 
   const watchedTitleSet = new Set(
@@ -288,93 +584,120 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
     }).filter(Boolean)
   );
 
-  let page = 1;
-  const maxPages = 5;
-  const unwatchedCandidates = [];
-  const baseParams = buildDiscoverParams(profile, mood, key);
+  const collisionSets = { watchedIdSet, watchedTitleSet, watchlistTitleSet };
 
-  while (unwatchedCandidates.length < 20 && page <= maxPages) {
-    const queryParams = new URLSearchParams({ ...baseParams, page: String(page) });
-    const url = `https://api.themoviedb.org/3/discover/movie?${queryParams.toString()}`;
+  // COLD-START BYPASS: If user has < 3 ratings, route entirely to expanded Bucket A
+  if ((watchedMovies || []).length < 3) {
+    return fetchBucketA(profile, mood, options, collisionSets, 20);
+  }
 
-    try {
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) {
-        console.warn(`TMDB discover request failed on page ${page}: status ${res.status}`);
-        break;
+  // 1. Concurrently fetch specific Keyword and Auteur/Cast buckets
+  const [bucketB, bucketC] = await Promise.all([
+    profile.anchorTmdbId ? fetchBucketB(profile.anchorTmdbId, options, collisionSets, 8) : Promise.resolve([]),
+    profile.topCrewMemberId ? fetchBucketC(profile, options, collisionSets, 4) : Promise.resolve([])
+  ]);
+
+  // 2. Merge and deduplicate specific pool
+  const specificPool = [];
+  const seenIds = new Set();
+  const addSpecific = (list) => {
+    for (const item of list) {
+      if (!seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        specificPool.push(item);
       }
-      const data = await res.json();
-      if (!data.results || !Array.isArray(data.results) || data.results.length === 0) {
-        break;
-      }
+    }
+  };
+  addSpecific(bucketB);
+  addSpecific(bucketC);
 
-      for (const m of data.results) {
-        if (!m || !m.title || !m.overview) continue;
+  // 3. Dynamic Waterfall Sizing: Bucket A fetches exactly enough to reach 20
+  const remainingSlots = Math.max(20 - specificPool.length, 8);
+  const bucketA = await fetchBucketA(profile, mood, options, collisionSets, remainingSlots);
 
-        const titleClean = m.title.toLowerCase().trim();
-        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
-        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
-
-        // Skip if already in watched or watchlist
-        if (watchedIdSet.has(String(m.id))) continue;
-        if (watchedTitleSet.has(titleYearKey) || watchedTitleSet.has(titleClean)) continue;
-        if (watchlistTitleSet.has(titleYearKey) || watchlistTitleSet.has(titleClean)) continue;
-
-        // Avoid duplicate additions in candidate pool
-        if (unwatchedCandidates.some(c => c.id === m.id || c.title.toLowerCase() === titleClean)) continue;
-
-        const genreNames = (m.genre_ids || [])
-          .map(id => TMDB_ID_TO_GENRE[id])
-          .filter(Boolean);
-
-        unwatchedCandidates.push({
-          id: m.id,
-          tmdbId: m.id,
-          title: m.title,
-          year: yearClean || "N/A",
-          release_date: m.release_date,
-          overview: m.overview,
-          vote_average: m.vote_average ? Number(m.vote_average.toFixed(1)) : null,
-          vote_count: m.vote_count || 0,
-          popularity: m.popularity || 0,
-          genre_names: genreNames,
-          genre: genreNames.join(", ") || "Cinema",
-          poster_path: m.poster_path,
-          poster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
-          backdrop: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : null
-        });
-
-        if (unwatchedCandidates.length >= 20) break;
-      }
-
-      page++;
-    } catch (err) {
-      console.warn("TMDB Candidate fetch loop encountered error:", err);
-      break;
+  // 4. Return unified 20-film candidate pool
+  const combined = [...specificPool];
+  for (const item of bucketA) {
+    if (!seenIds.has(item.id)) {
+      seenIds.add(item.id);
+      combined.push(item);
     }
   }
 
-  return unwatchedCandidates.slice(0, 20);
+  // Final top-up if needed
+  if (combined.length < 20) {
+    const topUp = await fetchBucketA(profile, "any", options, collisionSets, 20 - combined.length);
+    for (const item of topUp) {
+      if (!seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        combined.push(item);
+      }
+    }
+  }
+
+  return combined.slice(0, 20);
+}
+
+function normalizeTmdbItem(m, sourceBucket = "TMDB") {
+  const genreNames = (m.genre_ids || [])
+    .map(id => TMDB_ID_TO_GENRE[id])
+    .filter(Boolean);
+
+  const yearClean = m.release_date ? m.release_date.slice(0, 4) : "N/A";
+
+  return {
+    id: m.id,
+    tmdbId: m.id,
+    title: m.title,
+    year: yearClean,
+    release_date: m.release_date,
+    overview: m.overview,
+    vote_average: m.vote_average ? Number(m.vote_average.toFixed(1)) : null,
+    vote_count: m.vote_count || 0,
+    popularity: m.popularity || 0,
+    genre_names: genreNames,
+    genre: genreNames.join(", ") || "Cinema",
+    poster_path: m.poster_path,
+    poster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
+    backdrop: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : null,
+    sourceBucket
+  };
 }
 
 /**
- * Fetch detailed movie data with append_to_response=videos,credits,external_ids
+ * Fetch detailed movie data with append_to_response=videos,credits,external_ids,watch/providers,keywords
  */
-export async function fetchTmdbMovieDetails(tmdbId) {
+export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
   const key = getTmdbKey();
   if (!key || !tmdbId) return null;
 
   try {
-    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=videos,credits,external_ids&language=en-US`;
+    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=videos,credits,external_ids,keywords,watch/providers&language=en-US`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return null;
     const data = await res.json();
 
     const director = data.credits?.crew?.find(c => c.job === "Director")?.name || "Unknown";
+    const crewPersonId = data.credits?.crew?.find(c => ["Director of Photography", "Original Music Composer", "Screenplay", "Director"].includes(c.job))?.id || null;
     const cast = (data.credits?.cast || []).slice(0, 5).map(c => c.name).join(", ") || "N/A";
+    const castIds = (data.credits?.cast || []).slice(0, 5).map(c => c.id);
+    const tmdbKeywords = (data.keywords?.keywords || []).slice(0, 10).map(k => k.id);
+    const tmdbGenreIds = (data.genres || []).map(g => g.id);
     const trailerObj = (data.videos?.results || []).find(v => v.site === "YouTube" && (v.type === "Trailer" || v.type === "Teaser"));
     const trailerUrl = trailerObj ? `https://www.youtube.com/watch?v=${trailerObj.key}` : null;
     const imdbId = data.external_ids?.imdb_id || null;
+
+    const providerRegion = data["watch/providers"]?.results?.[userRegion] || data["watch/providers"]?.results?.US;
+    const streamProviders = (providerRegion?.flatrate || []).map(p => ({
+      id: p.provider_id,
+      name: p.provider_name,
+      logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
+    }));
+    const freeProviders = (providerRegion?.free || providerRegion?.ads || []).map(p => ({
+      id: p.provider_id,
+      name: p.provider_name,
+      logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
+    }));
 
     return {
       tmdbId: data.id,
@@ -387,14 +710,20 @@ export async function fetchTmdbMovieDetails(tmdbId) {
       poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
       backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/original${data.backdrop_path}` : null,
       director,
+      crewPersonId,
       cast,
+      castIds,
+      tmdbKeywords,
+      tmdbGenreIds,
       trailerUrl,
       trailerKey: trailerObj?.key || null,
       genre: (data.genres || []).map(g => g.name).join(", ") || "Cinema",
       plot: data.overview || "",
       tagline: data.tagline || "",
       vote_average: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
-      vote_count: data.vote_count || 0
+      vote_count: data.vote_count || 0,
+      streamProviders,
+      freeProviders
     };
   } catch (err) {
     console.warn("Failed to fetch detailed TMDB movie data:", err);
@@ -444,48 +773,40 @@ export const getFallbackPoster = (title = "Film") => {
 
 /**
  * TMDB-to-OMDb Schema Bridge
- * Uses TMDB append_to_response=external_ids for instant zero-roundtrip IMDb ID resolution,
- * with graceful fallback to OMDb.
+ * Enriches saved records with castIds, tmdbKeywords, tmdbGenreIds, streamProviders, and trailerKey
  */
-export async function bridgeTmdbToOmdb(tmdbMovie) {
+export async function bridgeTmdbToOmdb(tmdbMovie, userRegion = "US") {
   if (!tmdbMovie) return null;
-
-  // 1. If already has verified imdbID (e.g. from OMDb), return standard format
-  if (tmdbMovie.imdbID && tmdbMovie.imdbID.startsWith("tt")) {
-    return {
-      imdbID: tmdbMovie.imdbID,
-      title: tmdbMovie.title || tmdbMovie.Title,
-      year: tmdbMovie.year || tmdbMovie.Year || "N/A",
-      poster: tmdbMovie.poster || tmdbMovie.Poster || getFallbackPoster(tmdbMovie.title),
-      runtime: tmdbMovie.runtime || tmdbMovie.Runtime || "N/A",
-      genre: tmdbMovie.genre || tmdbMovie.Genre || "N/A",
-      imdbRating: tmdbMovie.imdbRating || "N/A",
-      userRating: 0
-    };
-  }
 
   const tmdbId = tmdbMovie.tmdbId || tmdbMovie.id;
 
-  // 2. High-performance native TMDB lookup using append_to_response=external_ids,credits
   if (tmdbId) {
-    const details = await fetchTmdbMovieDetails(tmdbId);
+    const details = await fetchTmdbMovieDetails(tmdbId, userRegion);
     if (details && details.imdbID) {
       return {
         imdbID: details.imdbID,
+        tmdbId: details.tmdbId,
         title: details.title || tmdbMovie.title,
         year: details.year || tmdbMovie.year || "N/A",
         poster: details.poster || tmdbMovie.poster || getFallbackPoster(tmdbMovie.title),
         backdrop: details.backdrop || tmdbMovie.backdrop || null,
         runtime: details.runtime || "N/A",
         genre: details.genre || tmdbMovie.genre || "N/A",
+        tmdbGenreIds: details.tmdbGenreIds || [],
         imdbRating: details.vote_average ? String(details.vote_average) : (tmdbMovie.imdbRating || "N/A"),
         director: details.director || "Unknown",
+        cast: details.cast || "N/A",
+        castIds: details.castIds || [],
+        crewPersonId: details.crewPersonId || null,
+        tmdbKeywords: details.tmdbKeywords || [],
+        trailerKey: details.trailerKey || null,
+        streamProviders: details.streamProviders || [],
         userRating: 0
       };
     }
   }
 
-  // 3. Fallback: Search OMDb by title and year
+  // Fallback: search OMDb by title and year
   const cleanTitle = (tmdbMovie.title || tmdbMovie.Title || "").replace(/^["']|["']$/g, "").trim();
   const cleanYear = tmdbMovie.year || tmdbMovie.release_date
     ? String(tmdbMovie.year || tmdbMovie.release_date).match(/\d{4}/)?.[0]
@@ -501,12 +822,18 @@ export async function bridgeTmdbToOmdb(tmdbMovie) {
     if (data.Response === "True" && data.imdbID) {
       return {
         imdbID: data.imdbID,
+        tmdbId: tmdbId || null,
         title: data.Title || cleanTitle,
         year: data.Year || cleanYear || "N/A",
         poster: tmdbMovie.poster || (data.Poster !== "N/A" ? data.Poster : getFallbackPoster(cleanTitle)),
         runtime: data.Runtime && data.Runtime !== "N/A" ? data.Runtime : "N/A",
         genre: data.Genre && data.Genre !== "N/A" ? data.Genre : (tmdbMovie.genre || "N/A"),
+        tmdbGenreIds: mapOmdbToTmdbGenreIds(data.Genre || ""),
         imdbRating: data.imdbRating && data.imdbRating !== "N/A" ? data.imdbRating : (tmdbMovie.imdbRating || "N/A"),
+        director: data.Director || "Unknown",
+        cast: data.Actors || "N/A",
+        castIds: [],
+        tmdbKeywords: [],
         userRating: 0
       };
     }
@@ -514,15 +841,18 @@ export async function bridgeTmdbToOmdb(tmdbMovie) {
     console.warn("Bridge OMDb lookup failed for TMDB candidate:", cleanTitle, e);
   }
 
-  // 4. Ultimate deterministic fallback
   return {
     imdbID: `tmdb_${tmdbId || cleanTitle.replace(/\s+/g, '_')}`,
+    tmdbId: tmdbId || null,
     title: cleanTitle,
     year: cleanYear || "N/A",
     poster: tmdbMovie.poster || getFallbackPoster(cleanTitle),
     runtime: "N/A",
-    genre: tmdbMovie.genre || "N/A",
+    genre: tmdbMovie.genre || "Cinema",
+    tmdbGenreIds: [],
     imdbRating: tmdbMovie.imdbRating || "N/A",
+    castIds: [],
+    tmdbKeywords: [],
     userRating: 0
   };
 }
