@@ -7715,13 +7715,25 @@ button {
 }
 
 @keyframes spinSlow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes pulseGlow {
-  from { transform: scale(0.96); opacity: 0.4; }
-  to { transform: scale(1.04); opacity: 0.9; }
+  from {
+    transform: scale(0.96);
+    opacity: 0.4;
+  }
+
+  to {
+    transform: scale(1.04);
+    opacity: 0.9;
+  }
 }
 
 .theater-main-spinner {
@@ -9645,6 +9657,7 @@ body,
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -10907,4 +10920,3 @@ body,
     max-width: 20rem;
   }
 }
-

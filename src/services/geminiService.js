@@ -6,7 +6,13 @@ import {
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService";
 
-const MODELS = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+const MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash"
+];
 const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
 const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
 
