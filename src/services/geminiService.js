@@ -108,7 +108,7 @@ export function setSmartCache(hash, data) {
         if (keys.length > 1) {
             // Sort keys from oldest to newest
             const sortedKeys = keys.sort((a, b) => (cache[a]?.ts || 0) - (cache[b]?.ts || 0));
-            
+
             // Single serialization check
             let serialized = JSON.stringify(cache);
             let idx = 0;
@@ -125,7 +125,7 @@ export function setSmartCache(hash, data) {
         }
     } catch (e) {
         console.warn("SmartCache write failed, resetting cache:", e);
-        try { localStorage.removeItem(SMART_CACHE_KEY); } catch (_) {}
+        try { localStorage.removeItem(SMART_CACHE_KEY); } catch (_) { }
     }
 }
 
@@ -138,13 +138,13 @@ export function clearSmartCache(hash) {
         } else {
             localStorage.removeItem(SMART_CACHE_KEY);
         }
-    } catch (_) {}
+    } catch (_) { }
 }
 
 const getOmdbKey = () => {
     const key = import.meta.env.VITE_OMDB_KEY;
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-        return "b78bdecd";
+        return "";
     }
     return key.trim();
 };
@@ -158,6 +158,7 @@ const omdbMemoryCache = new Map();
  */
 export const fetchRealOMDBData = async (title, year, signal) => {
     try {
+        if (!OMDB_KEY) return null;
         const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
         const cleanYear = year ? String(year).trim().match(/\d{4}/)?.[0] : null;
         const cacheKey = `${cleanTitle.toLowerCase()}::${cleanYear || "noyear"}`;
@@ -168,38 +169,14 @@ export const fetchRealOMDBData = async (title, year, signal) => {
 
         let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
         let response = await fetch(url, { cache: "no-store", signal });
-
-        if (!response.ok || response.status === 401) {
-            if (OMDB_KEY !== "b78bdecd") {
-                url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-                response = await fetch(url, { cache: "no-store", signal });
-            }
-        }
+        if (!response.ok) return null;
 
         let data = await response.json();
-
-        if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && OMDB_KEY !== "b78bdecd") {
-            url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-            response = await fetch(url, { cache: "no-store", signal });
-            data = await response.json();
-        }
 
         if (data.Response !== "True" && cleanYear) {
             url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}`;
             response = await fetch(url, { cache: "no-store", signal });
-
-            if (!response.ok || response.status === 401) {
-                if (OMDB_KEY !== "b78bdecd") {
-                    url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}`;
-                    response = await fetch(url, { cache: "no-store", signal });
-                }
-            }
-
-            data = await response.json();
-
-            if (data.Response === "False" && data.Error && (data.Error.includes("key") || data.Error.includes("credential")) && OMDB_KEY !== "b78bdecd") {
-                url = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(cleanTitle)}`;
-                response = await fetch(url, { cache: "no-store", signal });
+            if (response.ok) {
                 data = await response.json();
             }
         }

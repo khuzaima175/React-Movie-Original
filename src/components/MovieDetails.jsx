@@ -34,7 +34,7 @@ import {
 const getOmdbKey = () => {
   const key = import.meta.env.VITE_OMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "b78bdecd";
+    return "";
   }
   return key.trim();
 };
@@ -219,21 +219,14 @@ export default function MovieDetails({
 
         // 1. If it's an IMDb ID, query OMDb & TMDB concurrently
         if (isImdbId) {
-          const omdbPromise = fetch(`https://www.omdbapi.com/?apikey=${OMDB_KEY}&i=${selectedId}`, {
-            cache: "no-store",
-            signal: controller.signal
-          })
-            .then(async (res) => {
-              if (!res.ok && OMDB_KEY !== "b78bdecd") {
-                return fetch(`https://www.omdbapi.com/?apikey=b78bdecd&i=${selectedId}`, {
-                  cache: "no-store",
-                  signal: controller.signal
-                });
-              }
-              return res;
-            })
-            .then((res) => (res.ok ? res.json() : null))
-            .catch(() => null);
+          const omdbPromise = OMDB_KEY
+            ? fetch(`https://www.omdbapi.com/?apikey=${OMDB_KEY}&i=${selectedId}`, {
+                cache: "no-store",
+                signal: controller.signal
+              })
+                .then((res) => (res.ok ? res.json() : null))
+                .catch(() => null)
+            : Promise.resolve(null);
 
           const tmdbPromise = findTmdbByImdbId(selectedId)
             .then((found) => (found?.tmdbId ? fetchTmdbMovieDetails(found.tmdbId, userRegion) : null))

@@ -20,7 +20,7 @@ import {
 const getOmdbKey = () => {
   const key = import.meta.env.VITE_OMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "b78bdecd";
+    return "";
   }
   return key.trim();
 };
@@ -358,43 +358,8 @@ export default function BackupManagerModal({ isOpen, onClose }) {
             }
 
             let res = await fetch(fetchUrl, { cache: "no-store" });
-
-            if (!res.ok || res.status === 401) {
-              if (KEY !== "b78bdecd") {
-                let fallbackUrl = "";
-                if (row.imdbId && row.imdbId.startsWith("tt")) {
-                  fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
-                } else {
-                  fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(
-                    row.title
-                  )}${row.year ? `&y=${row.year}` : ""}`;
-                }
-                res = await fetch(fallbackUrl, { cache: "no-store" });
-              }
-            }
-
             if (!res.ok) throw new Error("Network issues");
             let data = await res.json();
-
-            if (
-              data.Response === "False" &&
-              data.Error &&
-              (data.Error.includes("key") || data.Error.includes("credential")) &&
-              KEY !== "b78bdecd"
-            ) {
-              let fallbackUrl = "";
-              if (row.imdbId && row.imdbId.startsWith("tt")) {
-                fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&i=${row.imdbId}`;
-              } else {
-                fallbackUrl = `https://www.omdbapi.com/?apikey=b78bdecd&t=${encodeURIComponent(
-                  row.title
-                )}${row.year ? `&y=${row.year}` : ""}`;
-              }
-              const fallbackRes = await fetch(fallbackUrl, { cache: "no-store" });
-              if (fallbackRes.ok) {
-                data = await fallbackRes.json();
-              }
-            }
 
             if (data.Response === "True") {
               const isWatchlist =

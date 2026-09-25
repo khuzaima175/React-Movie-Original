@@ -75,19 +75,55 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
     async function searchMovies() {
       try {
         setIsLoading(true);
-        const keyToUse = API_KEY || import.meta.env.VITE_OMDB_KEY || "b78bdecd";
-        const res = await fetch(
-          `https://www.omdbapi.com/?apikey=${keyToUse}&s=${encodeURIComponent(debouncedQuery.trim())}`,
-          { signal: controller.signal, cache: "no-store" }
-        );
-        if (!res.ok) throw new Error("Search network failed");
-        const data = await res.json();
-        if (data.Response === "True") {
-          setResults(data.Search || []);
-          setSelectedIndex(0);
-        } else {
-          setResults([]);
+        const omdbKey = API_KEY || import.meta.env.VITE_OMDB_KEY || "";
+        const tmdbKey = import.meta.env.VITE_TMDB_KEY || "";
+
+        // 1. Try OMDb search if key is provided
+        if (omdbKey) {
+          try {
+            const res = await fetch(
+              `https://www.omdbapi.com/?apikey=${omdbKey}&s=${encodeURIComponent(debouncedQuery.trim())}`,
+              { signal: controller.signal, cache: "no-store" }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data.Response === "True" && Array.isArray(data.Search)) {
+                setResults(data.Search);
+                setSelectedIndex(0);
+                setIsLoading(false);
+                return;
+              }
+            }
+          } catch (_) {}
         }
+
+        // 2. Fallback to TMDB search if TMDB key is provided
+        if (tmdbKey) {
+          try {
+            const res = await fetch(
+              `https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${encodeURIComponent(debouncedQuery.trim())}&include_adult=false`,
+              { signal: controller.signal, cache: "no-store" }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data.results && Array.isArray(data.results) && data.results.length > 0) {
+                const mapped = data.results.slice(0, 10).map((m) => ({
+                  imdbID: `tmdb_${m.id}`,
+                  Title: m.title,
+                  Year: m.release_date ? m.release_date.slice(0, 4) : "N/A",
+                  Poster: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : null,
+                  Type: "movie"
+                }));
+                setResults(mapped);
+                setSelectedIndex(0);
+                setIsLoading(false);
+                return;
+              }
+            }
+          } catch (_) {}
+        }
+
+        setResults([]);
       } catch (err) {
         if (err.name !== "AbortError") {
           setResults([]);

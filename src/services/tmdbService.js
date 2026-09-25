@@ -24,7 +24,7 @@ const getTmdbKey = () => {
 const getOmdbKey = () => {
   const key = import.meta.env.VITE_OMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "b78bdecd";
+    return "";
   }
   return key.trim();
 };
