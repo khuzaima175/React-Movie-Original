@@ -10791,4 +10791,120 @@ body,
     width: 1.9rem;
     height: 1.9rem;
   }
-}
+}
+
+/* ============================================================
+   CINEMAVAULT — LUXURY FLOATING TOAST NOTIFICATION
+   ============================================================ */
+
+.cinema-toast-wrapper {
+  position: fixed;
+  top: 3.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999999;
+  pointer-events: auto;
+  max-width: 92vw;
+  width: max-content;
+}
+
+.cinema-toast-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.9rem 1.8rem 0.9rem 1.2rem;
+  background: rgba(20, 21, 26, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(226, 177, 60, 0.28);
+  border-radius: 9999px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 24px rgba(226, 177, 60, 0.12);
+  color: #f4f4f2;
+}
+
+.cinema-toast-icon {
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 50%;
+  background: rgba(226, 177, 60, 0.15);
+  border: 1px solid rgba(226, 177, 60, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cinema-toast-text {
+  font-size: 1.35rem;
+  font-weight: 500;
+  color: #e5e7eb;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.cinema-toast-movie-title {
+  color: #e2b13c;
+  font-weight: 700;
+  margin: 0 0.3rem;
+}
+
+.cinema-toast-undo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1.1rem;
+  background: rgba(226, 177, 60, 0.14);
+  border: 1px solid rgba(226, 177, 60, 0.38);
+  border-radius: 9999px;
+  color: #e2b13c;
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-left: 0.4rem;
+}
+
+.cinema-toast-undo-btn:hover {
+  background: rgba(226, 177, 60, 0.25);
+  color: #ffffff;
+  border-color: rgba(226, 177, 60, 0.6);
+  transform: scale(1.04);
+}
+
+.cinema-toast-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #8a8a86;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 0.2rem;
+}
+
+.cinema-toast-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 600px) {
+  .cinema-toast-wrapper {
+    top: 2rem;
+  }
+
+  .cinema-toast-pill {
+    padding: 0.7rem 1.2rem;
+    gap: 0.8rem;
+  }
+
+  .cinema-toast-text {
+    font-size: 1.2rem;
+    white-space: normal;
+    max-width: 20rem;
+  }
+}
+

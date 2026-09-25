@@ -1,4 +1,4 @@
-import { RotateCcw, X, CheckCircle2 } from "lucide-react";
+import { RotateCcw, X, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function ToastNotification({ toast, onUndo, onClose }) {
@@ -7,42 +7,52 @@ export default function ToastNotification({ toast, onUndo, onClose }) {
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed top-6 left-1/2 -translate-x-1/2 z-[10000] w-auto max-w-md pointer-events-auto"
-        initial={{ opacity: 0, y: -20, scale: 0.95 }}
+        className="cinema-toast-wrapper"
+        initial={{ opacity: 0, y: -24, scale: 0.94 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: -20, scale: 0.95 }}
-        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        exit={{ opacity: 0, y: -20, scale: 0.94 }}
+        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
         role="alert"
         aria-live="polite"
       >
-        <div className="flex items-center gap-3 px-4 py-3 rounded-card bg-surface-2 border border-hairline shadow-sh-3 text-text-1">
-          <CheckCircle2 size={16} className="text-accent flex-shrink-0" aria-hidden="true" />
-          <span className="text-xs sm:text-sm font-medium">
+        <div className="cinema-toast-pill">
+          <div className="cinema-toast-icon">
+            <Check size={16} className="text-[#e2b13c]" strokeWidth={2.5} aria-hidden="true" />
+          </div>
+
+          <span className="cinema-toast-text">
             {toast.message ? (
               toast.message
             ) : (
               <>
-                Removed <strong className="font-semibold text-text-1">{toast.title}</strong> from Vault
+                Removed <span className="cinema-toast-movie-title">{toast.title}</span> from {toast.tab === "watchlist" ? "Watchlist" : "Vault"}
               </>
             )}
           </span>
+
           {onUndo && toast.item && (
             <button
+              type="button"
               onClick={() => onUndo(toast.item)}
-              className="inline-flex items-center gap-1 ml-1 px-2 py-1 text-xs font-semibold rounded-control bg-surface-3 hover:bg-surface-1 text-accent hover:text-[#f2c968] border border-hairline transition-colors"
+              className="cinema-toast-undo-btn"
+              aria-label="Undo movie deletion"
             >
-              <RotateCcw size={12} aria-hidden="true" /> Undo
+              <RotateCcw size={13} aria-hidden="true" />
+              <span>Undo</span>
             </button>
           )}
+
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-control text-text-3 hover:text-text-1 hover:bg-surface-3 transition-colors ml-1"
+            className="cinema-toast-close-btn"
             aria-label="Dismiss notification"
           >
-            <X size={14} aria-hidden="true" />
+            <X size={15} aria-hidden="true" />
           </button>
         </div>
       </motion.div>
     </AnimatePresence>
   );
 }
+
