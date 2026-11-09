@@ -213,14 +213,14 @@ The TMDB `/discover/movie` API enforces specific boolean logic conventions acros
 | **Genres** | `with_genres` | `\|` (Pipe) | **OR** | `with_genres=28\|878` (Action OR Sci-Fi) |
 | **Keywords** | `with_keywords` | `\|` (Pipe) | **OR** | `with_keywords=9715\|10402` |
 | **Excluded Keywords** | `without_keywords`| `\|` (Pipe) | **OR** | `without_keywords=9715\|10402` |
-| **Cast / Actors** | `with_cast` | `,` (Comma) | **OR** | `with_cast=67890,11122` (Actor A OR Actor B) |
+| **Cast / Actors** | `with_cast` | `\|` (Pipe) | **OR** | `with_cast=67890\|11122` (Actor A OR Actor B) |
 | **Crew Members** | `with_crew` | N/A | Single ID | `with_crew=12345` (Christopher Nolan) |
 | **Watch Providers** | `with_watch_providers` | `\|` (Pipe) | **OR** | `with_watch_providers=8\|9\|337` (Netflix OR Prime OR Disney+) |
 
 > [!IMPORTANT]
 > - **Conditional Genre Guard**: `with_genres` is only appended when `combinedLoved.length > 0` to prevent malformed empty parameters.
 > - **Excluded Keywords (`without_keywords`)** uses pipe `|` to exclude films containing ANY of the specified trope tags.
-> - **People (`with_cast`)** in TMDB use commas `,` for OR logic, whereas **Genres & Keywords** use pipes `|`.
+> - **People (`with_cast`)** in TMDB treat comma `,` as **AND** and pipe `|` as **OR** (just like Genres & Keywords). CinemaVault uses `with_cast=A|B` so Bucket A never starves.
 > - **Watch Providers** take integer provider IDs (`8|9`), NOT monetization strings like `flatrate`.
 > - When `with_watch_providers` is passed, TMDB requires a valid 2-letter ISO `watch_region` code. If `userRegion === "GLOBAL"`, it defaults `watch_region` to `US` when provider filters are active.
 
@@ -278,10 +278,10 @@ When a user adds a film from recommendations or details to their Vault or Watchl
 
 ---
 
-## 7. Structured Gemini Re-Ranking, Score Normalization & Failover Chain
+## 7. Stage 3 Calibrated Ranker, Gemini Explanations & Failover Chain
 
-### 7.1 Structured JSON Output Schema (`reRankCandidatesWithGemini`)
-Gemini receives the 20-candidate pool and is constrained via `responseMimeType: "application/json"` and `responseSchema` (`src/services/geminiService.js:351-382`) to return the top 6 matches:
+### 7.1 Top-30 Diversity Selection & Explanation Schema (`reRankCandidatesWithGemini`)
+Before invoking Gemini, `rankCandidatePool` (`src/services/rankerService.js`) scores the candidate pool using calibrated logistic regression weights and selects the top 30 candidates with deterministic `matchScore` values attached. Gemini receives only those top 30 pre-ranked candidates and is constrained via `responseMimeType: "application/json"` and `responseSchema` (`src/services/geminiService.js`) to perform a diversity pass (selecting 6) and generate natural-language explanations:
 
 ```json
 {
@@ -295,15 +295,14 @@ Gemini receives the 20-candidate pool and is constrained via `responseMimeType: 
       "tmdbId": 680,
       "title": "Pulp Fiction",
       "year": "1994",
-      "matchScore": 96,
       "reason": "Directly matches your affinity for non-linear neo-noir crime sagas and sharp auteur dialogue."
     }
   ]
 }
 ```
 
-### 7.2 Match Score Normalization (`normalizeMatchScore`)
-LLMs occasionally return decimal probabilities (`0.94`), scaled fractions (`0.09`), or raw `1`s despite schema instructions. CinemaVault normalizes all match scores into the `[70, 99]` percentage band (`src/services/geminiService.js:31-42`):
+### 7.2 Calibrated Score Locking (`mergeGeminiExplanationsWithRanker`)
+In v4.0, `mergeGeminiExplanationsWithRanker` locks each recommendation's `matchScore` to the deterministic calibrated ranker score (`candidate.matchScore = Math.round(50 + 49 * probability)`), preventing LLM score invention. `normalizeMatchScore` is retained strictly as a fallback for the OMDb-only generative pipeline when TMDB is unconfigured:
 
 ```javascript
 export const normalizeMatchScore = (val) => {
@@ -349,16 +348,19 @@ export function sanitizeAndParseJSON(rawText) {
 ## 8. Smart LRU Cache, Collision Guard & Tiered Quota Recovery
 
 ### 8.1 Profile-Based Sliding Window Hash (`generateProfileHash`)
-Cache keys are deterministically generated from the active taste state (`src/services/geminiService.js:304-311`):
+Cache keys are deterministically generated without mutating profile arrays in place, and include `anchorTmdbId`, `topCrewMemberId`, and `topCastIds` so logging a new $10/10$ masterpiece immediately invalidates stale cache entries (`src/services/geminiService.js`):
 
 ```javascript
 export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = []) => {
-  const lovedStr = (profile?.lovedGenreIds || []).sort().join("-");
-  const hatedStr = (profile?.hatedKeywordIds || []).sort().join("-");
-  const watchStr = (watchlistGenres || []).slice(0, 3).sort().join("-");
-  const provStr = (providers || []).sort().join("-");
+  const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
+  const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
+  const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
+  const provStr = [...(providers || [])].sort((a, b) => String(a).localeCompare(String(b))).join("-");
+  const anchorStr = String(profile?.anchorTmdbId || "none");
+  const crewStr = String(profile?.topCrewMemberId || "none");
+  const castStr = [...(profile?.topCastIds || [])].sort((a, b) => a - b).join("-");
   const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
-  return `v3_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${cleanMood}`;
+  return `v4_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${anchorStr}_${crewStr}_${castStr}_${cleanMood}`;
 };
 ```
 

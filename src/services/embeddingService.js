@@ -284,12 +284,17 @@ export function loadDefaultEmbeddingIndex(url = "/models/item_embeddings_f16.bin
  */
 export function buildCollabSimMapFromIndex(weightedRatings = [], index = null) {
   const map = new Map();
-  if (!index) return map;
+  if (!index || !index.count) return map;
   const userVec = computeUserEmbedding(weightedRatings, index);
   if (!userVec) return map;
-  const allNeighbors = retrieveByEmbedding(userVec, index, new Set(), index.count);
-  for (const item of allNeighbors) {
-    map.set(item.tmdbId, item.collabSim);
+  const { count, dim, ids, vectors } = index;
+  for (let i = 0; i < count; i++) {
+    const base = i * dim;
+    let dot = 0;
+    for (let d = 0; d < dim; d++) {
+      dot += userVec[d] * vectors[base + d];
+    }
+    map.set(ids[i], dot);
   }
   return map;
 }
