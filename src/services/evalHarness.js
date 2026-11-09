@@ -27,11 +27,13 @@ export function temporalHoldoutSplit(watched = [], holdoutPositiveCount = 10, mi
 
   let positiveFound = 0;
   let splitIndex = indexed.length;
+  let earliestPositiveIndex = indexed.length;
 
   for (let i = indexed.length - 1; i >= 0; i--) {
     const r = Number(indexed[i].movie.userRating ?? indexed[i].movie.UserRating ?? 0);
     if (r >= minPositiveRating) {
       positiveFound++;
+      earliestPositiveIndex = i;
       if (positiveFound === holdoutPositiveCount) {
         splitIndex = i;
         break;
@@ -40,7 +42,11 @@ export function temporalHoldoutSplit(watched = [], holdoutPositiveCount = 10, mi
   }
 
   if (splitIndex === indexed.length && indexed.length > 1) {
-    splitIndex = Math.max(1, indexed.length - holdoutPositiveCount);
+    if (positiveFound > 0) {
+      splitIndex = Math.max(1, earliestPositiveIndex);
+    } else {
+      splitIndex = Math.max(1, indexed.length - holdoutPositiveCount);
+    }
   }
 
   const trainWatched = indexed.slice(0, splitIndex).map(x => x.movie);

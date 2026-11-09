@@ -63,3 +63,13 @@ test("rankCandidatePool ranks 300 candidates down to topK=30 and attaches calibr
   assert.ok(top30[0].matchScore > top30[29].matchScore);
   assert.ok(top30[0].rankerProbability > top30[29].rankerProbability);
 });
+
+test("extractCandidateFeatures handles null collabSimMap and contentSimMap safely", () => {
+  const feats = extractCandidateFeatures(
+    { id: 10, tmdbId: 10, genre_ids: [878], vote_average: 7.8, vote_count: 500 },
+    { profile: { lovedGenreIds: [878] }, collabSimMap: null, contentSimMap: null }
+  );
+  assert.equal(feats.collabSim, 0);
+  assert.equal(feats.contentSim, 0);
+  assert.equal(feats.genreOverlap, 1);
+});

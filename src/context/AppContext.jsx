@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { normalizeFeedbackEvent } from "../services/feedbackService.js";
+import { normalizeFeedbackEvent, recordRatedMovieConversion } from "../services/feedbackService.js";
 
 const AppContext = createContext(null);
 
@@ -202,27 +202,7 @@ export function AppProvider({ children }) {
     });
     setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== movieId));
     if (Number(movie.userRating) > 0) {
-      setAiFeedbackLog((prev) => {
-        const wasTracked = (prev || []).some(
-          (f) =>
-            (f.tmdbId && movie.tmdbId && Number(f.tmdbId) === Number(movie.tmdbId)) ||
-            (f.imdbID && movie.imdbID && f.imdbID === movie.imdbID) ||
-            (f.title && movie.title && f.title.toLowerCase() === movie.title.toLowerCase())
-        );
-        if (!wasTracked) return prev;
-        return normalizeFeedbackEvent(
-          {
-            title: movie.title,
-            year: movie.year,
-            tmdbId: movie.tmdbId,
-            imdbID: movie.imdbID,
-            action: "rated",
-            userRating: Number(movie.userRating)
-          },
-          prev,
-          500
-        );
-      });
+      setAiFeedbackLog((prev) => recordRatedMovieConversion(movie, prev, aiRecommendations, 500));
     }
   }
 

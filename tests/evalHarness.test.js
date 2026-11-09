@@ -71,3 +71,17 @@ test("gridSearchHyperparams evaluates parameter grid on temporal holdout and ret
   assert.equal(result.bestMetrics.recallAt20, 1.0);
   assert.equal(result.leaderboard.length, 6);
 });
+
+test("temporalHoldoutSplit retains positive films in holdout when total positives < holdoutPositiveCount", () => {
+  const watched = [
+    { id: "1", userRating: 6, dateWatched: "2026-01-01" },
+    { id: "2", userRating: 9, dateWatched: "2026-02-01" },
+    { id: "3", userRating: 5, dateWatched: "2026-03-01" },
+    { id: "4", userRating: 6, dateWatched: "2026-04-01" },
+    { id: "5", userRating: 5, dateWatched: "2026-05-01" }
+  ];
+  // Request holdoutPositiveCount=3 when only 1 positive (id="2") exists
+  const split = temporalHoldoutSplit(watched, 3, 8);
+  assert.ok(split.holdoutPositives.has("2"), "must include the positive film in holdoutPositives");
+  assert.equal(split.trainWatched.length, 1, "keeps earlier history before the positive film in trainWatched");
+});

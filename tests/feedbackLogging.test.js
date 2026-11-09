@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeFeedbackEvent } from "../src/services/feedbackService.js";
+import { normalizeFeedbackEvent, recordRatedMovieConversion } from "../src/services/feedbackService.js";
 
 test("normalizeFeedbackEvent preserves tmdbId, matchScoreAtTime, and upgrades watchlist_add to rated when user rates the film", () => {
   let log = [];
@@ -21,4 +21,20 @@ test("normalizeFeedbackEvent preserves tmdbId, matchScoreAtTime, and upgrades wa
   assert.equal(log[0].userRating, 9);
   assert.equal(log[0].previousAction, "added_watchlist");
   assert.equal(log[0].matchScoreAtTime, 93, "retains original matchScoreAtTime for calibration training");
+});
+
+test("recordRatedMovieConversion logs rated conversion when movie matches aiRecommendations directly", () => {
+  const recs = [
+    { title: "Prisoners", year: "2013", tmdbId: 146233, matchScore: 94, sourceBucket: "Bucket A: Semantic" }
+  ];
+  const updatedLog = recordRatedMovieConversion(
+    { title: "Prisoners", year: "2013", tmdbId: 146233, userRating: 9 },
+    [],
+    recs
+  );
+  assert.equal(updatedLog.length, 1);
+  assert.equal(updatedLog[0].action, "rated");
+  assert.equal(updatedLog[0].userRating, 9);
+  assert.equal(updatedLog[0].matchScoreAtTime, 94);
+  assert.equal(updatedLog[0].sourceBucket, "Bucket A: Semantic");
 });

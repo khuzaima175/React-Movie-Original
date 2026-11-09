@@ -41,3 +41,33 @@ export function normalizeFeedbackEvent(feedbackItem, prevLog = [], maxEvents = 5
 
   return [...filtered, merged].slice(-maxEvents);
 }
+
+/**
+ * Records a "rated" conversion if the rated movie matches an entry in feedbackLog or aiRecommendations.
+ */
+export function recordRatedMovieConversion(movie, prevLog = [], aiRecommendations = [], maxEvents = 500) {
+  const list = Array.isArray(prevLog) ? prevLog : [];
+  if (!movie || !(Number(movie.userRating) > 0)) return list;
+
+  const matchedLog = list.find(f => matchesFeedbackEntry(f, movie));
+  const matchedRec = (Array.isArray(aiRecommendations) ? aiRecommendations : []).find(
+    r => matchesFeedbackEntry(r, movie)
+  );
+
+  if (!matchedLog && !matchedRec) return list;
+
+  return normalizeFeedbackEvent(
+    {
+      title: movie.title,
+      year: movie.year,
+      tmdbId: movie.tmdbId ?? matchedRec?.tmdbId ?? matchedLog?.tmdbId ?? null,
+      imdbID: movie.imdbID ?? matchedRec?.imdbID ?? matchedLog?.imdbID ?? null,
+      matchScoreAtTime: matchedLog?.matchScoreAtTime ?? matchedRec?.matchScore ?? null,
+      sourceBucket: matchedLog?.sourceBucket ?? matchedRec?.sourceBucket ?? null,
+      action: "rated",
+      userRating: Number(movie.userRating)
+    },
+    list,
+    maxEvents
+  );
+}

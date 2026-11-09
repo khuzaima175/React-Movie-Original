@@ -30,8 +30,8 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
   } = context;
 
   const tmdbId = Number(candidate.tmdbId ?? candidate.id ?? 0);
-  const collabSim = Number(collabSimMap.get(tmdbId) ?? candidate.collabSim ?? 0);
-  const contentSim = Number(contentSimMap.get(tmdbId) ?? candidate.contentSim ?? 0);
+  const collabSim = Number(collabSimMap?.get?.(tmdbId) ?? candidate.collabSim ?? 0);
+  const contentSim = Number(contentSimMap?.get?.(tmdbId) ?? candidate.contentSim ?? 0);
 
   const lovedSet = new Set(profile.lovedGenreIds || []);
   const candGenres = candidate.tmdbGenreIds || candidate.genre_ids || [];

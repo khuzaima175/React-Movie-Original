@@ -621,7 +621,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
  * Hybrid Waterfall TMDB Candidate Engine + Gemini Re-Ranking
  */
 export const getMovieRecommendations = async (watchedMovies = [], watchlist = [], onProgress, options = {}) => {
-    const apiKey = import.meta.env.VITE_GEMINI_KEY;
+    const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
 
     if (!apiKey) {
         throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
@@ -641,6 +641,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
         try {
             onProgress?.("Harvesting 3-bucket verified candidate catalogue from TMDB...");
             const candidates = await fetchCandidatePool(profile, mood, watchedMovies, watchlist, {
+                ...options,
                 userRegion,
                 userProviders
             });
