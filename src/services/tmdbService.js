@@ -13,8 +13,10 @@
  * - Schema Bridge Metadata Persistence (castIds, tmdbKeywords, tmdbGenreIds, streamProviders)
  */
 
+import { computeZScoredWeights, computeUserRatingStats } from "./scoringUtils.js";
+
 const getTmdbKey = () => {
-  const key = import.meta.env.VITE_TMDB_KEY;
+  const key = import.meta.env?.VITE_TMDB_KEY || globalThis.process?.env?.VITE_TMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
     return "";
   }
@@ -22,7 +24,7 @@ const getTmdbKey = () => {
 };
 
 const getOmdbKey = () => {
-  const key = import.meta.env.VITE_OMDB_KEY;
+  const key = import.meta.env?.VITE_OMDB_KEY || globalThis.process?.env?.VITE_OMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
     return "";
   }
@@ -138,9 +140,9 @@ export function mapOmdbToTmdbGenreIds(omdbGenreStr = "") {
 
 /**
  * Mathematical Weighted Taste Profiler
- * Integrates Continuous Rating Weights + Exponential Time-Decay + Surgical Trope Math
+ * Integrates Z-Scored Rating Weights + Bulk-Import-Aware Time-Decay + Surgical Trope Math
  */
-export async function extractTasteProfile(watched = [], watchlist = []) {
+export async function extractTasteProfile(watched = [], watchlist = [], options = {}) {
   const rated = (watched || []).filter(m => {
     const r = Number(m.userRating || m.UserRating || 0);
     return !isNaN(r) && r > 0;
@@ -150,46 +152,50 @@ export async function extractTasteProfile(watched = [], watchlist = []) {
   const hatedKeywordCounts = {};
   const castScores = {};
   const crewScores = {};
-  const DECAY_RATE = 0.002; // ~346 day (~11.5 month) cinema-appropriate half-life
+  const DECAY_RATE = options.lambda ?? 0.002;
+  const anchorCutoff = options.anchorCutoff ?? 9;
 
-  // Calculate continuous weights with exponential time decay
-  const weightedRated = rated.map(movie => {
-    const rating = Number(movie.userRating || movie.UserRating || 0);
-    const addedTime = new Date(movie.dateWatched || movie.addedAt || Date.now()).getTime();
-    const daysSince = Math.max(0, (Date.now() - addedTime) / (1000 * 60 * 60 * 24));
-    const timeDecay = Math.exp(-DECAY_RATE * daysSince);
+  const userStats = computeUserRatingStats(rated);
+  const zScoredList = computeZScoredWeights(rated, {
+    lambda: DECAY_RATE,
+    now: options.now ?? Date.now(),
+    bulkPriorDays: options.bulkPriorDays ?? 180
+  });
 
-    // Continuous Weight: 10/10 = 1.0, 9/10 = 0.8, 8/10 = 0.6, 7/10 = 0.4, <=5 = 0
-    const baseWeight = Math.max(0, (rating - 5) / 5);
-    const finalWeight = baseWeight * timeDecay;
+  // Calculate continuous weights with z-scores and exponential time decay
+  const weightedRated = zScoredList.map(({ movie, rating, zScore, daysSince, timeDecay, weight }) => {
+    const positiveWeight = Math.max(0, weight);
 
     // 1. Positive Genre Weighting (Direct TMDB IDs or string fallback)
-    const genreIds = movie.tmdbGenreIds || mapOmdbToTmdbGenreIds(movie.genre || movie.Genre || "");
-    genreIds.forEach(id => {
-      genreScores[id] = (genreScores[id] || 0) + finalWeight;
-    });
+    if (positiveWeight > 0) {
+      const genreIds = movie.tmdbGenreIds || mapOmdbToTmdbGenreIds(movie.genre || movie.Genre || "");
+      genreIds.forEach(id => {
+        genreScores[id] = (genreScores[id] || 0) + positiveWeight;
+      });
+    }
 
-    // 2. Surgical Negative Trope Extraction (from 1-3 star films with slower psychological dislike decay)
-    if (rating <= 3 && movie.tmdbKeywords && Array.isArray(movie.tmdbKeywords)) {
+    // 2. Surgical Negative Trope Extraction (from low rated or negative z-score films with slower dislike decay)
+    if ((rating <= 4 || zScore < -0.4) && movie.tmdbKeywords && Array.isArray(movie.tmdbKeywords)) {
       const negativeDecay = Math.exp(-(DECAY_RATE / 2) * daysSince);
+      const negMagnitude = Math.max(1, Math.abs(zScore)) * negativeDecay;
       movie.tmdbKeywords.forEach(kId => {
-        hatedKeywordCounts[kId] = (hatedKeywordCounts[kId] || 0) + negativeDecay;
+        hatedKeywordCounts[kId] = (hatedKeywordCounts[kId] || 0) + negMagnitude;
       });
     }
 
     // 3. Star Power Cast & Auteur Crew Scoring (from >= 8/10 films)
-    if (rating >= 8) {
+    if (rating >= 8 && positiveWeight > 0) {
       if (movie.castIds && Array.isArray(movie.castIds)) {
         movie.castIds.slice(0, 3).forEach(cId => {
-          castScores[cId] = (castScores[cId] || 0) + finalWeight;
+          castScores[cId] = (castScores[cId] || 0) + positiveWeight;
         });
       }
       if (movie.crewPersonId) {
-        crewScores[movie.crewPersonId] = (crewScores[movie.crewPersonId] || 0) + finalWeight;
+        crewScores[movie.crewPersonId] = (crewScores[movie.crewPersonId] || 0) + positiveWeight;
       }
     }
 
-    return { ...movie, finalWeight };
+    return { ...movie, finalWeight: weight, zScore, timeDecay };
   });
 
   // Sort weighted movies descending by finalWeight (captures current obsession)
@@ -211,12 +217,13 @@ export async function extractTasteProfile(watched = [], watchlist = []) {
     .map(([id]) => Number(id))[0] || null;
 
   const hatedKeywordIds = Object.entries(hatedKeywordCounts)
-    .filter(([_, count]) => count >= 1)
+    .filter(([_, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([id]) => Number(id));
 
   // Top anchor film selected from highest finalWeight
-  const eliteAnchors = weightedRated.filter(m => Number(m.userRating || 0) >= 9);
+  const eliteAnchors = weightedRated.filter(m => Number(m.userRating || 0) >= anchorCutoff);
   let anchorTmdbId = null;
   if (eliteAnchors.length > 0) {
     anchorTmdbId = eliteAnchors[0].tmdbId || (await findTmdbByImdbId(eliteAnchors[0].imdbID))?.tmdbId || null;
@@ -259,6 +266,8 @@ export async function extractTasteProfile(watched = [], watchlist = []) {
     anchorTmdbId,
     hatedKeywordIds,
     watchlistGenreIds,
+    weightedRatings: zScoredList,
+    userStats,
     totalRated: rated.length
   };
 }
@@ -292,15 +301,10 @@ export async function fetchMovieKeywordsAndCrew(tmdbId) {
 }
 
 /**
- * BUCKET A: Semantic Discover with Conditional Genre Guard & Comma with_cast
+ * Builds URLSearchParams for Bucket A Semantic Discover (pipe OR for genres, keywords, and cast)
  */
-export async function fetchBucketA(profile, mood = "any", options = {}, collisionSets = {}, targetCount = 8) {
-  const key = getTmdbKey();
-  if (!key) return [];
-
+export function buildBucketAParams(profile = {}, mood = "any", options = {}, apiKey = "") {
   const { userRegion = "US", userProviders = [] } = options;
-  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
-
   const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim();
 
   let sortParam = "popularity.desc";
@@ -352,7 +356,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
   ]));
 
   const params = new URLSearchParams({
-    api_key: key,
+    api_key: apiKey,
     include_adult: "false",
     include_video: "false",
     language: "en-US",
@@ -361,22 +365,19 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
     "vote_average.gte": voteAverageGte
   });
 
-  // CONDITIONAL GENRE GUARD: Never append empty with_genres
   if (combinedLoved.length > 0) {
     params.set("with_genres", combinedLoved.join("|"));
   }
 
-  // SURGICAL TROPE EXCLUSION: Pipe-separated for keyword OR logic (excludes films matching ANY hated trope)
   if (profile.hatedKeywordIds && profile.hatedKeywordIds.length > 0) {
     params.set("without_keywords", profile.hatedKeywordIds.join("|"));
   }
 
-  // STAR POWER INJECTION: Comma-separated for people OR logic
+  // STAR POWER INJECTION: Pipe-separated for TMDB people OR logic
   if (profile.topCastIds && profile.topCastIds.length > 0) {
-    params.set("with_cast", profile.topCastIds.join(","));
+    params.set("with_cast", profile.topCastIds.join("|"));
   }
 
-  // WATCH PROVIDER FILTERING & REGION BINDING
   const providerFilter = buildProviderFilter(userProviders);
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
@@ -384,6 +385,20 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
   } else if (userRegion && userRegion !== "GLOBAL") {
     params.set("watch_region", userRegion);
   }
+
+  return params;
+}
+
+/**
+ * BUCKET A: Semantic Discover with Conditional Genre Guard & Pipe OR with_cast
+ */
+export async function fetchBucketA(profile, mood = "any", options = {}, collisionSets = {}, targetCount = 8) {
+  const key = getTmdbKey();
+  if (!key) return [];
+
+  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
+  const params = buildBucketAParams(profile, mood, options, key);
+  const sortParam = params.get("sort_by") || "popularity.desc";
 
   let candidates = [];
   let page = 1;

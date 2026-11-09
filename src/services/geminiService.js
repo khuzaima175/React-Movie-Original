@@ -4,7 +4,7 @@ import {
     extractTasteProfile,
     fetchCandidatePool,
     getFallbackPoster as getTmdbFallbackPoster
-} from "./tmdbService";
+} from "./tmdbService.js";
 
 const MODELS = [
     "gemini-3.8-flash",
@@ -148,7 +148,7 @@ export function clearSmartCache(hash) {
 }
 
 const getOmdbKey = () => {
-    const key = import.meta.env.VITE_OMDB_KEY;
+    const key = import.meta.env?.VITE_OMDB_KEY || globalThis.process?.env?.VITE_OMDB_KEY;
     if (!key || key === "undefined" || key === "null" || key.trim() === "") {
         return "";
     }
@@ -299,15 +299,18 @@ export const generateFallbackId = (title, year) => {
 };
 
 /**
- * Profile-Based Sliding Window Cache Hash
+ * Profile-Based Sliding Window Cache Hash (Non-Mutating, Includes Anchor/Crew/Cast)
  */
 export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = []) => {
-    const lovedStr = (profile?.lovedGenreIds || []).sort().join("-");
-    const hatedStr = (profile?.hatedKeywordIds || []).sort().join("-");
-    const watchStr = (watchlistGenres || []).slice(0, 3).sort().join("-");
-    const provStr = (providers || []).sort().join("-");
+    const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
+    const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
+    const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
+    const provStr = [...(providers || [])].sort((a, b) => String(a).localeCompare(String(b))).join("-");
+    const anchorStr = String(profile?.anchorTmdbId || "none");
+    const crewStr = String(profile?.topCrewMemberId || "none");
+    const castStr = [...(profile?.topCastIds || [])].sort((a, b) => a - b).join("-");
     const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
-    return `v3_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${cleanMood}`;
+    return `v4_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${anchorStr}_${crewStr}_${castStr}_${cleanMood}`;
 };
 
 /**
