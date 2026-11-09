@@ -122,6 +122,17 @@ export function parseEmbeddingBinary(buffer) {
   const count = view.getUint32(8, true);
   const dim = view.getUint32(12, true);
 
+  if (count <= 0 || count > 500000 || dim <= 0 || dim > 1024) {
+    throw new Error(`Invalid CVEM dimensions: count=${count}, dim=${dim}`);
+  }
+
+  const expectedByteLength = 16 + count * 4 + count * dim * 2;
+  if (buffer.byteLength !== expectedByteLength) {
+    throw new Error(
+      `Invalid CVEM byteLength: expected ${expectedByteLength}, got ${buffer.byteLength}`
+    );
+  }
+
   const ids = new Uint32Array(count);
   const vectors = new Float32Array(count * dim);
   const idToIndex = new Map();
@@ -271,7 +282,12 @@ export function loadDefaultEmbeddingIndex(url = "/models/item_embeddings_f16.bin
   if (!cachedEmbeddingIndexPromise) {
     cachedEmbeddingIndexPromise = Promise.resolve()
       .then(() => fetchFn(url))
-      .then(res => (res && res.ok ? res.arrayBuffer() : null))
+      .then(res => {
+        if (!res || !res.ok) return null;
+        const contentType = String(res.headers?.get?.("content-type") || "").toLowerCase();
+        if (contentType.includes("text/html")) return null;
+        return res.arrayBuffer();
+      })
       .then(buf => (buf ? parseEmbeddingBinary(buf) : null))
       .catch(() => null);
   }
