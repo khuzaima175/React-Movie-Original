@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { extractTasteProfile, buildBucketAParams } from "../src/services/tmdbService.js";
-import { generateProfileHash } from "../src/services/geminiService.js";
+import {
+  generateProfileHash,
+  buildGeminiReRankPrompt,
+  mergeGeminiExplanationsWithRanker
+} from "../src/services/geminiService.js";
 
 test("hatedKeywordIds sorts by negative weight descending before slicing top 5", async () => {
   const now = Date.UTC(2026, 10, 9);
@@ -48,4 +52,22 @@ test("buildBucketAParams joins topCastIds with pipe (OR) instead of comma (AND)"
   assert.equal(params.get("with_cast"), "500|600");
   assert.equal(params.get("with_genres"), "878|53");
   assert.equal(params.get("without_keywords"), "11|22");
+});
+
+test("mergeGeminiExplanationsWithRanker preserves calibrated ranker matchScore instead of LLM score", () => {
+  const rankedCandidates = [
+    { id: 101, tmdbId: 101, title: "Arrival", year: "2016", genre: "Sci-Fi", matchScore: 95, rankerProbability: 0.92, realData: true },
+    { id: 102, tmdbId: 102, title: "Annihilation", year: "2018", genre: "Sci-Fi", matchScore: 84, rankerProbability: 0.69, realData: true }
+  ];
+  const geminiResponse = {
+    tasteProfile: { favoriteGenres: ["Sci-Fi"], preferredEra: "2010s", ratingStyle: "Cerebral" },
+    recommendations: [
+      { tmdbId: 101, title: "Arrival", year: "2016", matchScore: 60, reason: "Fits your love of linguistic sci-fi." },
+      { tmdbId: 102, title: "Annihilation", year: "2018", matchScore: 99, reason: "Matches your atmospheric sci-fi taste." }
+    ]
+  };
+  const final = mergeGeminiExplanationsWithRanker(geminiResponse, rankedCandidates, { lovedGenreNames: ["Sci-Fi"] });
+  assert.equal(final.recommendations[0].tmdbId, 101);
+  assert.equal(final.recommendations[0].matchScore, 95, "must keep calibrated ranker matchScore=95");
+  assert.equal(final.recommendations[1].matchScore, 84, "must keep calibrated ranker matchScore=84");
 });

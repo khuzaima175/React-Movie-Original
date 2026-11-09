@@ -5,6 +5,7 @@ import {
     fetchCandidatePool,
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService.js";
+import { rankCandidatePool } from "./rankerService.js";
 
 const MODELS = [
     "gemini-3.8-flash",
@@ -326,30 +327,127 @@ export const generateInputHash = (watched = [], mood = "any") => {
 };
 
 /**
- * Executes Single-Pass TMDB Candidate Re-Ranking via Gemini
+ * Builds Gemini prompt for diversity selection and natural-language explanations over pre-ranked candidates.
  */
-async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options = {}) {
-    const prompt = `
+export function buildGeminiReRankPrompt(profile, mood, topCandidates = []) {
+    return `
 You are an elite film critic and cinema intelligence engine.
-Re-rank these REAL candidate movies retrieved from TMDB according to the user's taste profile.
+Select a diverse top 6 from these pre-ranked TMDB candidate movies and write compelling explanations.
+Do NOT invent scores—each candidate already has a calibrated ranker score.
 
 USER TASTE PROFILE:
-- Favorite Genres: ${profile.lovedGenreNames.join(", ") || "Diverse / Open"}
+- Favorite Genres: ${(profile.lovedGenreNames || []).join(", ") || "Diverse / Open"}
 - Selected Mood / Vibe: "${cleanStr(mood)}"
 
-CANDIDATE MOVIES (Guaranteed real titles from TMDB):
-${candidates.map(c => `ID: ${c.id} | "${c.title}" (${c.year}) | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10 | Overview: ${c.overview}`).join("\n")}
+PRE-RANKED CANDIDATE MOVIES (Top ${topCandidates.length}):
+${topCandidates.map(c => `ID: ${c.id} | "${c.title}" (${c.year}) | Calibrated Match: ${c.matchScore || 85}% | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10 | Overview: ${c.overview}`).join("\n")}
 
 TASK:
-Select and re-rank the TOP 6 best matching films. Output strict JSON with:
+Perform a light diversity pass over these top candidates and select 6 distinct films. Output strict JSON with:
 1. tasteProfile: Object containing favoriteGenres (array of strings), preferredEra (string), and ratingStyle (string description).
-2. recommendations: Array of exactly 6 items with:
+2. recommendations: Array of 6 items with:
    - tmdbId (number matching the candidate ID)
    - title (string)
    - year (string)
-   - matchScore (integer from 75 to 98, representing match percentage with taste profile)
    - reason (string: 1-2 sentence compelling cinematic explanation of WHY this film connects to their taste profile)
 `;
+}
+
+/**
+ * Merges Gemini's diversity pass and explanations with deterministic calibrated ranker matchScores.
+ */
+export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [], profile = {}) {
+    if (!result?.recommendations || !Array.isArray(result.recommendations)) {
+        throw new Error("Invalid recommendation schema returned by Gemini");
+    }
+
+    const enriched = result.recommendations.map(rec => {
+        const candidate = rankedCandidates.find(
+            c => c.id === rec.tmdbId || c.tmdbId === rec.tmdbId || c.title?.toLowerCase() === rec.title?.toLowerCase()
+        ) || {};
+        const calibratedScore = typeof candidate.matchScore === "number"
+            ? candidate.matchScore
+            : normalizeMatchScore(rec.matchScore);
+
+        return {
+            id: candidate.id || rec.tmdbId,
+            tmdbId: candidate.id || rec.tmdbId,
+            title: candidate.title || rec.title,
+            year: candidate.year || rec.year,
+            genre: candidate.genre || (profile.lovedGenreNames?.[0] || "Cinema"),
+            poster: candidate.poster || getFallbackPoster(rec.title),
+            backdrop: candidate.backdrop || null,
+            imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
+            matchScore: calibratedScore,
+            rankerProbability: candidate.rankerProbability ?? null,
+            reason: rec.reason || "Matches your cinematic taste profile.",
+            plot: candidate.overview || rec.reason,
+            sourceBucket: candidate.sourceBucket || "TMDB",
+            realData: true
+        };
+    });
+
+    enriched.sort((a, b) => b.matchScore - a.matchScore);
+
+    return {
+        tasteProfile: result.tasteProfile || {
+            favoriteGenres: (profile.lovedGenreNames || []).slice(0, 3),
+            preferredEra: "Contemporary",
+            ratingStyle: "High cinematic affinity"
+        },
+        recommendations: enriched
+    };
+}
+
+/**
+ * Turns free-text mood queries ("like Drive but funnier") into structured retrieval filters.
+ */
+export async function parseFreeTextMoodWithGemini(ai, rawQuery = "") {
+    const cleaned = cleanStr(rawQuery);
+    if (!cleaned) {
+        return { moodId: "any", withGenres: [], withoutKeywords: [], minYear: null, maxYear: null };
+    }
+    const prompt = `Convert this movie request into structured TMDB filter JSON: "${cleaned}"`;
+    const config = {
+        responseMimeType: "application/json",
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                moodId: { type: Type.STRING },
+                withGenres: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+                withoutKeywords: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+                minYear: { type: Type.NUMBER },
+                maxYear: { type: Type.NUMBER }
+            },
+            required: ["moodId", "withGenres", "withoutKeywords"]
+        }
+    };
+    for (const model of MODELS) {
+        try {
+            const res = await ai.models.generateContent({ model, contents: prompt, config });
+            return sanitizeAndParseJSON(res.text);
+        } catch (_) {}
+    }
+    return { moodId: "any", withGenres: [], withoutKeywords: [], minYear: null, maxYear: null };
+}
+
+/**
+ * Executes Calibrated Ranker + Gemini Explanations & Diversity Pass
+ */
+async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options = {}) {
+    const topCandidates = rankCandidatePool(
+        candidates,
+        {
+            profile,
+            collabSimMap: options.collabSimMap,
+            contentSimMap: options.contentSimMap,
+            userProviders: options.userProviders
+        },
+        options.rankerWeights,
+        30
+    );
+
+    const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates);
 
     const generationConfig = {
         responseMimeType: "application/json",
@@ -376,7 +474,7 @@ Select and re-rank the TOP 6 best matching films. Output strict JSON with:
                             matchScore: { type: Type.NUMBER },
                             reason: { type: Type.STRING }
                         },
-                        required: ["tmdbId", "title", "year", "matchScore", "reason"]
+                        required: ["tmdbId", "title", "year", "reason"]
                     }
                 }
             },
@@ -407,41 +505,7 @@ Select and re-rank the TOP 6 best matching films. Output strict JSON with:
     }
 
     const result = sanitizeAndParseJSON(response.text);
-
-    if (!result.recommendations || !Array.isArray(result.recommendations)) {
-        throw new Error("Invalid recommendation schema returned by Gemini");
-    }
-
-    // Match LLM ranked results back to guaranteed real TMDB candidates
-    const enriched = result.recommendations.map(rec => {
-        const candidate = candidates.find(c => c.id === rec.tmdbId || c.title?.toLowerCase() === rec.title?.toLowerCase()) || {};
-        return {
-            id: candidate.id || rec.tmdbId,
-            tmdbId: candidate.id || rec.tmdbId,
-            title: candidate.title || rec.title,
-            year: candidate.year || rec.year,
-            genre: candidate.genre || (profile.lovedGenreNames[0] || "Cinema"),
-            poster: candidate.poster || getFallbackPoster(rec.title),
-            backdrop: candidate.backdrop || null,
-            imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
-            matchScore: normalizeMatchScore(rec.matchScore),
-            reason: rec.reason || "Matches your cinematic taste profile.",
-            plot: candidate.overview || rec.reason,
-            sourceBucket: candidate.sourceBucket || "TMDB",
-            realData: true
-        };
-    });
-
-    enriched.sort((a, b) => b.matchScore - a.matchScore);
-
-    return {
-        tasteProfile: result.tasteProfile || {
-            favoriteGenres: profile.lovedGenreNames.slice(0, 3),
-            preferredEra: "Contemporary",
-            ratingStyle: "High cinematic affinity"
-        },
-        recommendations: enriched
-    };
+    return mergeGeminiExplanationsWithRanker(result, topCandidates, profile);
 }
 
 /**

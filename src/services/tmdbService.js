@@ -628,14 +628,18 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   const collisionSets = { watchedIdSet, watchedTitleSet, watchlistTitleSet };
 
   // COLD-START BYPASS: If user has < 3 ratings, route entirely to expanded Bucket A
+  const targetPoolSize = Math.max(20, Math.min(500, Number(options.poolSize) || 60));
   if ((watchedMovies || []).length < 3) {
-    return fetchBucketA(profile, mood, options, collisionSets, 20);
+    return fetchBucketA(profile, mood, options, collisionSets, targetPoolSize);
   }
+
+  const bucketBTarget = Math.min(40, Math.max(8, Math.floor(targetPoolSize * 0.35)));
+  const bucketCTarget = Math.min(20, Math.max(4, Math.floor(targetPoolSize * 0.2)));
 
   // 1. Concurrently fetch specific Keyword and Auteur/Cast buckets
   const [bucketB, bucketC] = await Promise.all([
-    profile.anchorTmdbId ? fetchBucketB(profile.anchorTmdbId, options, collisionSets, 8) : Promise.resolve([]),
-    profile.topCrewMemberId ? fetchBucketC(profile, options, collisionSets, 4) : Promise.resolve([])
+    profile.anchorTmdbId ? fetchBucketB(profile.anchorTmdbId, options, collisionSets, bucketBTarget) : Promise.resolve([]),
+    profile.topCrewMemberId ? fetchBucketC(profile, options, collisionSets, bucketCTarget) : Promise.resolve([])
   ]);
 
   // 2. Merge and deduplicate specific pool
@@ -652,11 +656,11 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   addSpecific(bucketB);
   addSpecific(bucketC);
 
-  // 3. Dynamic Waterfall Sizing: Bucket A fetches exactly enough to reach 20
-  const remainingSlots = Math.max(20 - specificPool.length, 8);
+  // 3. Dynamic Waterfall Sizing: Bucket A fetches enough to fill targetPoolSize
+  const remainingSlots = Math.max(targetPoolSize - specificPool.length, 12);
   const bucketA = await fetchBucketA(profile, mood, options, collisionSets, remainingSlots);
 
-  // 4. Return unified 20-film candidate pool
+  // 4. Return unified candidate pool
   const combined = [...specificPool];
   for (const item of bucketA) {
     if (!seenIds.has(item.id)) {
@@ -666,8 +670,8 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   }
 
   // Final top-up if needed
-  if (combined.length < 20) {
-    const topUp = await fetchBucketA(profile, "any", options, collisionSets, 20 - combined.length);
+  if (combined.length < targetPoolSize) {
+    const topUp = await fetchBucketA(profile, "any", options, collisionSets, targetPoolSize - combined.length);
     for (const item of topUp) {
       if (!seenIds.has(item.id)) {
         seenIds.add(item.id);
@@ -676,7 +680,7 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
     }
   }
 
-  return combined.slice(0, 20);
+  return combined.slice(0, targetPoolSize);
 }
 
 function normalizeTmdbItem(m, sourceBucket = "TMDB") {
