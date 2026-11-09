@@ -1,0 +1,24 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { normalizeFeedbackEvent } from "../src/services/feedbackService.js";
+
+test("normalizeFeedbackEvent preserves tmdbId, matchScoreAtTime, and upgrades watchlist_add to rated when user rates the film", () => {
+  let log = [];
+  log = normalizeFeedbackEvent(
+    { title: "Drive", year: "2011", tmdbId: 64690, action: "added_watchlist", matchScoreAtTime: 93, sourceBucket: "CollabNN" },
+    log
+  );
+  assert.equal(log.length, 1);
+  assert.equal(log[0].tmdbId, 64690);
+  assert.equal(log[0].matchScoreAtTime, 93);
+
+  log = normalizeFeedbackEvent(
+    { title: "Drive", year: "2011", tmdbId: 64690, action: "rated", userRating: 9 },
+    log
+  );
+  assert.equal(log.length, 1, "updates existing movie entry or links conversion");
+  assert.equal(log[0].action, "rated");
+  assert.equal(log[0].userRating, 9);
+  assert.equal(log[0].previousAction, "added_watchlist");
+  assert.equal(log[0].matchScoreAtTime, 93, "retains original matchScoreAtTime for calibration training");
+});

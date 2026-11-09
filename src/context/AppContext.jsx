@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import { normalizeFeedbackEvent } from "../services/feedbackService.js";
 
 const AppContext = createContext(null);
 
@@ -184,19 +185,7 @@ export function AppProvider({ children }) {
 
   function addAiFeedback(feedbackItem) {
     if (!feedbackItem || !feedbackItem.title) return;
-    setAiFeedbackLog((prev) => {
-      const filtered = (prev || []).filter(
-        (f) => f.title.toLowerCase() !== feedbackItem.title.toLowerCase()
-      );
-      const updated = [
-        ...filtered,
-        {
-          ...feedbackItem,
-          ts: new Date().toISOString()
-        }
-      ];
-      return updated.slice(-15);
-    });
+    setAiFeedbackLog((prev) => normalizeFeedbackEvent(feedbackItem, prev, 500));
   }
 
   function addWatched(movie) {
@@ -212,6 +201,29 @@ export function AppProvider({ children }) {
       return [...(prev || []), normalizedMovie];
     });
     setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== movieId));
+    if (Number(movie.userRating) > 0) {
+      setAiFeedbackLog((prev) => {
+        const wasTracked = (prev || []).some(
+          (f) =>
+            (f.tmdbId && movie.tmdbId && Number(f.tmdbId) === Number(movie.tmdbId)) ||
+            (f.imdbID && movie.imdbID && f.imdbID === movie.imdbID) ||
+            (f.title && movie.title && f.title.toLowerCase() === movie.title.toLowerCase())
+        );
+        if (!wasTracked) return prev;
+        return normalizeFeedbackEvent(
+          {
+            title: movie.title,
+            year: movie.year,
+            tmdbId: movie.tmdbId,
+            imdbID: movie.imdbID,
+            action: "rated",
+            userRating: Number(movie.userRating)
+          },
+          prev,
+          500
+        );
+      });
+    }
   }
 
   function deleteWatched(id) {

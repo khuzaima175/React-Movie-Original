@@ -22,7 +22,7 @@
     "start": "vite",
     "build": "vite build",
     "serve": "vite preview",
-    "test": "node --test tests"
+    "test": "node --test"
   },
   "eslintConfig": {
     "extends": [
