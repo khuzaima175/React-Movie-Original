@@ -399,6 +399,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
   const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
   const params = buildBucketAParams(profile, mood, options, key);
   const sortParam = params.get("sort_by") || "popularity.desc";
+  const hasProviderFilter = Boolean(params.get("with_watch_providers"));
 
   let candidates = [];
   let page = 1;
@@ -422,7 +423,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
         if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
         if (candidates.some(c => c.id === m.id)) continue;
 
-        candidates.push(normalizeTmdbItem(m, "Bucket A: Semantic"));
+        candidates.push(normalizeTmdbItem(m, "Bucket A: Semantic", hasProviderFilter));
         if (candidates.length >= targetCount) break;
       }
       page++;
@@ -456,7 +457,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
           if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
           if (candidates.some(c => c.id === m.id)) continue;
 
-          candidates.push(normalizeTmdbItem(m, "Bucket A: Cinephile Critical"));
+          candidates.push(normalizeTmdbItem(m, "Bucket A: Cinephile Critical", hasProviderFilter));
           if (candidates.length >= targetCount) break;
         }
         page++;
@@ -521,7 +522,7 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
         if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
         if (candidates.some(c => c.id === m.id)) continue;
 
-        candidates.push(normalizeTmdbItem(m, "Bucket B: Spiritual Successor"));
+        candidates.push(normalizeTmdbItem(m, "Bucket B: Spiritual Successor", Boolean(providerFilter)));
         if (candidates.length >= targetCount) break;
       }
       page++;
@@ -584,7 +585,7 @@ export async function fetchBucketC(profile, options = {}, collisionSets = {}, ta
         if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
         if (candidates.some(c => c.id === m.id)) continue;
 
-        candidates.push(normalizeTmdbItem(m, "Bucket C: Auteur Crew"));
+        candidates.push(normalizeTmdbItem(m, "Bucket C: Auteur Crew", Boolean(providerFilter)));
         if (candidates.length >= targetCount) break;
       }
       page++;
@@ -683,7 +684,7 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   return combined.slice(0, targetPoolSize);
 }
 
-function normalizeTmdbItem(m, sourceBucket = "TMDB") {
+function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQuery = false) {
   const genreNames = (m.genre_ids || [])
     .map(id => TMDB_ID_TO_GENRE[id])
     .filter(Boolean);
@@ -700,12 +701,14 @@ function normalizeTmdbItem(m, sourceBucket = "TMDB") {
     vote_average: m.vote_average ? Number(m.vote_average.toFixed(1)) : null,
     vote_count: m.vote_count || 0,
     popularity: m.popularity || 0,
+    genre_ids: m.genre_ids || [],
     genre_names: genreNames,
     genre: genreNames.join(", ") || "Cinema",
     poster_path: m.poster_path,
     poster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
     backdrop: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : null,
-    sourceBucket
+    sourceBucket,
+    providerMatchedByQuery: Boolean(providerMatchedByQuery)
   };
 }
 

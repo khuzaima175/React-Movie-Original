@@ -79,7 +79,7 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
   const candProviders = (candidate.streamProviders || []).map(p => p.id || p);
   const providerMatch = providerSet.size === 0
     ? 0.5
-    : (candProviders.some(id => providerSet.has(Number(id))) ? 1 : 0);
+    : (candidate.providerMatchedByQuery || candProviders.some(id => providerSet.has(Number(id))) ? 1 : 0);
 
   return {
     collabSim,

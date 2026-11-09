@@ -258,6 +258,10 @@ export default function MovieRecommendations({
     addAiFeedback({
       title: rec.title,
       year: rec.year,
+      tmdbId: rec.tmdbId ?? rec.id ?? null,
+      imdbID: rec.imdbID ?? null,
+      matchScoreAtTime: rec.matchScore ?? null,
+      sourceBucket: rec.sourceBucket ?? null,
       action: "added_watchlist"
     });
 
@@ -288,6 +292,10 @@ export default function MovieRecommendations({
     addAiFeedback({
       title: rec.title,
       year: rec.year,
+      tmdbId: rec.tmdbId ?? rec.id ?? null,
+      imdbID: rec.imdbID ?? null,
+      matchScoreAtTime: rec.matchScore ?? null,
+      sourceBucket: rec.sourceBucket ?? null,
       action: "dismissed",
       reason: reason
     });

@@ -73,3 +73,11 @@ test("extractCandidateFeatures handles null collabSimMap and contentSimMap safel
   assert.equal(feats.contentSim, 0);
   assert.equal(feats.genreOverlap, 1);
 });
+
+test("extractCandidateFeatures sets providerMatch=1 when candidate.providerMatchedByQuery is true", () => {
+  const feats = extractCandidateFeatures(
+    { id: 55, tmdbId: 55, genre_ids: [878], vote_average: 7.5, vote_count: 400, providerMatchedByQuery: true },
+    { profile: { lovedGenreIds: [878] }, userProviders: [8, 9] }
+  );
+  assert.equal(feats.providerMatch, 1);
+});

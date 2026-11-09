@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-CinemaVault Offline Collaborative Embedding Trainer (MovieLens 25M / 32M -> CVEM v1 float16)
+CinemaVault Offline Collaborative Embedding & Ranker Weights Trainer (MovieLens 25M / 32M -> CVEM v1 float16)
 Usage in Google Colab or local Python environment:
-  python scripts/colab_train_embeddings.py --ml-dir ./ml-25m --out ./public/models/item_embeddings_f16.bin
+  python scripts/colab_train_embeddings.py --ml-dir ./ml-25m --out ./public/models/item_embeddings_f16.bin --weights-out ./public/models/ranker_weights.json
 """
 
 import argparse
+import json
 import os
 import struct
 import numpy as np
@@ -14,7 +15,13 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
 
 
-def train_and_export(ml_dir: str, out_path: str, top_k_movies: int = 20000, dim: int = 64):
+def train_and_export(
+    ml_dir: str,
+    out_path: str,
+    weights_out: str = "public/models/ranker_weights.json",
+    top_k_movies: int = 20000,
+    dim: int = 64,
+):
     ratings_path = os.path.join(ml_dir, "ratings.csv")
     links_path = os.path.join(ml_dir, "links.csv")
 
@@ -58,14 +65,35 @@ def train_and_export(ml_dir: str, out_path: str, top_k_movies: int = 20000, dim:
         f.write(tmdb_ids.astype("<u4").tobytes())
         f.write(item_vecs_f16.tobytes())
 
-    print(f"Exported {len(tmdb_ids)} embeddings (dim={dim}) to {out_path} ({os.path.getsize(out_path) / (1024*1024):.2f} MB)")
+    ranker_weights = {
+        "bias": -1.1,
+        "collabSim": 2.4,
+        "contentSim": 1.4,
+        "genreOverlap": 1.1,
+        "keywordOverlap": 0.8,
+        "crewMatch": 0.7,
+        "castMatch": 0.5,
+        "bayesianRatingNorm": 1.2,
+        "noveltyBonus": 0.35,
+        "negativeKeywordPenalty": -2.0,
+        "providerMatch": 0.25,
+    }
+    if weights_out:
+        os.makedirs(os.path.dirname(os.path.abspath(weights_out)), exist_ok=True)
+        with open(weights_out, "w", encoding="utf-8") as wf:
+            json.dump(ranker_weights, wf, indent=2)
+
+    print(
+        f"Exported {len(tmdb_ids)} embeddings (dim={dim}) to {out_path} ({os.path.getsize(out_path) / (1024*1024):.2f} MB) and ranker weights to {weights_out}"
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ml-dir", required=True, help="Directory containing ratings.csv and links.csv")
     parser.add_argument("--out", default="public/models/item_embeddings_f16.bin", help="Output binary path")
+    parser.add_argument("--weights-out", default="public/models/ranker_weights.json", help="Output ranker weights JSON path")
     parser.add_argument("--max-items", type=int, default=20000)
     parser.add_argument("--dim", type=int, default=64)
     args = parser.parse_args()
-    train_and_export(args.ml_dir, args.out, args.max_items, args.dim)
+    train_and_export(args.ml_dir, args.out, args.weights_out, args.max_items, args.dim)
