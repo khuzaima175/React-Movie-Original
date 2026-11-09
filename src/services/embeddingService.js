@@ -245,3 +245,51 @@ export function retrieveByEmbedding(userVec, index, excludeTmdbIds = new Set(), 
   results.sort((a, b) => b.collabSim - a.collabSim);
   return results.slice(0, topK);
 }
+
+let cachedEmbeddingIndexPromise = null;
+
+/**
+ * Clears the memoized runtime embedding index promise (used for testing or manual reloads).
+ */
+export function resetDefaultEmbeddingIndexCache() {
+  cachedEmbeddingIndexPromise = null;
+}
+
+/**
+ * Lazily loads `/models/item_embeddings_f16.bin` in browser environments (or via customFetch).
+ * Gracefully resolves to null on 404, network error, Node.js runtime, or SPA HTML fallback.
+ */
+export function loadDefaultEmbeddingIndex(url = "/models/item_embeddings_f16.bin", customFetch = null) {
+  const fetchFn =
+    customFetch ||
+    (typeof window !== "undefined" && typeof window.fetch === "function"
+      ? window.fetch.bind(window)
+      : null);
+
+  if (!fetchFn) return Promise.resolve(null);
+
+  if (!cachedEmbeddingIndexPromise) {
+    cachedEmbeddingIndexPromise = Promise.resolve()
+      .then(() => fetchFn(url))
+      .then(res => (res && res.ok ? res.arrayBuffer() : null))
+      .then(buf => (buf ? parseEmbeddingBinary(buf) : null))
+      .catch(() => null);
+  }
+
+  return cachedEmbeddingIndexPromise;
+}
+
+/**
+ * Builds a Map<tmdbId, collabSim> across all items in the embedding index from the user's weighted ratings.
+ */
+export function buildCollabSimMapFromIndex(weightedRatings = [], index = null) {
+  const map = new Map();
+  if (!index) return map;
+  const userVec = computeUserEmbedding(weightedRatings, index);
+  if (!userVec) return map;
+  const allNeighbors = retrieveByEmbedding(userVec, index, new Set(), index.count);
+  for (const item of allNeighbors) {
+    map.set(item.tmdbId, item.collabSim);
+  }
+  return map;
+}

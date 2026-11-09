@@ -6,6 +6,7 @@ import {
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService.js";
 import { rankCandidatePool } from "./rankerService.js";
+import { loadDefaultEmbeddingIndex, buildCollabSimMapFromIndex } from "./embeddingService.js";
 
 const MODELS = [
     "gemini-3.8-flash",
@@ -647,8 +648,20 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
             });
 
             if (candidates && candidates.length >= 6) {
+                const embeddingIndex =
+                    options.embeddingIndex !== undefined
+                        ? options.embeddingIndex
+                        : await loadDefaultEmbeddingIndex();
+                const collabSimMap =
+                    options.collabSimMap ||
+                    buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex);
+
                 onProgress?.("AI Oracle re-ranking candidates against taste DNA...");
-                const result = await reRankCandidatesWithGemini(ai, profile, mood, candidates, options);
+                const result = await reRankCandidatesWithGemini(ai, profile, mood, candidates, {
+                    ...options,
+                    embeddingIndex,
+                    collabSimMap
+                });
                 console.log(`✅ TMDB 3-Bucket + Gemini engine completed (${result.recommendations?.length} films)`);
                 return result;
             }

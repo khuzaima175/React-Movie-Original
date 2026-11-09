@@ -5,7 +5,10 @@ import {
   parseEmbeddingBinary,
   computeUserEmbedding,
   blendEmbeddings,
-  retrieveByEmbedding
+  retrieveByEmbedding,
+  loadDefaultEmbeddingIndex,
+  resetDefaultEmbeddingIndexCache,
+  buildCollabSimMapFromIndex
 } from "../src/services/embeddingService.js";
 
 test("encodeEmbeddingBinary and parseEmbeddingBinary round-trip float16 embeddings accurately", () => {
@@ -65,4 +68,44 @@ test("blendEmbeddings weights toward content for low-rating items and toward col
   const warmBlend = blendEmbeddings(collab, content, 500, 50); // alpha = 500/550
   assert.ok(coldBlend[1] > coldBlend[0], "cold item leans toward content vector");
   assert.ok(warmBlend[0] > warmBlend[1], "warm item leans toward collab vector");
+});
+
+test("loadDefaultEmbeddingIndex loads and caches valid CVEM binary and returns null on 404 or SPA HTML fallback", async () => {
+  resetDefaultEmbeddingIndexCache();
+  const validBuf = encodeEmbeddingBinary([
+    { tmdbId: 603, vector: [0.8, 0.6, 0, 0] },
+    { tmdbId: 155, vector: [0.6, 0.8, 0, 0] }
+  ]);
+
+  let fetchCalls = 0;
+  const mockFetchOk = async () => {
+    fetchCalls++;
+    return { ok: true, arrayBuffer: async () => validBuf };
+  };
+
+  const idx1 = await loadDefaultEmbeddingIndex("/models/item_embeddings_f16.bin", mockFetchOk);
+  const idx2 = await loadDefaultEmbeddingIndex("/models/item_embeddings_f16.bin", mockFetchOk);
+  assert.ok(idx1);
+  assert.equal(idx1.count, 2);
+  assert.equal(idx1, idx2);
+  assert.equal(fetchCalls, 1, "memoizes promise across calls");
+
+  // SPA HTML fallback (status 200 returning <!DOCTYPE html> instead of CVEM binary)
+  resetDefaultEmbeddingIndexCache();
+  const htmlBytes = new TextEncoder().encode("<!DOCTYPE html><html><body>Not found</body></html>").buffer;
+  const idxHtml = await loadDefaultEmbeddingIndex("/models/item_embeddings_f16.bin", async () => ({
+    ok: true,
+    arrayBuffer: async () => htmlBytes
+  }));
+  assert.equal(idxHtml, null, "gracefully returns null when SPA returns HTML instead of CVEM binary");
+});
+
+test("buildCollabSimMapFromIndex computes cosine similarity map for all items in index", () => {
+  const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 10, vector: [1, 0, 0, 0] },
+    { tmdbId: 20, vector: [0.8, 0.6, 0, 0] }
+  ]));
+  const simMap = buildCollabSimMapFromIndex([{ movie: { tmdbId: 10 }, weight: 1.5 }], index);
+  assert.ok(simMap instanceof Map);
+  assert.ok(Math.abs(simMap.get(20) - 0.8) < 0.01);
 });
