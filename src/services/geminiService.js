@@ -1,12 +1,20 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
+import { spendTracker } from "./aiSpendTracker.js";
 import {
     TMDB_KEY,
     extractTasteProfile,
     fetchCandidatePool,
+    fetchEmbeddingCandidates,
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService.js";
 import { rankCandidatePool } from "./rankerService.js";
-import { loadDefaultEmbeddingIndex, buildCollabSimMapFromIndex } from "./embeddingService.js";
+import {
+    loadDefaultEmbeddingIndex,
+    buildCollabSimMapFromIndex,
+    buildRepulsionMapFromIndex,
+    computeUserPersonas,
+    retrieveByEmbedding
+} from "./embeddingService.js";
 
 const MODELS = [
     "gemini-3.8-flash",
@@ -15,6 +23,7 @@ const MODELS = [
     "gemini-flash-latest",
     "gemini-2.5-flash"
 ];
+const ARGON_MODEL = "gemini-4-argon";
 const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
 const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
 
@@ -380,6 +389,7 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
             backdrop: candidate.backdrop || null,
             imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
             matchScore: calibratedScore,
+            matchReasons: Array.isArray(candidate.matchReasons) ? candidate.matchReasons : [],
             rankerProbability: candidate.rankerProbability ?? null,
             reason: rec.reason || "Matches your cinematic taste profile.",
             plot: candidate.overview || rec.reason,
@@ -442,10 +452,12 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             profile,
             collabSimMap: options.collabSimMap,
             contentSimMap: options.contentSimMap,
+            repulsionMap: options.repulsionMap,
+            anchorKeywords: options.anchorKeywords ?? profile?.lovedKeywordIds,
             userProviders: options.userProviders
         },
         options.rankerWeights,
-        30
+        options.topK || 15
     );
 
     const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates);
@@ -486,23 +498,56 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
     let response;
     let lastError;
 
-    for (let i = 0; i < MODELS.length; i++) {
-        const currentModel = MODELS[i];
+    // Argon is opt-in (local/private builds only) and capped by the spend tracker.
+    const argonOn = import.meta.env?.VITE_ENABLE_ARGON === "true" && spendTracker.canUseArgon();
+    const attempts = argonOn ? [ARGON_MODEL, ...MODELS] : MODELS;
+
+    for (let i = 0; i < attempts.length; i++) {
+        const currentModel = attempts[i];
+        const isArgon = currentModel === ARGON_MODEL;
         try {
             response = await ai.models.generateContent({
                 model: currentModel,
                 contents: prompt,
-                config: generationConfig
+                config: isArgon
+                    ? { ...generationConfig, thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+                    : generationConfig
             });
+            spendTracker.record(currentModel, response.usageMetadata);
             break;
         } catch (err) {
             lastError = err;
+            if (isArgon) spendTracker.markArgonUnavailable(); // any Argon failure: skip it for the rest of the session
             console.warn(`Model ${currentModel} failed for re-ranking:`, err.message || err);
         }
     }
 
     if (!response) {
-        throw lastError || new Error("All Gemini models failed to re-rank candidates");
+        console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output:", lastError?.message || lastError);
+        return {
+            tasteProfile: {
+                favoriteGenres: (profile.lovedGenreNames || []).slice(0, 3),
+                preferredEra: "Mixed",
+                ratingStyle: "Varied"
+            },
+            recommendations: topCandidates.slice(0, 6).map(cand => ({
+                id: cand.id || cand.tmdbId,
+                tmdbId: cand.id || cand.tmdbId,
+                title: cand.title,
+                year: cand.year,
+                genre: cand.genre || (profile.lovedGenreNames?.[0] || "Cinema"),
+                poster: cand.poster || getFallbackPoster(cand.title),
+                backdrop: cand.backdrop || null,
+                imdbRating: cand.vote_average ? String(cand.vote_average) : null,
+                matchScore: typeof cand.matchScore === "number" ? cand.matchScore : 85,
+                matchReasons: Array.isArray(cand.matchReasons) ? cand.matchReasons : [],
+                rankerProbability: cand.rankerProbability ?? null,
+                reason: "Selected by the CinemaVault calibrated taste ranker.",
+                plot: cand.overview || "",
+                sourceBucket: cand.sourceBucket || "TMDB",
+                realData: true
+            }))
+        };
     }
 
     const result = sanitizeAndParseJSON(response.text);
@@ -655,12 +700,37 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 const collabSimMap =
                     options.collabSimMap ||
                     buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex);
+                const repulsionMap =
+                    options.repulsionMap ||
+                    buildRepulsionMapFromIndex(profile.weightedRatings, embeddingIndex);
+
+                let mergedCandidates = candidates;
+                if (embeddingIndex && options.injectEmbeddingNeighbors !== false) {
+                    const personas = computeUserPersonas(profile.weightedRatings, embeddingIndex);
+                    const excludeIds = new Set([
+                        ...(watchedMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
+                        ...(watchlist || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
+                        ...candidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0))
+                    ]);
+                    const neighbors = retrieveByEmbedding(personas, embeddingIndex, excludeIds, 30);
+                    const injected = await fetchEmbeddingCandidates(
+                        neighbors,
+                        watchedMovies,
+                        watchlist,
+                        candidates,
+                        { userRegion, maxNeighbors: 30 }
+                    );
+                    if (injected.length > 0) {
+                        mergedCandidates = [...candidates, ...injected];
+                    }
+                }
 
                 onProgress?.("AI Oracle re-ranking candidates against taste DNA...");
-                const result = await reRankCandidatesWithGemini(ai, profile, mood, candidates, {
+                const result = await reRankCandidatesWithGemini(ai, profile, mood, mergedCandidates, {
                     ...options,
                     embeddingIndex,
-                    collabSimMap
+                    collabSimMap,
+                    repulsionMap
                 });
                 console.log(`✅ TMDB 3-Bucket + Gemini engine completed (${result.recommendations?.length} films)`);
                 return result;

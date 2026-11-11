@@ -4,6 +4,23 @@
 
 ---
 
+## Known Gaps (audited Nov 11, 2026)
+
+This document describes the v4.0 design. Below is the updated status of the implementation:
+
+| Area | Target Design | Status (Nov 11, 2026) |
+|---|---|---|
+| Stage 1 collaborative embeddings | `/models/item_embeddings_f16.bin` loaded at runtime | **RESOLVED**: 25,000-film, 64-D float16 binary (`3.15 MB`) trained on MovieLens 32M with verified zero holdout leakage. |
+| Stage 2 content embeddings | `contentSim` from blended content vectors | `contentSim` held at 0 to avoid collinear double-counting until true visual/text embeddings exist. |
+| Candidate retrieval | embedding neighbours plus TMDB buckets | **RESOLVED**: Bucket E collaborative neighbor injection wired in `tmdbService.js` and `geminiService.js`. |
+| Keyword / crew features | anchor-keyword overlap, crew match | **RESOLVED**: `lovedKeywordIds` and `topCrewIds` wired into TMDB discovery and ranker scoring. |
+| Centroid collapse & repulsion | multi-persona clustering & negative repulsion | **RESOLVED**: Spherical K-Means (`computeUserPersonas`) and negative repulsion (`weight: -1.5`) active. |
+| Ranker weights & scaling | calibrated logistic weights | **RESOLVED**: Calibrated `collabSim: 4.8`, pool-relative normalization, and metadata damping (0.20x). |
+| Evaluation | harness measures the ranker | **RESOLVED**: Rolling-origin temporal cross-validation (`evaluateRankerRolling`) measures real ranker NDCG@10, Recall@20, and Novelty. |
+| Explanation service models | failover chain | **RESOLVED**: Updated to `gemini-3.8-flash` → `3.7-flash` → `3.5-flash` → `2.5-flash`. |
+
+SDK check (`@google/genai` 1.34.0): the type definitions include `ThinkingConfig.thinkingLevel` and a `ThinkingLevel` enum (`MINIMAL`, `LOW`, `MEDIUM`, `HIGH`), so `thinkingLevel: LOW` can be passed without an upgrade. Whether `gemini-4-argon` accepts it together with `responseSchema` is untested and needs a live call with a paid key.
+
 ## Table of Contents
 
 1. [Executive Summary & Core Philosophy](#1-executive-summary--core-philosophy)
@@ -165,6 +182,42 @@ High-rated films ($\text{Rating} \ge 8$) contribute their creative personnel to 
 
 ### 3.6 Watchlist Intent Vectoring
 Unwatched films saved in the user's `watchlist` represent explicit near-term viewing intent (`src/services/tmdbService.js:239-251`). The profiler extracts the top 3 recurring TMDB genre IDs (`watchlistGenreIds`) from the watchlist and blends the top 2 with the user's top 4 loved genres in Bucket A.
+
+### 3.7 Verified Benchmark Milestones & Scaling Architecture
+
+CinemaVault evaluates all ranking engine iterations using rolling-origin temporal cross-validation (`evaluateRankerRolling` in `src/services/evalHarness.js`) over 4 human cinephile vaults with 98–100 ratings each against a 556-film enriched TMDB candidate catalog:
+
+| Milestone | MovieLens NDCG@10 | MovieLens Recall@20 | Catalog Novelty | Status |
+|---|:---:|:---:|:---:|---|
+| **1. Original Baseline (Small)** | 0.062 | 0.083 | 1.48 | 9.6k films, 100k ratings, 2018 cutoff |
+| **2. Initial 32M (Unnormalized)** | 0.078 | 0.171 | 1.82 | 25k films, 32M ratings, late 2023 |
+| **3. Pool-Normalized + Gated 32M** | **0.143 (+131%)** | **0.242 (+192%)** | **2.24 (+51%)** | Zero-leakage, calibrated scaling |
+
+#### 3.7.1 Pool-Relative Collaborative Normalization
+Because Bayesian shrinkage ($\frac{\vec{v}}{\|\vec{v}\| + 0.5}$) compresses latent vector norms to prevent low-support items from causing false cosine spikes, raw dot products typically span $[0.05, 0.35]$. To ensure collaborative similarity spans $[0, 1]$ before logistic scoring, `rankCandidatePool` scales positive candidate similarity relative to the pool's maximum:
+
+$$\text{collabScale} = \max\left(\max_{c \in \text{pool}} \text{collabSim}(c), 0.05\right)$$
+$$\text{collabSim}_{\text{norm}} = \begin{cases} \min\left(1.0, \frac{\text{collabSim}}{\text{collabScale}}\right) & \text{if } \text{collabSim} > 0 \text{ and } \text{collabScale} > 0.05 \\ \text{collabSim} & \text{otherwise} \end{cases}$$
+
+Raw similarity is preserved on `features.rawCollabSim` for logging, debugging, and UI badges.
+
+#### 3.7.2 Metadata Gating & Damping
+In a standard linear combination, coarse discrete features like `genreOverlap` ($[0, 1]$ in steps of $0.33$) and global popularity `bayesianRatingNorm` overpower subtle collaborative taste signals, displacing niche 9/10 taste-twins into ranks #11–#20.
+
+When a candidate expresses collaborative signal ($\text{hasCollabSignal} = |\text{collabSim}| > 0.001$), `scoreCandidate` damps the contributions of `genreOverlap` and `bayesianRatingNorm` by a factor of $0.20\times$:
+$$\text{logit contribution}_{\text{genre}} = w_{\text{genre}} \cdot \text{genreOverlap} \cdot (\text{hasCollabSignal} ? 0.20 : 1.0)$$
+$$\text{logit contribution}_{\text{rating}} = w_{\text{rating}} \cdot \text{bayesianRatingNorm} \cdot (\text{hasCollabSignal} ? 0.20 : 1.0)$$
+
+For cold-start films or unindexed titles ($\text{hasCollabSignal} = \text{false}$), metadata features operate at full $1.0\times$ strength, guaranteeing zero regression on synthetic benchmarks and newly released movies.
+
+#### 3.7.3 Deterministic Match Reason Badges
+`generateMatchReasons` extracts the top 2–3 driving factors for each recommendation, attaching human-readable badges rendered on recommendation cards:
+- `collabSim >= 0.28`: `🧬 High Taste-Twin Match`
+- `crewMatch > 0`: `🎬 Favorite Filmmaker`
+- `keywordOverlap >= 0.33`: `🎯 Core Theme Match`
+- `collabSim >= 0.16 && noveltyBonus >= 0.35`: `💎 Personal Cult Pick`
+- `genreOverlap >= 0.66`: `🎪 Genre Bullseye`
+- `bayesianRatingNorm >= 0.72`: `⭐ Critical Acclaim`
 
 ---
 

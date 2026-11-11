@@ -149,6 +149,8 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   });
 
   const genreScores = {};
+  const signedGenreScores = {};
+  const lovedKeywordScores = {};
   const hatedKeywordCounts = {};
   const castScores = {};
   const crewScores = {};
@@ -158,6 +160,7 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   const userStats = computeUserRatingStats(rated);
   const zScoredList = computeZScoredWeights(rated, {
     lambda: DECAY_RATE,
+    dualClock: options.dualClock ?? false,
     now: options.now ?? Date.now(),
     bulkPriorDays: options.bulkPriorDays ?? 180
   });
@@ -165,10 +168,14 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   // Calculate continuous weights with z-scores and exponential time decay
   const weightedRated = zScoredList.map(({ movie, rating, zScore, daysSince, timeDecay, weight }) => {
     const positiveWeight = Math.max(0, weight);
+    const genreIds = movie.tmdbGenreIds || mapOmdbToTmdbGenreIds(movie.genre || movie.Genre || "");
+
+    genreIds.forEach(id => {
+      signedGenreScores[id] = (signedGenreScores[id] || 0) + weight;
+    });
 
     // 1. Positive Genre Weighting (Direct TMDB IDs or string fallback)
     if (positiveWeight > 0) {
-      const genreIds = movie.tmdbGenreIds || mapOmdbToTmdbGenreIds(movie.genre || movie.Genre || "");
       genreIds.forEach(id => {
         genreScores[id] = (genreScores[id] || 0) + positiveWeight;
       });
@@ -193,6 +200,11 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
       if (movie.crewPersonId) {
         crewScores[movie.crewPersonId] = (crewScores[movie.crewPersonId] || 0) + positiveWeight;
       }
+      if (movie.tmdbKeywords && Array.isArray(movie.tmdbKeywords)) {
+        movie.tmdbKeywords.forEach(kId => {
+          lovedKeywordScores[kId] = (lovedKeywordScores[kId] || 0) + positiveWeight;
+        });
+      }
     }
 
     return { ...movie, finalWeight: weight, zScore, timeDecay };
@@ -211,10 +223,28 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     .slice(0, 2)
     .map(([id]) => Number(id));
 
-  const topCrewMemberId = Object.entries(crewScores)
+  const topCrewIds = Object.entries(crewScores)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 1)
-    .map(([id]) => Number(id))[0] || null;
+    .slice(0, 3)
+    .map(([id]) => Number(id));
+  const topCrewMemberId = topCrewIds[0] || null;
+
+  const lovedKeywordIds = Object.entries(lovedKeywordScores)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([id]) => Number(id));
+
+  const maxGenreScore = Math.max(1e-6, ...Object.values(genreScores));
+  const genreAffinities = {};
+  for (const id of lovedGenreIds) {
+    genreAffinities[Number(id)] = (genreScores[id] || 0) / maxGenreScore;
+  }
+
+  const maxKwScore = Math.max(1e-6, ...Object.values(lovedKeywordScores));
+  const keywordAffinities = {};
+  for (const [id, score] of Object.entries(lovedKeywordScores)) {
+    keywordAffinities[Number(id)] = score / maxKwScore;
+  }
 
   const hatedKeywordIds = Object.entries(hatedKeywordCounts)
     .filter(([_, count]) => count > 0)
@@ -263,6 +293,10 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     topDirectors,
     topCastIds,
     topCrewMemberId,
+    topCrewIds,
+    lovedKeywordIds,
+    genreAffinities,
+    keywordAffinities,
     anchorTmdbId,
     hatedKeywordIds,
     watchlistGenreIds,
@@ -1018,4 +1052,97 @@ export async function bridgeTmdbToOmdb(tmdbMovie, userRegion = "US") {
     tmdbKeywords: [],
     userRating: 0
   };
+}
+
+
+const embeddingDetailCache = new Map();
+
+/**
+ * Enriches top embedding-retrieved neighbor IDs with TMDB metadata (concurrency-limited, memory-cached)
+ * and tags them as "Bucket E (Embedding)" so they enter the candidate pool with full features.
+ */
+export async function fetchEmbeddingCandidates(
+  neighbors = [],
+  watchedMovies = [],
+  watchlistMovies = [],
+  existingCandidates = [],
+  options = {}
+) {
+  if (!Array.isArray(neighbors) || neighbors.length === 0) return [];
+
+  const maxNeighbors = options.maxNeighbors ?? 30;
+  const concurrency = Math.max(1, options.concurrency ?? 6);
+  const userRegion = options.userRegion || "US";
+  const detailFetcher =
+    typeof options.detailFetcher === "function"
+      ? options.detailFetcher
+      : async (id) => {
+          if (embeddingDetailCache.has(id)) return embeddingDetailCache.get(id);
+          const d = await fetchTmdbMovieDetails(id, userRegion);
+          if (d) embeddingDetailCache.set(id, d);
+          return d;
+        };
+
+  const seenIds = new Set([
+    ...(watchedMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
+    ...(watchlistMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
+    ...(existingCandidates || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0))
+  ]);
+  seenIds.delete(0);
+
+  const unseen = [];
+  for (const n of neighbors) {
+    const id = Number(n?.tmdbId ?? n?.id ?? 0);
+    if (!id || seenIds.has(id)) continue;
+    seenIds.add(id);
+    unseen.push({ tmdbId: id, collabSim: Number(n?.collabSim ?? 0) });
+    if (unseen.length >= maxNeighbors) break;
+  }
+
+  if (unseen.length === 0) return [];
+
+  const results = new Array(unseen.length).fill(null);
+  let cursor = 0;
+
+  async function worker() {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= unseen.length) return;
+      const item = unseen[idx];
+      try {
+        const details = await detailFetcher(item.tmdbId, userRegion);
+        if (!details) continue;
+        results[idx] = {
+          id: details.tmdbId || item.tmdbId,
+          tmdbId: details.tmdbId || item.tmdbId,
+          title: details.title || "Unknown",
+          year: details.year || "N/A",
+          release_date: details.release_date || null,
+          overview: details.plot || details.overview || "",
+          vote_average: details.vote_average ?? null,
+          vote_count: details.vote_count ?? 0,
+          popularity: details.popularity ?? 0,
+          genre_ids: details.tmdbGenreIds || details.genre_ids || [],
+          tmdbGenreIds: details.tmdbGenreIds || details.genre_ids || [],
+          tmdbKeywords: details.tmdbKeywords || [],
+          keywordNames: details.keywordNames || [],
+          castIds: details.castIds || [],
+          crewPersonId: details.crewPersonId || null,
+          director: details.director || "Unknown",
+          genre: details.genre || "Cinema",
+          poster: details.poster || null,
+          backdrop: details.backdrop || null,
+          streamProviders: details.streamProviders || [],
+          collabSim: item.collabSim,
+          sourceBucket: "Bucket E (Embedding)",
+          providerMatchedByQuery: false
+        };
+      } catch (_) {
+        // Skip failed neighbor fetches gracefully
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, unseen.length) }, worker));
+  return results.filter(Boolean);
 }

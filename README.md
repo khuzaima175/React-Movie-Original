@@ -20,24 +20,23 @@
 
 ## Overview
 
-**CinemaVault** is a client-side film logging, discovery, and analytics application built with React, Vite, and Tailwind CSS. It replaces naive generative guessing with a **two-stage hybrid recommendation pipeline**: deterministic 3-bucket candidate retrieval from TMDB coupled with contextual re-ranking via Google Gemini 2.5 Flash.
+**CinemaVault** is a client-side film logging, discovery, and analytics application built with React, Vite, and Tailwind CSS. It features a **two-stage recommendation pipeline**: 3-bucket candidate retrieval from TMDB combined with contextual re-ranking via Google Gemini 2.5 Flash.
 
-> 📖 **Looking for the deep technical breakdown?**  
-> Check out the complete [Architecture & Mathematics Specification (ARCHITECTURE.md)](./ARCHITECTURE.md) for full mathematical derivations, taste profile vector formulas, TMDB grammar rules, and waterfall algorithms.
+> 📖 **Technical Architecture**: Check out the complete [Architecture Specification (ARCHITECTURE.md)](./ARCHITECTURE.md) for mathematical formulations, taste profile vectors, and candidate selection algorithms.
 
 ---
 
 ## Key Features
 
-- **Hybrid Recommendation Pipeline**: TMDB 3-bucket waterfall candidate harvesting (keyword spiritual successors, auteur networks, and semantic discovery) re-ranked by Google Gemini with strict JSON schemas.
-- **Mathematical Taste Vectors**: Continuous rating weights ($W_{\text{base}}$), exponential recency time-decay ($e^{-\lambda \cdot \Delta t}$), and surgical negative keyword trope exclusions.
-- **Cinematic Movie Details & 4-Source Score Matrix**: 1080p/4K landscape hero backdrops, official taglines, unified critical score cards (IMDb, Rotten Tomatoes 🍅, Metacritic Metascore, TMDB Community), and creative crew (DoP, Screenplay, Score).
-- **Luxury Rating Deck & Cinephile Reviewer**: Synchronized 10-star rating bar and 1–10 numeric dial strip, dynamic taste-anchor tier badges, quick review tags (`#Masterpiece`, `#PlotTwist`), and personalized notes.
-- **Universal Streaming & Region Matrix**: Global watch provider integration across 11 major platforms with localized region selection (`GLOBAL`, `US`, `GB`, `CA`, etc.).
-- **Zero-Flicker Official Trailer Pipeline**: Hierarchical trailer ranking algorithm that selects the official studio trailer with high-priority direct YouTube launch (eliminating iframe Error 153).
-- **Telemetry Analytics Studio**: Rating Delta Histograms comparing your scores to IMDb baselines, total watch time metrics, and score distributions.
-- **Two-Way Portability**: Full JSON database backup and bidirectional Letterboxd CSV import/export with merge and overwrite options.
-- **Spotlight Command Palette (`Cmd + K` / `Ctrl + K`)**: Debounced live search querying the complete OMDb database with keyboard navigation.
+- **Hybrid Recommendation Pipeline**: TMDB 3-bucket candidate retrieval (keyword matching, auteur networks, and genre discovery) re-ranked by Google Gemini with strict JSON schemas.
+- **Taste Profile Weighting**: Continuous rating weights ($W_{\text{base}}$), exponential recency time-decay ($e^{-\lambda \cdot \Delta t}$), and negative keyword filtering.
+- **Movie Details & Multi-Source Ratings**: High-resolution backdrops, taglines, unified score cards (IMDb, Rotten Tomatoes, Metacritic, TMDB Community), and crew credits.
+- **Rating Deck & Review Editor**: Synchronized 10-star rating bar and 1–10 numeric input, custom review tags, and notes.
+- **Streaming Availability & Region Support**: Watch provider integration across major streaming platforms with localized region selection (`GLOBAL`, `US`, `GB`, `CA`, etc.).
+- **Official Trailer Playback**: Trailer ranking algorithm selecting official studio trailers with direct YouTube launch options.
+- **Rating Analytics**: Rating Delta Histograms comparing your scores to IMDb baselines, total watch time metrics, and score distributions.
+- **Data Portability**: Full JSON database backup and bidirectional Letterboxd CSV import/export.
+- **Command Palette (`Cmd + K` / `Ctrl + K`)**: Debounced search querying the OMDb database with keyboard navigation.
 
 ---
 
@@ -108,7 +107,7 @@ npm run serve
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
 | **Frontend Framework** | [React 18.3](https://react.dev/) | Component architecture, state hooks & context |
-| **Build & Tooling** | [Vite 5.4](https://vitejs.dev/) | Lightning-fast HMR and Rollup bundling |
+| **Build & Tooling** | [Vite 5.4](https://vitejs.dev/) | Fast HMR and Rollup bundling |
 | **Routing** | [React Router v6](https://reactrouter.com/) | Client-side routing and deep-linking |
 | **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) / CSS | Design tokens and utility architecture |
 | **Motion Engine** | [Framer Motion](https://www.framer.com/motion/) | Spring physics and accessible modal transitions |

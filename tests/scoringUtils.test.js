@@ -60,3 +60,26 @@ test("computeBayesianScore shrinks low-vote movies toward global mean C=7.0", ()
   const highVoteEight = computeBayesianScore(8.2, 5000, 500, 7.0);
   assert.ok(highVoteEight > lowVoteTen);
 });
+
+
+test("computeZScoredWeights supports dual-clock bi-exponential decay (0.70 slow + 0.30 fast)", () => {
+  const now = Date.UTC(2026, 10, 9);
+  const tenDaysAgo = new Date(now - 10 * 86400000).toISOString();
+  const oneYearAgo = new Date(now - 365 * 86400000).toISOString();
+  const watched = [
+    { id: "binge", userRating: 9, dateWatched: tenDaysAgo },
+    { id: "classic", userRating: 9, dateWatched: oneYearAgo },
+    { id: "mid", userRating: 6, dateWatched: oneYearAgo }
+  ];
+
+  const dual = computeZScoredWeights(watched, { dualClock: true, now });
+  const binge = dual.find(r => r.movie.id === "binge");
+  const classic = dual.find(r => r.movie.id === "classic");
+
+  const expectedBingeDecay = 0.70 * Math.exp(-0.0008 * 10) + 0.30 * Math.exp(-0.07 * 10);
+  const expectedClassicDecay = 0.70 * Math.exp(-0.0008 * 365) + 0.30 * Math.exp(-0.07 * 365);
+
+  assert.ok(Math.abs(binge.timeDecay - expectedBingeDecay) < 1e-6);
+  assert.ok(Math.abs(classic.timeDecay - expectedClassicDecay) < 1e-6);
+  assert.ok(binge.weight > classic.weight);
+});

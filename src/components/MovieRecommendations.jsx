@@ -866,6 +866,27 @@ export default function MovieRecommendations({
                         <span className="rec-meta">
                           {rec.year} • {rec.genre}
                         </span>
+                        {Array.isArray(rec.matchReasons) && rec.matchReasons.length > 0 && (
+                          <div className="rec-match-reasons" style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.35rem" }}>
+                            {rec.matchReasons.slice(0, 2).map((badge, bIdx) => (
+                              <span
+                                key={bIdx}
+                                style={{
+                                  fontSize: "1.05rem",
+                                  fontWeight: 500,
+                                  color: "#d4d4d0",
+                                  background: "rgba(255, 255, 255, 0.06)",
+                                  border: "1px solid rgba(255, 255, 255, 0.12)",
+                                  padding: "0.15rem 0.55rem",
+                                  borderRadius: "1rem",
+                                  lineHeight: "1.4"
+                                }}
+                              >
+                                {badge}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="rec-ratings-group">

@@ -56,6 +56,15 @@ function l2NormalizeInPlace(vec, offset = 0, len = vec.length) {
   return norm;
 }
 
+function getUnitSlice(vectors, base, dim) {
+  const out = new Float32Array(dim);
+  for (let d = 0; d < dim; d++) {
+    out[d] = vectors[base + d];
+  }
+  l2NormalizeInPlace(out, 0, dim);
+  return out;
+}
+
 /**
  * Encodes an array of { tmdbId, vector } into a compact CVEM v1 ArrayBuffer.
  */
@@ -98,6 +107,7 @@ export function encodeEmbeddingBinary(items = []) {
 
 /**
  * Parses a CVEM v1 ArrayBuffer into a contiguous Float32Array index for fast cosine search.
+ * Preserves Bayesian-shrunk sub-unit vector magnitudes while snapping unit vectors to 1.0.
  */
 export function parseEmbeddingBinary(buffer) {
   if (!buffer || buffer.byteLength < 16) {
@@ -147,11 +157,16 @@ export function parseEmbeddingBinary(buffer) {
     idOffset += 4;
 
     const base = i * dim;
+    let sumSq = 0;
     for (let d = 0; d < dim; d++) {
-      vectors[base + d] = float16ToFloat32(view.getUint16(vecOffset, true));
+      const val = float16ToFloat32(view.getUint16(vecOffset, true));
+      vectors[base + d] = val;
+      sumSq += val * val;
       vecOffset += 2;
     }
-    l2NormalizeInPlace(vectors, base, dim);
+    if (sumSq >= 0.98) {
+      l2NormalizeInPlace(vectors, base, dim);
+    }
   }
 
   return {
@@ -164,9 +179,8 @@ export function parseEmbeddingBinary(buffer) {
 }
 
 /**
- * Computes the user's personalized taste vector:
+ * Computes the user's personalized single taste vector (backward-compatible):
  * user_vec = sum(w_i * e_i) / sum(|w_i|), L2-normalized.
- * Disliked movies (w_i < 0) push the vector away from their embeddings.
  */
 export function computeUserEmbedding(weightedRatings = [], index) {
   if (!index || !index.dim || !weightedRatings || weightedRatings.length === 0) {
@@ -203,6 +217,196 @@ export function computeUserEmbedding(weightedRatings = [], index) {
 }
 
 /**
+ * Clusters a user's positively weighted films into K in [1, 4] deterministic spherical K-Means
+ * taste personas so contrasting genres (e.g. Oldboy + Toy Story) do not collapse into a midpoint.
+ */
+export function computeUserPersonas(weightedRatings = [], index, options = {}) {
+  if (!index || !index.dim || !weightedRatings || weightedRatings.length === 0) {
+    return [];
+  }
+
+  const { dim, vectors, idToIndex } = index;
+  const minPositiveRating = options.minPositiveRating ?? 0;
+  const maxIterations = options.maxIterations ?? 12;
+  const splitThreshold = options.splitThreshold ?? 0.05;
+
+  const posEntries = [];
+  const mildNegEntries = [];
+  for (const entry of weightedRatings) {
+    const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+    if (!tmdbId || !Number.isFinite(weight) || Math.abs(weight) <= 1e-6) continue;
+    const idx = idToIndex.get(tmdbId);
+    if (idx === undefined) continue;
+
+    if (weight > 0 && (!Number.isFinite(rating) || rating >= minPositiveRating)) {
+      const unitVec = getUnitSlice(vectors, idx * dim, dim);
+      posEntries.push({ tmdbId, idx, weight, unitVec });
+    } else if (weight < 0 && Number.isFinite(rating) && rating > 4) {
+      mildNegEntries.push({ idx, weight });
+    }
+  }
+
+  if (posEntries.length === 0) return [];
+
+  posEntries.sort((a, b) => (b.weight !== a.weight ? b.weight - a.weight : a.tmdbId - b.tmdbId));
+
+  const defaultK =
+    posEntries.length < 4 ? 1 : posEntries.length < 12 ? 2 : posEntries.length < 20 ? 3 : 4;
+  const targetK = Math.max(1, Math.min(posEntries.length, Number(options.k) || defaultK));
+
+  // Deterministic farthest-first (K-Means++) initialization: only split when clusters are genuinely distinct
+  const centroids = [Float32Array.from(posEntries[0].unitVec)];
+  while (centroids.length < targetK) {
+    let farthestIdx = -1;
+    let minMaxSim = Infinity;
+    for (let i = 0; i < posEntries.length; i++) {
+      const v = posEntries[i].unitVec;
+      let maxSim = -Infinity;
+      for (const c of centroids) {
+        let dot = 0;
+        for (let d = 0; d < dim; d++) dot += c[d] * v[d];
+        if (dot > maxSim) maxSim = dot;
+      }
+      if (maxSim < minMaxSim) {
+        minMaxSim = maxSim;
+        farthestIdx = i;
+      }
+    }
+    if (farthestIdx === -1 || minMaxSim > splitThreshold) break;
+    centroids.push(Float32Array.from(posEntries[farthestIdx].unitVec));
+  }
+
+  const K = centroids.length;
+  if (K === 1) {
+    const centroid = new Float32Array(dim);
+    for (const item of posEntries) {
+      const base = item.idx * dim;
+      for (let d = 0; d < dim; d++) {
+        centroid[d] += item.weight * vectors[base + d];
+      }
+    }
+    for (const neg of mildNegEntries) {
+      const base = neg.idx * dim;
+      for (let d = 0; d < dim; d++) {
+        centroid[d] += 0.5 * neg.weight * vectors[base + d];
+      }
+    }
+    l2NormalizeInPlace(centroid, 0, dim);
+    return [centroid];
+  }
+
+  const assignments = new Int32Array(posEntries.length).fill(-1);
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let changed = false;
+    for (let i = 0; i < posEntries.length; i++) {
+      const v = posEntries[i].unitVec;
+      let bestK = 0;
+      let bestSim = -Infinity;
+      for (let k = 0; k < K; k++) {
+        let dot = 0;
+        const c = centroids[k];
+        for (let d = 0; d < dim; d++) dot += c[d] * v[d];
+        if (dot > bestSim) {
+          bestSim = dot;
+          bestK = k;
+        }
+      }
+      if (assignments[i] !== bestK) {
+        assignments[i] = bestK;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+
+    for (let k = 0; k < K; k++) {
+      const accum = new Float32Array(dim);
+      let countK = 0;
+      for (let i = 0; i < posEntries.length; i++) {
+        if (assignments[i] !== k) continue;
+        countK++;
+        const w = posEntries[i].weight;
+        const base = posEntries[i].idx * dim;
+        for (let d = 0; d < dim; d++) accum[d] += w * vectors[base + d];
+      }
+      if (countK > 0) {
+        l2NormalizeInPlace(accum, 0, dim);
+        centroids[k] = accum;
+      }
+    }
+  }
+
+  return centroids;
+}
+
+/**
+ * Builds a Map<tmdbId, repulsionPenalty> in [0, 1] for candidates that fall within cosine
+ * similarity > threshold of genuinely disliked films, without corrupting positive personas.
+ */
+export function buildRepulsionMapFromIndex(weightedRatings = [], index = null, options = {}) {
+  const map = new Map();
+  if (!index || !index.count || !weightedRatings || weightedRatings.length === 0) return map;
+
+  const { count, dim, ids, vectors, idToIndex } = index;
+  const threshold = options.threshold ?? 0.35;
+  const exponent = options.exponent ?? 2;
+  const maxDislikeRating = options.maxDislikeRating ?? 5;
+
+  const disliked = [];
+  for (const entry of weightedRatings) {
+    const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+    if (!tmdbId || !Number.isFinite(weight) || weight >= -1e-6) continue;
+    if (Number.isFinite(rating) && rating > maxDislikeRating) continue;
+
+    const idx = idToIndex.get(tmdbId);
+    if (idx === undefined) continue;
+    disliked.push({
+      mag: Math.min(2.0, Math.abs(weight)),
+      unitVec: getUnitSlice(vectors, idx * dim, dim)
+    });
+  }
+
+  if (disliked.length === 0) return map;
+
+  const denom = Math.max(1e-6, 1 - threshold);
+  for (let i = 0; i < count; i++) {
+    const base = i * dim;
+    let normSq = 0;
+    for (let d = 0; d < dim; d++) normSq += vectors[base + d] * vectors[base + d];
+    if (normSq < 1e-12) continue;
+    const invNorm = 1 / Math.sqrt(normSq);
+
+    let maxPen = 0;
+    for (const neg of disliked) {
+      let dot = 0;
+      for (let d = 0; d < dim; d++) {
+        dot += neg.unitVec[d] * (vectors[base + d] * invNorm);
+      }
+      if (dot > threshold) {
+        const excess = (dot - threshold) / denom;
+        const pen = Math.min(1, neg.mag * Math.pow(excess, exponent));
+        if (pen > maxPen) maxPen = pen;
+      }
+    }
+    map.set(ids[i], maxPen);
+  }
+
+  return map;
+}
+
+/**
+ * Computes the repulsion penalty for a single candidate tmdbId.
+ */
+export function computeRepulsion(weightedRatings = [], index = null, candidateTmdbId = 0, options = {}) {
+  const map = buildRepulsionMapFromIndex(weightedRatings, index, options);
+  return map.get(Number(candidateTmdbId)) || 0;
+}
+
+/**
  * Blends collaborative and content embeddings weighted by rating count:
  * alpha = ratingCount / (ratingCount + pivot).
  */
@@ -233,9 +437,17 @@ export function blendEmbeddings(collabVec, contentVec, ratingCount = 0, pivot = 
 
 /**
  * Retrieves top-K nearest neighbors by cosine similarity from the embedding index.
+ * Accepts either a single Float32Array vector or an array of persona Float32Array vectors.
  */
-export function retrieveByEmbedding(userVec, index, excludeTmdbIds = new Set(), topK = 250) {
-  if (!userVec || !index || !index.count) return [];
+export function retrieveByEmbedding(userVecOrPersonas, index, excludeTmdbIds = new Set(), topK = 250) {
+  if (!userVecOrPersonas || !index || !index.count) return [];
+
+  const personas = Array.isArray(userVecOrPersonas)
+    ? userVecOrPersonas.filter(v => v && v.length === index.dim)
+    : userVecOrPersonas.length === index.dim
+      ? [userVecOrPersonas]
+      : [];
+  if (personas.length === 0) return [];
 
   const { count, dim, ids, vectors } = index;
   const excluded = new Set([...(excludeTmdbIds || [])].map(Number));
@@ -246,11 +458,15 @@ export function retrieveByEmbedding(userVec, index, excludeTmdbIds = new Set(), 
     if (excluded.has(tmdbId)) continue;
 
     const base = i * dim;
-    let dot = 0;
-    for (let d = 0; d < dim; d++) {
-      dot += userVec[d] * vectors[base + d];
+    let bestDot = -Infinity;
+    for (const p of personas) {
+      let dot = 0;
+      for (let d = 0; d < dim; d++) {
+        dot += p[d] * vectors[base + d];
+      }
+      if (dot > bestDot) bestDot = dot;
     }
-    results.push({ tmdbId, collabSim: dot });
+    results.push({ tmdbId, collabSim: bestDot });
   }
 
   results.sort((a, b) => b.collabSim - a.collabSim);
@@ -296,21 +512,85 @@ export function loadDefaultEmbeddingIndex(url = "/models/item_embeddings_f16.bin
 }
 
 /**
- * Builds a Map<tmdbId, collabSim> across all items in the embedding index from the user's weighted ratings.
+ * Builds a Map<tmdbId, collabSim> across all items in the embedding index using multi-persona
+ * K-Means centroids blended with top-3 nearest loved films.
  */
-export function buildCollabSimMapFromIndex(weightedRatings = [], index = null) {
+export function buildCollabSimMapFromIndex(weightedRatings = [], index = null, options = {}) {
   const map = new Map();
-  if (!index || !index.count) return map;
-  const userVec = computeUserEmbedding(weightedRatings, index);
-  if (!userVec) return map;
-  const { count, dim, ids, vectors } = index;
+  if (!index || !index.count || !weightedRatings || weightedRatings.length === 0) return map;
+
+  const { count, dim, ids, vectors, idToIndex } = index;
+  const personas = computeUserPersonas(weightedRatings, index, options);
+  if (personas.length === 0) {
+    const fallbackVec = computeUserEmbedding(weightedRatings, index);
+    if (!fallbackVec) return map;
+    for (let i = 0; i < count; i++) {
+      const base = i * dim;
+      let dot = 0;
+      for (let d = 0; d < dim; d++) dot += fallbackVec[d] * vectors[base + d];
+      map.set(ids[i], dot);
+    }
+    return map;
+  }
+
+  const minPositiveRating = options.minPositiveRating ?? 7;
+  const personaBlend = options.personaBlend ?? (personas.length === 1 ? 1.0 : 0.70);
+  const loved = [];
+  for (const entry of weightedRatings) {
+    const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+    if (!tmdbId || !Number.isFinite(weight) || weight <= 1e-6) continue;
+    if (Number.isFinite(rating) && rating < minPositiveRating) continue;
+    const idx = idToIndex.get(tmdbId);
+    if (idx === undefined) continue;
+    loved.push({ weight, idx });
+  }
+  loved.sort((a, b) => b.weight - a.weight);
+  const topLovedPool = loved.slice(0, 25);
+
   for (let i = 0; i < count; i++) {
     const base = i * dim;
-    let dot = 0;
-    for (let d = 0; d < dim; d++) {
-      dot += userVec[d] * vectors[base + d];
+    let bestPersonaSim = -Infinity;
+    for (const p of personas) {
+      let dot = 0;
+      for (let d = 0; d < dim; d++) dot += p[d] * vectors[base + d];
+      if (dot > bestPersonaSim) bestPersonaSim = dot;
     }
-    map.set(ids[i], dot);
+
+    if (topLovedPool.length <= 1 || personaBlend >= 1) {
+      map.set(ids[i], bestPersonaSim);
+      continue;
+    }
+
+    // Find top-3 closest individual loved films for candidate i (preserving Bayesian shrinkage)
+    let s1 = -Infinity, w1 = 0;
+    let s2 = -Infinity, w2 = 0;
+    let s3 = -Infinity, w3 = 0;
+    for (const item of topLovedPool) {
+      const lBase = item.idx * dim;
+      let dot = 0;
+      for (let d = 0; d < dim; d++) dot += vectors[lBase + d] * vectors[base + d];
+      if (dot > s1) {
+        s3 = s2; w3 = w2;
+        s2 = s1; w2 = w1;
+        s1 = dot; w1 = item.weight;
+      } else if (dot > s2) {
+        s3 = s2; w3 = w2;
+        s2 = dot; w2 = item.weight;
+      } else if (dot > s3) {
+        s3 = dot; w3 = item.weight;
+      }
+    }
+
+    let wSum = w1;
+    let weightedSim = w1 * s1;
+    if (s2 > -Infinity) { wSum += w2; weightedSim += w2 * s2; }
+    if (s3 > -Infinity) { wSum += w3; weightedSim += w3 * s3; }
+    const topLovedSim = wSum > 0 ? weightedSim / wSum : bestPersonaSim;
+
+    map.set(ids[i], personaBlend * bestPersonaSim + (1 - personaBlend) * topLovedSim);
   }
+
   return map;
 }

@@ -71,3 +71,69 @@ test("mergeGeminiExplanationsWithRanker preserves calibrated ranker matchScore i
   assert.equal(final.recommendations[0].matchScore, 95, "must keep calibrated ranker matchScore=95");
   assert.equal(final.recommendations[1].matchScore, 84, "must keep calibrated ranker matchScore=84");
 });
+
+
+test("extractTasteProfile extracts lovedKeywordIds and topCrewIds, and fetchEmbeddingCandidates injects Bucket E neighbors", async () => {
+  const tmdbMod = await import("../src/services/tmdbService.js");
+  assert.equal(typeof tmdbMod.fetchEmbeddingCandidates, "function");
+
+  const watched = [
+    { id: 1, tmdbId: 1, userRating: 10, tmdbGenreIds: [18], tmdbKeywords: [10, 20], crewPersonId: 501, dateWatched: "2026-11-01" },
+    { id: 2, tmdbId: 2, userRating: 9, tmdbGenreIds: [18], tmdbKeywords: [20, 30], crewPersonId: 502, dateWatched: "2026-11-02" }
+  ];
+  const profile = await extractTasteProfile(watched, [], { anchorCutoff: Infinity });
+  assert.ok(Array.isArray(profile.lovedKeywordIds) && profile.lovedKeywordIds.includes(20));
+  assert.ok(Array.isArray(profile.topCrewIds) && profile.topCrewIds.includes(501) && profile.topCrewIds.includes(502));
+
+  const neighbors = [
+    { tmdbId: 1, collabSim: 0.99 },   // already watched -> must be skipped
+    { tmdbId: 300, collabSim: 0.85 }, // already in existingCandidates -> must be skipped
+    { tmdbId: 400, collabSim: 0.81 }  // new embedding neighbor -> must be fetched and tagged Bucket E
+  ];
+  const existingCandidates = [{ id: 300, tmdbId: 300, title: "Existing" }];
+  const injected = await tmdbMod.fetchEmbeddingCandidates(neighbors, watched, [], existingCandidates, {
+    detailFetcher: async (id) => ({
+      tmdbId: id,
+      title: `Injected ${id}`,
+      year: "2020",
+      plot: "A deep film.",
+      genre: "Drama",
+      tmdbGenreIds: [18],
+      tmdbKeywords: [20],
+      castIds: [11],
+      crewPersonId: 501,
+      vote_average: 8.1,
+      vote_count: 900
+    })
+  });
+  assert.equal(injected.length, 1);
+  assert.equal(injected[0].tmdbId, 400);
+  assert.equal(injected[0].sourceBucket, "Bucket E (Embedding)");
+  assert.equal(injected[0].collabSim, 0.81);
+});
+
+test("mergeGeminiExplanationsWithRanker preserves matchReasons from ranked candidate", () => {
+  const geminiResult = {
+    tasteProfile: { favoriteGenres: ["Sci-Fi"] },
+    recommendations: [
+      { tmdbId: 101, title: "Solaris", year: "1972", reason: "Deep atmospheric pacing." }
+    ]
+  };
+  const rankedCandidates = [
+    {
+      id: 101,
+      tmdbId: 101,
+      title: "Solaris",
+      year: "1972",
+      matchScore: 94,
+      matchReasons: ["🧬 High Taste-Twin Match", "🎬 Favorite Filmmaker"]
+    }
+  ];
+
+  const merged = mergeGeminiExplanationsWithRanker(geminiResult, rankedCandidates, {});
+  assert.equal(merged.recommendations.length, 1);
+  assert.deepEqual(merged.recommendations[0].matchReasons, [
+    "🧬 High Taste-Twin Match",
+    "🎬 Favorite Filmmaker"
+  ]);
+});

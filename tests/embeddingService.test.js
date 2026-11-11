@@ -162,3 +162,84 @@ test("loadDefaultEmbeddingIndex rejects responses with Content-Type: text/html b
   assert.equal(idx, null, "must return null when content-type includes text/html");
   assert.equal(arrayBufferCalled, false, "should not even read arrayBuffer when content-type is text/html");
 });
+
+
+test("parseEmbeddingBinary preserves Bayesian-shrunk sub-unit vector magnitudes while snapping unit vectors", () => {
+  const buf = new ArrayBuffer(16 + 2 * 4 + 2 * 2 * 2);
+  const view = new DataView(buf);
+  "CVEM".split("").forEach((ch, i) => view.setUint8(i, ch.charCodeAt(0)));
+  view.setUint32(4, 1, true);
+  view.setUint32(8, 2, true);
+  view.setUint32(12, 2, true);
+  view.setUint32(16, 100, true);
+  view.setUint32(20, 200, true);
+  // float16 for 0.5 is 0x3800; float16 for 0.0 is 0x0000; float16 for 1.0 is 0x3c00
+  view.setUint16(24, 0x3800, true);
+  view.setUint16(26, 0x0000, true);
+  view.setUint16(28, 0x3c00, true);
+  view.setUint16(30, 0x0000, true);
+
+  const index = parseEmbeddingBinary(buf);
+  assert.ok(Math.abs(index.vectors[0] - 0.5) < 0.01, `expected shrunk vector[0] ~ 0.5, got ${index.vectors[0]}`);
+  assert.ok(Math.abs(index.vectors[2] - 1.0) < 0.001, `expected unit vector[2] ~ 1.0, got ${index.vectors[2]}`);
+});
+
+
+test("computeUserPersonas avoids centroid collapse on a two-cluster vault (Oldboy + Toy Story)", () => {
+  // Cluster A (dark thrillers) along [1, 0, 0, 0]; Cluster B (animation) along [0, 1, 0, 0]
+  // Midpoint movie along [0.707, 0.707, 0, 0]
+  const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 2, vector: [0.98, 0.1, 0, 0] },
+    { tmdbId: 3, vector: [0.96, -0.1, 0, 0] },
+    { tmdbId: 4, vector: [0.99, 0.05, 0, 0] },
+    { tmdbId: 5, vector: [0, 1, 0, 0] },
+    { tmdbId: 6, vector: [0.1, 0.98, 0, 0] },
+    { tmdbId: 7, vector: [-0.1, 0.96, 0, 0] },
+    { tmdbId: 8, vector: [0.05, 0.99, 0, 0] },
+    { tmdbId: 101, vector: [1, 0, 0, 0] },       // Pure Cluster A candidate
+    { tmdbId: 102, vector: [0, 1, 0, 0] },       // Pure Cluster B candidate
+    { tmdbId: 103, vector: [0.707, 0.707, 0, 0] } // Mushy middle candidate
+  ]));
+
+  const weightedRatings = [1, 2, 3, 4, 5, 6, 7, 8].map(id => ({
+    movie: { tmdbId: id },
+    rating: 9,
+    weight: 1.0
+  }));
+
+  const simMap = buildCollabSimMapFromIndex(weightedRatings, index);
+  assert.ok(
+    simMap.get(101) > simMap.get(103),
+    `Pure cluster A candidate (${simMap.get(101)}) must beat mushy midpoint (${simMap.get(103)})`
+  );
+  assert.ok(
+    simMap.get(102) > simMap.get(103),
+    `Pure cluster B candidate (${simMap.get(102)}) must beat mushy midpoint (${simMap.get(103)})`
+  );
+});
+
+test("buildRepulsionMapFromIndex penalizes neighbors of disliked films without corrupting positive personas", async () => {
+  const mod = await import("../src/services/embeddingService.js");
+  assert.equal(typeof mod.buildRepulsionMapFromIndex, "function");
+
+  const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },     // Loved film
+    { tmdbId: 2, vector: [0, 1, 0, 0] },     // Hated film
+    { tmdbId: 10, vector: [0.95, 0.31, 0, 0] }, // Near loved film
+    { tmdbId: 20, vector: [0.1, 0.995, 0, 0] }  // Near hated film (cos ~ 0.995 > 0.35)
+  ]));
+
+  const weightedRatings = [
+    { movie: { tmdbId: 1 }, rating: 10, weight: 1.5 },
+    { movie: { tmdbId: 2 }, rating: 2, weight: -1.5 }
+  ];
+
+  const repulsionMap = mod.buildRepulsionMapFromIndex(weightedRatings, index, { threshold: 0.35 });
+  assert.ok(repulsionMap.get(20) > 0.5, `expected strong repulsion on neighbor of hated film, got ${repulsionMap.get(20)}`);
+  assert.equal(repulsionMap.get(10), 0, "neighbor of loved film should have 0 repulsion");
+
+  // Positive collabSim for candidate 10 should not be dragged down by hated film 2
+  const simMap = buildCollabSimMapFromIndex(weightedRatings, index);
+  assert.ok(simMap.get(10) > 0.9, `expected collabSim(10) > 0.9, got ${simMap.get(10)}`);
+});

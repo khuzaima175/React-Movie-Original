@@ -30,6 +30,10 @@ export function computeUserRatingStats(watched = []) {
 export function computeZScoredWeights(watched = [], options = {}) {
   const {
     lambda = 0.002,
+    dualClock = false,
+    lambdaSlow = 0.0008,
+    lambdaFast = 0.07,
+    slowShare = 0.70,
     now = Date.now(),
     minStd = 0.5,
     bulkPriorDays = 180
@@ -65,7 +69,9 @@ export function computeZScoredWeights(watched = [], options = {}) {
       }
     }
 
-    const timeDecay = Math.exp(-lambda * daysSince);
+    const timeDecay = dualClock
+      ? slowShare * Math.exp(-lambdaSlow * daysSince) + (1 - slowShare) * Math.exp(-lambdaFast * daysSince)
+      : Math.exp(-lambda * daysSince);
     const weight = zScore * timeDecay;
 
     return {

@@ -1,13 +1,16 @@
 import { computeZScoredWeights, computeBayesianScore } from "./scoringUtils.js";
+import { rankCandidatePool, DEFAULT_RANKER_WEIGHTS } from "./rankerService.js";
+import { extractTasteProfile } from "./tmdbService.js";
+import { buildCollabSimMapFromIndex, buildRepulsionMapFromIndex } from "./embeddingService.js";
 
 function getMovieKey(m) {
   return String(m?.id ?? m?.tmdbId ?? m?.imdbID ?? "");
 }
 
 /**
- * Splits a user's watched history into chronological training history and the last N liked films.
+ * Orders rated films chronologically (by dateWatched/addedAt, falling back to insertion order).
  */
-export function temporalHoldoutSplit(watched = [], holdoutPositiveCount = 10, minPositiveRating = 8) {
+function chronologicalIndex(watched = []) {
   const valid = (watched || []).filter(m => {
     const r = Number(m?.userRating ?? m?.UserRating ?? 0);
     return Number.isFinite(r) && r > 0 && getMovieKey(m);
@@ -19,11 +22,20 @@ export function temporalHoldoutSplit(watched = [], holdoutPositiveCount = 10, mi
     return {
       movie: m,
       idx,
+      dated: Number.isFinite(ts),
       ts: Number.isFinite(ts) ? ts : idx
     };
   });
 
   indexed.sort((a, b) => (a.ts === b.ts ? a.idx - b.idx : a.ts - b.ts));
+  return indexed;
+}
+
+/**
+ * Splits a user's watched history into chronological training history and the last N liked films.
+ */
+export function temporalHoldoutSplit(watched = [], holdoutPositiveCount = 10, minPositiveRating = 8) {
+  const indexed = chronologicalIndex(watched);
 
   let positiveFound = 0;
   let splitIndex = indexed.length;
@@ -51,6 +63,8 @@ export function temporalHoldoutSplit(watched = [], holdoutPositiveCount = 10, mi
 
   const trainWatched = indexed.slice(0, splitIndex).map(x => x.movie);
   const holdoutSlice = indexed.slice(splitIndex).map(x => x.movie);
+  const firstHoldout = indexed[splitIndex];
+  const holdoutStartTs = firstHoldout && firstHoldout.dated ? firstHoldout.ts : null;
 
   const holdoutPositives = new Set();
   const holdoutRelevance = new Map();
@@ -67,7 +81,8 @@ export function temporalHoldoutSplit(watched = [], holdoutPositiveCount = 10, mi
   return {
     trainWatched,
     holdoutPositives,
-    holdoutRelevance
+    holdoutRelevance,
+    holdoutStartTs
   };
 }
 
@@ -180,7 +195,8 @@ export function gridSearchHyperparams(watched = [], candidateCatalog = [], param
     lambdas = [0.001, 0.002, 0.005],
     anchorCutoffs = [8, 9],
     bulkPriorDaysList = [180],
-    holdoutSize = 10
+    holdoutSize = 10,
+    now
   } = paramGrid;
 
   const { trainWatched, holdoutPositives, holdoutRelevance } = temporalHoldoutSplit(
@@ -197,7 +213,7 @@ export function gridSearchHyperparams(watched = [], candidateCatalog = [], param
   for (const lambda of lambdas) {
     for (const anchorCutoff of anchorCutoffs) {
       for (const bulkPriorDays of bulkPriorDaysList) {
-        const weighted = computeZScoredWeights(trainWatched, { lambda, bulkPriorDays });
+        const weighted = computeZScoredWeights(trainWatched, { lambda, bulkPriorDays, now });
 
         const genreAffinities = new Map();
         const keywordAffinities = new Map();
@@ -262,4 +278,307 @@ export function gridSearchHyperparams(watched = [], candidateCatalog = [], param
     bestMetrics: leaderboard[0]?.metrics || { recallAt20: 0, ndcgAt10: 0, novelty: 0 },
     leaderboard
   };
+}
+
+/* ------------------------------------------------------------------------------------------
+ * Ranker evaluation (Phase 1): scores the REAL logistic ranker against fixed baselines
+ * ---------------------------------------------------------------------------------------- */
+
+export const EVAL_STRATEGIES = ["ranker", "popularity", "toy", "random"];
+
+function seededRandom(seed = 1) {
+  let a = Number(seed) >>> 0;
+  return function next() {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle(list, seed) {
+  const out = [...list];
+  const rng = seededRandom(seed);
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function mean(values) {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+}
+
+function stdDev(values) {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  return Math.sqrt(mean(values.map(v => (v - m) ** 2)));
+}
+
+/**
+ * Evaluates one strategy on one temporal holdout of a single vault.
+ *
+ * Strategies: "ranker" (the real rankCandidatePool), "popularity" (Bayesian rating only),
+ * "toy" (the legacy genre + keyword + rating formula), "random" (seeded shuffle).
+ *
+ * Mirrors the live call: no anchorKeywords and no user providers are passed to the ranker, and
+ * candidates carry whatever sourceBucket the catalog snapshot recorded.
+ * Returns { status: "insufficient_data", reason } instead of a number when the vault is too small.
+ */
+export async function evaluateRanker(options = {}) {
+  const {
+    watched = [],
+    catalog = [],
+    strategy = "ranker",
+    weights,
+    collabSimMap,
+    contentSimMap,
+    repulsionMap,
+    embeddingIndex,
+    embeddingOptions = {},
+    rankerOptions = {},
+    holdoutSize = 10,
+    minPositiveRating = 8,
+    minTrain = 10,
+    minHoldoutPositives = 3,
+    excludeIds = [],
+    seed = 1,
+    embeddingLookup,
+    profileOptions = {}
+  } = options;
+
+  if (!EVAL_STRATEGIES.includes(strategy)) {
+    throw new Error(`Unknown strategy: ${strategy}`);
+  }
+
+  const split = temporalHoldoutSplit(watched, holdoutSize, minPositiveRating);
+  const counts = {
+    train: split.trainWatched.length,
+    holdoutPositives: split.holdoutPositives.size
+  };
+
+  if (counts.train < minTrain) {
+    return {
+      status: "insufficient_data",
+      strategy,
+      counts,
+      reason: `needs at least ${minTrain} training ratings, found ${counts.train}`
+    };
+  }
+  if (counts.holdoutPositives < minHoldoutPositives) {
+    return {
+      status: "insufficient_data",
+      strategy,
+      counts,
+      reason: `needs at least ${minHoldoutPositives} held-out positives, found ${counts.holdoutPositives}`
+    };
+  }
+
+  const holdoutKeys = new Set(split.holdoutRelevance.keys());
+  const excluded = new Set((excludeIds || []).map(String));
+  for (const m of watched || []) {
+    const key = getMovieKey(m);
+    if (key && !holdoutKeys.has(key)) excluded.add(key);
+  }
+
+  const candidates = (catalog || []).filter(c => {
+    const key = getMovieKey(c);
+    return key && !excluded.has(key);
+  });
+
+  counts.candidates = candidates.length;
+  counts.holdoutInCandidates = candidates.filter(c => split.holdoutPositives.has(getMovieKey(c))).length;
+
+  if (candidates.length === 0) {
+    return { status: "insufficient_data", strategy, counts, reason: "no candidates left after exclusions" };
+  }
+
+  if (strategy === "toy") {
+    const toy = gridSearchHyperparams(watched, candidates, {
+      lambdas: [0.002],
+      anchorCutoffs: [9],
+      bulkPriorDaysList: [180],
+      holdoutSize,
+      now: split.holdoutStartTs ?? undefined
+    });
+    return { status: "ok", strategy, counts, metrics: toy.bestMetrics };
+  }
+
+  let ranked;
+  let coverage;
+  if (embeddingIndex && embeddingIndex.idToIndex) {
+    const hasVec = m => {
+      const tid = Number(m?.tmdbId ?? m?.id ?? 0);
+      return tid > 0 && embeddingIndex.idToIndex.has(tid);
+    };
+    coverage = {
+      vaultCovered: (watched || []).filter(hasVec).length,
+      vaultTotal: (watched || []).length,
+      catalogCovered: candidates.filter(hasVec).length,
+      catalogTotal: candidates.length
+    };
+  }
+
+  if (strategy === "ranker") {
+    // anchorCutoff: Infinity disables the anchor lookup so offline evaluation never hits the network.
+    const profile = await extractTasteProfile(split.trainWatched, [], {
+      now: split.holdoutStartTs ?? undefined,
+      anchorCutoff: Infinity,
+      ...profileOptions
+    });
+    const effectiveCollabSimMap =
+      collabSimMap ??
+      (embeddingIndex ? buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex, embeddingOptions) : new Map());
+    const effectiveRepulsionMap =
+      repulsionMap ??
+      (embeddingIndex ? buildRepulsionMapFromIndex(profile.weightedRatings, embeddingIndex, embeddingOptions) : new Map());
+    ranked = rankCandidatePool(
+      candidates,
+      {
+        profile,
+        collabSimMap: effectiveCollabSimMap,
+        contentSimMap: contentSimMap ?? new Map(),
+        repulsionMap: effectiveRepulsionMap,
+        anchorKeywords: profile.lovedKeywordIds || [],
+        userProviders: []
+      },
+      weights ?? DEFAULT_RANKER_WEIGHTS,
+      candidates.length,
+      rankerOptions
+    );
+  } else if (strategy === "popularity") {
+    ranked = candidates
+      .map(c => ({ item: c, score: computeBayesianScore(c.vote_average, c.vote_count) }))
+      .sort((a, b) => b.score - a.score || getMovieKey(a.item).localeCompare(getMovieKey(b.item)))
+      .map(x => x.item);
+  } else {
+    ranked = seededShuffle(candidates, seed);
+  }
+
+  const ids = ranked.map(getMovieKey);
+  const metrics = {
+    recallAt20: computeRecallAtK(ids, split.holdoutPositives, 20),
+    ndcgAt10: computeNDCGAtK(ids, split.holdoutRelevance, 10),
+    novelty: computeNovelty(ranked.slice(0, 20))
+  };
+  if (typeof embeddingLookup === "function") {
+    metrics.ild = computeILD(ids.slice(0, 10), embeddingLookup);
+  }
+
+  const out = { status: "ok", strategy, counts, metrics };
+  if (coverage) out.coverage = coverage;
+  return out;
+}
+
+/**
+ * Rolling-origin evaluation: fold 0 holds out the most recent liked films; fold i drops the last
+ * i * holdoutSize liked films (and everything after them) and holds out the window before that.
+ * Every fold trains only on data older than its own holdout. Reports mean and spread per metric.
+ */
+export async function evaluateRankerRolling(options = {}) {
+  const {
+    watched = [],
+    folds = 3,
+    holdoutSize = 10,
+    minPositiveRating = 8,
+    strategies = EVAL_STRATEGIES,
+    ...rest
+  } = options;
+
+  const indexed = chronologicalIndex(watched);
+  const positivePositions = [];
+  indexed.forEach((entry, pos) => {
+    const r = Number(entry.movie.userRating ?? entry.movie.UserRating ?? 0);
+    if (r >= minPositiveRating) positivePositions.push(pos);
+  });
+
+  const foldInputs = [];
+  for (let i = 0; i < folds; i++) {
+    const dropCount = i * holdoutSize;
+    let cut = indexed.length;
+    if (dropCount > 0) {
+      if (positivePositions.length - dropCount < holdoutSize) break;
+      cut = positivePositions[positivePositions.length - dropCount];
+    }
+    foldInputs.push({
+      watched: indexed.slice(0, cut).map(x => x.movie),
+      excludeIds: indexed.slice(cut).map(x => getMovieKey(x.movie))
+    });
+  }
+
+  const result = { requestedFolds: folds, strategies: {} };
+
+  for (const strategy of strategies) {
+    const foldResults = [];
+    for (const input of foldInputs) {
+      foldResults.push(
+        await evaluateRanker({
+          ...rest,
+          watched: input.watched,
+          excludeIds: input.excludeIds,
+          strategy,
+          holdoutSize,
+          minPositiveRating
+        })
+      );
+    }
+
+    const ok = foldResults.filter(f => f.status === "ok");
+    if (ok.length === 0) {
+      result.strategies[strategy] = {
+        status: "insufficient_data",
+        reason: foldResults[0]?.reason || "no usable folds",
+        folds: foldResults,
+        foldsUsed: 0
+      };
+      continue;
+    }
+
+    const keys = Object.keys(ok[0].metrics);
+    const meanMetrics = {};
+    const stdMetrics = {};
+    for (const key of keys) {
+      const values = ok.map(f => f.metrics[key]);
+      meanMetrics[key] = mean(values);
+      stdMetrics[key] = stdDev(values);
+    }
+
+    result.strategies[strategy] = {
+      status: "ok",
+      folds: foldResults,
+      foldsUsed: ok.length,
+      mean: meanMetrics,
+      std: stdMetrics
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Renders rolling evaluation results as a plain-text comparison table.
+ */
+export function formatEvalReport(rolling = {}) {
+  const entries = Object.entries(rolling.strategies || {});
+  const metricKeys = [];
+  for (const [, res] of entries) {
+    for (const key of Object.keys(res.mean || {})) {
+      if (!metricKeys.includes(key)) metricKeys.push(key);
+    }
+  }
+
+  const lines = [["strategy", "folds", ...metricKeys].join(" | ")];
+  for (const [name, res] of entries) {
+    if (res.status !== "ok") {
+      lines.push(`${name} | 0/${rolling.requestedFolds ?? "?"} | insufficient data: ${res.reason}`);
+      continue;
+    }
+    const cells = metricKeys.map(key =>
+      res.mean[key] === undefined ? "-" : `${res.mean[key].toFixed(3)} +/- ${res.std[key].toFixed(3)}`
+    );
+    lines.push([name, `${res.foldsUsed}/${rolling.requestedFolds ?? res.foldsUsed}`, ...cells].join(" | "));
+  }
+  return lines.join("\n");
 }

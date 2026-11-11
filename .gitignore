@@ -23,3 +23,7 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# local-only evaluation data (MovieLens-derived, not redistributable)
+.data/
+__pycache__/

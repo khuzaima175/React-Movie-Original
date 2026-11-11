@@ -1,0 +1,14 @@
+{
+  "_source": "hand-set-prior",
+  "bias": -1.1,
+  "collabSim": 4.8,
+  "contentSim": 1.4,
+  "genreOverlap": 1.1,
+  "keywordOverlap": 0.8,
+  "crewMatch": 0.7,
+  "castMatch": 0.5,
+  "bayesianRatingNorm": 1.2,
+  "noveltyBonus": 0.35,
+  "negativeKeywordPenalty": -2.0,
+  "providerMatch": 0.25
+}

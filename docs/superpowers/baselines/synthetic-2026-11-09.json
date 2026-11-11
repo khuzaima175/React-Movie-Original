@@ -1,0 +1,189 @@
+{
+  "generatedAt": "2026-11-09T16:14:49.485Z",
+  "folds": 3,
+  "vaults": {
+    "auteur": {
+      "ratings": 120,
+      "strategies": {
+        "ranker": {
+          "status": "ok",
+          "foldsUsed": 2,
+          "mean": {
+            "recallAt20": 0.15000000000000002,
+            "ndcgAt10": 0.10375899971756934,
+            "novelty": 3.9667206060824673
+          },
+          "std": {
+            "recallAt20": 0.05,
+            "ndcgAt10": 0.03457021282544272,
+            "novelty": 0.0260011071601014
+          }
+        },
+        "popularity": {
+          "status": "ok",
+          "foldsUsed": 2,
+          "mean": {
+            "recallAt20": 0.2,
+            "ndcgAt10": 0.2291476555779477,
+            "novelty": 3.2404206180577235
+          },
+          "std": {
+            "recallAt20": 0.2,
+            "ndcgAt10": 0.2291476555779477,
+            "novelty": 0.09351696710804736
+          }
+        },
+        "toy": {
+          "status": "ok",
+          "foldsUsed": 2,
+          "mean": {
+            "recallAt20": 0.5,
+            "ndcgAt10": 0.18745105361865463,
+            "novelty": 4.048473364626687
+          },
+          "std": {
+            "recallAt20": 0.09999999999999998,
+            "ndcgAt10": 0.18745105361865463,
+            "novelty": 0.05748489602137852
+          }
+        },
+        "random": {
+          "status": "ok",
+          "foldsUsed": 2,
+          "mean": {
+            "recallAt20": 0.05,
+            "ndcgAt10": 0.009097934255492138,
+            "novelty": 3.59077692042995
+          },
+          "std": {
+            "recallAt20": 0.05,
+            "ndcgAt10": 0.009097934255492138,
+            "novelty": 0.044987538662419224
+          }
+        }
+      }
+    },
+    "thrillerFan": {
+      "ratings": 120,
+      "strategies": {
+        "ranker": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0.2333333333333333,
+            "ndcgAt10": 0.13614500022427187,
+            "novelty": 4.003622628511977
+          },
+          "std": {
+            "recallAt20": 0.09428090415820632,
+            "ndcgAt10": 0.04466044307143769,
+            "novelty": 0.20109824847090613
+          }
+        },
+        "popularity": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0,
+            "ndcgAt10": 0,
+            "novelty": 3.185536145233866
+          },
+          "std": {
+            "recallAt20": 0,
+            "ndcgAt10": 0,
+            "novelty": 0.09356529204194183
+          }
+        },
+        "toy": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0.3333333333333333,
+            "ndcgAt10": 0.22694551343605943,
+            "novelty": 3.681313970556499
+          },
+          "std": {
+            "recallAt20": 0.09428090415820634,
+            "ndcgAt10": 0.09430429425062167,
+            "novelty": 0.22714527108724886
+          }
+        },
+        "random": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0.03333333333333333,
+            "ndcgAt10": 0.016410916397786274,
+            "novelty": 3.705264259908834
+          },
+          "std": {
+            "recallAt20": 0.047140452079103175,
+            "ndcgAt10": 0.023208540540720368,
+            "novelty": 0.1254357034823126
+          }
+        }
+      }
+    },
+    "genreHopper": {
+      "ratings": 120,
+      "strategies": {
+        "ranker": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0.26666666666666666,
+            "ndcgAt10": 0.05085529667483343,
+            "novelty": 3.4916182563596245
+          },
+          "std": {
+            "recallAt20": 0.09428090415820634,
+            "ndcgAt10": 0.05611907787835786,
+            "novelty": 0.19490172996611527
+          }
+        },
+        "popularity": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0.03333333333333333,
+            "ndcgAt10": 0.008726722846131631,
+            "novelty": 3.216087945342108
+          },
+          "std": {
+            "recallAt20": 0.047140452079103175,
+            "ndcgAt10": 0.012341449804070486,
+            "novelty": 0.05035852197395458
+          }
+        },
+        "toy": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0.3333333333333333,
+            "ndcgAt10": 0.11889699044866257,
+            "novelty": 3.721096049396966
+          },
+          "std": {
+            "recallAt20": 0.04714045207910319,
+            "ndcgAt10": 0.06635637108318732,
+            "novelty": 0.05519611732566585
+          }
+        },
+        "random": {
+          "status": "ok",
+          "foldsUsed": 3,
+          "mean": {
+            "recallAt20": 0.06666666666666667,
+            "ndcgAt10": 0.09391037563923026,
+            "novelty": 3.8747124076558723
+          },
+          "std": {
+            "recallAt20": 0.09428090415820635,
+            "ndcgAt10": 0.13280932687655134,
+            "novelty": 0.23815466512145436
+          }
+        }
+      }
+    }
+  }
+}
