@@ -1,21 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
-
-const MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.5-flash",
-    "gemini-flash-latest",
-    "gemini-2.5-flash"
-];
+import { FAST_INTERACTIVE_CASCADE, executeCascade } from "./geminiService.js";
 
 /**
  * Sends a message to the AI movie assistant with user context.
  */
 export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) => {
-    const apiKey = import.meta.env.VITE_GEMINI_KEY;
+    const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
     if (!apiKey) throw new Error("API Key missing");
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 10000 } });
 
     // 1. Construct the System Context with User Data
     const movieContext = (watchedMovies || []).map(m =>
@@ -52,23 +45,15 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) =
     prompt += `AI:`;
 
     try {
-        let response;
-        let lastError;
-        for (const modelName of MODELS) {
-            try {
-                response = await ai.models.generateContent({
-                    model: modelName,
-                    contents: prompt,
-                });
-                break;
-            } catch (error) {
-                lastError = error;
-                console.warn(`Primary chat model failed: ${error.message || error}. Switching to fallback.`);
-            }
-        }
+        const response = await executeCascade(
+            ai,
+            FAST_INTERACTIVE_CASCADE,
+            { contents: prompt },
+            { cascadeType: "fast" }
+        );
 
         if (!response) {
-            throw lastError || new Error("All chat models failed");
+            throw new Error("All chat models failed");
         }
 
         const text = response.text ||

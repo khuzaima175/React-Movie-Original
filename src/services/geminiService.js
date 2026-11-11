@@ -16,16 +16,134 @@ import {
     retrieveByEmbedding
 } from "./embeddingService.js";
 
-const MODELS = [
+export const CURATION_MODEL_CASCADE = [
+    "gemini-4-argon",
     "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.5-flash",
-    "gemini-flash-latest",
+    "gemini-3.5-flash-lite",
     "gemini-2.5-flash"
 ];
+
+export const FAST_INTERACTIVE_CASCADE = [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash"
+];
+
+export const MODELS = CURATION_MODEL_CASCADE;
 const ARGON_MODEL = "gemini-4-argon";
 const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
 const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
+
+/**
+ * Returns model-specific thinking configuration per Google API spec.
+ * gemini-4-argon, 3.8-flash, and 3.5 models require thinkingLevel: "LOW" (bypasses 10-15s thinking pause, prevents 400s).
+ * gemini-2.5-flash supports thinkingBudget: 0 for sub-second execution.
+ */
+export function getModelThinkingConfig(modelName = "") {
+    const m = String(modelName || "").toLowerCase();
+    if (m.includes("gemini-4-argon") || m.includes("gemini-3.8-flash") || m.includes("gemini-3.5-flash-lite") || m.includes("gemini-3.5-flash")) {
+        return { thinkingLevel: "LOW" };
+    }
+    if (m.includes("gemini-2.5-flash")) {
+        return { thinkingBudget: 0 };
+    }
+    return undefined;
+}
+
+let sessionCurationModel = null;
+let sessionFastModel = null;
+const sessionDegradedModels = new Set();
+
+export const resetSessionWorkingModels = () => {
+    sessionCurationModel = null;
+    sessionFastModel = null;
+    sessionDegradedModels.clear();
+};
+
+export const getSessionCurationModel = () => sessionCurationModel;
+export const getSessionFastModel = () => sessionFastModel;
+
+/**
+ * Executes a resilient cascade across models with per-attempt timeout and session health memoization.
+ */
+export async function executeCascade(ai, cascade, requestParams, options = {}) {
+    if (!ai?.models?.generateContent) {
+        throw new Error("Invalid GoogleGenAI client provided to executeCascade");
+    }
+
+    const cascadeType = options.cascadeType || "curation";
+    const activeModel = cascadeType === "curation" ? sessionCurationModel : sessionFastModel;
+
+    let candidateModels = [...cascade];
+    if (activeModel && candidateModels.includes(activeModel) && !sessionDegradedModels.has(activeModel)) {
+        candidateModels = [activeModel, ...candidateModels.filter(m => m !== activeModel)];
+    } else {
+        candidateModels = candidateModels.filter(m => !sessionDegradedModels.has(m));
+    }
+
+    if (candidateModels.length === 0) {
+        candidateModels = [...cascade];
+    }
+
+    let lastError = null;
+    for (const model of candidateModels) {
+        const isArgon = model.includes("argon");
+        if (isArgon && typeof spendTracker?.canUseArgon === "function" && !spendTracker.canUseArgon()) {
+            continue;
+        }
+
+        const thinkingConfig = getModelThinkingConfig(model);
+        const mergedConfig = {
+            ...(requestParams.config || {}),
+            ...(thinkingConfig ? { thinkingConfig } : {})
+        };
+
+        const defaultTimeout = isArgon ? 12000 : 8000;
+        const perAttemptTimeout = options.timeoutMs || defaultTimeout;
+
+        let timer;
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+                reject(new Error(`Model ${model} timed out after ${perAttemptTimeout}ms`));
+            }, perAttemptTimeout);
+        });
+
+        try {
+            const callPromise = ai.models.generateContent({
+                ...requestParams,
+                model,
+                config: mergedConfig
+            });
+            const response = await Promise.race([callPromise, timeoutPromise]);
+            clearTimeout(timer);
+
+            if (response?.usageMetadata && typeof spendTracker?.record === "function") {
+                spendTracker.record(model, response.usageMetadata);
+            }
+
+            if (cascadeType === "curation") {
+                sessionCurationModel = model;
+            } else if (cascadeType === "fast") {
+                sessionFastModel = model;
+            }
+
+            return response;
+        } catch (err) {
+            clearTimeout(timer);
+            lastError = err;
+            sessionDegradedModels.add(model);
+            if (isArgon && typeof spendTracker?.markArgonUnavailable === "function") {
+                spendTracker.markArgonUnavailable();
+            }
+            console.warn(`Model ${model} failed in ${cascadeType} cascade (${err.message || err}). Trying fallback...`);
+        }
+    }
+
+    if (lastError) {
+        console.warn(`All models in ${cascadeType} cascade failed:`, lastError.message || lastError);
+    }
+    return null;
+}
 
 /**
  * Sanitizes strings for prompt safety
@@ -339,21 +457,54 @@ export const generateInputHash = (watched = [], mood = "any") => {
 /**
  * Builds Gemini prompt for diversity selection and natural-language explanations over pre-ranked candidates.
  */
-export function buildGeminiReRankPrompt(profile, mood, topCandidates = []) {
+export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], context = {}) {
+    const watched = Array.isArray(context.watched) ? context.watched : [];
+
+    // 1. Top Anchor Films (rated >= 8★, up to 8 films)
+    const anchorFilms = watched
+        .filter(m => typeof m.userRating === "number" && m.userRating >= 8)
+        .sort((a, b) => b.userRating - a.userRating)
+        .slice(0, 8)
+        .map(m => {
+            const note = m.userNote || m.notes ? ` - "${cleanStr(m.userNote || m.notes).slice(0, 80)}"` : "";
+            return `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${note}`;
+        });
+
+    // 2. Recent Watch Streak (last 3 positively rated films with dates)
+    const recentStreak = [...watched]
+        .filter(m => typeof m.userRating === "number" && m.userRating >= 6 && m.dateWatched)
+        .sort((a, b) => new Date(b.dateWatched) - new Date(a.dateWatched))
+        .slice(0, 3)
+        .map(m => `- "${cleanStr(m.title)}" (${m.year || "N/A"}) [${m.userRating}/10]`);
+
+    // 3. Candidate Movies formatting with director, badges, matchScore, and plot snippet
+    const candidatesStr = topCandidates.map(c => {
+        const directorStr = c.director && c.director !== "Unknown" ? ` | Director: ${cleanStr(c.director)}` : "";
+        const badgesStr = Array.isArray(c.matchReasons) && c.matchReasons.length > 0
+            ? ` | Badges: [${c.matchReasons.join(", ")}]`
+            : "";
+        const plotSnippet = cleanStr(c.overview || c.plot || "").slice(0, 140);
+        return `ID: ${c.id || c.tmdbId} | "${c.title}" (${c.year})${directorStr} | Calibrated Match: ${c.matchScore || 85}% | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10${badgesStr} | Overview: ${plotSnippet}`;
+    }).join("\n");
+
     return `
 You are an elite film critic and cinema intelligence engine.
-Select a diverse top 6 from these pre-ranked TMDB candidate movies and write compelling explanations.
+Select a diverse top 6 from these pre-ranked TMDB candidate movies and write compelling, personalized explanations.
 Do NOT invent scores—each candidate already has a calibrated ranker score.
 
 USER TASTE PROFILE:
 - Favorite Genres: ${(profile.lovedGenreNames || []).join(", ") || "Diverse / Open"}
 - Selected Mood / Vibe: "${cleanStr(mood)}"
+${anchorFilms.length > 0 ? `\nUSER'S FAVORITE ANCHOR FILMS:\n${anchorFilms.join("\n")}` : ""}
+${recentStreak.length > 0 ? `\nRECENT WATCH STREAK:\n${recentStreak.join("\n")}` : ""}
 
 PRE-RANKED CANDIDATE MOVIES (Top ${topCandidates.length}):
-${topCandidates.map(c => `ID: ${c.id} | "${c.title}" (${c.year}) | Calibrated Match: ${c.matchScore || 85}% | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10 | Overview: ${c.overview}`).join("\n")}
+${candidatesStr}
 
 TASK:
-Perform a light diversity pass over these top candidates and select 6 distinct films. Output strict JSON with:
+Perform a diversity pass over these top candidates and select 6 distinct films.
+Pick the 6 strongest, most cohesive films from the candidates and write a bespoke 1-sentence reason that explicitly connects each pick to the user's anchor films, favorite directors, or collaborative badges (never write a generic plot summary).
+Output strict JSON with:
 1. tasteProfile: Object containing favoriteGenres (array of strings), preferredEra (string), and ratingStyle (string description).
 2. recommendations: Array of 6 items with:
    - tmdbId (number matching the candidate ID)
@@ -433,12 +584,12 @@ export async function parseFreeTextMoodWithGemini(ai, rawQuery = "") {
             required: ["moodId", "withGenres", "withoutKeywords"]
         }
     };
-    for (const model of MODELS) {
-        try {
-            const res = await ai.models.generateContent({ model, contents: prompt, config });
+    try {
+        const res = await executeCascade(ai, FAST_INTERACTIVE_CASCADE, { contents: prompt, config }, { cascadeType: "fast" });
+        if (res?.text) {
             return sanitizeAndParseJSON(res.text);
-        } catch (_) {}
-    }
+        }
+    } catch (_) {}
     return { moodId: "any", withGenres: [], withoutKeywords: [], minYear: null, maxYear: null };
 }
 
@@ -460,7 +611,10 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         options.topK || 15
     );
 
-    const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates);
+    const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates, {
+        watched: options.watched,
+        watchlist: options.watchlist
+    });
 
     const generationConfig = {
         responseMimeType: "application/json",
@@ -495,32 +649,12 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         }
     };
 
-    let response;
-    let lastError;
-
-    // Argon is opt-in (local/private builds only) and capped by the spend tracker.
-    const argonOn = import.meta.env?.VITE_ENABLE_ARGON === "true" && spendTracker.canUseArgon();
-    const attempts = argonOn ? [ARGON_MODEL, ...MODELS] : MODELS;
-
-    for (let i = 0; i < attempts.length; i++) {
-        const currentModel = attempts[i];
-        const isArgon = currentModel === ARGON_MODEL;
-        try {
-            response = await ai.models.generateContent({
-                model: currentModel,
-                contents: prompt,
-                config: isArgon
-                    ? { ...generationConfig, thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
-                    : generationConfig
-            });
-            spendTracker.record(currentModel, response.usageMetadata);
-            break;
-        } catch (err) {
-            lastError = err;
-            if (isArgon) spendTracker.markArgonUnavailable(); // any Argon failure: skip it for the rest of the session
-            console.warn(`Model ${currentModel} failed for re-ranking:`, err.message || err);
-        }
-    }
+    const response = await executeCascade(
+        ai,
+        CURATION_MODEL_CASCADE,
+        { contents: prompt, config: generationConfig },
+        { cascadeType: "curation" }
+    );
 
     if (!response) {
         console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output:", lastError?.message || lastError);
@@ -609,19 +743,12 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
         }
     };
 
-    let response;
-    for (const modelName of MODELS) {
-        try {
-            response = await ai.models.generateContent({
-                model: modelName,
-                contents: prompt,
-                config: generationConfig
-            });
-            break;
-        } catch (e) {
-            console.warn(`Fallback model ${modelName} failed:`, e.message || e);
-        }
-    }
+    const response = await executeCascade(
+        ai,
+        CURATION_MODEL_CASCADE,
+        { contents: prompt, config: generationConfig },
+        { cascadeType: "curation" }
+    );
 
     if (!response) throw new Error("Fallback recommendation generation failed");
 
@@ -673,7 +800,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
         throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 12000 } });
     const mood = options.mood || "any";
     const userRegion = options.userRegion || "US";
     const userProviders = options.userProviders || [];
@@ -730,7 +857,9 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     ...options,
                     embeddingIndex,
                     collabSimMap,
-                    repulsionMap
+                    repulsionMap,
+                    watched: watchedMovies,
+                    watchlist
                 });
                 console.log(`✅ TMDB 3-Bucket + Gemini engine completed (${result.recommendations?.length} films)`);
                 return result;
