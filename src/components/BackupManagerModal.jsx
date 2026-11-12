@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useApp } from "../context/AppContext";
+import { parseCSVImport, buildWatchedRecordFromImport } from "../services/csvImport";
 import { Modal } from "./ui/Modal";
 import { Tabs } from "./ui/Tabs";
 import { Button } from "./ui/Button";
@@ -40,48 +41,6 @@ export default function BackupManagerModal({ isOpen, onClose }) {
   const cancelRef = useRef(false);
 
   if (!isOpen) return null;
-
-  // ── CSV PARSER ──
-  function parseCSVLine(line) {
-    const result = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++; // skip next quote
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === "," && !inQuotes) {
-        result.push(current.trim());
-        current = "";
-      } else {
-        current += char;
-      }
-    }
-    result.push(current.trim());
-    return result;
-  }
-
-  function parseRating(val) {
-    if (!val) return 0;
-    if (typeof val === "string") {
-      const stars = (val.match(/★/g) || []).length;
-      const half = val.includes("½") ? 0.5 : 0;
-      if (stars > 0 || half > 0) {
-        return (stars + half) * 2; // scale 5-star Unicode to 10-star
-      }
-    }
-    const num = parseFloat(val);
-    if (!isNaN(num)) {
-      if (num <= 5) return Math.round(num * 2); // Scale 5-star to 10-star
-      return Math.round(num);
-    }
-    return 0;
-  }
 
   // ── EXPORT ACTIONS ──
   function exportJSON() {
@@ -249,49 +208,11 @@ export default function BackupManagerModal({ isOpen, onClose }) {
   }
 
   async function handleCSVImport(content) {
-    const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
-    if (lines.length <= 1) {
+    const { lineCount, rows: parsedRows } = parseCSVImport(content);
+    if (lineCount <= 1) {
       setResultMessage({ type: "error", text: "CSV is empty or missing data." });
       setIsProcessing(false);
       return;
-    }
-
-    const headers = parseCSVLine(lines[0]).map((h) =>
-      h.toLowerCase().replace(/["']/g, "")
-    );
-
-    const titleIdx = headers.findIndex((h) => h.includes("title") || h.includes("name"));
-    const yearIdx = headers.findIndex((h) => h.includes("year") || h.includes("released"));
-    const ratingIdx = headers.findIndex(
-      (h) => h.includes("rating") || h.includes("userrating") || h.includes("stars")
-    );
-    const noteIdx = headers.findIndex(
-      (h) => h.includes("note") || h.includes("review") || h.includes("comment")
-    );
-    const typeIdx = headers.findIndex((h) => h.includes("type") || h.includes("list"));
-    const imdbIdIdx = headers.findIndex((h) => h.includes("imdb") || h.includes("id"));
-
-    const getColIdx = (idx, fallback) => (idx !== -1 ? idx : fallback);
-    const finalTitleIdx = getColIdx(titleIdx, 0);
-    const finalYearIdx = getColIdx(yearIdx, 1);
-    const finalRatingIdx = getColIdx(ratingIdx, 2);
-    const finalNoteIdx = getColIdx(noteIdx, 3);
-    const finalTypeIdx = getColIdx(typeIdx, -1);
-    const finalImdbIdIdx = getColIdx(imdbIdIdx, -1);
-
-    const parsedRows = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCSVLine(lines[i]);
-      if (cols.length <= finalTitleIdx || !cols[finalTitleIdx]) continue;
-
-      parsedRows.push({
-        title: cols[finalTitleIdx].replace(/^["']|["']$/g, ""),
-        year: cols[finalYearIdx] ? cols[finalYearIdx].replace(/\D/g, "") : "",
-        rating: cols[finalRatingIdx] ? parseRating(cols[finalRatingIdx]) : null,
-        note: cols[finalNoteIdx] || "",
-        type: finalTypeIdx !== -1 && cols[finalTypeIdx] ? cols[finalTypeIdx].trim() : "",
-        imdbId: finalImdbIdIdx !== -1 && cols[finalImdbIdIdx] ? cols[finalImdbIdIdx].trim() : "",
-      });
     }
 
     if (parsedRows.length === 0) {
@@ -330,20 +251,25 @@ export default function BackupManagerModal({ isOpen, onClose }) {
                 runtime: 0,
               });
             } else {
-              resolvedWatched.push({
-                imdbID: tempId,
-                title: row.title,
-                year: row.year || "N/A",
-                poster: "",
-                imdbRating: 0,
-                runtime: 0,
-                userRating: row.rating || 5,
-                userNote: row.note || "",
-                director: "Unknown",
-                writer: "Unknown",
-                genre: "Unknown",
-                shortPlot: "Imported via CSV backup.",
-              });
+              resolvedWatched.push(
+                buildWatchedRecordFromImport(
+                  {
+                    imdbID: tempId,
+                    title: row.title,
+                    year: row.year || "N/A",
+                    poster: "",
+                    imdbRating: 0,
+                    runtime: 0,
+                    userRating: row.rating || 5,
+                    userNote: row.note || "",
+                    director: "Unknown",
+                    writer: "Unknown",
+                    genre: "Unknown",
+                    shortPlot: "Imported via CSV backup.",
+                  },
+                  row
+                )
+              );
             }
           };
 
@@ -376,22 +302,27 @@ export default function BackupManagerModal({ isOpen, onClose }) {
                   runtime: Number(data.Runtime?.split(" ")[0] || 0),
                 });
               } else {
-                resolvedWatched.push({
-                  imdbID: data.imdbID,
-                  title: data.Title,
-                  year: data.Year,
-                  poster: data.Poster !== "N/A" ? data.Poster : "",
-                  imdbRating: Number(data.imdbRating) || 0,
-                  runtime: Number(data.Runtime?.split(" ")[0] || 0),
-                  userRating: row.rating || 7,
-                  userNote: row.note || "",
-                  director: data.Director || "Unknown",
-                  writer: data.Writer || "Unknown",
-                  genre: data.Genre || "Unknown",
-                  shortPlot: data.Plot
-                    ? data.Plot.split(" ").slice(0, 15).join(" ") + "..."
-                    : "",
-                });
+                resolvedWatched.push(
+                  buildWatchedRecordFromImport(
+                    {
+                      imdbID: data.imdbID,
+                      title: data.Title,
+                      year: data.Year,
+                      poster: data.Poster !== "N/A" ? data.Poster : "",
+                      imdbRating: Number(data.imdbRating) || 0,
+                      runtime: Number(data.Runtime?.split(" ")[0] || 0),
+                      userRating: row.rating || 7,
+                      userNote: row.note || "",
+                      director: data.Director || "Unknown",
+                      writer: data.Writer || "Unknown",
+                      genre: data.Genre || "Unknown",
+                      shortPlot: data.Plot
+                        ? data.Plot.split(" ").slice(0, 15).join(" ") + "..."
+                        : "",
+                    },
+                    row
+                  )
+                );
               }
             } else {
               fallbackMovie();

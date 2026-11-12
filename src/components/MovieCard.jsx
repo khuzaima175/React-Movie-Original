@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Star, Plus, Check, Info, Trash2, CheckSquare, Square } from "lucide-react";
 import PosterImage from "./PosterImage";
+import { buildQuickAddWatchedMovie } from "../services/csvImport";
 
 export default function MovieCard({
   movie,
@@ -28,16 +29,7 @@ export default function MovieCard({
   function handleQuickAdd(e) {
     e.stopPropagation();
     if (isWatched || !onAddWatched) return;
-    onAddWatched({
-      ...movie,
-      imdbID: id,
-      title,
-      year,
-      poster: poster !== "N/A" ? poster : "",
-      imdbRating: Number(imdbRating) || 8.0,
-      runtime: parseInt(movie.runtime, 10) || 120,
-      userRating: Number(userRating) || 0,
-    });
+    onAddWatched(buildQuickAddWatchedMovie(movie));
   }
 
   function handleCardClick(e) {
