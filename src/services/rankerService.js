@@ -13,7 +13,7 @@ export const DEFAULT_RANKER_WEIGHTS = {
   castMatch: 0.5,
   bayesianRatingNorm: 1.2,
   noveltyBonus: 0.35,
-  negativeKeywordPenalty: -2.0,
+  negativeKeywordPenalty: -0.5,
   repulsion: -1.5,
   providerMatch: 0.25
 };

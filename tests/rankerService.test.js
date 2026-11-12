@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_RANKER_WEIGHTS,
   extractCandidateFeatures,
   scoreCandidate,
   rankCandidatePool
@@ -226,4 +227,42 @@ test("rankCandidatePool normalizes collabSim pool-relatively and preserves rawCo
   assert.equal(mid.features.rawCollabSim, 0.15);
   assert.equal(mid.features.collabSim, 0.5);  // 0.15 / 0.30
   assert.equal(zero.features.collabSim, 0.0);
+});
+
+test("DEFAULT_RANKER_WEIGHTS uses softened negativeKeywordPenalty=-0.5 so hated keywords still penalize but by less than -2.0", () => {
+  assert.equal(DEFAULT_RANKER_WEIGHTS.negativeKeywordPenalty, -0.5);
+
+  const context = {
+    profile: {
+      lovedGenreIds: [18],
+      lovedKeywordIds: [501],
+      hatedKeywordIds: [999]
+    },
+    collabSimMap: new Map([[1, 0.5], [2, 0.5]])
+  };
+  const withoutHated = { id: 1, tmdbId: 1, genre_ids: [18], tmdbKeywords: [501], vote_average: 7.5, vote_count: 500 };
+  const withHated = { id: 2, tmdbId: 2, genre_ids: [18], tmdbKeywords: [501, 999], vote_average: 7.5, vote_count: 500 };
+
+  const fWithout = extractCandidateFeatures(withoutHated, context);
+  const fWith = extractCandidateFeatures(withHated, context);
+  assert.equal(fWithout.negativeKeywordPenalty, 0);
+  assert.equal(fWith.negativeKeywordPenalty, 1);
+
+  const curWithout = scoreCandidate(fWithout);
+  const curWith = scoreCandidate(fWith);
+
+  const oldWeights = { ...DEFAULT_RANKER_WEIGHTS, negativeKeywordPenalty: -2.0 };
+  const oldWithout = scoreCandidate(fWithout, oldWeights);
+  const oldWith = scoreCandidate(fWith, oldWeights);
+
+  const curLogitDrop = curWithout.logit - curWith.logit;
+  const oldLogitDrop = oldWithout.logit - oldWith.logit;
+  const curProbDrop = curWithout.probability - curWith.probability;
+  const oldProbDrop = oldWithout.probability - oldWith.probability;
+
+  assert.ok(curWith.probability < curWithout.probability, "hated-keyword candidate should score lower than identical clean candidate");
+  assert.ok(Math.abs(curLogitDrop - 0.5) < 1e-12, `expected logit drop 0.5, got ${curLogitDrop}`);
+  assert.ok(Math.abs(oldLogitDrop - 2.0) < 1e-12, `expected prior logit drop 2.0, got ${oldLogitDrop}`);
+  assert.ok(curLogitDrop < oldLogitDrop, "current penalty logit drop should be smaller than previous -2.0 drop");
+  assert.ok(curProbDrop < oldProbDrop, "current penalty probability drop should be smaller than previous -2.0 drop");
 });
