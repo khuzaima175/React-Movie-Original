@@ -1,4 +1,8 @@
 const MS_PER_DAY = 86400000;
+// Heuristic thresholds for detecting bulk-imported Letterboxd Date backlogs vs. organic viewing logs.
+export const MIN_CLUSTER_CHECK_ROWS = 10;
+export const CLUSTER_TOP3_SHARE = 0.30;
+export const MIN_ORGANIC_SPAN_DAYS = 14;
 const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|[+-]\d{2}:?\d{2})?$/i;
 
@@ -223,9 +227,12 @@ export function parseCSVImport(content, options = {}) {
     rows.push(row);
   }
 
+  suppressBulkClusteredLoggedDates(rows);
+  const deduplicatedRows = deduplicateDiaryRows(rows);
+
   return {
     lineCount: lines.length,
-    rows,
+    rows: deduplicatedRows,
     droppedRows,
     hasRecognizedHeader
   };
@@ -277,8 +284,87 @@ export function buildBulkMoveWatchedItem(item, now = Date.now()) {
 }
 
 /**
- * Attaches validated import date metadata (dateWatched, dateSource) onto a
- * resolved watched movie record only when present on the parsed CSV row.
+ * Clears untrustworthy bulk-logged Date timestamps (leaving Watched Date intact)
+ * when logged dates concentrate heavily on a few days or span too short a window.
+ */
+function suppressBulkClusteredLoggedDates(rows) {
+  const loggedRows = rows.filter((r) => r.dateSource === "logged" && r.dateWatched);
+  if (loggedRows.length < MIN_CLUSTER_CHECK_ROWS) {
+    return;
+  }
+
+  const dayCounts = new Map();
+  let minMs = Infinity;
+  let maxMs = -Infinity;
+
+  for (const row of loggedRows) {
+    const calendarDay = row.dateWatched.slice(0, 10);
+    dayCounts.set(calendarDay, (dayCounts.get(calendarDay) || 0) + 1);
+    const ms = Date.parse(row.dateWatched);
+    if (Number.isFinite(ms)) {
+      if (ms < minMs) minMs = ms;
+      if (ms > maxMs) maxMs = ms;
+    }
+  }
+
+  const top3Total = Array.from(dayCounts.values())
+    .sort((a, b) => b - a)
+    .slice(0, 3)
+    .reduce((sum, count) => sum + count, 0);
+
+  const top3Share = top3Total / loggedRows.length;
+  const spanDays = Number.isFinite(minMs) && Number.isFinite(maxMs)
+    ? (maxMs - minMs) / MS_PER_DAY
+    : 0;
+
+  if (top3Share >= CLUSTER_TOP3_SHARE || spanDays < MIN_ORGANIC_SPAN_DAYS) {
+    for (const row of loggedRows) {
+      delete row.dateWatched;
+      delete row.dateSource;
+      row.isBulkImported = true;
+    }
+  }
+}
+
+function shouldReplaceDuplicateRow(existing, candidate) {
+  const existingMs = existing.dateWatched ? Date.parse(existing.dateWatched) : NaN;
+  const candidateMs = candidate.dateWatched ? Date.parse(candidate.dateWatched) : NaN;
+  const existingHasDate = Number.isFinite(existingMs);
+  const candidateHasDate = Number.isFinite(candidateMs);
+
+  if (candidateHasDate && !existingHasDate) return true;
+  if (!candidateHasDate && existingHasDate) return false;
+  if (!candidateHasDate && !existingHasDate) return true;
+  return candidateMs >= existingMs;
+}
+
+/**
+ * Collapses diary rewatches matching the same normalized title + year down to one
+ * row per film, preferring the most recent valid watched date (or later row order).
+ */
+function deduplicateDiaryRows(rows) {
+  const deduped = new Map();
+  for (const row of rows) {
+    const normTitle = row.title.toLowerCase().trim().replace(/\s+/g, " ");
+    const normYear = String(row.year || "").trim();
+    const key = `${normTitle}::${normYear}`;
+
+    if (!deduped.has(key)) {
+      deduped.set(key, row);
+      continue;
+    }
+
+    const incumbent = deduped.get(key);
+    if (shouldReplaceDuplicateRow(incumbent, row)) {
+      deduped.set(key, row);
+    }
+  }
+  return Array.from(deduped.values());
+}
+
+/**
+ * Attaches validated import date metadata (dateWatched, dateSource, isBulkImported)
+ * onto a resolved watched movie record when present on the parsed CSV row.
  */
 export function buildWatchedRecordFromImport(baseFields, row) {
   const record = { ...baseFields };
@@ -287,6 +373,9 @@ export function buildWatchedRecordFromImport(baseFields, row) {
     if (row.dateSource) {
       record.dateSource = row.dateSource;
     }
+  }
+  if (row?.isBulkImported) {
+    record.isBulkImported = true;
   }
   return record;
 }

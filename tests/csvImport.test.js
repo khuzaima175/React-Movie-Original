@@ -7,7 +7,10 @@ import {
   parseCSVImport,
   buildQuickAddWatchedMovie,
   buildBulkMoveWatchedItem,
-  buildWatchedRecordFromImport
+  buildWatchedRecordFromImport,
+  MIN_CLUSTER_CHECK_ROWS,
+  CLUSTER_TOP3_SHARE,
+  MIN_ORGANIC_SPAN_DAYS
 } from "../src/services/csvImport.js";
 
 const NOW = Date.UTC(2026, 10, 12, 20, 0, 0); // 2026-11-12T20:00:00.000Z
@@ -189,4 +192,116 @@ test("parseCSVLine and parseRating preserve quote escaping and star scaling", ()
   assert.equal(parseRating("★★★★½"), 9);
   assert.equal(parseRating("3.5"), 7);
   assert.equal(parseRating("9"), 9);
+});
+
+test("parseCSVImport suppresses clustered backlog logged dates and forwards isBulkImported=true", () => {
+  assert.equal(MIN_CLUSTER_CHECK_ROWS, 10);
+  assert.equal(CLUSTER_TOP3_SHARE, 0.30);
+  assert.equal(MIN_ORGANIC_SPAN_DAYS, 14);
+
+  const backlogDates = ["2026-10-20", "2026-10-21", "2026-10-22"];
+  const lines = ["Date,Name,Year,Letterboxd URI,Rating"];
+  // 10 rows total: 80% (8 rows) on 3 clustered dates + 20% (2 rows) far apart so span >= 14d
+  for (let i = 0; i < 8; i++) {
+    lines.push(`${backlogDates[i % 3]},Backlog Film ${i},200${i},https://boxd.it/b${i},4`);
+  }
+  lines.push("2022-05-01,Older Film 1,1998,https://boxd.it/o1,4.5");
+  lines.push("2023-08-15,Older Film 2,2001,https://boxd.it/o2,3.5");
+
+  const { rows } = parseCSVImport(lines.join("\n"), { now: NOW });
+  assert.equal(rows.length, 10);
+  for (const r of rows) {
+    assert.equal(r.dateWatched, undefined);
+    assert.equal(r.dateSource, undefined);
+    assert.equal(r.isBulkImported, true);
+    const rec = buildWatchedRecordFromImport({ imdbID: r.title, title: r.title, userRating: r.rating }, r);
+    assert.equal(rec.isBulkImported, true);
+    assert.equal("dateWatched" in rec, false);
+  }
+});
+
+test("parseCSVImport suppresses logged dates with < 14 day organic span even without top-3 concentration", () => {
+  // 11 unique consecutive dates within a 10-day span (top3 share = 3/11 = 0.273 < 0.30, span = 10d < 14d)
+  const lines = ["Date,Name,Year,Letterboxd URI,Rating"];
+  for (let d = 1; d <= 11; d++) {
+    const day = String(d).padStart(2, "0");
+    lines.push(`2026-10-${day},Compact Film ${d},201${d % 10},https://boxd.it/c${d},4`);
+  }
+  const { rows } = parseCSVImport(lines.join("\n"), { now: NOW });
+  assert.equal(rows.length, 11);
+  for (const r of rows) {
+    assert.equal(r.dateWatched, undefined);
+    assert.equal(r.dateSource, undefined);
+    assert.equal(r.isBulkImported, true);
+  }
+});
+
+test("parseCSVImport preserves organic logged dates spread over 3 years (>= 10 rows)", () => {
+  const spreadDates = [
+    "2023-01-15", "2023-04-20", "2023-08-10", "2023-11-28",
+    "2024-02-14", "2024-06-05", "2024-09-19", "2024-12-22",
+    "2025-03-08", "2025-07-04", "2025-10-31", "2026-02-02"
+  ];
+  const lines = ["Date,Name,Year,Letterboxd URI,Rating"];
+  for (let i = 0; i < spreadDates.length; i++) {
+    lines.push(`${spreadDates[i]},Organic Film ${i},201${i % 10},https://boxd.it/org${i},4`);
+  }
+  const { rows } = parseCSVImport(lines.join("\n"), { now: NOW });
+  assert.equal(rows.length, 12);
+  for (let i = 0; i < rows.length; i++) {
+    assert.equal(rows[i].dateWatched, `${spreadDates[i]}T00:00:00.000Z`);
+    assert.equal(rows[i].dateSource, "logged");
+    assert.equal(rows[i].isBulkImported, undefined);
+  }
+});
+
+test("parseCSVImport deduplicates diary rewatches by normalized title + year keeping latest Watched Date and rating", () => {
+  const csv = [
+    "Date,Name,Year,Letterboxd URI,Rating,Rewatch,Tags,Watched Date",
+    "2022-01-10,Heat,1995,https://boxd.it/heat1,3.5,,,2022-01-08",
+    "2025-06-15,  heat ,1995,https://boxd.it/heat2,5,Yes,,2025-06-14",
+    "2024-11-20,Thief,1981,https://boxd.it/thief1,4.5,Yes,,2024-11-19",
+    "2020-03-05,Thief,1981,https://boxd.it/thief2,3,,,2020-03-01"
+  ].join("\n");
+
+  const { rows } = parseCSVImport(csv, { now: NOW });
+  assert.equal(rows.length, 2);
+
+  const heat = rows.find(r => r.title.trim().toLowerCase() === "heat");
+  assert.equal(heat.dateWatched, "2025-06-14T00:00:00.000Z");
+  assert.equal(heat.rating, 10);
+  assert.equal(heat.dateSource, "watched");
+
+  const thief = rows.find(r => r.title === "Thief");
+  assert.equal(thief.dateWatched, "2024-11-19T00:00:00.000Z");
+  assert.equal(thief.rating, 9);
+  assert.equal(thief.dateSource, "watched");
+
+  // Undated duplicate fallback uses later row order
+  const undatedCsv = [
+    "Name,Year,Rating",
+    "Solaris,1972,3",
+    "solaris,1972,4.5"
+  ].join("\n");
+  const resUndated = parseCSVImport(undatedCsv, { now: NOW });
+  assert.equal(resUndated.rows.length, 1);
+  assert.equal(resUndated.rows[0].rating, 9);
+});
+
+test("parseCSVImport always trusts Watched Date even when Date column is clustered", () => {
+  const lines = ["Date,Name,Year,Letterboxd URI,Rating,Rewatch,Tags,Watched Date"];
+  const clusteredLog = ["2026-10-20", "2026-10-21", "2026-10-22"];
+  for (let i = 0; i < 12; i++) {
+    const yr = 2010 + i;
+    const watchedYmd = `${yr}-04-12`;
+    lines.push(`${clusteredLog[i % 3]},Diary Classic ${i},${yr},https://boxd.it/dc${i},4.5,,,${watchedYmd}`);
+  }
+  const { rows } = parseCSVImport(lines.join("\n"), { now: NOW });
+  assert.equal(rows.length, 12);
+  for (let i = 0; i < 12; i++) {
+    const yr = 2010 + i;
+    assert.equal(rows[i].dateWatched, `${yr}-04-12T00:00:00.000Z`);
+    assert.equal(rows[i].dateSource, "watched");
+    assert.equal(rows[i].isBulkImported, undefined);
+  }
 });
