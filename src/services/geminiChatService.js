@@ -8,7 +8,7 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) =
     const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
     if (!apiKey) throw new Error("API Key missing");
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 10000 } });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 25000 } });
 
     // 1. Construct the System Context with User Data
     const movieContext = (watchedMovies || []).map(m =>

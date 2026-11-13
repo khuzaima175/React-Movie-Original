@@ -17,31 +17,35 @@ import {
 } from "./embeddingService.js";
 
 export const CURATION_MODEL_CASCADE = [
-    "gemini-4-argon",
-    "gemini-3.8-flash",
+    "gemini-4-hydrogen",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-flash"
+    "gemini-2.5-flash",
+    "gemini-3.8-flash"
 ];
 
 export const FAST_INTERACTIVE_CASCADE = [
-    "gemini-3.8-flash",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-flash"
+    "gemini-4-hydrogen",
+    "gemini-2.5-flash",
+    "gemini-3.8-flash"
 ];
 
 export const MODELS = CURATION_MODEL_CASCADE;
-const ARGON_MODEL = "gemini-4-argon";
 const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
 const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
 
 /**
  * Returns model-specific thinking configuration per Google API spec.
- * gemini-4-argon, 3.8-flash, and 3.5 models require thinkingLevel: "LOW" (bypasses 10-15s thinking pause, prevents 400s).
- * gemini-2.5-flash supports thinkingBudget: 0 for sub-second execution.
+ * gemini-4-hydrogen uses HIGH in curation mode and MEDIUM in fast/interactive mode (never LOW).
+ * 3.8-flash and 3.5 models use thinkingLevel: "LOW"; 2.5-flash supports thinkingBudget: 0.
  */
-export function getModelThinkingConfig(modelName = "") {
+export function getModelThinkingConfig(modelName = "", cascadeType = "curation") {
     const m = String(modelName || "").toLowerCase();
-    if (m.includes("gemini-4-argon") || m.includes("gemini-3.8-flash") || m.includes("gemini-3.5-flash-lite") || m.includes("gemini-3.5-flash")) {
+    const isFast = String(cascadeType || "curation").toLowerCase() === "fast";
+    if (m.includes("gemini-4-hydrogen")) {
+        return { thinkingLevel: isFast ? "MEDIUM" : "HIGH" };
+    }
+    if (m.includes("gemini-3.8-flash") || m.includes("gemini-3.5-flash-lite") || m.includes("gemini-3.5-flash")) {
         return { thinkingLevel: "LOW" };
     }
     if (m.includes("gemini-2.5-flash")) {
@@ -74,11 +78,9 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
     const cascadeType = options.cascadeType || "curation";
     const activeModel = cascadeType === "curation" ? sessionCurationModel : sessionFastModel;
 
-    let candidateModels = [...cascade];
-    if (activeModel && candidateModels.includes(activeModel) && !sessionDegradedModels.has(activeModel)) {
+    let candidateModels = [...cascade].filter(m => !sessionDegradedModels.has(m));
+    if (activeModel && candidateModels.includes(activeModel)) {
         candidateModels = [activeModel, ...candidateModels.filter(m => m !== activeModel)];
-    } else {
-        candidateModels = candidateModels.filter(m => !sessionDegradedModels.has(m));
     }
 
     if (candidateModels.length === 0) {
@@ -87,35 +89,61 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
 
     let lastError = null;
     for (const model of candidateModels) {
-        const isArgon = model.includes("argon");
-        if (isArgon && typeof spendTracker?.canUseArgon === "function" && !spendTracker.canUseArgon()) {
-            continue;
+        const lowerModel = String(model || "").toLowerCase();
+        const isHydrogen = lowerModel.includes("gemini-4-hydrogen");
+        const isFlash38 = lowerModel.includes("gemini-3.8-flash");
+
+        const thinkingConfig = getModelThinkingConfig(model, cascadeType);
+        const sanitizedConfig = { ...(requestParams.config || {}) };
+        delete sanitizedConfig.frequencyPenalty;
+        delete sanitizedConfig.presencePenalty;
+        if (sanitizedConfig.candidateCount !== undefined && sanitizedConfig.candidateCount > 1) {
+            delete sanitizedConfig.candidateCount;
+        }
+        if (isHydrogen) {
+            delete sanitizedConfig.temperature;
         }
 
-        const thinkingConfig = getModelThinkingConfig(model);
+        const controller = new AbortController();
+        const callerSignal = sanitizedConfig.abortSignal;
+        let onCallerAbort;
+        if (callerSignal) {
+            if (callerSignal.aborted) {
+                controller.abort(callerSignal.reason);
+            } else {
+                onCallerAbort = () => controller.abort(callerSignal.reason);
+                callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+            }
+        }
+
         const mergedConfig = {
-            ...(requestParams.config || {}),
-            ...(thinkingConfig ? { thinkingConfig } : {})
+            ...sanitizedConfig,
+            ...(thinkingConfig ? { thinkingConfig } : {}),
+            abortSignal: controller.signal
         };
 
-        const defaultTimeout = isArgon ? 12000 : 8000;
+        const defaultTimeout = isHydrogen ? 25000 : (isFlash38 ? 5000 : 8000);
         const perAttemptTimeout = options.timeoutMs || defaultTimeout;
 
         let timer;
         const timeoutPromise = new Promise((_, reject) => {
             timer = setTimeout(() => {
-                reject(new Error(`Model ${model} timed out after ${perAttemptTimeout}ms`));
+                const err = new Error(`Model ${model} timed out after ${perAttemptTimeout}ms`);
+                controller.abort(err);
+                reject(err);
             }, perAttemptTimeout);
         });
 
         try {
-            const callPromise = ai.models.generateContent({
-                ...requestParams,
-                model,
-                config: mergedConfig
-            });
+            const callPromise = Promise.resolve().then(() =>
+                ai.models.generateContent({
+                    ...requestParams,
+                    model,
+                    config: mergedConfig
+                })
+            );
+            callPromise.catch(() => {});
             const response = await Promise.race([callPromise, timeoutPromise]);
-            clearTimeout(timer);
 
             if (response?.usageMetadata && typeof spendTracker?.record === "function") {
                 spendTracker.record(model, response.usageMetadata);
@@ -129,13 +157,19 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
 
             return response;
         } catch (err) {
-            clearTimeout(timer);
             lastError = err;
             sessionDegradedModels.add(model);
-            if (isArgon && typeof spendTracker?.markArgonUnavailable === "function") {
-                spendTracker.markArgonUnavailable();
+            if (cascadeType === "curation" && sessionCurationModel === model) {
+                sessionCurationModel = null;
+            } else if (cascadeType === "fast" && sessionFastModel === model) {
+                sessionFastModel = null;
             }
             console.warn(`Model ${model} failed in ${cascadeType} cascade (${err.message || err}). Trying fallback...`);
+        } finally {
+            clearTimeout(timer);
+            if (callerSignal && onCallerAbort) {
+                callerSignal.removeEventListener("abort", onCallerAbort);
+            }
         }
     }
 
@@ -800,7 +834,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
         throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
     }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 12000 } });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 25000 } });
     const mood = options.mood || "any";
     const userRegion = options.userRegion || "US";
     const userProviders = options.userProviders || [];
