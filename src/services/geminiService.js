@@ -595,7 +595,7 @@ export async function parseFreeTextMoodWithGemini(ai, rawQuery = "") {
 }
 
 // Heuristic recent-release slot reservation passed to rankCandidatePool
-export const RECENT_RELEASE_RESERVE_COUNT = 3;
+export const RECENT_RELEASE_RESERVE_COUNT = 2;
 export const RECENT_RELEASE_RESERVE_MONTHS = 18;
 export const RECENT_RELEASE_MIN_PROB_PERCENTILE = 0.5;
 

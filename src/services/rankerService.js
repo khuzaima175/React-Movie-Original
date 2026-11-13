@@ -220,28 +220,16 @@ function computeProbabilityPercentile(sortedDesc, percentile) {
   return probLo + (descPos - lo) * (probHi - probLo);
 }
 
-function computeReserveQualityScore(candidate, weights = DEFAULT_RANKER_WEIGHTS) {
+/**
+ * Cold-start recent-release reserve scorer keeping all weights identical to rankerProbability
+ * while neutralizing noveltyBonus (0) so >4,000-vote acclaimed hits are not penalized.
+ */
+export function computeReserveQualityScore(candidate, weights = DEFAULT_RANKER_WEIGHTS, options = {}) {
   const f = candidate?.features || {};
-  const w = weights || DEFAULT_RANKER_WEIGHTS;
-  const bayWeight = 2.5 * Number(w.bayesianRatingNorm ?? 1.2);
-  const genreWeight = 0.35 * Number(w.genreOverlap ?? 1.1);
-
-  // Neutralize noveltyBonus in cold-start recent selection so >4000-vote hits are not penalized
-  return (
-    Number(w.collabSim ?? 4.8) * Number(f.collabSim || 0) +
-    Number(w.contentSim ?? 1.4) * Number(f.contentSim || 0) +
-    Number(w.crewMatch ?? 0.7) * Number(f.crewMatch || 0) +
-    Number(w.castMatch ?? 0.5) * Number(f.castMatch || 0) +
-    Number(w.keywordOverlap ?? 0.8) * Number(f.keywordOverlap || 0) +
-    Number(w.negativeKeywordPenalty ?? -0.5) * Number(f.negativeKeywordPenalty || 0) +
-    Number(w.repulsion ?? -1.5) * Number(f.repulsion || 0) +
-    Number(w.providerMatch ?? 0.25) * Number(f.providerMatch || 0) +
-    bayWeight * Number(f.bayesianRatingNorm || 0) +
-    genreWeight * Number(f.genreOverlap || 0)
-  );
+  return scoreCandidate({ ...f, noveltyBonus: 0 }, weights || DEFAULT_RANKER_WEIGHTS, options).logit;
 }
 
-function selectWithReserve(scoredDesc, topK, reserve, context = {}, weights = DEFAULT_RANKER_WEIGHTS) {
+function selectWithReserve(scoredDesc, topK, reserve, context = {}, weights = DEFAULT_RANKER_WEIGHTS, options = {}) {
   const limit = Math.min(Math.max(0, Math.floor(Number(topK) || 0)), scoredDesc.length);
   if (limit === 0) return [];
   const rawCount = Math.floor(Number(reserve?.count) || 0);
@@ -300,7 +288,7 @@ function selectWithReserve(scoredDesc, topK, reserve, context = {}, weights = DE
   reserveCandidates = reserveCandidates
     .map(entry => ({
       ...entry,
-      coldStartScore: computeReserveQualityScore(entry.cand, weights)
+      coldStartScore: computeReserveQualityScore(entry.cand, weights, options)
     }))
     .sort((a, b) => {
       if (b.coldStartScore !== a.coldStartScore) return b.coldStartScore - a.coldStartScore;
@@ -365,7 +353,7 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
 
   scored.sort((a, b) => b.rankerProbability - a.rankerProbability);
   const activeReserve = reserve !== undefined ? reserve : (options?.reserve ?? null);
-  return activeReserve ? selectWithReserve(scored, topK, activeReserve, context, weights) : scored.slice(0, topK);
+  return activeReserve ? selectWithReserve(scored, topK, activeReserve, context, weights, options) : scored.slice(0, topK);
 }
 
 /**

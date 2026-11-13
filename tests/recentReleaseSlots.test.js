@@ -340,7 +340,7 @@ test("rankCandidatePool reserve fills qualifying recent slots, obeys percentile 
 
 test("geminiService exports heuristic recent-release reserve constants", async () => {
   const mod = await import("../src/services/geminiService.js");
-  assert.equal(mod.RECENT_RELEASE_RESERVE_COUNT, 3);
+  assert.equal(mod.RECENT_RELEASE_RESERVE_COUNT, 2);
   assert.equal(mod.RECENT_RELEASE_RESERVE_MONTHS, 18);
   assert.equal(mod.RECENT_RELEASE_MIN_PROB_PERCENTILE, 0.5);
 });
@@ -464,8 +464,13 @@ test("reserve computes minProbabilityPercentile over non-collaborative candidate
   assert.equal(allCollabRes.some(c => c.tmdbId === 999), false, "all-collab fallback uses whole-pool percentile");
 });
 
-test("reserve cold-start quality score prefers 8.2-8.6 >4000-vote acclaimed hits over 7.0 low-vote multi-genre filler while reserve:null is unchanged", async () => {
-  const { rankCandidatePool } = await import("../src/services/rankerService.js");
+test("computeReserveQualityScore aligns with ranker weights with noveltyBonus neutralized so Favorite Filmmaker and >4000-vote acclaimed picks win cleanly", async () => {
+  const {
+    rankCandidatePool,
+    scoreCandidate,
+    computeReserveQualityScore,
+    DEFAULT_RANKER_WEIGHTS
+  } = await import("../src/services/rankerService.js");
 
   const candidates = [];
   const collabSimMap = new Map();
@@ -482,30 +487,31 @@ test("reserve cold-start quality score prefers 8.2-8.6 >4000-vote acclaimed hits
     collabSimMap.set(i, 0.9 - i * 0.02);
   }
 
-  // Acclaimed recent hit with >4000 votes (triggers noveltyBonus=0.1 instead of 0.5) and 1 loved genre
+  // Pick 901: Favorite Filmmaker (crewMatch=1, 7.5 rating, 1203 votes) -> higher rankerProbability (~85% matchScore)
   candidates.push({
     id: 901,
     tmdbId: 901,
-    title: "Acclaimed Recent Hit",
-    release_date: "2025-11-01",
+    title: "Favorite Filmmaker Recent",
+    release_date: "2026-02-01",
     genre_ids: [18],
-    vote_average: 8.4,
-    vote_count: 6500
+    crewPersonId: 555,
+    vote_average: 7.5,
+    vote_count: 1203
   });
 
-  // Low-vote 7.0 filler matching all 3 loved genres and staying in 100..4000 novelty window
+  // Pick 902: Higher vote_average (9.0 / 1440 votes) without crew match -> lower rankerProbability (~80% matchScore)
   candidates.push({
     id: 902,
     tmdbId: 902,
-    title: "Low-Vote Genre Filler",
-    release_date: "2025-11-01",
-    genre_ids: [18, 53, 80],
-    vote_average: 7.0,
-    vote_count: 200
+    title: "High-Rating Non-Crew Recent",
+    release_date: "2026-02-01",
+    genre_ids: [18],
+    vote_average: 9.0,
+    vote_count: 1440
   });
 
   const ctx = {
-    profile: { lovedGenreIds: [18, 53, 80], hatedKeywordIds: [] },
+    profile: { lovedGenreIds: [18, 53, 80], hatedKeywordIds: [], topCrewMemberId: 555 },
     collabSimMap
   };
 
@@ -513,13 +519,59 @@ test("reserve cold-start quality score prefers 8.2-8.6 >4000-vote acclaimed hits
   const noReserve = rankCandidatePool(candidates, ctx, undefined, 8, {}, null);
   assert.deepEqual(noReserve.map(c => c.tmdbId), [1, 2, 3, 4, 5, 6, 7, 8]);
 
-  // Reserve count=1 must pick 901 (8.4 / 6500 votes) over 902 (7.0 / 200 votes)
-  const reserved = rankCandidatePool(candidates, ctx, undefined, 8, {}, {
+  // Direct equality with scoreCandidate({ ...features, noveltyBonus: 0 })
+  const scored901 = rankCandidatePool(candidates, ctx, undefined, candidates.length, {}, null).find(c => c.tmdbId === 901);
+  const scored902 = rankCandidatePool(candidates, ctx, undefined, candidates.length, {}, null).find(c => c.tmdbId === 902);
+  assert.equal(
+    computeReserveQualityScore(scored901, DEFAULT_RANKER_WEIGHTS),
+    scoreCandidate({ ...scored901.features, noveltyBonus: 0 }, DEFAULT_RANKER_WEIGHTS).logit
+  );
+  assert.ok(scored901.matchScore > scored902.matchScore);
+  assert.ok(computeReserveQualityScore(scored901) > computeReserveQualityScore(scored902));
+
+  // Reserve count=1 must pick 901 (higher rankerProbability / Favorite Filmmaker) over 902
+  const reservedCrewWin = rankCandidatePool(candidates, ctx, undefined, 8, {}, {
     count: 1,
     minReleaseDate: "2025-05-13",
     minProbabilityPercentile: 0
   });
-  assert.equal(reserved.length, 8);
-  assert.ok(reserved.some(c => c.tmdbId === 901), "8.4 acclaimed >4000-vote hit must beat 7.0 low-vote multi-genre filler");
-  assert.equal(reserved.some(c => c.tmdbId === 902), false);
+  assert.equal(reservedCrewWin.length, 8);
+  assert.ok(reservedCrewWin.some(c => c.tmdbId === 901), "Favorite Filmmaker pick with higher rankerProbability must outrank higher-vote non-crew pick");
+  assert.equal(reservedCrewWin.some(c => c.tmdbId === 902), false);
+
+  // Novelty neutralization: >4,000-vote acclaimed hit (8.4 / 6500 votes, noveltyBonus=0.1) beats
+  // same-genre mid-vote lower-rated film (8.1 / 1500 votes, noveltyBonus=0.5) even though raw prob includes novelty step
+  const noveltyCandidates = candidates.slice(0, 8).concat([
+    {
+      id: 903,
+      tmdbId: 903,
+      title: "Acclaimed Blockbuster Recent",
+      release_date: "2025-11-01",
+      genre_ids: [18],
+      vote_average: 8.4,
+      vote_count: 6500
+    },
+    {
+      id: 904,
+      tmdbId: 904,
+      title: "Mid-Vote Lower-Rated Recent",
+      release_date: "2025-11-01",
+      genre_ids: [18],
+      vote_average: 8.1,
+      vote_count: 1500
+    }
+  ]);
+  const fullNovelty = rankCandidatePool(noveltyCandidates, ctx, undefined, noveltyCandidates.length, {}, null);
+  const c903 = fullNovelty.find(c => c.tmdbId === 903);
+  const c904 = fullNovelty.find(c => c.tmdbId === 904);
+  assert.ok(c904.rankerProbability > c903.rankerProbability, "raw rankerProbability gives 904 an edge purely via noveltyBonus");
+  assert.ok(computeReserveQualityScore(c903) > computeReserveQualityScore(c904), "neutralizing noveltyBonus makes 8.4 >4000-vote hit outscore 8.1 mid-vote film");
+
+  const reservedNovelty = rankCandidatePool(noveltyCandidates, ctx, undefined, 8, {}, {
+    count: 1,
+    minReleaseDate: "2025-05-13",
+    minProbabilityPercentile: 0
+  });
+  assert.ok(reservedNovelty.some(c => c.tmdbId === 903));
+  assert.equal(reservedNovelty.some(c => c.tmdbId === 904), false);
 });
