@@ -189,6 +189,8 @@ def train_and_export(
 
     verify_written_binary(out_path, valid_tmdb_set, len(tmdb_ids), item_vecs.shape[1])
 
+    # Note: public/models/ranker_weights.json emitted below is an offline artifact and is
+    # not read at runtime by the app (src/services/rankerService.js uses DEFAULT_RANKER_WEIGHTS).
     ranker_weights = {
         "_source": "hand-set-prior",
         "bias": -1.1,
@@ -200,7 +202,7 @@ def train_and_export(
         "castMatch": 0.5,
         "bayesianRatingNorm": 1.2,
         "noveltyBonus": 0.35,
-        "negativeKeywordPenalty": -2.0,
+        "negativeKeywordPenalty": -0.5,
         "providerMatch": 0.25,
     }
     if weights_out:

@@ -8,6 +8,7 @@ import WatchedMoviesList from "../components/WatchedMoviesList";
 import EmptyState from "../components/EmptyState";
 import BackupManagerModal from "../components/BackupManagerModal";
 import ToastNotification from "../components/ToastNotification";
+import { buildBulkMoveWatchedItem } from "../services/csvImport";
 import { Bookmark, Sparkles, Compass } from "lucide-react";
 
 export default function VaultPage() {
@@ -180,7 +181,7 @@ export default function VaultPage() {
         deleteWatched(id);
       } else {
         // Move to watched
-        addWatched(item);
+        addWatched(buildBulkMoveWatchedItem(item));
         deleteWatchlist(id);
       }
     });
