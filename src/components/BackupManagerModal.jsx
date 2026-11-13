@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useApp } from "../context/AppContext";
 import { parseCSVImport, buildWatchedRecordFromImport } from "../services/csvImport";
+import { fetchOmdbJson } from "../services/apiTransport";
 import { Modal } from "./ui/Modal";
 import { Tabs } from "./ui/Tabs";
 import { Button } from "./ui/Button";
@@ -17,15 +18,6 @@ import {
   Layers,
   FileUp
 } from "lucide-react";
-
-const getOmdbKey = () => {
-  const key = import.meta.env.VITE_OMDB_KEY;
-  if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "";
-  }
-  return key.trim();
-};
-const KEY = getOmdbKey();
 
 export default function BackupManagerModal({ isOpen, onClose }) {
   const { watched = [], watchlist = [], setWatched, setWatchlist } = useApp();
@@ -274,18 +266,12 @@ export default function BackupManagerModal({ isOpen, onClose }) {
           };
 
           try {
-            let fetchUrl = "";
-            if (row.imdbId && row.imdbId.startsWith("tt")) {
-              fetchUrl = `https://www.omdbapi.com/?apikey=${KEY}&i=${row.imdbId}`;
-            } else {
-              fetchUrl = `https://www.omdbapi.com/?apikey=${KEY}&t=${encodeURIComponent(
-                row.title
-              )}${row.year ? `&y=${row.year}` : ""}`;
-            }
+            const query = row.imdbId && row.imdbId.startsWith("tt")
+              ? { i: row.imdbId }
+              : { t: row.title, ...(row.year ? { y: row.year } : {}) };
 
-            let res = await fetch(fetchUrl, { cache: "no-store" });
-            if (!res.ok) throw new Error("Network issues");
-            let data = await res.json();
+            const data = await fetchOmdbJson(query);
+            if (!data) throw new Error("Network issues");
 
             if (data.Response === "True") {
               const isWatchlist =

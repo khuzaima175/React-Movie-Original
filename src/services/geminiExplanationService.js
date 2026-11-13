@@ -1,16 +1,15 @@
 import { CURATION_MODEL_CASCADE, executeCascade, createGeminiClient } from "./geminiService.js";
+import { resolveGeminiKey } from "./apiTransport.js";
 
 /**
  * Explains WHY a specific movie was recommended based on user's taste
  */
 export const getRecommendationExplanation = async (movieTitle, userTasteProfile, watchedMovies) => {
-    const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
+    const ai = createGeminiClient(resolveGeminiKey());
 
-    if (!apiKey) {
+    if (!ai) {
         throw new Error("Gemini API Key is missing.");
     }
-
-    const ai = createGeminiClient(apiKey);
 
     // Get a snapshot of user's high-rated movies (8+)
     const favorites = (watchedMovies || [])

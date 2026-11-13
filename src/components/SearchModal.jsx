@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 import PosterImage from "./PosterImage";
 import { useDebounce } from "../hooks/useDebounce";
+import { fetchOmdbJson, fetchTmdbJson } from "../services/apiTransport";
 
 const POPULAR_SUGGESTIONS = [
   "Inception", "The Dark Knight", "Interstellar", "Dune", "Oppenheimer", "Pulp Fiction", "Avatar", "The Matrix"
@@ -75,53 +76,43 @@ export default function SearchModal({ isOpen, onClose, onSelectMovie, API_KEY })
     async function searchMovies() {
       try {
         setIsLoading(true);
-        const omdbKey = API_KEY || import.meta.env.VITE_OMDB_KEY || "";
-        const tmdbKey = import.meta.env.VITE_TMDB_KEY || "";
+        const trimmed = debouncedQuery.trim();
 
-        // 1. Try OMDb search if key is provided
-        if (omdbKey) {
-          try {
-            const res = await fetch(
-              `https://www.omdbapi.com/?apikey=${omdbKey}&s=${encodeURIComponent(debouncedQuery.trim())}`,
-              { signal: controller.signal, cache: "no-store" }
-            );
-            if (res.ok) {
-              const data = await res.json();
-              if (data.Response === "True" && Array.isArray(data.Search)) {
-                setResults(data.Search);
-                setSelectedIndex(0);
-                setIsLoading(false);
-                return;
-              }
-            }
-          } catch (_) {}
-        }
+        // 1. Try OMDb search first when available (key or browser proxy)
+        try {
+          const data = await fetchOmdbJson(
+            { s: trimmed },
+            { ...(API_KEY ? { apiKey: API_KEY } : {}), signal: controller.signal }
+          );
+          if (data?.Response === "True" && Array.isArray(data.Search)) {
+            setResults(data.Search);
+            setSelectedIndex(0);
+            setIsLoading(false);
+            return;
+          }
+        } catch (_) {}
 
-        // 2. Fallback to TMDB search if TMDB key is provided
-        if (tmdbKey) {
-          try {
-            const res = await fetch(
-              `https://api.themoviedb.org/3/search/movie?api_key=${tmdbKey}&query=${encodeURIComponent(debouncedQuery.trim())}&include_adult=false`,
-              { signal: controller.signal, cache: "no-store" }
-            );
-            if (res.ok) {
-              const data = await res.json();
-              if (data.results && Array.isArray(data.results) && data.results.length > 0) {
-                const mapped = data.results.slice(0, 10).map((m) => ({
-                  imdbID: `tmdb_${m.id}`,
-                  Title: m.title,
-                  Year: m.release_date ? m.release_date.slice(0, 4) : "N/A",
-                  Poster: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : null,
-                  Type: "movie"
-                }));
-                setResults(mapped);
-                setSelectedIndex(0);
-                setIsLoading(false);
-                return;
-              }
-            }
-          } catch (_) {}
-        }
+        // 2. Fallback to TMDB search when available (key or browser proxy)
+        try {
+          const data = await fetchTmdbJson(
+            "/3/search/movie",
+            { query: trimmed, include_adult: "false" },
+            { signal: controller.signal }
+          );
+          if (data?.results && Array.isArray(data.results) && data.results.length > 0) {
+            const mapped = data.results.slice(0, 10).map((m) => ({
+              imdbID: `tmdb_${m.id}`,
+              Title: m.title,
+              Year: m.release_date ? m.release_date.slice(0, 4) : "N/A",
+              Poster: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : null,
+              Type: "movie"
+            }));
+            setResults(mapped);
+            setSelectedIndex(0);
+            setIsLoading(false);
+            return;
+          }
+        } catch (_) {}
 
         setResults([]);
       } catch (err) {

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { sendChatMessage } from "../services/geminiChatService";
+import { fetchOmdbJson } from "../services/apiTransport";
 import {
   getFallbackPoster,
   generateFallbackId,
@@ -51,18 +52,13 @@ function InlineMovieCard({ title, year }) {
 
     const controller = new AbortController();
 
-    const omdbKey = import.meta.env.VITE_OMDB_KEY || "";
     async function fetchDetails() {
       try {
-        if (!omdbKey) return;
-        const res = await fetch(
-          `https://www.omdbapi.com/?apikey=${omdbKey}&t=${encodeURIComponent(cleanTitle)}${
-            year ? `&y=${year}` : ""
-          }`,
-          { cache: "no-store", signal: controller.signal }
+        const data = await fetchOmdbJson(
+          { t: cleanTitle, ...(year ? { y: year } : {}) },
+          { signal: controller.signal }
         );
-        const data = await res.json();
-        if (data.Response === "True") {
+        if (data?.Response === "True") {
           inlineMovieCache.set(cacheKey, data);
           setMovieData(data);
         }

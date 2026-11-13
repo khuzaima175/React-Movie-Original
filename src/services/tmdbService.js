@@ -14,22 +14,16 @@
  */
 
 import { computeZScoredWeights, computeUserRatingStats } from "./scoringUtils.js";
+import {
+  resolveTmdbKey,
+  resolveOmdbKey,
+  hasTmdbBackend,
+  fetchTmdbJson,
+  fetchOmdbJson
+} from "./apiTransport.js";
 
-export const getTmdbKey = () => {
-  const key = import.meta.env?.VITE_TMDB_KEY || globalThis.process?.env?.VITE_TMDB_KEY;
-  if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "";
-  }
-  return key.trim();
-};
-
-export const getOmdbKey = () => {
-  const key = import.meta.env?.VITE_OMDB_KEY || globalThis.process?.env?.VITE_OMDB_KEY;
-  if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "";
-  }
-  return key.trim();
-};
+export const getTmdbKey = () => resolveTmdbKey();
+export const getOmdbKey = () => resolveOmdbKey();
 
 export const TMDB_KEY = getTmdbKey();
 export const OMDB_KEY = getOmdbKey();
@@ -310,14 +304,14 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
  * Fetch keywords and creative crew for an anchor film
  */
 export async function fetchMovieKeywordsAndCrew(tmdbId) {
-  const key = getTmdbKey();
-  if (!key || !tmdbId) return { keywords: [], crewPersonIds: [] };
+  if (!hasTmdbBackend() || !tmdbId) return { keywords: [], crewPersonIds: [] };
 
   try {
-    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=keywords,credits&language=en-US`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return { keywords: [], crewPersonIds: [] };
-    const data = await res.json();
+    const data = await fetchTmdbJson(`/3/movie/${tmdbId}`, {
+      append_to_response: "keywords,credits",
+      language: "en-US"
+    });
+    if (!data) return { keywords: [], crewPersonIds: [] };
 
     const keywords = (data.keywords?.keywords || []).slice(0, 5).map(k => k.id);
 
@@ -427,9 +421,10 @@ export function buildBucketAParams(profile = {}, mood = "any", options = {}, api
  * BUCKET A: Semantic Discover with Conditional Genre Guard & Pipe OR with_cast
  */
 export async function fetchBucketA(profile, mood = "any", options = {}, collisionSets = {}, targetCount = 8) {
-  const key = getTmdbKey();
-  if (!key) return [];
+  if (!hasTmdbBackend(options)) return [];
 
+  const key = getTmdbKey();
+  const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
   const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
   const params = buildBucketAParams(profile, mood, options, key);
   const sortParam = params.get("sort_by") || "popularity.desc";
@@ -439,12 +434,13 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
   let page = 1;
 
   while (candidates.length < targetCount && page <= 5) {
-    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
     try {
-      const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
-      if (!res.ok) break;
-      const data = await res.json();
-      if (!data.results || data.results.length === 0) break;
+      const data = await fetchTmdbJson(
+        "/3/discover/movie",
+        { ...Object.fromEntries(params), page: String(page) },
+        { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+      );
+      if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
         if (!m || !m.title || !m.overview) continue;
@@ -473,12 +469,13 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
     page = 1;
 
     while (candidates.length < targetCount && page <= 5) {
-      const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
       try {
-        const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
-        if (!res.ok) break;
-        const data = await res.json();
-        if (!data.results || data.results.length === 0) break;
+        const data = await fetchTmdbJson(
+          "/3/discover/movie",
+          { ...Object.fromEntries(params), page: String(page) },
+          { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+        );
+        if (!data?.results || data.results.length === 0) break;
 
         for (const m of data.results) {
           if (!m || !m.title || !m.overview) continue;
@@ -508,9 +505,10 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
  * BUCKET B: Keyword Spiritual Successor (Safe Keyword Match without Genre Blacklisting)
  */
 export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {}, targetCount = 8) {
-  const key = getTmdbKey();
-  if (!key || !anchorTmdbId) return [];
+  if (!hasTmdbBackend(options) || !anchorTmdbId) return [];
 
+  const key = getTmdbKey();
+  const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
   const { userRegion = "US", userProviders = [] } = options;
   const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
 
@@ -538,12 +536,13 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
   let page = 1;
 
   while (candidates.length < targetCount && page <= 4) {
-    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
     try {
-      const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
-      if (!res.ok) break;
-      const data = await res.json();
-      if (!data.results || data.results.length === 0) break;
+      const data = await fetchTmdbJson(
+        "/3/discover/movie",
+        { ...Object.fromEntries(params), page: String(page) },
+        { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+      );
+      if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
         if (!m || !m.title || !m.overview) continue;
@@ -572,9 +571,10 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
  * BUCKET C: Single Auteur Crew Member Query (with_crew={singleId})
  */
 export async function fetchBucketC(profile, options = {}, collisionSets = {}, targetCount = 4) {
-  const key = getTmdbKey();
-  if (!key) return [];
+  if (!hasTmdbBackend(options)) return [];
 
+  const key = getTmdbKey();
+  const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
   const { topCrewMemberId } = profile;
   if (!topCrewMemberId) return [];
 
@@ -601,12 +601,13 @@ export async function fetchBucketC(profile, options = {}, collisionSets = {}, ta
   let page = 1;
 
   while (candidates.length < targetCount && page <= 3) {
-    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
     try {
-      const res = await fetch(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
-      if (!res.ok) break;
-      const data = await res.json();
-      if (!data.results || data.results.length === 0) break;
+      const data = await fetchTmdbJson(
+        "/3/discover/movie",
+        { ...Object.fromEntries(params), page: String(page) },
+        { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+      );
+      if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
         if (!m || !m.title || !m.overview) continue;
@@ -687,10 +688,10 @@ export function buildBucketDParams(profile = {}, options = {}, apiKey = "") {
  * BUCKET D: Recent popular releases (last 18 months) aligned to top 3 loved genres without cast lock-in.
  */
 export async function fetchBucketD(profile = {}, options = {}, collisionSets = {}, existingIdSet = new Set()) {
-  const key = getTmdbKey();
-  if (!key) return [];
+  if (!hasTmdbBackend(options)) return [];
 
-  const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : fetch;
+  const key = getTmdbKey();
+  const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
   const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
   const params = buildBucketDParams(profile, options, key);
   const hasProviderFilter = Boolean(params.get("with_watch_providers"));
@@ -700,12 +701,13 @@ export async function fetchBucketD(profile = {}, options = {}, collisionSets = {
   const seenLocal = new Set();
 
   for (let page = 1; page <= 2 && candidates.length < maxResults; page++) {
-    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
     try {
-      const res = await fetchFn(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
-      if (!res.ok) break;
-      const data = await res.json();
-      if (!data.results || data.results.length === 0) break;
+      const data = await fetchTmdbJson(
+        "/3/discover/movie",
+        { ...Object.fromEntries(params), page: String(page) },
+        { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+      );
+      if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
         if (!m || !m.title || !m.overview) continue;
@@ -735,8 +737,7 @@ export async function fetchBucketD(profile = {}, options = {}, collisionSets = {
  * 3-Bucket Dynamic Waterfall Candidate Pool Orchestrator with Cold-Start Bypass
  */
 export async function fetchCandidatePool(profile, mood = "any", watchedMovies = [], watchlistMovies = [], options = {}) {
-  const key = getTmdbKey();
-  if (!key) {
+  if (!hasTmdbBackend(options)) {
     throw new Error("TMDB_KEY_MISSING");
   }
 
@@ -891,14 +892,14 @@ export function extractOfficialTrailerKey(videosList = []) {
  * Fetch detailed movie data with append_to_response=videos,credits,external_ids,watch/providers,keywords,release_dates
  */
 export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
-  const key = getTmdbKey();
-  if (!key || !tmdbId) return null;
+  if (!hasTmdbBackend() || !tmdbId) return null;
 
   try {
-    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}&append_to_response=videos,credits,external_ids,keywords,watch/providers,release_dates&language=en-US`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    const data = await res.json();
+    const data = await fetchTmdbJson(`/3/movie/${tmdbId}`, {
+      append_to_response: "videos,credits,external_ids,keywords,watch/providers,release_dates",
+      language: "en-US"
+    });
+    if (!data) return null;
 
     const directorObj = data.credits?.crew?.find(c => c.job === "Director");
     const director = directorObj?.name || "Unknown";
@@ -1004,15 +1005,13 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
  * Reverse lookup TMDB movie by IMDb ID using /find/{external_id}
  */
 export async function findTmdbByImdbId(imdbId) {
-  const key = getTmdbKey();
-  if (!key || !imdbId) return null;
+  if (!hasTmdbBackend() || !imdbId) return null;
 
   try {
-    const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const movie = data.movie_results?.[0];
+    const data = await fetchTmdbJson(`/3/find/${imdbId}`, {
+      external_source: "imdb_id"
+    });
+    const movie = data?.movie_results?.[0];
     if (!movie) return null;
 
     return {
@@ -1034,19 +1033,17 @@ export async function findTmdbByImdbId(imdbId) {
  * Lookup TMDB movie by title and year
  */
 export async function findTmdbByTitleAndYear(title, year) {
-  const key = getTmdbKey();
-  if (!key || !title) return null;
+  if (!hasTmdbBackend() || !title) return null;
 
   try {
     const cleanTitle = String(title).replace(/^["']|["']$/g, "").trim();
     const cleanYear = year ? String(year).match(/\d{4}/)?.[0] : "";
-    let url = `https://api.themoviedb.org/3/search/movie?api_key=${key}&query=${encodeURIComponent(cleanTitle)}&include_adult=false`;
-    if (cleanYear) url += `&year=${cleanYear}`;
-
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const movie = data.results?.[0];
+    const data = await fetchTmdbJson("/3/search/movie", {
+      query: cleanTitle,
+      include_adult: "false",
+      ...(cleanYear ? { year: cleanYear } : {})
+    });
+    const movie = data?.results?.[0];
     if (!movie) return null;
 
     return {
@@ -1115,14 +1112,13 @@ export async function bridgeTmdbToOmdb(tmdbMovie, userRegion = "US") {
     ? String(tmdbMovie.year || tmdbMovie.release_date).match(/\d{4}/)?.[0]
     : "";
 
-  const omdbKey = getOmdbKey();
-
   try {
-    const url = `https://www.omdbapi.com/?apikey=${omdbKey}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-    const res = await fetch(url, { cache: "no-store" });
-    const data = await res.json();
+    const data = await fetchOmdbJson({
+      t: cleanTitle,
+      ...(cleanYear ? { y: cleanYear } : {})
+    });
 
-    if (data.Response === "True" && data.imdbID) {
+    if (data?.Response === "True" && data.imdbID) {
       return {
         imdbID: data.imdbID,
         tmdbId: tmdbId || null,

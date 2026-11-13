@@ -4,6 +4,7 @@ import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
 import { useApp } from "../context/AppContext";
 import { findTmdbByImdbId, findTmdbByTitleAndYear, fetchTmdbMovieDetails, getFallbackPoster } from "../services/tmdbService";
+import { fetchOmdbJson } from "../services/apiTransport";
 import {
   ArrowLeft,
   Star,
@@ -30,15 +31,6 @@ import {
   Flame,
   CheckCircle2
 } from "lucide-react";
-
-const getOmdbKey = () => {
-  const key = import.meta.env.VITE_OMDB_KEY;
-  if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-    return "";
-  }
-  return key.trim();
-};
-const OMDB_KEY = getOmdbKey();
 
 // Cache enriched detail objects for this session
 const enrichedDetailsSessionCache = new Map();
@@ -219,14 +211,10 @@ export default function MovieDetails({
 
         // 1. If it's an IMDb ID, query OMDb & TMDB concurrently
         if (isImdbId) {
-          const omdbPromise = OMDB_KEY
-            ? fetch(`https://www.omdbapi.com/?apikey=${OMDB_KEY}&i=${selectedId}`, {
-                cache: "no-store",
-                signal: controller.signal
-              })
-                .then((res) => (res.ok ? res.json() : null))
-                .catch(() => null)
-            : Promise.resolve(null);
+          const omdbPromise = fetchOmdbJson(
+            { i: selectedId },
+            { signal: controller.signal }
+          ).catch(() => null);
 
           const tmdbPromise = findTmdbByImdbId(selectedId)
             .then((found) => (found?.tmdbId ? fetchTmdbMovieDetails(found.tmdbId, userRegion) : null))
@@ -249,14 +237,11 @@ export default function MovieDetails({
           tmdbData = await fetchTmdbMovieDetails(cleanTmdbId, userRegion);
           if (tmdbData?.imdbID) {
             try {
-              const res = await fetch(`https://www.omdbapi.com/?apikey=${OMDB_KEY}&i=${tmdbData.imdbID}`, {
-                cache: "no-store",
-                signal: controller.signal
-              });
-              if (res.ok) {
-                const json = await res.json();
-                if (json.Response === "True") omdbData = json;
-              }
+              const json = await fetchOmdbJson(
+                { i: tmdbData.imdbID },
+                { signal: controller.signal }
+              );
+              if (json?.Response === "True") omdbData = json;
             } catch (_) {}
           }
         }

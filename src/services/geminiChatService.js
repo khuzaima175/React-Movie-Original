@@ -1,13 +1,12 @@
 import { FAST_INTERACTIVE_CASCADE, executeCascade, createGeminiClient } from "./geminiService.js";
+import { resolveGeminiKey } from "./apiTransport.js";
 
 /**
  * Sends a message to the AI movie assistant with user context.
  */
 export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) => {
-    const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
-    if (!apiKey) throw new Error("API Key missing");
-
-    const ai = createGeminiClient(apiKey);
+    const ai = createGeminiClient(resolveGeminiKey());
+    if (!ai) throw new Error("Gemini API Key missing");
 
     // 1. Construct the System Context with User Data
     const movieContext = (watchedMovies || []).map(m =>

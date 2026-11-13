@@ -1,8 +1,13 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { spendTracker } from "./aiSpendTracker.js";
 import {
-    getTmdbKey,
-    getOmdbKey,
+    resolveGeminiKey,
+    hasGeminiBackend,
+    hasTmdbBackend,
+    createProxyGeminiClient,
+    fetchOmdbJson
+} from "./apiTransport.js";
+import {
     extractTasteProfile,
     fetchCandidatePool,
     fetchEmbeddingCandidates,
@@ -106,10 +111,17 @@ export function getDefaultAttemptTimeoutMs(model = "") {
 }
 
 export function createGeminiClient(apiKey, options = {}) {
-    return new GoogleGenAI({
-        apiKey,
-        httpOptions: { timeout: options.timeoutMs ?? HYDROGEN_TIMEOUT_MS }
-    });
+    const resolvedKey = typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : resolveGeminiKey();
+    if (resolvedKey) {
+        return new GoogleGenAI({
+            apiKey: resolvedKey,
+            httpOptions: { timeout: options.timeoutMs ?? HYDROGEN_TIMEOUT_MS }
+        });
+    }
+    if (hasGeminiBackend(options)) {
+        return createProxyGeminiClient(options);
+    }
+    return null;
 }
 
 export function getWorkingModelStorageKey(cascadeType = "curation") {
@@ -789,8 +801,6 @@ const omdbMemoryCache = new Map();
  */
 export const fetchRealOMDBData = async (title, year, signal) => {
     try {
-        const omdbKey = getOmdbKey();
-        if (!omdbKey) return null;
         const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
         const cleanYear = year ? String(year).trim().match(/\d{4}/)?.[0] : null;
         const cacheKey = `${cleanTitle.toLowerCase()}::${cleanYear || "noyear"}`;
@@ -799,17 +809,16 @@ export const fetchRealOMDBData = async (title, year, signal) => {
             return omdbMemoryCache.get(cacheKey);
         }
 
-        let url = `https://www.omdbapi.com/?apikey=${omdbKey}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
-        let response = await fetch(url, { cache: "no-store", signal });
-        if (!response.ok) return null;
-
-        let data = await response.json();
+        let data = await fetchOmdbJson(
+            { t: cleanTitle, ...(cleanYear ? { y: cleanYear } : {}) },
+            { signal }
+        );
+        if (!data) return null;
 
         if (data.Response !== "True" && cleanYear) {
-            url = `https://www.omdbapi.com/?apikey=${omdbKey}&t=${encodeURIComponent(cleanTitle)}`;
-            response = await fetch(url, { cache: "no-store", signal });
-            if (response.ok) {
-                data = await response.json();
+            const retryData = await fetchOmdbJson({ t: cleanTitle }, { signal });
+            if (retryData) {
+                data = retryData;
             }
         }
 
@@ -1406,10 +1415,10 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
  * Hybrid Waterfall TMDB Candidate Engine + Gemini Re-Ranking
  */
 export const getMovieRecommendations = async (watchedMovies = [], watchlist = [], onProgress, options = {}) => {
-    const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
-    const ai = options.aiClient || (apiKey ? createGeminiClient(apiKey, options) : null);
+    const apiKey = resolveGeminiKey();
+    const ai = options.aiClient || createGeminiClient(apiKey, options);
     const hasInjectedCandidates = Array.isArray(options.candidates) && options.candidates.length >= 6;
-    const hasTmdb = Boolean(getTmdbKey() || hasInjectedCandidates);
+    const hasTmdb = Boolean(hasTmdbBackend(options) || hasInjectedCandidates);
 
     if (!ai && !hasTmdb) {
         throw new Error("Neither Gemini API Key (VITE_GEMINI_KEY) nor TMDB credentials (VITE_TMDB_KEY) are configured.");
