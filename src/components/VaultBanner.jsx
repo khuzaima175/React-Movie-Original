@@ -20,6 +20,7 @@ import {
   Filter,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { buildRatingHistogramBins } from "../services/vaultStats";
 
 export default function VaultBanner({
   watched = [],
@@ -75,13 +76,8 @@ export default function VaultBanner({
   const topGenre = sortedGenres[0] ? sortedGenres[0][0] : "Cinema";
   const totalGenreHits = sortedGenres.reduce((acc, [, count]) => acc + count, 0) || 1;
 
-  // Rating Histogram (6★ - 10★)
-  const distCounts = { 10: 0, 9: 0, 8: 0, 7: 0, 6: 0 };
-  userRatings.forEach((r) => {
-    const rounded = Math.min(10, Math.max(6, Math.round(r)));
-    if (distCounts[rounded] !== undefined) distCounts[rounded] += 1;
-  });
-  const maxDistCount = Math.max(...Object.values(distCounts), 1);
+  // Rating Histogram (1★ - 10★)
+  const { bins: histogramBins } = buildRatingHistogramBins(watched);
 
   // Trivia
   const directorCounts = {};
@@ -208,28 +204,24 @@ export default function VaultBanner({
                       <Trophy size={15} className="text-accent" aria-hidden="true" />
                       <h4>Score Distribution</h4>
                     </div>
-                    <span className="panel-sub-label">6★ → 10★ frequency</span>
+                    <span className="panel-sub-label">1★ → 10★ frequency</span>
                   </div>
 
                   <div className="histogram-bars-spacious">
-                    {[10, 9, 8, 7, 6].map((score) => {
-                      const count = distCounts[score];
-                      const pct = Math.round((count / maxDistCount) * 100);
-                      return (
-                        <div key={score} className="hist-column-item" title={`${score}★: ${count} films`}>
-                          <span className="hist-count-num">{count > 0 ? count : ""}</span>
-                          <div className="hist-track-housing">
-                            <motion.div
-                              initial={{ height: 0 }}
-                              animate={{ height: count > 0 ? `${Math.max(16, pct)}%` : "4px" }}
-                              transition={{ duration: 0.45, delay: (10 - score) * 0.05 }}
-                              className={`hist-bar-fill ${score === 10 ? "gold" : ""}`}
-                            />
-                          </div>
-                          <span className="hist-label-text">{score}★</span>
+                    {histogramBins.map(({ score, label, count, heightPct }) => (
+                      <div key={score} className="hist-column-item" title={`${label}: ${count} films`}>
+                        <span className="hist-count-num">{count > 0 ? count : ""}</span>
+                        <div className="hist-track-housing">
+                          <motion.div
+                            initial={{ height: 0 }}
+                            animate={{ height: count > 0 ? `${Math.max(16, heightPct)}%` : "4px" }}
+                            transition={{ duration: 0.45, delay: (10 - score) * 0.04 }}
+                            className={`hist-bar-fill ${score === 10 ? "gold" : ""}`}
+                          />
                         </div>
-                      );
-                    })}
+                        <span className="hist-label-text">{label}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
