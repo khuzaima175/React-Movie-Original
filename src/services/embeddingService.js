@@ -178,6 +178,24 @@ export function parseEmbeddingBinary(buffer) {
   };
 }
 
+const RELATIVE_WEIGHT_CUTOFF_RATIO = 1e-6;
+
+/**
+ * Computes a vault-relative minimum weight (`1e-6 * max(|w|)`) so uniformly decayed
+ * vaults remain valid while negligible entries are skipped. Returns null if max(|w|) === 0.
+ */
+function getRelativeWeightCutoff(weightedRatings = []) {
+  let maxAbsW = 0;
+  for (const entry of weightedRatings) {
+    const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    if (!tmdbId || !Number.isFinite(weight)) continue;
+    const absW = Math.abs(weight);
+    if (absW > maxAbsW) maxAbsW = absW;
+  }
+  return maxAbsW > 0 ? RELATIVE_WEIGHT_CUTOFF_RATIO * maxAbsW : null;
+}
+
 /**
  * Computes the user's personalized single taste vector (backward-compatible):
  * user_vec = sum(w_i * e_i) / sum(|w_i|), L2-normalized.
@@ -187,6 +205,9 @@ export function computeUserEmbedding(weightedRatings = [], index) {
     return null;
   }
 
+  const weightCutoff = getRelativeWeightCutoff(weightedRatings);
+  if (weightCutoff === null) return null;
+
   const { dim, vectors, idToIndex } = index;
   const accum = new Float32Array(dim);
   let sumAbsWeight = 0;
@@ -194,7 +215,7 @@ export function computeUserEmbedding(weightedRatings = [], index) {
   for (const entry of weightedRatings) {
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
     const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
-    if (!tmdbId || !Number.isFinite(weight) || Math.abs(weight) < 1e-6) continue;
+    if (!tmdbId || !Number.isFinite(weight) || Math.abs(weight) <= weightCutoff) continue;
 
     const idx = idToIndex.get(tmdbId);
     if (idx === undefined) continue;
@@ -225,6 +246,9 @@ export function computeUserPersonas(weightedRatings = [], index, options = {}) {
     return [];
   }
 
+  const weightCutoff = getRelativeWeightCutoff(weightedRatings);
+  if (weightCutoff === null) return [];
+
   const { dim, vectors, idToIndex } = index;
   const minPositiveRating = options.minPositiveRating ?? 0;
   const maxIterations = options.maxIterations ?? 12;
@@ -236,7 +260,7 @@ export function computeUserPersonas(weightedRatings = [], index, options = {}) {
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
     const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
     const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
-    if (!tmdbId || !Number.isFinite(weight) || Math.abs(weight) <= 1e-6) continue;
+    if (!tmdbId || !Number.isFinite(weight) || Math.abs(weight) <= weightCutoff) continue;
     const idx = idToIndex.get(tmdbId);
     if (idx === undefined) continue;
 
@@ -349,6 +373,9 @@ export function buildRepulsionMapFromIndex(weightedRatings = [], index = null, o
   const map = new Map();
   if (!index || !index.count || !weightedRatings || weightedRatings.length === 0) return map;
 
+  const weightCutoff = getRelativeWeightCutoff(weightedRatings);
+  if (weightCutoff === null) return map;
+
   const { count, dim, ids, vectors, idToIndex } = index;
   const threshold = options.threshold ?? 0.35;
   const exponent = options.exponent ?? 2;
@@ -359,7 +386,7 @@ export function buildRepulsionMapFromIndex(weightedRatings = [], index = null, o
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
     const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
     const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
-    if (!tmdbId || !Number.isFinite(weight) || weight >= -1e-6) continue;
+    if (!tmdbId || !Number.isFinite(weight) || weight >= -weightCutoff) continue;
     if (Number.isFinite(rating) && rating > maxDislikeRating) continue;
 
     const idx = idToIndex.get(tmdbId);
@@ -519,6 +546,9 @@ export function buildCollabSimMapFromIndex(weightedRatings = [], index = null, o
   const map = new Map();
   if (!index || !index.count || !weightedRatings || weightedRatings.length === 0) return map;
 
+  const weightCutoff = getRelativeWeightCutoff(weightedRatings);
+  if (weightCutoff === null) return map;
+
   const { count, dim, ids, vectors, idToIndex } = index;
   const personas = computeUserPersonas(weightedRatings, index, options);
   if (personas.length === 0) {
@@ -540,7 +570,7 @@ export function buildCollabSimMapFromIndex(weightedRatings = [], index = null, o
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
     const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
     const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
-    if (!tmdbId || !Number.isFinite(weight) || weight <= 1e-6) continue;
+    if (!tmdbId || !Number.isFinite(weight) || weight <= weightCutoff) continue;
     if (Number.isFinite(rating) && rating < minPositiveRating) continue;
     const idx = idToIndex.get(tmdbId);
     if (idx === undefined) continue;
