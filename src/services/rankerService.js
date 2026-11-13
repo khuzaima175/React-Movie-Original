@@ -15,7 +15,8 @@ export const DEFAULT_RANKER_WEIGHTS = {
   noveltyBonus: 0.35,
   negativeKeywordPenalty: -0.5,
   repulsion: -1.5,
-  providerMatch: 0.25
+  providerMatch: 0.25,
+  dnaSim: 0
 };
 
 /**
@@ -27,6 +28,7 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
     collabSimMap = new Map(),
     contentSimMap = new Map(),
     repulsionMap = new Map(),
+    dnaSimMap = new Map(),
     anchorKeywords = [],
     userProviders = []
   } = context;
@@ -35,6 +37,7 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
   const collabSim = Number(collabSimMap?.get?.(tmdbId) ?? candidate.collabSim ?? 0);
   const contentSim = Number(contentSimMap?.get?.(tmdbId) ?? candidate.contentSim ?? 0);
   const repulsion = Number(repulsionMap?.get?.(tmdbId) ?? candidate.repulsion ?? 0);
+  const dnaSim = Number(dnaSimMap?.get?.(tmdbId) ?? candidate.dnaSim ?? 0) || 0;
 
   const lovedSet = new Set(profile.lovedGenreIds || []);
   const candGenres = candidate.tmdbGenreIds || candidate.genre_ids || [];
@@ -102,7 +105,8 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
     noveltyBonus,
     negativeKeywordPenalty,
     repulsion,
-    providerMatch
+    providerMatch,
+    dnaSim
   };
 }
 

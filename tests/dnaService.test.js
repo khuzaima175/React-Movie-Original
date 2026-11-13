@@ -37,3 +37,39 @@ test("unknown ids / empty profile give 0", () => {
   assert.equal(dnaSim(idx, null, 1), 0);
   assert.equal(dnaSim(idx, buildUserDnaProfile(idx, [1]), 999), 0);
 });
+
+test("loadDefaultDnaIndex rejects 404/HTML safely and buildDnaSimMap scores matching CDNA films", async () => {
+  const {
+    encodeDnaBinary,
+    loadDefaultDnaIndex,
+    resetDefaultDnaIndexCache,
+    buildDnaSimMap
+  } = await import("../src/services/dnaService.js");
+  resetDefaultDnaIndexCache();
+  assert.equal(await loadDefaultDnaIndex("/models/cinematic_dna_u8.bin", async () => ({ ok: false, status: 404 })), null);
+
+  resetDefaultDnaIndexCache();
+  const htmlBuf = new TextEncoder().encode("<!doctype html><html></html>").buffer;
+  assert.equal(
+    await loadDefaultDnaIndex("/models/cinematic_dna_u8.bin", async () => ({
+      ok: true,
+      headers: new Headers({ "content-type": "text/html" }),
+      arrayBuffer: async () => htmlBuf
+    })),
+    null
+  );
+
+  resetDefaultDnaIndexCache();
+  const buf = encodeDnaBinary([
+    { tmdbId: 10, axes: [90, 80, 70, 60] },
+    { tmdbId: 11, axes: [88, 78, 68, 62] },
+    { tmdbId: 12, axes: [10, 20, 30, 40] }
+  ]);
+  const idx = await loadDefaultDnaIndex("/models/cinematic_dna_u8.bin", async () => ({
+    ok: true,
+    arrayBuffer: async () => buf
+  }));
+  const map = buildDnaSimMap([{ movie: { tmdbId: 10 }, rating: 9, weight: 1.2 }], idx);
+  assert.ok(map.get(11) > map.get(12));
+});
+

@@ -27,6 +27,10 @@ import {
     loadDefaultContentIndex,
     buildContentSimMap
 } from "./contentSimService.js";
+import {
+    loadDefaultDnaIndex,
+    buildDnaSimMap
+} from "./dnaService.js";
 
 export const CURATION_MODEL_CASCADE = [
     "gemini-4-hydrogen",
@@ -385,19 +389,25 @@ function resolveCascadeOrder(
     cascade = CURATION_MODEL_CASCADE,
     cascadeType = "curation",
     nowMs = Date.now(),
-    storage = null
+    storage = null,
+    options = {}
 ) {
-    if (!Array.isArray(cascade) || cascade.length === 0) {
+    const tracker = options?.spendTracker || spendTracker;
+    const allowArgon = typeof tracker?.canUseArgon === "function" ? tracker.canUseArgon() : true;
+    const eligibleCascade = Array.isArray(cascade)
+        ? (allowArgon ? cascade : cascade.filter(m => !String(m || "").toLowerCase().includes("argon")))
+        : [];
+    if (eligibleCascade.length === 0) {
         return { candidateModels: [], allInCooldown: false, persisted: null };
     }
-    const primary = cascade[0];
-    let candidateModels = [...cascade].filter(m => !isModelInCooldown(m, nowMs));
+    const primary = eligibleCascade[0];
+    let candidateModels = eligibleCascade.filter(m => !isModelInCooldown(m, nowMs));
 
     if (candidateModels.length === 0) {
         // Every model is currently inside its cooldown window: try only the single soonest-expiring model
         let soonestModel = primary;
         let minUntil = Infinity;
-        for (const m of cascade) {
+        for (const m of eligibleCascade) {
             const until = modelCooldowns.get(m)?.untilMs ?? Infinity;
             if (until < minUntil) {
                 minUntil = until;
@@ -446,9 +456,13 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
     const getNow = typeof options.now === "function" ? options.now : clockFn;
     const startNowMs = getNow();
     const storage = resolveLocalStorage(options);
+    const tracker = options.spendTracker || spendTracker;
 
-    const { candidateModels, persisted } = resolveCascadeOrder(cascade, cascadeType, startNowMs, storage);
-    const primaryModel = cascade[0];
+    const { candidateModels, persisted } = resolveCascadeOrder(cascade, cascadeType, startNowMs, storage, options);
+    if (candidateModels.length === 0) {
+        return null;
+    }
+    const primaryModel = candidateModels[0] || cascade[0];
     let primaryFailureMeta =
         persisted && Number.isFinite(persisted.primaryBlockedUntilMs) && persisted.primaryBlockedUntilMs > startNowMs
             ? { primaryBlockedUntilMs: persisted.primaryBlockedUntilMs, primaryReason: persisted.primaryReason }
@@ -520,8 +534,8 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
             callPromise.catch(() => {});
             const response = await Promise.race([callPromise, timeoutPromise]);
 
-            if (response?.usageMetadata && typeof spendTracker?.record === "function") {
-                spendTracker.record(model, response.usageMetadata);
+            if (response?.usageMetadata && typeof tracker?.record === "function") {
+                tracker.record(model, response.usageMetadata);
             }
 
             const successNowMs = getNow();
@@ -567,6 +581,9 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
                 untilMs: failNowMs + cooldownMs,
                 reason
             });
+            if (lowerModel.includes("argon") && (reason === "quota" || reason === "auth_fatal")) {
+                tracker?.markArgonUnavailable?.();
+            }
             if (model === primaryModel) {
                 primaryFailureMeta = getPrimaryBlockMeta(err, reason, failNowMs, cooldownMs);
             }
@@ -770,7 +787,7 @@ export function getPreferredCascadeModel(
 ) {
     const nowMs = typeof options.now === "function" ? options.now() : Date.now();
     const storage = resolveLocalStorage(options);
-    const { candidateModels } = resolveCascadeOrder(cascade, cascadeType, nowMs, storage);
+    const { candidateModels } = resolveCascadeOrder(cascade, cascadeType, nowMs, storage, options);
     return candidateModels[0] ?? null;
 }
 
@@ -1078,7 +1095,7 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
  */
 export async function parseFreeTextMoodWithGemini(ai, rawQuery = "") {
     const cleaned = cleanStr(rawQuery);
-    if (!cleaned) {
+    if (!cleaned || !ai?.models?.generateContent) {
         return { moodId: "any", withGenres: [], withoutKeywords: [], minYear: null, maxYear: null };
     }
     const prompt = `Convert this movie request into structured TMDB filter JSON: "${cleaned}"`;
@@ -1164,6 +1181,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             collabSimMap: options.collabSimMap,
             contentSimMap: options.contentSimMap,
             repulsionMap: options.repulsionMap,
+            dnaSimMap: options.dnaSimMap,
             anchorKeywords: options.anchorKeywords ?? profile?.lovedKeywordIds,
             userProviders: options.userProviders
         },
@@ -1452,13 +1470,16 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 });
 
             if (candidates && candidates.length >= 6) {
-                const [embeddingIndex, contentIndex] = await Promise.all([
+                const [embeddingIndex, contentIndex, dnaIndex] = await Promise.all([
                     options.embeddingIndex !== undefined
                         ? Promise.resolve(options.embeddingIndex)
                         : loadDefaultEmbeddingIndex(),
                     options.contentIndex !== undefined
                         ? Promise.resolve(options.contentIndex)
-                        : loadDefaultContentIndex()
+                        : loadDefaultContentIndex(),
+                    options.dnaIndex !== undefined
+                        ? Promise.resolve(options.dnaIndex)
+                        : loadDefaultDnaIndex()
                 ]);
                 const collabSimMap =
                     options.collabSimMap ||
@@ -1508,6 +1529,9 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 const contentSimMap =
                     options.contentSimMap ||
                     buildContentSimMap(profile.weightedRatings, contentIndex, mergedCandidates);
+                const dnaSimMap =
+                    options.dnaSimMap ||
+                    buildDnaSimMap(profile.weightedRatings, dnaIndex);
                 const rankerWeights =
                     options.rankerWeights ||
                     derivePersonalizedRankerWeights(options.feedbackLog, watchedMovies, DEFAULT_RANKER_WEIGHTS);
@@ -1518,8 +1542,10 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     rankerWeights,
                     embeddingIndex,
                     contentIndex,
+                    dnaIndex,
                     collabSimMap,
                     contentSimMap,
+                    dnaSimMap,
                     repulsionMap,
                     watched: watchedMovies,
                     watchlist

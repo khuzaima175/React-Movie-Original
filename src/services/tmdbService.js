@@ -143,7 +143,6 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   });
 
   const genreScores = {};
-  const signedGenreScores = {};
   const lovedKeywordScores = {};
   const hatedKeywordCounts = {};
   const castScores = {};
@@ -163,10 +162,6 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   const weightedRated = zScoredList.map(({ movie, rating, zScore, daysSince, timeDecay, weight }) => {
     const positiveWeight = Math.max(0, weight);
     const genreIds = movie.tmdbGenreIds || mapOmdbToTmdbGenreIds(movie.genre || movie.Genre || "");
-
-    genreIds.forEach(id => {
-      signedGenreScores[id] = (signedGenreScores[id] || 0) + weight;
-    });
 
     // 1. Positive Genre Weighting (Direct TMDB IDs or string fallback)
     if (positiveWeight > 0) {

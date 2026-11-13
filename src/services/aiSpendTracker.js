@@ -16,17 +16,19 @@ export function estimateCostUsd(model, usage, now = new Date()) {
 }
 
 export function createSpendTracker({ storage, capUsd = 6, now = () => new Date() } = {}) {
-  const store = storage ?? (typeof localStorage !== "undefined" ? localStorage : null);
+  const resolveStore = () => storage ?? (typeof localStorage !== "undefined" ? localStorage : null);
   let sessionBlocked = false;
   const read = () => {
-    const n = Number(store?.getItem(KEY));
+    const store = resolveStore();
+    const n = Number(store?.getItem?.(KEY));
     return Number.isFinite(n) ? n : 0;
   };
   return {
     spent: read,
     record(model, usage) {
       const cost = estimateCostUsd(model, usage, now());
-      if (cost > 0) store?.setItem(KEY, read() + cost);
+      const store = resolveStore();
+      if (cost > 0) store?.setItem?.(KEY, read() + cost);
       return cost;
     },
     canUseArgon: () => !sessionBlocked && read() < capUsd,

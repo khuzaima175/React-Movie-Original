@@ -566,7 +566,7 @@ export function resolveBinaryFetch(customFetch = null) {
 /**
  * Fetches and parses a CVEM binary index with SPA HTML fallback rejection.
  */
-export function fetchEmbeddingBinaryIndex(url, fetchFn) {
+export function fetchEmbeddingBinaryIndex(url, fetchFn, parser = parseEmbeddingBinary) {
   if (typeof fetchFn !== "function") return Promise.resolve(null);
   return Promise.resolve()
     .then(() => fetchFn(url))
@@ -576,7 +576,7 @@ export function fetchEmbeddingBinaryIndex(url, fetchFn) {
       if (contentType.includes("text/html")) return null;
       return res.arrayBuffer();
     })
-    .then(buf => (buf ? parseEmbeddingBinary(buf) : null))
+    .then(buf => (buf ? parser(buf) : null))
     .catch(() => null);
 }
 

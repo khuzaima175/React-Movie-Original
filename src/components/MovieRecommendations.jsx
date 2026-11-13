@@ -11,8 +11,12 @@ import {
   getLastModelInfo,
   getPreferredCascadeModel,
   resolveResultModelInfo,
-  normalizeMatchScore
+  normalizeMatchScore,
+  createGeminiClient,
+  parseFreeTextMoodWithGemini
 } from "../services/geminiService";
+import { resolveGeminiKey } from "../services/apiTransport";
+import { getRecommendationExplanation } from "../services/geminiExplanationService";
 import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS, AVAILABLE_REGIONS } from "../services/tmdbService";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
@@ -175,6 +179,11 @@ export default function MovieRecommendations({
   const [showDnaDetails, setShowDnaDetails] = useState(false);
   const [showFilterDeck, setShowFilterDeck] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "compact"
+  const [customMoodQuery, setCustomMoodQuery] = useState("");
+  const [isParsingMood, setIsParsingMood] = useState(false);
+  const [moodParseNote, setMoodParseNote] = useState("");
+  const [deepExplanations, setDeepExplanations] = useState({});
+  const [loadingExplanationKey, setLoadingExplanationKey] = useState(null);
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
   const activeRequestRef = useRef(0);
@@ -300,6 +309,50 @@ export default function MovieRecommendations({
       setExpandedRec(null);
     } else {
       setExpandedRec(rec.title);
+    }
+  };
+
+  const handleApplyFreeTextMood = async () => {
+    const query = customMoodQuery.trim();
+    if (!query || isParsingMood) return;
+    setIsParsingMood(true);
+    setMoodParseNote("");
+    try {
+      const aiClient = createGeminiClient(resolveGeminiKey());
+      if (!aiClient) {
+        setMoodParseNote("AI mood parser offline; using selected preset mood.");
+        return;
+      }
+      const parsed = await parseFreeTextMoodWithGemini(aiClient, query);
+      const matched = MOOD_OPTIONS.find((m) => m.id === parsed?.moodId);
+      if (matched) {
+        setSelectedMood(matched.id);
+        setMoodParseNote(`Matched preset vibe: ${matched.label}`);
+      } else {
+        setMoodParseNote("Applied current preset mood.");
+      }
+    } catch {
+      setMoodParseNote("Could not parse custom mood; using preset selection.");
+    } finally {
+      setIsParsingMood(false);
+    }
+  };
+
+  const handleRequestDeepExplanation = async (rec) => {
+    const expKey = rec.tmdbId || rec.imdbID || rec.title;
+    if (!expKey || deepExplanations[expKey] || loadingExplanationKey === expKey) return;
+    setLoadingExplanationKey(expKey);
+    try {
+      const deepText = await getRecommendationExplanation(rec.title, tasteProfile, watched);
+      setDeepExplanations((prev) => ({ ...prev, [expKey]: deepText }));
+    } catch {
+      const genreHint = rec.genre || tasteProfile?.favoriteGenres?.[0] || "this genre";
+      setDeepExplanations((prev) => ({
+        ...prev,
+        [expKey]: `"${rec.title}" aligns with your taste profile in ${genreHint} cinema.`
+      }));
+    } finally {
+      setLoadingExplanationKey((prev) => (prev === expKey ? null : prev));
     }
   };
 
@@ -454,6 +507,52 @@ export default function MovieRecommendations({
             );
           })}
         </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleApplyFreeTextMood();
+          }}
+          style={{ display: "flex", alignItems: "center", gap: "0.8rem", marginTop: "1.2rem", flexWrap: "wrap" }}
+        >
+          <input
+            type="text"
+            value={customMoodQuery}
+            onChange={(e) => setCustomMoodQuery(e.target.value)}
+            placeholder='Describe a mood (e.g., "like Drive but funnier")'
+            aria-label="Custom AI Mood Query"
+            style={{
+              flex: "1 1 24rem",
+              background: "#141416",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              borderRadius: "0.8rem",
+              padding: "0.85rem 1.2rem",
+              fontSize: "1.3rem",
+              color: "#f4f4f2",
+              outline: "none"
+            }}
+          />
+          <button
+            type="submit"
+            disabled={isParsingMood || !customMoodQuery.trim()}
+            style={{
+              padding: "0.85rem 1.5rem",
+              borderRadius: "0.8rem",
+              background: "rgba(226, 177, 60, 0.16)",
+              border: "1px solid rgba(226, 177, 60, 0.4)",
+              color: "#e2b13c",
+              fontSize: "1.25rem",
+              fontWeight: 700,
+              cursor: isParsingMood || !customMoodQuery.trim() ? "not-allowed" : "pointer",
+              opacity: isParsingMood || !customMoodQuery.trim() ? 0.6 : 1
+            }}
+          >
+            {isParsingMood ? "Matching Vibe..." : "Match AI Vibe"}
+          </button>
+          {moodParseNote && (
+            <span style={{ fontSize: "1.2rem", color: "#b6b6b2" }}>{moodParseNote}</span>
+          )}
+        </form>
       </div>
 
       {/* Watch Providers & Global Cinema Filter Strip */}
@@ -1102,19 +1201,53 @@ export default function MovieRecommendations({
                     )}
 
                     {/* Match Breakdown Drawer */}
-                    {isExpanded && (
-                      <div className="rec-explanation-drawer">
-                        <div className="drawer-content">
-                          <p>
-                            <strong>Thematic Connection:</strong> {rec.reason}
-                          </p>
-                          <p className="rec-detail-text">
-                            Harvested via <strong>{rec.sourceBucket || "TMDB 3-Bucket Engine"}</strong> with strong stylistic overlap with your taste profile for{" "}
-                            <strong>{rec.genre || tasteProfile?.favoriteGenres?.[0] || "cinematic storytelling"}</strong>.
-                          </p>
+                    {isExpanded && (() => {
+                      const expKey = rec.tmdbId || rec.imdbID || rec.title;
+                      const deepText = expKey ? deepExplanations[expKey] : null;
+                      const isDeepLoading = Boolean(expKey && loadingExplanationKey === expKey);
+                      return (
+                        <div className="rec-explanation-drawer">
+                          <div className="drawer-content">
+                            <p>
+                              <strong>Thematic Connection:</strong> {rec.reason}
+                            </p>
+                            <p className="rec-detail-text">
+                              Harvested via <strong>{rec.sourceBucket || "TMDB 3-Bucket Engine"}</strong> with strong stylistic overlap with your taste profile for{" "}
+                              <strong>{rec.genre || tasteProfile?.favoriteGenres?.[0] || "cinematic storytelling"}</strong>.
+                            </p>
+                            <div style={{ marginTop: "0.8rem" }}>
+                              {!deepText ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRequestDeepExplanation(rec)}
+                                  disabled={isDeepLoading}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.5rem",
+                                    padding: "0.55rem 1.1rem",
+                                    borderRadius: "0.6rem",
+                                    background: "rgba(226, 177, 60, 0.14)",
+                                    border: "1px solid rgba(226, 177, 60, 0.35)",
+                                    color: "#e2b13c",
+                                    fontSize: "1.2rem",
+                                    fontWeight: 600,
+                                    cursor: isDeepLoading ? "wait" : "pointer"
+                                  }}
+                                >
+                                  <Sparkles size={12} />
+                                  <span>{isDeepLoading ? "Generating Deep Critic Why..." : "Deep Critic Why"}</span>
+                                </button>
+                              ) : (
+                                <p style={{ marginTop: "0.6rem", padding: "0.8rem 1rem", borderRadius: "0.6rem", background: "rgba(255, 255, 255, 0.04)", borderLeft: "2px solid #e2b13c" }}>
+                                  <strong>Deep Critic Analysis:</strong> {deepText}
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </li>
               );

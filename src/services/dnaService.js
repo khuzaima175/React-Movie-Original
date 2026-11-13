@@ -1,3 +1,5 @@
+import { resolveBinaryFetch, fetchEmbeddingBinaryIndex } from "./embeddingService.js";
+
 /**
  * Cinematic DNA (CDNA v1): per-film rubric axes (0-100, uint8) distilled offline by an LLM.
  * Similarity is computed on mean-centred vectors (subtract catalogue mean) so cosine is not
@@ -80,4 +82,59 @@ export function dnaSim(idx, profile, tmdbId) {
   const i = idx.idToIndex.get(Number(tmdbId));
   if (!profile || i === undefined) return 0;
   return cosine(profile, slice(idx, i));
+}
+
+let cachedDnaIndexPromise = null;
+
+/**
+ * Clears the memoized runtime CDNA binary index promise.
+ */
+export function resetDefaultDnaIndexCache() {
+  cachedDnaIndexPromise = null;
+}
+
+/**
+ * Lazily loads `/models/cinematic_dna_u8.bin` with graceful 404/HTML fallback.
+ */
+export function loadDefaultDnaIndex(url = "/models/cinematic_dna_u8.bin", customFetch = null) {
+  const fetchFn = resolveBinaryFetch(customFetch);
+  if (!fetchFn) return Promise.resolve(null);
+
+  if (!cachedDnaIndexPromise) {
+    cachedDnaIndexPromise = fetchEmbeddingBinaryIndex(url, fetchFn, parseDnaBinary);
+  }
+
+  return cachedDnaIndexPromise;
+}
+
+/**
+ * Builds Map<tmdbId, dnaSim> across a CDNA index from positively rated user films.
+ */
+export function buildDnaSimMap(weightedRatings = [], dnaIndex = null, minPositiveRating = 7) {
+  const map = new Map();
+  if (!dnaIndex || !dnaIndex.count || !dnaIndex.idToIndex || !Array.isArray(weightedRatings) || weightedRatings.length === 0) {
+    return map;
+  }
+
+  const lovedIds = [];
+  for (const entry of weightedRatings) {
+    const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
+    if (!tmdbId) continue;
+
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? NaN);
+    if (Number.isFinite(rating) && rating < minPositiveRating) continue;
+    if (Number.isFinite(weight) && weight <= 0) continue;
+
+    lovedIds.push(tmdbId);
+  }
+
+  const profile = buildUserDnaProfile(dnaIndex, lovedIds);
+  if (!profile) return map;
+
+  for (const id of dnaIndex.idToIndex.keys()) {
+    map.set(id, dnaSim(dnaIndex, profile, id));
+  }
+
+  return map;
 }

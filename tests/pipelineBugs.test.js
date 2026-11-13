@@ -423,3 +423,82 @@ test("enrichCandidatePoolMetadata hydrates keywords, castIds, crewPersonId, and 
   assert.equal(enriched[1].id, 102, "unhydrated candidate remains intact");
   assert.deepEqual(enriched[2].tmdbKeywords, [77], "already-enriched candidate preserved");
 });
+
+test("extractCandidateFeatures reads context.dnaSimMap cleanly and defaults to 0 when absent", async () => {
+  const { DEFAULT_RANKER_WEIGHTS, extractCandidateFeatures } = await import("../src/services/rankerService.js");
+  assert.equal(DEFAULT_RANKER_WEIGHTS.dnaSim, 0);
+
+  const featsAbsent = extractCandidateFeatures({ id: 55, tmdbId: 55 }, {});
+  assert.equal(featsAbsent.dnaSim, 0);
+
+  const featsPresent = extractCandidateFeatures(
+    { id: 55, tmdbId: 55 },
+    { dnaSimMap: new Map([[55, 0.72]]) }
+  );
+  assert.equal(featsPresent.dnaSim, 0.72);
+});
+
+test("executeCascade enforces spendTracker.canUseArgon() and calls markArgonUnavailable on Argon 429 errors", async () => {
+  const { executeCascade, parseFreeTextMoodWithGemini } = await import("../src/services/geminiService.js");
+  const { createSpendTracker } = await import("../src/services/aiSpendTracker.js");
+
+  // 1. Keyless parseFreeTextMoodWithGemini degrades safely without throwing
+  const keylessMood = await parseFreeTextMoodWithGemini(null, "like Drive but funnier");
+  assert.deepEqual(keylessMood, { moodId: "any", withGenres: [], withoutKeywords: [], minYear: null, maxYear: null });
+
+  // 2. When spend cap is already reached, argon models must be skipped completely
+  const cappedStore = { getItem: () => "10", setItem: () => {} };
+  const cappedTracker = createSpendTracker({ storage: cappedStore, capUsd: 6 });
+  const calledModels = [];
+  const fakeAi = {
+    models: {
+      generateContent: async ({ model }) => {
+        calledModels.push(model);
+        return { text: "ok" };
+      }
+    }
+  };
+  resetSessionWorkingModels();
+  const resCapped = await executeCascade(
+    fakeAi,
+    ["gemini-4-argon", "gemini-3.5-flash-lite"],
+    { contents: "hi" },
+    { cascadeType: "curation", spendTracker: cappedTracker }
+  );
+  assert.equal(resCapped.text, "ok");
+  assert.deepEqual(calledModels, ["gemini-3.5-flash-lite"]);
+
+  // 3. When argon fails with 429/quota, markArgonUnavailable disables argon for subsequent calls
+  resetSessionWorkingModels();
+  const activeTracker = createSpendTracker({ storage: { getItem: () => "0", setItem: () => {} }, capUsd: 6 });
+  const callsAfterQuota = [];
+  const quotaAi = {
+    models: {
+      generateContent: async ({ model }) => {
+        callsAfterQuota.push(model);
+        if (model.includes("argon")) {
+          const err = new Error("429 RESOURCE_EXHAUSTED");
+          err.status = 429;
+          throw err;
+        }
+        return { text: "fallback-ok" };
+      }
+    }
+  };
+  await executeCascade(
+    quotaAi,
+    ["gemini-4-argon", "gemini-3.5-flash-lite"],
+    { contents: "hi" },
+    { cascadeType: "curation", spendTracker: activeTracker }
+  );
+  assert.equal(activeTracker.canUseArgon(), false, "markArgonUnavailable must disable argon for session");
+  await executeCascade(
+    quotaAi,
+    ["gemini-4-argon", "gemini-3.5-flash-lite"],
+    { contents: "hi2" },
+    { cascadeType: "curation", spendTracker: activeTracker }
+  );
+  assert.deepEqual(callsAfterQuota, ["gemini-4-argon", "gemini-3.5-flash-lite", "gemini-3.5-flash-lite"]);
+  resetSessionWorkingModels();
+});
+

@@ -6,18 +6,18 @@
 
 ---
 
-## Implementation Status (Updated Nov 13, 2026)
+## Implementation Status (Updated Nov 14, 2026)
 
-| Area | Implemented Behavior on `main` (`1336dcc`) | Primary Modules |
+| Area | Implemented Behavior on Current Branch | Primary Modules |
 | :--- | :--- | :--- |
-| **Stage 1 Collaborative Embeddings** | `25,000`-film, `64`-D float16 binary (`/models/item_embeddings_f16.bin`, `3,300,016` B, `CVEM v1`) trained on MovieLens 32M with verified zero holdout leakage (`clean_ranker` `0.0826` vs `leaky_ranker` `0.0828`, null) & SPA `text/html` fallback rejection | [embeddingService.js](./src/services/embeddingService.js), [colab_train_embeddings.py](./scripts/colab_train_embeddings.py) |
-| **Stage 2 Content Embeddings** | `contentSim` held at `0` at runtime (weight `1.4`) to avoid collinear double-counting until dedicated plot/visual text embeddings exist; `blendEmbeddings` codec is ready | [embeddingService.js](./src/services/embeddingService.js) |
+| **Stage 1 Collaborative Embeddings** | `25,000`-film, `64`-D float16 binary (`/models/item_embeddings_f16.bin`, `3,300,016` B, `CVEM v1`) trained on MovieLens 32M with verified zero holdout leakage, repulsion-aligned Bucket `E` neighbor retrieval (`retrieveAlignedEmbeddingNeighbors`), & SPA `text/html` fallback rejection | [embeddingService.js](./src/services/embeddingService.js), [colab_train_embeddings.py](./scripts/colab_train_embeddings.py) |
+| **Stage 2 Content Embeddings & CDNA** | Dedicated content embedding loader/scorer (`/models/content_embeddings_f16.bin`, `buildContentSimMap`, opt-in pure overview bigram fallback) + offline `build_content_embeddings.mjs`; optional 8-bit `CDNA` axis scorer (`loadDefaultDnaIndex`, `buildDnaSimMap`) wired to `dnaSim` feature (default weight `0` until validated) | [contentSimService.js](./src/services/contentSimService.js), [dnaService.js](./src/services/dnaService.js), [build_content_embeddings.mjs](./scripts/build_content_embeddings.mjs) |
 | **Multi-Persona & Relative Cutoff** | Spherical K-Means (`computeUserPersonas`, `K` in `[1, 4]`), disliked repulsion (`repulsion: -1.5`), and vault-relative weight cutoff (`1e-6 * maxAbsWeight`) supporting multi-decade vaults (`ml-user-263`, `ml-user-409`) | [embeddingService.js](./src/services/embeddingService.js), [scoringUtils.js](./src/services/scoringUtils.js) |
-| **5-Bucket Retrieval + Recent Lane** | Buckets `B` (Anchor Keywords), `C` (Auteur Crew), `A` (Semantic/Mood Discover), `D` (Recent Releases `18m`, `popularity.desc`, `avg >= 7.0`, `votes >= 150`, max `12`), and `E` (up to `30` embedding neighbors) | [tmdbService.js](./src/services/tmdbService.js) |
-| **Calibrated Ranker & Reserve Slots** | 11-feature logistic ranker (`collabSim: 4.8`, softened `negativeKeywordPenalty: -0.5`), pool-relative normalization, `0.20x` metadata damping, and `RECENT_RELEASE_RESERVE_COUNT = 2` via `computeReserveQualityScore` (`noveltyBonus = 0`) | [rankerService.js](./src/services/rankerService.js) |
-| **H1 Gemini Cascade** | `CURATION_MODEL_CASCADE` (`gemini-4-hydrogen` HIGH -> `3.5-flash-lite` -> `3.6-flash` -> `3-flash-preview` -> `2.5-flash` -> `3.8-flash`) & `FAST_INTERACTIVE_CASCADE` (`3.5-flash-lite` -> `gemini-4-hydrogen` MEDIUM -> `3.6-flash` -> `3-flash-preview` MINIMAL -> `2.5-flash` -> `3.8-flash`), per-model timeouts (`35s` Hydrogen, `15s` `3-flash-preview`, `10s` `3.6-flash`), error-class cooldowns, `localStorage` persistence, math fallback & UI model telemetry badges | [geminiService.js](./src/services/geminiService.js), [geminiChatService.js](./src/services/geminiChatService.js), [geminiExplanationService.js](./src/services/geminiExplanationService.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx), [AIChat.jsx](./src/components/AIChat.jsx) |
+| **5-Bucket Retrieval + Enrichment** | Buckets `B` (Anchor Keywords), `C` (Auteur Crew), `A` (Semantic/Mood Discover using top 3 watchlist genres), `D` (Recent Releases `18m`, `popularity.desc`, `avg >= 7.0`, `votes >= 150`, max `12`), batch metadata hydration on Buckets `A–D` (`enrichCandidatePoolMetadata`), & aligned Bucket `E` (`topK: 40`, max `30` injected) | [tmdbService.js](./src/services/tmdbService.js) |
+| **Calibrated Ranker & Online Learning** | Logistic ranker (`collabSim: 4.8`, softened `negativeKeywordPenalty: -0.5`), pool-relative normalization, `0.20x` metadata damping, `RECENT_RELEASE_RESERVE_COUNT = 2`, `[50, 99]` score calibration, & feedback-driven bounded weight updates (`derivePersonalizedRankerWeights`) | [rankerService.js](./src/services/rankerService.js), [onlineLearningService.js](./src/services/onlineLearningService.js), [feedbackService.js](./src/services/feedbackService.js) |
+| **H1 Cascade, Proxy & Interactive UI** | `CURATION_MODEL_CASCADE` & `FAST_INTERACTIVE_CASCADE` with `spendTracker.canUseArgon()` gate, `30s` primary transient cooldown recovery, keyless local ranker fallback, local JSON/merge fallback (`buildRankerFallbackResponse`), `/api/*` serverless proxies (`apiTransport.js`), free-text mood matching (`parseFreeTextMoodWithGemini`), & on-demand `"Deep Critic Why"` (`getRecommendationExplanation`) | [geminiService.js](./src/services/geminiService.js), [apiTransport.js](./src/services/apiTransport.js), [geminiChatService.js](./src/services/geminiChatService.js), [geminiExplanationService.js](./src/services/geminiExplanationService.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx), [AIChat.jsx](./src/components/AIChat.jsx) |
 | **Letterboxd CSV Hardening** | Pure testable pipeline prioritizing `Watched Date` (`"watched"`) over `Date` (`"logged"`), rejecting invalid calendar rollovers (`2026-02-30`) & future dates (`> now + 24h`), suppressing clustered bulk dates, and deduplicating diary rewatches | [csvImport.js](./src/services/csvImport.js) |
-| **Evaluation & Verification** | Rolling temporal cross-validation (`evaluateRankerRolling`), CLI harness `scripts/run_eval.mjs`, and **99 / 99** unit tests across 12 test suites (`npm test`) | [evalHarness.js](./src/services/evalHarness.js), [tests/](./tests) |
+| **Evaluation & Verification** | Rolling temporal cross-validation (`evaluateRankerRolling`), CLI harness `scripts/run_eval.mjs`, & automated `node --test` suite | [evalHarness.js](./src/services/evalHarness.js), [tests/](./tests) |
 
 ---
 
@@ -175,38 +175,39 @@ Items are skipped only when $|w_i| \le \text{cutoff}$ (returning empty/`null` wh
 - **Multi-Persona Clustering (`computeUserPersonas`):** Clusters positively weighted liked films into $K \in [1, 4]$ L2-normalized centroids via deterministic Spherical K-Means (`maxIterations = 12`, `splitThreshold = 0.05`) so distinct taste modes (e.g., grim neo-noir *and* animated family classics) stay sharp rather than blurring into a midpoint.
 - **Candidate Similarity Blend (`buildCollabSimMapFromIndex`):** Computes `0.70 * maxPersonaSim + 0.30 * top3LovedItemMean`.
 - **Negative Repulsion (`buildRepulsionMapFromIndex` / `computeRepulsion`):** Tracks negatively weighted films ($w_i < 0$) and emits quadratic repulsion when candidate similarity to disliked centroids exceeds `0.35`, multiplied by `repulsion: -1.5` in the ranker.
-- **Stage 2 Content Blending (`blendEmbeddings`):** Supports Bayesian $\alpha = \frac{n}{n + 50}$ blending between collaborative and content vectors (currently held at `contentSim = 0` at runtime to prevent collinear double-counting).
+- **Stage 2 Content Blending (`blendEmbeddings` / `contentSimService.js`):** Loads optional `/models/content_embeddings_f16.bin` (built by `scripts/build_content_embeddings.mjs`) via `loadDefaultContentIndex` and scores plot/tagline vectors in `buildContentSimMap` (with optional aligned `blendEmbeddings` and opt-in overview bigram fallback).
+- **Optional Cinematic DNA (`CDNA`):** Loads optional `/models/cinematic_dna_u8.bin` via `loadDefaultDnaIndex` and scores mean-centred rubric axes in `buildDnaSimMap` (`dnaSim` feature, default weight `0` until validated).
 
 ### 3.4 Temporally-Weighted Anchor Film Selection
-Bucket B requires a high-affinity anchor film to extract thematic keywords. CinemaVault sorts all rated films by $w_i$ (`finalWeight`) descending and filters for elite masterpieces ($\text{Rating} \ge 9$, configurable `anchorCutoff`) (`src/services/tmdbService.js:256-260`):
+Bucket B requires a high-affinity anchor film to extract thematic keywords. CinemaVault sorts all rated films by $w_i$ (`finalWeight`) descending and filters for elite masterpieces ($\text{Rating} \ge 9$, configurable `anchorCutoff`) (`src/services/tmdbService.js`):
 
 $$\text{AnchorMovie} = \arg\max_{m \in \text{Rated}, \text{Rating}(m) \ge 9} w_i(m)$$
 
 If the anchor movie only has an `imdbID` (e.g., logged before TMDB schema enrichment), `findTmdbByImdbId` resolves its canonical `tmdbId` on the fly. If no film is rated $\ge 9$, `anchorTmdbId` resolves to `null` and Bucket B's candidate slots are dynamically reallocated to Bucket A.
 
 ### 3.5 Granular Negative Trope Extraction (`without_keywords`) & Ranker Softening
-Instead of excluding broad genres, the profiler iterates over movies with $\text{Rating} \le 4$ or $z_i < -0.4$ and accumulates z-magnitude time-decayed trope penalties at half the decay rate ($\lambda_{\text{neg}} = \frac{\lambda}{2} = 0.001$, recognizing that dislikes decay more slowly than passing interests) (`src/services/tmdbService.js:185-191, 249-253`):
+Instead of excluding broad genres, the profiler iterates over movies with $\text{Rating} \le 4$ or $z_i < -0.4$ and accumulates z-magnitude time-decayed trope penalties at half the decay rate ($\lambda_{\text{neg}} = \frac{\lambda}{2} = 0.001$, recognizing that dislikes decay more slowly than passing interests) (`src/services/tmdbService.js`):
 
 $$\text{HatedKeywords}[k] = \sum_{m \in \text{Rated},\; r_m \le 4 \text{ or } z_m < -0.4,\; k \in m.\text{tmdbKeywords}} \max(1, |z_m|) \cdot e^{-\frac{\lambda}{2} \cdot \Delta t_m}$$
 
 Keywords are **sorted descending by accumulated penalty** (fixing an earlier insertion-order bug in `236e0f8`), and the top 5 keyword IDs are passed to TMDB using pipe OR syntax (`without_keywords=9715|10402`), surgically excluding candidates containing *either* hated trope without banning entire genres. In `DEFAULT_RANKER_WEIGHTS`, `negativeKeywordPenalty` was tuned from `-2.0` to **`-0.5`** (`332c21c`) because common tags like *"independent film"* frequently appear across both loved and disliked watches.
 
 ### 3.6 Star-Power, Auteur Crew & Watchlist Intent Vectoring
-High-rated films ($\text{Rating} \ge 8$ with $w_i > 0$) contribute their creative personnel and keywords to weighted affinity maps (`src/services/tmdbService.js:194-248`):
+High-rated films ($\text{Rating} \ge 8$ with $w_i > 0$) contribute their creative personnel and keywords to weighted affinity maps (`src/services/tmdbService.js`):
 - **Star-Power Actors (`topCastIds`):** The top 3 billed cast IDs (`castIds[0..2]`) accumulate $w_i$; the top 2 actors (`topCastIds`) are injected into Bucket A discover queries.
 - **Auteur Directors & Crew (`topCrewIds` / `topCrewMemberId`):** Directors, Cinematographers, Original Music Composers, and Screenwriters accumulate $w_i$ (prioritizing Director during Schema Bridge extraction). The top 3 crew IDs are tracked for ranker `crewMatch`, and `topCrewMemberId` (`topCrewIds[0]`) is queried in Bucket C.
 - **Loved Micro-Keywords (`lovedKeywordIds`):** Top 5 positive keyword IDs (plus normalized `keywordAffinities`) feed the ranker's `keywordOverlap` feature even for Bucket E/A/D candidates.
-- **Watchlist Intent Vectoring (`watchlistGenreIds`):** Unwatched films saved in the user's `watchlist` contribute their top 3 recurring TMDB genre IDs (`watchlistGenreIds`), blending the top 2 with `lovedGenreIds` inside Bucket A.
+- **Watchlist Intent Vectoring (`watchlistGenreIds`):** Unwatched films saved in the user's `watchlist` contribute their top 3 recurring TMDB genre IDs (`watchlistGenreIds`), blending all 3 with `lovedGenreIds` inside Bucket A (`buildBucketAParams`).
 
 ### 3.7 Calibrated Logistic Ranker, Normalization, Metadata Damping & Match Badges
-Rather than allowing the LLM to invent uncalibrated percentages, `rankCandidatePool` (`src/services/rankerService.js`) extracts **11 normalized features** across all merged candidates (default `topK` to Gemini = `15` for curation, `30` general default) and computes calibrated match probabilities:
+Rather than allowing the LLM to invent uncalibrated percentages, `rankCandidatePool` (`src/services/rankerService.js`) extracts **12 normalized features** (`11` active weighted features + optional `dnaSim`) across all merged candidates (default `topK` to Gemini = `15` for curation, `30` general default) and computes calibrated match probabilities:
 
-#### Active `DEFAULT_RANKER_WEIGHTS` (`src/services/rankerService.js:6-19`)
+#### Active `DEFAULT_RANKER_WEIGHTS` (`src/services/rankerService.js:6-20`)
 | Feature | Live Weight | Range / Extraction Rule |
 | :--- | :---: | :--- |
 | `bias` | **`-1.1`** | Logistic intercept |
 | `collabSim` | **`+4.8`** | Positive similarities scaled by pool maximum (`> 0.05`) -> `[0, 1]` |
-| `contentSim` | **`+1.4`** | Held at `0` at runtime until dedicated plot/visual vectors exist |
+| `contentSim` | **`+1.4`** | Cosine similarity from `/models/content_embeddings_f16.bin` (or `0` when absent; opt-in overview bigram fallback) |
 | `genreOverlap` | **`+1.1`** | Fraction of top 3 loved genres matched *(damped `0.20x` when collab present)* |
 | `keywordOverlap` | **`+0.8`** | Overlap with `anchorKeywords` / `lovedKeywordIds` (`0.6` proxy for Bucket B) |
 | `crewMatch` | **`+0.7`** | `1` if `crewPersonId` in `topCrewIds` / `topCrewMemberId` or Bucket C |
@@ -216,6 +217,7 @@ Rather than allowing the LLM to invent uncalibrated percentages, `rankCandidateP
 | `negativeKeywordPenalty` | **`-0.5`** | Clamped `[0, 1]` hit indicator against `hatedKeywordIds` *(tuned from `-2.0`)* |
 | `repulsion` | **`-1.5`** | Quadratic repulsion penalty from disliked embedding neighbors (`cos > 0.35`) |
 | `providerMatch` | **`+0.25`** | `1.0` if `providerMatchedByQuery` or provider intersection, `0.5` if no filter, else `0` |
+| `dnaSim` | **`0`** | Mean-centred `CDNA` axis cosine from `/models/cinematic_dna_u8.bin` *(gated at `0` until validated)* |
 
 #### Pool-Relative Collaborative Normalization
 Because Bayesian shrinkage ($\frac{\vec{v}}{\|\vec{v}\| + 0.5}$) compresses latent vector norms to prevent low-support items from causing false cosine spikes, raw dot products typically span $[0.05, 0.35]$. `rankCandidatePool` scales positive similarity relative to the pool's maximum (preserving unscaled similarity in `features.rawCollabSim`):
@@ -242,7 +244,7 @@ $$p_i = \frac{1}{1 + e^{-\text{logit}_i}}, \quad \text{matchScore}_i = \min\left
 - `bayesianRatingNorm >= 0.72`: `⭐ Critical Acclaim`
 - Fallback if empty: `🔍 Hidden Discovery` (`novelty >= 0.35`) or `✨ Curated Selection`
 
-*(Offline pairwise L2-regularized prior-shrunk weight updates remain available via `fitRankerWeights` in `rankerService.js`.)*
+*(Online bounded pairwise weight learning from logged user actions runs via `derivePersonalizedRankerWeights` in `onlineLearningService.js` over `fitRankerWeights` in `rankerService.js`, subject to minimum threshold and safety floors.)*
 
 ### 3.8 Verified Benchmark Milestones, Leakage Audit & Tuning Results
 
@@ -427,11 +429,11 @@ export const normalizeMatchScore = (val) => {
   let n = typeof val === "number" ? val : parseFloat(val);
   if (isNaN(n) || n <= 0) return 88;
   if (n <= 1.0) {
-    if (n <= 0.1) return Math.min(99, Math.max(75, Math.round(n * 1000)));
-    return Math.min(99, Math.max(75, Math.round(n * 100)));
+    const scaled = n <= 0.1 ? n * 1000 : n * 100;
+    return Math.min(99, Math.max(50, Math.round(scaled)));
   }
   if (n <= 5) return 88;
-  return Math.min(99, Math.max(70, Math.round(n)));
+  return Math.min(99, Math.max(50, Math.round(n)));
 };
 ```
 
