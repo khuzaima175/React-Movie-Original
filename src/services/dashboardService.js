@@ -196,6 +196,10 @@ function buildCacheSignature(watched = [], watchlist = [], userRegion = "US", no
   return `${dayKey}::${userRegion}::${watched.length}::${watchlist.length}::${(hash >>> 0).toString(36)}`;
 }
 
+export function shouldShowCarouselArrows(scrollWidth = 0, clientWidth = 0) {
+  return Number(scrollWidth) > Number(clientWidth) + 4;
+}
+
 export async function loadHomeDiscoveryFeeds({
   watched = [],
   watchlist = [],

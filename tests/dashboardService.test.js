@@ -5,7 +5,8 @@ import {
   excludeSeenAndPlaced,
   toDashboardCardItem,
   buildHeroSlides,
-  loadHomeDiscoveryFeeds
+  loadHomeDiscoveryFeeds,
+  shouldShowCarouselArrows
 } from "../src/services/dashboardService.js";
 
 function createMemoryStorage() {
@@ -214,4 +215,11 @@ test("loadHomeDiscoveryFeeds live mode deduplicates overlapping TMDB rows, sets 
 
   assert.equal(fetchCount, callsAfterFirst, "Second call within same day/profile should use cached feeds");
   assert.deepEqual(second.rows, first.rows);
+});
+
+test("shouldShowCarouselArrows returns true only when scrollWidth exceeds clientWidth beyond 4px tolerance", () => {
+  assert.equal(shouldShowCarouselArrows(800, 1200), false);
+  assert.equal(shouldShowCarouselArrows(1202, 1200), false);
+  assert.equal(shouldShowCarouselArrows(1450, 1200), true);
+  assert.equal(shouldShowCarouselArrows(0, 0), false);
 });

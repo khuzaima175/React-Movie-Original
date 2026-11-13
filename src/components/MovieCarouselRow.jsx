@@ -1,10 +1,41 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
+import { shouldShowCarouselArrows } from "../services/dashboardService";
 
-export default function MovieCarouselRow({ title, movies = [], onSelectMovie, onAddWatched, watched = [], seeAllLink }) {
+export default function MovieCarouselRow({
+  title,
+  movies = [],
+  onSelectMovie,
+  onAddWatched,
+  watched = [],
+  seeAllLink
+}) {
   const scrollRef = useRef(null);
+  const [canScroll, setCanScroll] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const updateOverflow = () => {
+      setCanScroll(shouldShowCarouselArrows(el.scrollWidth, el.clientWidth));
+    };
+
+    updateOverflow();
+
+    let ro;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(updateOverflow);
+      ro.observe(el);
+    }
+    window.addEventListener("resize", updateOverflow);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", updateOverflow);
+    };
+  }, [movies.length]);
 
   function scroll(direction) {
     if (!scrollRef.current) return;
@@ -24,22 +55,24 @@ export default function MovieCarouselRow({ title, movies = [], onSelectMovie, on
               See all &rarr;
             </Link>
           )}
-          <div className="carousel-arrows">
-            <button
-              className="btn-carousel-arrow"
-              onClick={() => scroll("left")}
-              aria-label={`Scroll ${title} left`}
-            >
-              <ChevronLeft size={18} aria-hidden="true" />
-            </button>
-            <button
-              className="btn-carousel-arrow"
-              onClick={() => scroll("right")}
-              aria-label={`Scroll ${title} right`}
-            >
-              <ChevronRight size={18} aria-hidden="true" />
-            </button>
-          </div>
+          {canScroll && (
+            <div className="carousel-arrows">
+              <button
+                className="btn-carousel-arrow"
+                onClick={() => scroll("left")}
+                aria-label={`Scroll ${title} left`}
+              >
+                <ChevronLeft size={18} aria-hidden="true" />
+              </button>
+              <button
+                className="btn-carousel-arrow"
+                onClick={() => scroll("right")}
+                aria-label={`Scroll ${title} right`}
+              >
+                <ChevronRight size={18} aria-hidden="true" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -47,7 +80,9 @@ export default function MovieCarouselRow({ title, movies = [], onSelectMovie, on
         {movies.map((movie) => {
           if (!movie) return null;
           const id = movie.imdbID || movie.id;
-          const isWatched = (watched || []).some((w) => w && (w.imdbID === id || w.id === id));
+          const isWatched = (watched || []).some(
+            (w) => w && (w.imdbID === id || w.id === id || (movie.tmdbId && w.tmdbId === movie.tmdbId))
+          );
 
           return (
             <MovieCard

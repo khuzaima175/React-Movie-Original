@@ -68,7 +68,7 @@ function AppContent() {
           </div>
 
           <div className="flex items-center gap-4">
-            <span>Data powered by <strong className="font-medium text-text-2">OMDb API</strong> & <strong className="font-medium text-text-2">Gemini AI</strong></span>
+            <span>Data powered by <strong className="font-medium text-text-2">TMDB, OMDb API</strong> & <strong className="font-medium text-text-2">Gemini AI</strong></span>
             <span className="hidden sm:inline text-hairline-strong">•</span>
             <span className="text-text-2 font-medium">Built by Khuzaima</span>
           </div>

@@ -1,90 +1,102 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Star, Plus, Check, Info, ChevronLeft, ChevronRight } from "lucide-react";
+import { Star, Plus, Check, Info, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { buildSeenCollisionSet } from "../services/dashboardService";
+import { buildQuickAddWatchedMovie } from "../services/csvImport";
 
-const HERO_SLIDES = [
-  {
-    imdbID: "tt1375666",
-    title: "Inception",
-    year: "2010",
-    imdbRating: "8.8",
-    runtime: "148 min",
-    genre: "Action • Sci-Fi • Thriller",
-    plot: "A thief who steals corporate secrets through the use of dream-sharing technology is given the inverse task of planting an idea into the mind of a C.E.O., but his tragic past may doom the mission.",
-    backdrop: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=1920&auto=format&fit=crop",
-    poster: "https://m.media-amazon.com/images/M/MV5BMjAxMzY3NjcxNF5BMl5BanBnXkFtZTcwNTI5OTM0Mw@@._V1_QL75_UX380_CR0,0,380,562_.jpg"
-  },
-  {
-    imdbID: "tt0468569",
-    title: "The Dark Knight",
-    year: "2008",
-    imdbRating: "9.1",
-    runtime: "152 min",
-    genre: "Action • Crime • Drama",
-    plot: "When the menace known as the Joker wreaks havoc and chaos on the people of Gotham, Batman must accept one of the greatest psychological and physical tests of his ability to fight injustice.",
-    backdrop: "https://images.unsplash.com/photo-1519501025264-65ba15a82390?q=80&w=1920&auto=format&fit=crop",
-    poster: "https://m.media-amazon.com/images/M/MV5BMTMxNTMwODM0NF5BMl5BanBnXkFtZTcwODAyMTk2Mw@@._V1_QL75_UX380_CR0,0,380,562_.jpg"
-  },
-  {
-    imdbID: "tt0816692",
-    title: "Interstellar",
-    year: "2014",
-    imdbRating: "8.7",
-    runtime: "169 min",
-    genre: "Sci-Fi • Drama • Adventure",
-    plot: "When Earth becomes uninhabitable, a team of ex-NASA pilots embarks on the most important mission in human history: traveling beyond this galaxy to discover whether mankind has a future among the stars.",
-    backdrop: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1920&auto=format&fit=crop",
-    poster: "https://m.media-amazon.com/images/M/MV5BYzdjMDAxZGItMjI2My00ODA1LTlkNzItOWFjMDU5ZDJlYWY3XkEyXkFqcGc@._V1_QL75_UX380_CR0,0,380,562_.jpg"
-  },
-  {
-    imdbID: "tt15398776",
-    title: "Oppenheimer",
-    year: "2023",
-    imdbRating: "8.2",
-    runtime: "180 min",
-    genre: "Biography • Drama • History",
-    plot: "The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb during World War II.",
-    backdrop: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1920&auto=format&fit=crop",
-    poster: "https://m.media-amazon.com/images/M/MV5BN2JkMDc5MGQtZjg3YS00NmFiLWIyZmQtZTJmNTM5MjVmYTQ4XkEyXkFqcGc@._V1_QL75_UX380_CR0,0,380,562_.jpg"
-  }
-];
-
-export default function HeroBillboard({ watched = [], onAddWatched }) {
+export default function HeroBillboard({
+  slides = [],
+  watched = [],
+  watchlist = [],
+  onAddWatched,
+  onAddToWatchlist
+}) {
   const navigate = useNavigate();
+  const activeSlides = Array.isArray(slides) ? slides : [];
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
-    if (isPaused) return;
-    const isReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setCurrentIndex((prev) => (activeSlides.length === 0 ? 0 : prev % activeSlides.length));
+  }, [activeSlides.length]);
+
+  useEffect(() => {
+    if (isPaused || activeSlides.length <= 1) return;
+    const isReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     if (isReducedMotion) return;
 
     const timer = setInterval(() => {
-      if (!document.hidden) {
-        setCurrentIndex((prev) => (prev + 1) % HERO_SLIDES.length);
+      if (typeof document === "undefined" || !document.hidden) {
+        setCurrentIndex((prev) => (prev + 1) % activeSlides.length);
       }
     }, 8000);
     return () => clearInterval(timer);
-  }, [isPaused]);
+  }, [isPaused, activeSlides.length]);
 
-  const slide = HERO_SLIDES[currentIndex];
-  const isWatched = (watched || []).some((m) => m && (m.imdbID === slide.imdbID || m.id === slide.imdbID));
-
-  function handleQuickAdd() {
-    if (isWatched || !onAddWatched) return;
-    const parsedRuntime = parseInt(slide.runtime, 10) || 120;
-    onAddWatched({
-      imdbID: slide.imdbID,
-      title: slide.title,
-      year: slide.year,
-      poster: slide.poster,
-      imdbRating: Number(slide.imdbRating),
-      runtime: parsedRuntime,
-      userRating: 0,
-      genre: slide.genre,
-    });
+  if (activeSlides.length === 0) {
+    return (
+      <div className="hero-billboard" aria-label="Featured Film Billboard">
+        <div className="hero-scrim-left" />
+        <div className="hero-scrim-bottom" />
+        <div className="hero-content">
+          <div className="hero-text-block">
+            <div className="hero-meta-badges">
+              <span className="hero-badge-featured">Personal Cinema Vault</span>
+            </div>
+            <h1 className="hero-title">Discover Your Next Film</h1>
+            <p className="hero-plot">
+              Curated unwatched spotlights and recommendations calibrated to your vault ratings.
+            </p>
+            <div className="hero-actions">
+              <button
+                className="btn-hero-primary"
+                onClick={() => navigate("/ai")}
+              >
+                <Sparkles size={18} aria-hidden="true" /> Ask AI Oracle
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
+
+  const safeIndex = currentIndex % activeSlides.length;
+  const slide = activeSlides[safeIndex];
+  const slideId = slide.imdbID || slide.id || (slide.tmdbId ? `tmdb_${slide.tmdbId}` : "");
+
+  const watchedSet = buildSeenCollisionSet(watched, []);
+  const watchlistSet = buildSeenCollisionSet([], watchlist);
+  const slideKeys = buildSeenCollisionSet([slide], []);
+
+  const isWatched = [...slideKeys].some((k) => watchedSet.has(k));
+  const isWatchlisted = [...slideKeys].some((k) => watchlistSet.has(k));
+
+  function handlePrimaryAction() {
+    if (!slide) return;
+    const payload = buildQuickAddWatchedMovie(slide);
+    if (!isWatched && onAddToWatchlist) {
+      if (!isWatchlisted) {
+        onAddToWatchlist({ ...payload, userRating: 0 });
+      }
+      return;
+    }
+    if (!isWatched && onAddWatched) {
+      onAddWatched(payload);
+    }
+  }
+
+  const primaryAdded = isWatched || (onAddToWatchlist ? isWatchlisted : false);
+  const primaryLabel = isWatched
+    ? "In Vault"
+    : onAddToWatchlist
+      ? (isWatchlisted ? "In Watchlist" : "Plan to Watch")
+      : "Add to Vault";
+
+  const hasBackdrop = Boolean(slide.backdrop && !/unsplash\.com/i.test(slide.backdrop));
 
   return (
     <div
@@ -96,15 +108,27 @@ export default function HeroBillboard({ watched = [], onAddWatched }) {
       onBlur={() => setIsPaused(false)}
     >
       <AnimatePresence mode="wait">
-        <motion.div
-          key={slide.imdbID}
-          className="hero-backdrop"
-          style={{ backgroundImage: `url(${slide.backdrop})` }}
-          initial={{ opacity: 0, scale: 1.05 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.8 }}
-        />
+        {hasBackdrop ? (
+          <motion.div
+            key={`bd-${slideId || safeIndex}`}
+            className="hero-backdrop"
+            style={{ backgroundImage: `url(${slide.backdrop})` }}
+            initial={{ opacity: 0, scale: 1.03 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6 }}
+          />
+        ) : (
+          <motion.div
+            key={`blur-${slideId || safeIndex}`}
+            className="hero-backdrop-blurred"
+            style={slide.poster ? { backgroundImage: `url(${slide.poster})` } : undefined}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+          />
+        )}
       </AnimatePresence>
 
       <div className="hero-scrim-left" />
@@ -113,85 +137,100 @@ export default function HeroBillboard({ watched = [], onAddWatched }) {
       <div className="hero-content">
         <AnimatePresence mode="wait">
           <motion.div
-            key={slide.imdbID}
-            initial={{ opacity: 0, y: 20 }}
+            key={`txt-${slideId || safeIndex}`}
+            initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.5 }}
+            exit={{ opacity: 0, y: -14 }}
+            transition={{ duration: 0.35 }}
             className="hero-text-block"
           >
             <div className="hero-meta-badges">
-              <span className="hero-badge-featured">Featured Spotlight</span>
-              <span className="hero-rating">
-                <Star size={14} className="icon-star-gold" aria-hidden="true" />
-                {slide.imdbRating}
-              </span>
-              <span className="hero-meta-item">{slide.year}</span>
-              <span className="hero-meta-item">{slide.runtime}</span>
+              <span className="hero-badge-featured">Spotlight Pick</span>
+              {slide.imdbRating && (
+                <span className="hero-rating">
+                  <Star size={14} className="icon-star-gold" aria-hidden="true" />
+                  {slide.imdbRating}
+                </span>
+              )}
+              {slide.year && slide.year !== "N/A" && <span className="hero-meta-item">{slide.year}</span>}
+              {slide.runtime && <span className="hero-meta-item">{slide.runtime}</span>}
             </div>
 
             <h1 className="hero-title">{slide.title}</h1>
-            <p className="hero-genre">{slide.genre}</p>
-            <p className="hero-plot">{slide.plot}</p>
+            {slide.genre && <p className="hero-genre">{slide.genre}</p>}
+            {slide.plot && <p className="hero-plot">{slide.plot}</p>}
 
             <div className="hero-actions">
-              <button
-                className={`btn-hero-primary ${isWatched ? "added" : ""}`}
-                onClick={handleQuickAdd}
-                aria-label={isWatched ? `${slide.title} in Vault` : `Add ${slide.title} to Vault`}
-              >
-                {isWatched ? (
-                  <>
-                    <Check size={18} aria-hidden="true" /> In Vault
-                  </>
-                ) : (
-                  <>
-                    <Plus size={18} aria-hidden="true" /> Add to Vault
-                  </>
-                )}
-              </button>
+              {(onAddToWatchlist || onAddWatched) && (
+                <button
+                  className={`btn-hero-primary ${primaryAdded ? "added" : ""}`}
+                  onClick={handlePrimaryAction}
+                  aria-label={`${primaryLabel}: ${slide.title}`}
+                >
+                  {primaryAdded ? (
+                    <>
+                      <Check size={18} aria-hidden="true" /> {primaryLabel}
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={18} aria-hidden="true" /> {primaryLabel}
+                    </>
+                  )}
+                </button>
+              )}
+
+              {slideId && (
+                <button
+                  className="btn-hero-secondary"
+                  onClick={() => navigate(`/movie/${slideId}`)}
+                  aria-label={`View details for ${slide.title}`}
+                >
+                  <Info size={18} aria-hidden="true" /> Details
+                </button>
+              )}
 
               <button
                 className="btn-hero-secondary"
-                onClick={() => navigate(`/movie/${slide.imdbID}`)}
-                aria-label={`View details for ${slide.title}`}
+                onClick={() => navigate("/ai")}
+                aria-label="Open AI Oracle recommendations"
               >
-                <Info size={18} aria-hidden="true" /> Details
+                <Sparkles size={17} className="text-accent" aria-hidden="true" /> AI Oracle
               </button>
             </div>
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {/* Manual Slide Controls */}
-      <div className="hero-controls">
-        <button
-          className="btn-hero-arrow"
-          onClick={() => setCurrentIndex((prev) => (prev === 0 ? HERO_SLIDES.length - 1 : prev - 1))}
-          aria-label="Previous featured movie"
-        >
-          <ChevronLeft size={20} aria-hidden="true" />
-        </button>
+      {activeSlides.length > 1 && (
+        <div className="hero-controls">
+          <button
+            className="btn-hero-arrow"
+            onClick={() => setCurrentIndex((prev) => (prev === 0 ? activeSlides.length - 1 : prev - 1))}
+            aria-label="Previous featured movie"
+          >
+            <ChevronLeft size={20} aria-hidden="true" />
+          </button>
 
-        <div className="hero-indicators">
-          {HERO_SLIDES.map((s, idx) => (
-            <button
-              key={s.imdbID}
-              className={`hero-dot ${idx === currentIndex ? "active" : ""}`}
-              onClick={() => setCurrentIndex(idx)}
-              aria-label={`Go to slide ${idx + 1}: ${s.title}`}
-            />
-          ))}
+          <div className="hero-indicators">
+            {activeSlides.map((s, idx) => (
+              <button
+                key={s.imdbID || s.id || idx}
+                className={`hero-dot ${idx === safeIndex ? "active" : ""}`}
+                onClick={() => setCurrentIndex(idx)}
+                aria-label={`Go to slide ${idx + 1}: ${s.title}`}
+              />
+            ))}
+          </div>
+
+          <button
+            className="btn-hero-arrow"
+            onClick={() => setCurrentIndex((prev) => (prev + 1) % activeSlides.length)}
+            aria-label="Next featured movie"
+          >
+            <ChevronRight size={20} aria-hidden="true" />
+          </button>
         </div>
-
-        <button
-          className="btn-hero-arrow"
-          onClick={() => setCurrentIndex((prev) => (prev + 1) % HERO_SLIDES.length)}
-          aria-label="Next featured movie"
-        >
-          <ChevronRight size={20} aria-hidden="true" />
-        </button>
-      </div>
+      )}
     </div>
   );
 }
