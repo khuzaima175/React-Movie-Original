@@ -23,6 +23,10 @@ import {
     buildRepulsionMapFromIndex,
     retrieveAlignedEmbeddingNeighbors
 } from "./embeddingService.js";
+import {
+    loadDefaultContentIndex,
+    buildContentSimMap
+} from "./contentSimService.js";
 
 export const CURATION_MODEL_CASCADE = [
     "gemini-4-hydrogen",
@@ -1448,10 +1452,14 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 });
 
             if (candidates && candidates.length >= 6) {
-                const embeddingIndex =
+                const [embeddingIndex, contentIndex] = await Promise.all([
                     options.embeddingIndex !== undefined
-                        ? options.embeddingIndex
-                        : await loadDefaultEmbeddingIndex();
+                        ? Promise.resolve(options.embeddingIndex)
+                        : loadDefaultEmbeddingIndex(),
+                    options.contentIndex !== undefined
+                        ? Promise.resolve(options.contentIndex)
+                        : loadDefaultContentIndex()
+                ]);
                 const collabSimMap =
                     options.collabSimMap ||
                     buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex);
@@ -1497,6 +1505,9 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     });
                 }
 
+                const contentSimMap =
+                    options.contentSimMap ||
+                    buildContentSimMap(profile.weightedRatings, contentIndex, mergedCandidates);
                 const rankerWeights =
                     options.rankerWeights ||
                     derivePersonalizedRankerWeights(options.feedbackLog, watchedMovies, DEFAULT_RANKER_WEIGHTS);
@@ -1506,7 +1517,9 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     ...options,
                     rankerWeights,
                     embeddingIndex,
+                    contentIndex,
                     collabSimMap,
+                    contentSimMap,
                     repulsionMap,
                     watched: watchedMovies,
                     watchlist

@@ -41,7 +41,7 @@ export function float32ToFloat16(val) {
   return sign | (exp << 10) | mant;
 }
 
-function l2NormalizeInPlace(vec, offset = 0, len = vec.length) {
+export function l2NormalizeInPlace(vec, offset = 0, len = vec.length) {
   let sumSq = 0;
   for (let i = 0; i < len; i++) {
     const v = vec[offset + i];
@@ -184,7 +184,7 @@ const RELATIVE_WEIGHT_CUTOFF_RATIO = 1e-6;
  * Computes a vault-relative minimum weight (`1e-6 * max(|w|)`) so uniformly decayed
  * vaults remain valid while negligible entries are skipped. Returns null if max(|w|) === 0.
  */
-function getRelativeWeightCutoff(weightedRatings = []) {
+export function getRelativeWeightCutoff(weightedRatings = []) {
   let maxAbsW = 0;
   for (const entry of weightedRatings) {
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
@@ -553,29 +553,43 @@ export function resetDefaultEmbeddingIndexCache() {
 }
 
 /**
+ * Resolves a browser or injected fetch function without mutating Node global state.
+ */
+export function resolveBinaryFetch(customFetch = null) {
+  if (typeof customFetch === "function") return customFetch;
+  if (typeof window !== "undefined" && typeof window.fetch === "function") {
+    return window.fetch.bind(window);
+  }
+  return null;
+}
+
+/**
+ * Fetches and parses a CVEM binary index with SPA HTML fallback rejection.
+ */
+export function fetchEmbeddingBinaryIndex(url, fetchFn) {
+  if (typeof fetchFn !== "function") return Promise.resolve(null);
+  return Promise.resolve()
+    .then(() => fetchFn(url))
+    .then(res => {
+      if (!res || !res.ok) return null;
+      const contentType = String(res.headers?.get?.("content-type") || "").toLowerCase();
+      if (contentType.includes("text/html")) return null;
+      return res.arrayBuffer();
+    })
+    .then(buf => (buf ? parseEmbeddingBinary(buf) : null))
+    .catch(() => null);
+}
+
+/**
  * Lazily loads `/models/item_embeddings_f16.bin` in browser environments (or via customFetch).
  * Gracefully resolves to null on 404, network error, Node.js runtime, or SPA HTML fallback.
  */
 export function loadDefaultEmbeddingIndex(url = "/models/item_embeddings_f16.bin", customFetch = null) {
-  const fetchFn =
-    customFetch ||
-    (typeof window !== "undefined" && typeof window.fetch === "function"
-      ? window.fetch.bind(window)
-      : null);
-
+  const fetchFn = resolveBinaryFetch(customFetch);
   if (!fetchFn) return Promise.resolve(null);
 
   if (!cachedEmbeddingIndexPromise) {
-    cachedEmbeddingIndexPromise = Promise.resolve()
-      .then(() => fetchFn(url))
-      .then(res => {
-        if (!res || !res.ok) return null;
-        const contentType = String(res.headers?.get?.("content-type") || "").toLowerCase();
-        if (contentType.includes("text/html")) return null;
-        return res.arrayBuffer();
-      })
-      .then(buf => (buf ? parseEmbeddingBinary(buf) : null))
-      .catch(() => null);
+    cachedEmbeddingIndexPromise = fetchEmbeddingBinaryIndex(url, fetchFn);
   }
 
   return cachedEmbeddingIndexPromise;
