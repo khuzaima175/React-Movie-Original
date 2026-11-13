@@ -500,6 +500,49 @@ export function retrieveByEmbedding(userVecOrPersonas, index, excludeTmdbIds = n
   return results.slice(0, topK);
 }
 
+/**
+ * Retrieves top-K neighbors aligned with the ranker's collaborative blend and repulsion penalty
+ * (`collabSim - repulsionWeight * repulsion`), pruning hated clusters before slicing topK.
+ */
+export function retrieveAlignedEmbeddingNeighbors(
+  weightedRatings = [],
+  index = null,
+  excludeTmdbIds = new Set(),
+  options = {}
+) {
+  if (!index || !index.count || !index.ids) return [];
+
+  const collabSimMap =
+    options.collabSimMap instanceof Map
+      ? options.collabSimMap
+      : buildCollabSimMapFromIndex(weightedRatings, index);
+  if (!collabSimMap || collabSimMap.size === 0) return [];
+
+  const repulsionMap =
+    options.repulsionMap instanceof Map
+      ? options.repulsionMap
+      : buildRepulsionMapFromIndex(weightedRatings, index);
+
+  const repulsionWeight = options.repulsionWeight ?? (1.5 / 4.8);
+  const topK = options.topK ?? 40;
+  const excluded = new Set([...(excludeTmdbIds || [])].map(Number));
+  const { count, ids } = index;
+  const results = [];
+
+  for (let i = 0; i < count; i++) {
+    const tmdbId = ids[i];
+    if (excluded.has(tmdbId)) continue;
+
+    const collabSim = collabSimMap.get(tmdbId) ?? 0;
+    const repulsion = repulsionMap?.get(tmdbId) ?? 0;
+    const alignedScore = collabSim - repulsionWeight * repulsion;
+    results.push({ tmdbId, collabSim, repulsion, alignedScore });
+  }
+
+  results.sort((a, b) => b.alignedScore - a.alignedScore);
+  return results.slice(0, topK);
+}
+
 let cachedEmbeddingIndexPromise = null;
 
 /**

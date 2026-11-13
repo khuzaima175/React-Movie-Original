@@ -323,3 +323,40 @@ test("relative weight cutoff preserves normal-vault behavior while pruning < 1e-
   assert.equal(buildCollabSimMapFromIndex(zeroRatings, index).size, 0);
   assert.equal(buildRepulsionMapFromIndex(zeroRatings, index).size, 0);
 });
+
+test("retrieveAlignedEmbeddingNeighbors aligns with collabSim - repulsionWeight * repulsion and prunes hated clusters before topK", async () => {
+  const {
+    encodeEmbeddingBinary,
+    parseEmbeddingBinary,
+    buildCollabSimMapFromIndex,
+    buildRepulsionMapFromIndex,
+    retrieveAlignedEmbeddingNeighbors
+  } = await import("../src/services/embeddingService.js");
+
+  const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },      // Loved anchor
+    { tmdbId: 2, vector: [0.9, 0.435, 0, 0] }, // Clean close neighbor
+    { tmdbId: 3, vector: [0, 1, 0, 0] },      // Hated seed
+    { tmdbId: 4, vector: [0.25, 0.968, 0, 0] } // High similarity to hated seed 3!
+  ]));
+
+  const weightedRatings = [
+    { movie: { tmdbId: 1 }, weight: 1.5, rating: 10 },
+    { movie: { tmdbId: 3 }, weight: -1.8, rating: 1 }
+  ];
+
+  const collabSimMap = buildCollabSimMapFromIndex(weightedRatings, index);
+  const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, index);
+
+  const neighbors = retrieveAlignedEmbeddingNeighbors(weightedRatings, index, new Set([1, 3]), {
+    collabSimMap,
+    repulsionMap,
+    topK: 2,
+    repulsionWeight: 1.5 / 4.8
+  });
+
+  assert.equal(neighbors.length, 2);
+  assert.equal(neighbors[0].tmdbId, 2, "clean neighbor #2 must outrank repulsed neighbor #4");
+  assert.ok(neighbors[0].alignedScore > neighbors[1].alignedScore);
+});
+

@@ -20,8 +20,7 @@ import {
     loadDefaultEmbeddingIndex,
     buildCollabSimMapFromIndex,
     buildRepulsionMapFromIndex,
-    computeUserPersonas,
-    retrieveByEmbedding
+    retrieveAlignedEmbeddingNeighbors
 } from "./embeddingService.js";
 
 export const CURATION_MODEL_CASCADE = [
@@ -1459,13 +1458,17 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
 
                 let mergedCandidates = candidates;
                 if (embeddingIndex && options.injectEmbeddingNeighbors !== false) {
-                    const personas = computeUserPersonas(profile.weightedRatings, embeddingIndex);
                     const excludeIds = new Set([
                         ...(watchedMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
                         ...(watchlist || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
                         ...candidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0))
                     ]);
-                    const neighbors = retrieveByEmbedding(personas, embeddingIndex, excludeIds, 30);
+                    const neighbors = retrieveAlignedEmbeddingNeighbors(
+                        profile.weightedRatings,
+                        embeddingIndex,
+                        excludeIds,
+                        { collabSimMap, repulsionMap, topK: 40 }
+                    );
                     const injected = await fetchEmbeddingCandidates(
                         neighbors,
                         watchedMovies,
