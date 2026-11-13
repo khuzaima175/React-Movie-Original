@@ -632,6 +632,106 @@ export async function fetchBucketC(profile, options = {}, collisionSets = {}, ta
 }
 
 /**
+ * Computes YYYY-MM-DD for (now minus N calendar months) in UTC, clamping end-of-month dates.
+ */
+export function getRecentReleaseDateFloor(months = 18, now = Date.now()) {
+  const base = new Date(Number.isFinite(now) ? now : Date.now());
+  const origDay = base.getUTCDate();
+  base.setUTCDate(1);
+  base.setUTCMonth(base.getUTCMonth() - months);
+  const daysInMonth = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+  base.setUTCDate(Math.min(origDay, daysInMonth));
+  return base.toISOString().slice(0, 10);
+}
+
+/**
+ * Attaches watch provider and region query parameters onto a TMDB discover URLSearchParams.
+ */
+function applyProviderAndRegionParams(params, userRegion = "US", userProviders = []) {
+  const providerFilter = buildProviderFilter(userProviders);
+  if (providerFilter) {
+    params.set("with_watch_providers", providerFilter);
+    params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
+  } else if (userRegion && userRegion !== "GLOBAL") {
+    params.set("watch_region", userRegion);
+  }
+  return Boolean(providerFilter);
+}
+
+/**
+ * Builds URLSearchParams for Bucket D (Recent Releases within the last 18 months, no with_cast).
+ */
+export function buildBucketDParams(profile = {}, options = {}, apiKey = "") {
+  const { userRegion = "US", userProviders = [], now = Date.now(), minReleaseDate } = options;
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    "primary_release_date.gte": minReleaseDate || getRecentReleaseDateFloor(18, now),
+    sort_by: "popularity.desc",
+    "vote_count.gte": "150",
+    "vote_average.gte": "7.0",
+    include_adult: "false"
+  });
+
+  const top3Genres = (profile.lovedGenreIds || []).slice(0, 3);
+  if (top3Genres.length > 0) {
+    params.set("with_genres", top3Genres.join("|"));
+  }
+  if (profile.hatedKeywordIds && profile.hatedKeywordIds.length > 0) {
+    params.set("without_keywords", profile.hatedKeywordIds.join("|"));
+  }
+  applyProviderAndRegionParams(params, userRegion, userProviders);
+  return params;
+}
+
+/**
+ * BUCKET D: Recent popular releases (last 18 months) aligned to top 3 loved genres without cast lock-in.
+ */
+export async function fetchBucketD(profile = {}, options = {}, collisionSets = {}, existingIdSet = new Set()) {
+  const key = getTmdbKey();
+  if (!key) return [];
+
+  const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : fetch;
+  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
+  const params = buildBucketDParams(profile, options, key);
+  const hasProviderFilter = Boolean(params.get("with_watch_providers"));
+  const maxResults = 12;
+
+  const candidates = [];
+  const seenLocal = new Set();
+
+  for (let page = 1; page <= 2 && candidates.length < maxResults; page++) {
+    const q = new URLSearchParams({ ...Object.fromEntries(params), page: String(page) });
+    try {
+      const res = await fetchFn(`https://api.themoviedb.org/3/discover/movie?${q.toString()}`, { cache: "no-store" });
+      if (!res.ok) break;
+      const data = await res.json();
+      if (!data.results || data.results.length === 0) break;
+
+      for (const m of data.results) {
+        if (!m || !m.title || !m.overview) continue;
+        const idNum = Number(m.id);
+        const titleClean = m.title.toLowerCase().trim();
+        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
+        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
+
+        if (watchedIdSet?.has(String(m.id))) continue;
+        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
+        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+        if (existingIdSet?.has(idNum) || seenLocal.has(idNum)) continue;
+
+        seenLocal.add(idNum);
+        candidates.push(normalizeTmdbItem(m, "D", hasProviderFilter));
+        if (candidates.length >= maxResults) break;
+      }
+    } catch (_) {
+      break;
+    }
+  }
+
+  return candidates;
+}
+
+/**
  * 3-Bucket Dynamic Waterfall Candidate Pool Orchestrator with Cold-Start Bypass
  */
 export async function fetchCandidatePool(profile, mood = "any", watchedMovies = [], watchlistMovies = [], options = {}) {
@@ -662,10 +762,13 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
 
   const collisionSets = { watchedIdSet, watchedTitleSet, watchlistTitleSet };
 
-  // COLD-START BYPASS: If user has < 3 ratings, route entirely to expanded Bucket A
+  // COLD-START BYPASS: If user has < 3 ratings, route entirely to expanded Bucket A + Bucket D
   const targetPoolSize = Math.max(20, Math.min(500, Number(options.poolSize) || 60));
   if ((watchedMovies || []).length < 3) {
-    return fetchBucketA(profile, mood, options, collisionSets, targetPoolSize);
+    const coldPool = await fetchBucketA(profile, mood, options, collisionSets, targetPoolSize);
+    const existingIds = new Set(coldPool.map(item => Number(item?.id ?? item?.tmdbId ?? 0)));
+    const bucketD = await fetchBucketD(profile, options, collisionSets, existingIds);
+    return bucketD.length > 0 ? [...coldPool, ...bucketD] : coldPool;
   }
 
   const bucketBTarget = Math.min(40, Math.max(8, Math.floor(targetPoolSize * 0.35)));
@@ -695,7 +798,7 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   const remainingSlots = Math.max(targetPoolSize - specificPool.length, 12);
   const bucketA = await fetchBucketA(profile, mood, options, collisionSets, remainingSlots);
 
-  // 4. Return unified candidate pool
+  // 4. Return unified candidate pool, then append Bucket D without displacing existing buckets
   const combined = [...specificPool];
   for (const item of bucketA) {
     if (!seenIds.has(item.id)) {
@@ -715,7 +818,10 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
     }
   }
 
-  return combined.slice(0, targetPoolSize);
+  const basePool = combined.slice(0, targetPoolSize);
+  const existingIds = new Set(basePool.map(item => Number(item?.id ?? item?.tmdbId ?? 0)));
+  const bucketD = await fetchBucketD(profile, options, collisionSets, existingIds);
+  return bucketD.length > 0 ? [...basePool, ...bucketD] : basePool;
 }
 
 function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQuery = false) {

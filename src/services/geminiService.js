@@ -5,6 +5,7 @@ import {
     extractTasteProfile,
     fetchCandidatePool,
     fetchEmbeddingCandidates,
+    getRecentReleaseDateFloor,
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService.js";
 import { rankCandidatePool } from "./rankerService.js";
@@ -593,10 +594,24 @@ export async function parseFreeTextMoodWithGemini(ai, rawQuery = "") {
     return { moodId: "any", withGenres: [], withoutKeywords: [], minYear: null, maxYear: null };
 }
 
+// Heuristic recent-release slot reservation passed to rankCandidatePool
+export const RECENT_RELEASE_RESERVE_COUNT = 3;
+export const RECENT_RELEASE_RESERVE_MONTHS = 18;
+export const RECENT_RELEASE_MIN_PROB_PERCENTILE = 0.5;
+
 /**
  * Executes Calibrated Ranker + Gemini Explanations & Diversity Pass
  */
 async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options = {}) {
+    const reserveConfig =
+        options.reserve !== undefined
+            ? options.reserve
+            : {
+                count: RECENT_RELEASE_RESERVE_COUNT,
+                minReleaseDate: getRecentReleaseDateFloor(RECENT_RELEASE_RESERVE_MONTHS, options.now),
+                minProbabilityPercentile: RECENT_RELEASE_MIN_PROB_PERCENTILE
+            };
+
     const topCandidates = rankCandidatePool(
         candidates,
         {
@@ -608,7 +623,9 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             userProviders: options.userProviders
         },
         options.rankerWeights,
-        options.topK || 15
+        options.topK || 15,
+        options.rankerOptions,
+        reserveConfig
     );
 
     const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates, {
@@ -655,6 +672,14 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         { contents: prompt, config: generationConfig },
         { cascadeType: "curation" }
     );
+
+    options.onDiagnostics?.({
+        mergedCandidates: candidates,
+        topCandidates,
+        reserve: reserveConfig,
+        model: response ? sessionCurationModel : null,
+        usageMetadata: response?.usageMetadata ?? null
+    });
 
     if (!response) {
         console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output:", lastError?.message || lastError);
