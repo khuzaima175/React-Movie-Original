@@ -1,7 +1,8 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { spendTracker } from "./aiSpendTracker.js";
 import {
-    TMDB_KEY,
+    getTmdbKey,
+    getOmdbKey,
     extractTasteProfile,
     fetchCandidatePool,
     fetchEmbeddingCandidates,
@@ -718,15 +719,6 @@ export function resetModelInfoForTests() {
     cascadeRunSeq = 0;
 }
 
-const getOmdbKey = () => {
-    const key = import.meta.env?.VITE_OMDB_KEY || globalThis.process?.env?.VITE_OMDB_KEY;
-    if (!key || key === "undefined" || key === "null" || key.trim() === "") {
-        return "";
-    }
-    return key.trim();
-};
-const OMDB_KEY = getOmdbKey();
-
 // In-memory module cache to avoid redundant OMDb API calls during the session
 const omdbMemoryCache = new Map();
 
@@ -735,7 +727,8 @@ const omdbMemoryCache = new Map();
  */
 export const fetchRealOMDBData = async (title, year, signal) => {
     try {
-        if (!OMDB_KEY) return null;
+        const omdbKey = getOmdbKey();
+        if (!omdbKey) return null;
         const cleanTitle = title.replace(/^["']|["']$/g, "").trim();
         const cleanYear = year ? String(year).trim().match(/\d{4}/)?.[0] : null;
         const cacheKey = `${cleanTitle.toLowerCase()}::${cleanYear || "noyear"}`;
@@ -744,14 +737,14 @@ export const fetchRealOMDBData = async (title, year, signal) => {
             return omdbMemoryCache.get(cacheKey);
         }
 
-        let url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
+        let url = `https://www.omdbapi.com/?apikey=${omdbKey}&t=${encodeURIComponent(cleanTitle)}${cleanYear ? `&y=${cleanYear}` : ''}`;
         let response = await fetch(url, { cache: "no-store", signal });
         if (!response.ok) return null;
 
         let data = await response.json();
 
         if (data.Response !== "True" && cleanYear) {
-            url = `https://www.omdbapi.com/?apikey=${OMDB_KEY}&t=${encodeURIComponent(cleanTitle)}`;
+            url = `https://www.omdbapi.com/?apikey=${omdbKey}&t=${encodeURIComponent(cleanTitle)}`;
             response = await fetch(url, { cache: "no-store", signal });
             if (response.ok) {
                 data = await response.json();
@@ -1040,6 +1033,39 @@ export const RECENT_RELEASE_RESERVE_COUNT = 2;
 export const RECENT_RELEASE_RESERVE_MONTHS = 18;
 export const RECENT_RELEASE_MIN_PROB_PERCENTILE = 0.5;
 
+function buildRankerFallbackResponse(
+    topCandidates,
+    profile,
+    modelInfo,
+    reason = "Selected by the CinemaVault calibrated taste ranker."
+) {
+    return {
+        tasteProfile: {
+            favoriteGenres: (profile?.lovedGenreNames || []).slice(0, 3),
+            preferredEra: "Mixed",
+            ratingStyle: "Varied"
+        },
+        recommendations: (topCandidates || []).slice(0, 6).map(cand => ({
+            id: cand.id || cand.tmdbId,
+            tmdbId: cand.id || cand.tmdbId,
+            title: cand.title,
+            year: cand.year,
+            genre: cand.genre || (profile?.lovedGenreNames?.[0] || "Cinema"),
+            poster: cand.poster || getFallbackPoster(cand.title),
+            backdrop: cand.backdrop || null,
+            imdbRating: cand.vote_average ? String(cand.vote_average) : null,
+            matchScore: typeof cand.matchScore === "number" ? cand.matchScore : 85,
+            matchReasons: Array.isArray(cand.matchReasons) ? cand.matchReasons : [],
+            rankerProbability: cand.rankerProbability ?? null,
+            reason,
+            plot: cand.overview || "",
+            sourceBucket: cand.sourceBucket || "TMDB",
+            realData: true
+        })),
+        modelInfo
+    };
+}
+
 /**
  * Executes Calibrated Ranker + Gemini Explanations & Diversity Pass
  */
@@ -1140,38 +1166,37 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
 
     if (!response) {
         console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output.");
-        return {
-            tasteProfile: {
-                favoriteGenres: (profile.lovedGenreNames || []).slice(0, 3),
-                preferredEra: "Mixed",
-                ratingStyle: "Varied"
-            },
-            recommendations: topCandidates.slice(0, 6).map(cand => ({
-                id: cand.id || cand.tmdbId,
-                tmdbId: cand.id || cand.tmdbId,
-                title: cand.title,
-                year: cand.year,
-                genre: cand.genre || (profile.lovedGenreNames?.[0] || "Cinema"),
-                poster: cand.poster || getFallbackPoster(cand.title),
-                backdrop: cand.backdrop || null,
-                imdbRating: cand.vote_average ? String(cand.vote_average) : null,
-                matchScore: typeof cand.matchScore === "number" ? cand.matchScore : 85,
-                matchReasons: Array.isArray(cand.matchReasons) ? cand.matchReasons : [],
-                rankerProbability: cand.rankerProbability ?? null,
-                reason: "Selected by the CinemaVault calibrated taste ranker.",
-                plot: cand.overview || "",
-                sourceBucket: cand.sourceBucket || "TMDB",
-                realData: true
-            }))
-        };
+        return buildRankerFallbackResponse(topCandidates, profile, activeRunModelInfo);
     }
 
-    const result = sanitizeAndParseJSON(response.text);
-    const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile);
-    return {
-        ...merged,
-        modelInfo: activeRunModelInfo
-    };
+    try {
+        const result = sanitizeAndParseJSON(response.text);
+        if (!Array.isArray(result?.recommendations) || result.recommendations.length === 0) {
+            throw new Error("Gemini re-rank returned empty or missing recommendations array");
+        }
+        const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile);
+        if (!Array.isArray(merged?.recommendations) || merged.recommendations.length === 0) {
+            throw new Error("Merged recommendations empty");
+        }
+        return {
+            ...merged,
+            modelInfo: activeRunModelInfo
+        };
+    } catch (parseErr) {
+        console.warn("Gemini JSON parse/merge failed, falling back to local calibrated ranker:", parseErr);
+        const fallbackInfo = buildCascadeModelInfo(
+            CURATION_MODEL_CASCADE,
+            null,
+            "curation",
+            "ranker-fallback",
+            {
+                usageMetadata: response?.usageMetadata ?? null,
+                seq: activeRunModelInfo?.seq || prevSeq
+            }
+        );
+        lastCurationModelInfo = fallbackInfo;
+        return buildRankerFallbackResponse(topCandidates, profile, fallbackInfo);
+    }
 }
 
 /**
@@ -1254,7 +1279,15 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
     );
     lastCurationModelInfo = omdbModelInfo;
 
-    const result = sanitizeAndParseJSON(response.text);
+    let result;
+    try {
+        result = sanitizeAndParseJSON(response.text);
+    } catch (parseErr) {
+        throw new Error("OMDb fallback generation returned invalid JSON or empty recommendations", { cause: parseErr });
+    }
+    if (!Array.isArray(result?.recommendations) || result.recommendations.length === 0) {
+        throw new Error("OMDb fallback generation returned invalid JSON or empty recommendations");
+    }
 
     if (result.recommendations && result.recommendations.length > 0) {
         onProgress?.("Verifying candidate titles with OMDb...");
@@ -1298,12 +1331,12 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
  */
 export const getMovieRecommendations = async (watchedMovies = [], watchlist = [], onProgress, options = {}) => {
     const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
+    const ai = options.aiClient || (apiKey ? new GoogleGenAI({ apiKey, httpOptions: { timeout: HYDROGEN_TIMEOUT_MS } }) : null);
 
-    if (!apiKey) {
+    if (!ai) {
         throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
     }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: HYDROGEN_TIMEOUT_MS } });
     const mood = options.mood || "any";
     const userRegion = options.userRegion || "US";
     const userProviders = options.userProviders || [];
@@ -1313,14 +1346,17 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
     const profile = await extractTasteProfile(watchedMovies, watchlist);
 
     // 2. Primary Engine: Dynamic Waterfall TMDB Retrieval + Gemini Re-Ranking
-    if (TMDB_KEY) {
+    const hasInjectedCandidates = Array.isArray(options.candidates) && options.candidates.length >= 6;
+    if (getTmdbKey() || hasInjectedCandidates) {
         try {
             onProgress?.("Harvesting 3-bucket verified candidate catalogue from TMDB...");
-            const candidates = await fetchCandidatePool(profile, mood, watchedMovies, watchlist, {
-                ...options,
-                userRegion,
-                userProviders
-            });
+            const candidates = hasInjectedCandidates
+                ? options.candidates
+                : await fetchCandidatePool(profile, mood, watchedMovies, watchlist, {
+                    ...options,
+                    userRegion,
+                    userProviders
+                });
 
             if (candidates && candidates.length >= 6) {
                 const embeddingIndex =

@@ -15,7 +15,7 @@
 
 import { computeZScoredWeights, computeUserRatingStats } from "./scoringUtils.js";
 
-const getTmdbKey = () => {
+export const getTmdbKey = () => {
   const key = import.meta.env?.VITE_TMDB_KEY || globalThis.process?.env?.VITE_TMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
     return "";
@@ -23,7 +23,7 @@ const getTmdbKey = () => {
   return key.trim();
 };
 
-const getOmdbKey = () => {
+export const getOmdbKey = () => {
   const key = import.meta.env?.VITE_OMDB_KEY || globalThis.process?.env?.VITE_OMDB_KEY;
   if (!key || key === "undefined" || key === "null" || key.trim() === "") {
     return "";

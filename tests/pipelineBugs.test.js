@@ -4,7 +4,10 @@ import { extractTasteProfile, buildBucketAParams } from "../src/services/tmdbSer
 import {
   generateProfileHash,
   buildGeminiReRankPrompt,
-  mergeGeminiExplanationsWithRanker
+  mergeGeminiExplanationsWithRanker,
+  getMovieRecommendations,
+  resetSessionWorkingModels,
+  resetModelInfoForTests
 } from "../src/services/geminiService.js";
 
 test("hatedKeywordIds sorts by negative weight descending before slicing top 5", async () => {
@@ -136,4 +139,156 @@ test("mergeGeminiExplanationsWithRanker preserves matchReasons from ranked candi
     "🧬 High Taste-Twin Match",
     "🎬 Favorite Filmmaker"
   ]);
+});
+
+test("getMovieRecommendations falls back to local calibrated ranker (never OMDb) when Gemini returns invalid JSON or bad schema", async () => {
+  const originalFetch = globalThis.fetch;
+  const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+  const prevTmdbKey = process.env.VITE_TMDB_KEY;
+  const omdbCalls = [];
+  process.env.VITE_GEMINI_KEY = "TEST_KEY";
+  process.env.VITE_TMDB_KEY = "TEST_TMDB_KEY";
+  resetSessionWorkingModels();
+  resetModelInfoForTests();
+
+  const mockCandidates = Array.from({ length: 8 }, (_, i) => ({
+    id: 500 + i,
+    tmdbId: 500 + i,
+    title: `Verified Film ${i}`,
+    year: "2022",
+    release_date: "2022-05-01",
+    overview: `Plot ${i}`,
+    genre: "Sci-Fi",
+    genre_ids: [878],
+    vote_average: 8.0 - i * 0.1,
+    vote_count: 1000,
+    sourceBucket: "A"
+  }));
+
+  let aiCalls = 0;
+  const mockAi = {
+    models: {
+      generateContent: async () => {
+        aiCalls += 1;
+        return {
+          text: "{truncated invalid json...",
+          usageMetadata: { totalTokenCount: 42 }
+        };
+      }
+    }
+  };
+
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("omdbapi.com")) {
+      omdbCalls.push(url);
+      return { ok: false, status: 500 };
+    }
+    return { ok: true, json: async () => ({ results: [] }) };
+  };
+
+  try {
+    const res = await getMovieRecommendations(
+      [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [878] }],
+      [],
+      null,
+      {
+        aiClient: mockAi,
+        candidates: mockCandidates,
+        embeddingIndex: null
+      }
+    );
+    assert.equal(aiCalls, 1, "must NOT re-enter generateWithOmdbFallback after parse failure");
+    assert.equal(omdbCalls.length, 0, "must NOT route to OMDb fallback on malformed Gemini JSON");
+    assert.equal(res.recommendations.length, 6);
+    assert.equal(res.recommendations[0].tmdbId, res.recommendations[0].id);
+    assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
+    assert.equal(res.modelInfo?.isFallback, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+    else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+    if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+    else process.env.VITE_TMDB_KEY = prevTmdbKey;
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+  }
+});
+
+test("reRankCandidatesWithGemini attaches modelInfo even when executeCascade returns null (!response)", async () => {
+  const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+  const prevTmdbKey = process.env.VITE_TMDB_KEY;
+  process.env.VITE_GEMINI_KEY = "TEST_KEY";
+  process.env.VITE_TMDB_KEY = "TEST_TMDB_KEY";
+  resetSessionWorkingModels();
+  resetModelInfoForTests();
+
+  const nullAi = { models: { generateContent: async () => { throw new Error("503 unavailable"); } } };
+  const mockCandidates = Array.from({ length: 6 }, (_, i) => ({
+    id: 600 + i,
+    tmdbId: 600 + i,
+    title: `Fallback Film ${i}`,
+    year: "2021",
+    overview: `Overview ${i}`,
+    genre: "Drama",
+    genre_ids: [18],
+    vote_average: 7.8,
+    vote_count: 500
+  }));
+
+  try {
+    const res = await getMovieRecommendations(
+      [{ id: 2, tmdbId: 2, title: "Seed 2", userRating: 8, tmdbGenreIds: [18] }],
+      [],
+      null,
+      { aiClient: nullAi, candidates: mockCandidates, embeddingIndex: null }
+    );
+    assert.equal(res.recommendations.length, 6);
+    assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
+    assert.equal(res.modelInfo?.model, null);
+    assert.equal(res.modelInfo?.isFallback, true);
+  } finally {
+    if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+    else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+    if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+    else process.env.VITE_TMDB_KEY = prevTmdbKey;
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+  }
+});
+
+test("OMDb fallback throws clear error when Gemini returns invalid JSON or empty recommendations", async () => {
+  const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+  const prevTmdbKey = process.env.VITE_TMDB_KEY;
+  process.env.VITE_GEMINI_KEY = "TEST_KEY";
+  delete process.env.VITE_TMDB_KEY;
+  resetSessionWorkingModels();
+  resetModelInfoForTests();
+
+  const badAi = {
+    models: {
+      generateContent: async () => ({
+        text: "{bad json",
+        usageMetadata: { totalTokenCount: 10 }
+      })
+    }
+  };
+
+  try {
+    await assert.rejects(
+      () => getMovieRecommendations(
+        [{ id: 3, tmdbId: 3, title: "Seed 3", userRating: 8, tmdbGenreIds: [18] }],
+        [],
+        null,
+        { aiClient: badAi, embeddingIndex: null }
+      ),
+      /OMDb fallback generation returned invalid JSON or empty recommendations/
+    );
+  } finally {
+    if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+    else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+    if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+    else process.env.VITE_TMDB_KEY = prevTmdbKey;
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+  }
 });
