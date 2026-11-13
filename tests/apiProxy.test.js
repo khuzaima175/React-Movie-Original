@@ -146,3 +146,63 @@ test("api/gemini handler rejects GET requests, non-model strings, and forwards v
     else process.env.GEMINI_API_KEY = prevGemini;
   }
 });
+
+test("api/gemini handler enforces explicit CinemaVault model allowlist and gates Argon behind server opt-in", async () => {
+  const prevGemini = process.env.GEMINI_API_KEY;
+  const prevArgon = process.env.ENABLE_ARGON;
+  const prevViteArgon = process.env.VITE_ENABLE_ARGON;
+  process.env.GEMINI_API_KEY = "SERVER_GEMINI_SECRET";
+  delete process.env.ENABLE_ARGON;
+  delete process.env.VITE_ENABLE_ARGON;
+  let invoked = 0;
+  const aiFactory = () => {
+    invoked += 1;
+    return {
+      models: {
+        generateContent: async ({ model }) => ({ text: `{\"model\":\"${model}\"}`, usageMetadata: null })
+      }
+    };
+  };
+
+  try {
+    const resUnknown = createMockRes();
+    await geminiHandler(
+      { method: "POST", body: { model: "gemini-1.5-pro", contents: "hello" }, aiFactory },
+      resUnknown
+    );
+    assert.equal(resUnknown.statusCode, 400);
+    assert.equal(invoked, 0);
+
+    const resArgonBlocked = createMockRes();
+    await geminiHandler(
+      { method: "POST", body: { model: "gemini-4-argon", contents: "hello" }, aiFactory },
+      resArgonBlocked
+    );
+    assert.equal(resArgonBlocked.statusCode, 403);
+    assert.equal(invoked, 0);
+
+    process.env.ENABLE_ARGON = "true";
+    const resArgonAllowed = createMockRes();
+    await geminiHandler(
+      { method: "POST", body: { model: "gemini-4-argon", contents: "hello" }, aiFactory },
+      resArgonAllowed
+    );
+    assert.equal(resArgonAllowed.statusCode, 200);
+    assert.equal(invoked, 1);
+
+    const resHydrogen = createMockRes();
+    await geminiHandler(
+      { method: "POST", body: { model: "gemini-4-hydrogen", contents: "hello" }, aiFactory },
+      resHydrogen
+    );
+    assert.equal(resHydrogen.statusCode, 200);
+    assert.equal(invoked, 2);
+  } finally {
+    if (prevGemini === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGemini;
+    if (prevArgon === undefined) delete process.env.ENABLE_ARGON;
+    else process.env.ENABLE_ARGON = prevArgon;
+    if (prevViteArgon === undefined) delete process.env.VITE_ENABLE_ARGON;
+    else process.env.VITE_ENABLE_ARGON = prevViteArgon;
+  }
+});

@@ -1,6 +1,20 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ALLOWED_GEMINI_MODEL_RE = /^[a-z0-9._-]+$/i;
+export const ALLOWED_GEMINI_MODELS = new Set([
+  "gemini-4-hydrogen",
+  "gemini-4-argon",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
+  "gemini-3.8-flash",
+  "gemini-3-flash-preview",
+  "gemini-2.5-flash"
+]);
+
+function isServerArgonEnabled() {
+  return process.env.ENABLE_ARGON === "true" || process.env.VITE_ENABLE_ARGON === "true";
+}
 
 function sanitizeUpstreamMessage(message, secret) {
   const text = String(message || "Upstream Gemini request failed");
@@ -30,8 +44,11 @@ export default async function handler(req, res) {
   }
 
   const model = typeof body?.model === "string" ? body.model.trim() : "";
-  if (!model || !ALLOWED_GEMINI_MODEL_RE.test(model) || body?.contents === undefined) {
-    return res.status(400).json({ error: "Invalid Gemini model or missing contents" });
+  if (!model || !ALLOWED_GEMINI_MODELS.has(model) || body?.contents === undefined) {
+    return res.status(400).json({ error: "Unsupported or invalid Gemini model, or missing contents" });
+  }
+  if (model.includes("argon") && !isServerArgonEnabled()) {
+    return res.status(403).json({ error: "Argon model is disabled on this server" });
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_KEY || "").trim();
