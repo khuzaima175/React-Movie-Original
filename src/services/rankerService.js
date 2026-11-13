@@ -185,11 +185,137 @@ export function generateMatchReasons(features = {}) {
   return reasons.slice(0, 3);
 }
 
+function parseUtcDateStart(val) {
+  if (val === null || val === undefined || val === "") return null;
+  if (typeof val === "number") return Number.isFinite(val) ? val : null;
+  if (val instanceof Date) return Number.isFinite(val.getTime()) ? val.getTime() : null;
+  const match = String(val).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function isReleasedOnOrAfter(candidate, minReleaseDate) {
+  const minTs = parseUtcDateStart(minReleaseDate);
+  if (minTs === null) return true;
+  const candTs = parseUtcDateStart(candidate?.release_date);
+  if (candTs !== null) return candTs >= minTs;
+  const yearNum = Number(candidate?.year);
+  if (Number.isFinite(yearNum) && yearNum > 1800) {
+    const minYear = new Date(minTs).getUTCFullYear();
+    if (yearNum > minYear) return true;
+    if (yearNum < minYear) return false;
+  }
+  return false;
+}
+
+function computeProbabilityPercentile(sortedDesc, percentile) {
+  const n = sortedDesc.length;
+  if (n === 0) return 0;
+  const p = Math.min(1, Math.max(0, Number(percentile ?? 0)));
+  const descPos = (1 - p) * (n - 1);
+  const lo = Math.floor(descPos);
+  const hi = Math.ceil(descPos);
+  const probLo = sortedDesc[lo].rankerProbability;
+  const probHi = sortedDesc[hi].rankerProbability;
+  return probLo + (descPos - lo) * (probHi - probLo);
+}
+
+/**
+ * Cold-start recent-release reserve scorer keeping all weights identical to rankerProbability
+ * while neutralizing noveltyBonus (0) so >4,000-vote acclaimed hits are not penalized.
+ */
+export function computeReserveQualityScore(candidate, weights = DEFAULT_RANKER_WEIGHTS, options = {}) {
+  const f = candidate?.features || {};
+  return scoreCandidate({ ...f, noveltyBonus: 0 }, weights || DEFAULT_RANKER_WEIGHTS, options).logit;
+}
+
+function selectWithReserve(scoredDesc, topK, reserve, context = {}, weights = DEFAULT_RANKER_WEIGHTS, options = {}) {
+  const limit = Math.min(Math.max(0, Math.floor(Number(topK) || 0)), scoredDesc.length);
+  if (limit === 0) return [];
+  const rawCount = Math.floor(Number(reserve?.count) || 0);
+  if (!reserve || rawCount <= 0) {
+    return scoredDesc.slice(0, limit);
+  }
+
+  const reserveCount = Math.min(limit, rawCount);
+  const headCount = Math.max(0, limit - reserveCount);
+
+  const nonCollabDesc = scoredDesc.filter(c => Number(c.features?.collabSim || 0) <= 0);
+  const percentileBasis = nonCollabDesc.length > 0 ? nonCollabDesc : scoredDesc;
+  const percentileFloor = computeProbabilityPercentile(percentileBasis, reserve.minProbabilityPercentile ?? 0);
+  const absMinProbability = Number(reserve.minProbability ?? 0.54);
+  const probFloor = Math.max(percentileFloor, absMinProbability);
+
+  const selected = [];
+  const chosenIndices = new Set();
+  const chosenIds = new Set();
+
+  const trySelect = (idx) => {
+    if (chosenIndices.has(idx)) return false;
+    const item = scoredDesc[idx];
+    const id = Number(item?.tmdbId ?? item?.id ?? 0);
+    if (id > 0 && chosenIds.has(id)) return false;
+    chosenIndices.add(idx);
+    if (id > 0) chosenIds.add(id);
+    selected.push(item);
+    return true;
+  };
+
+  for (let i = 0; i < headCount && i < scoredDesc.length; i++) {
+    trySelect(i);
+  }
+
+  const baseQualifying = [];
+  for (let i = 0; i < scoredDesc.length; i++) {
+    if (chosenIndices.has(i)) continue;
+    const cand = scoredDesc[i];
+    const id = Number(cand?.tmdbId ?? cand?.id ?? 0);
+    if (id > 0 && chosenIds.has(id)) continue;
+    if (cand.rankerProbability < probFloor) continue;
+    if (!isReleasedOnOrAfter(cand, reserve.minReleaseDate)) continue;
+    baseQualifying.push({ idx: i, cand });
+  }
+
+  const hasLovedGenres = Array.isArray(context?.profile?.lovedGenreIds) && context.profile.lovedGenreIds.length > 0;
+  let reserveCandidates = baseQualifying;
+  if (hasLovedGenres) {
+    const genreMatched = baseQualifying.filter(entry => Number(entry.cand.features?.genreOverlap || 0) > 0);
+    if (genreMatched.length > 0) {
+      reserveCandidates = genreMatched;
+    }
+  }
+
+  reserveCandidates = reserveCandidates
+    .map(entry => ({
+      ...entry,
+      coldStartScore: computeReserveQualityScore(entry.cand, weights, options)
+    }))
+    .sort((a, b) => {
+      if (b.coldStartScore !== a.coldStartScore) return b.coldStartScore - a.coldStartScore;
+      if (b.cand.rankerProbability !== a.cand.rankerProbability) {
+        return b.cand.rankerProbability - a.cand.rankerProbability;
+      }
+      return a.idx - b.idx;
+    });
+
+  let reservedAdded = 0;
+  for (let i = 0; i < reserveCandidates.length && selected.length < limit && reservedAdded < reserveCount; i++) {
+    if (trySelect(reserveCandidates[i].idx)) reservedAdded++;
+  }
+
+  for (let i = 0; i < scoredDesc.length && selected.length < limit; i++) {
+    trySelect(i);
+  }
+
+  selected.sort((a, b) => b.rankerProbability - a.rankerProbability);
+  return selected;
+}
+
 /**
  * Ranks a large candidate pool (200-500 items) down to topK (default 30) with calibrated matchScores.
  * Dynamically scales positive collabSim relative to pool maximum so shrunk embeddings span [0, 1].
  */
-export function rankCandidatePool(candidates = [], context = {}, weights = DEFAULT_RANKER_WEIGHTS, topK = 30, options = {}) {
+export function rankCandidatePool(candidates = [], context = {}, weights = DEFAULT_RANKER_WEIGHTS, topK = 30, options = {}, reserve = undefined) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
   const collabSimMap = context?.collabSimMap;
@@ -226,7 +352,8 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
   });
 
   scored.sort((a, b) => b.rankerProbability - a.rankerProbability);
-  return scored.slice(0, topK);
+  const activeReserve = reserve !== undefined ? reserve : (options?.reserve ?? null);
+  return activeReserve ? selectWithReserve(scored, topK, activeReserve, context, weights, options) : scored.slice(0, topK);
 }
 
 /**
