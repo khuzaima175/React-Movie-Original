@@ -15,7 +15,8 @@ import {
     getRecentReleaseDateFloor,
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService.js";
-import { rankCandidatePool } from "./rankerService.js";
+import { DEFAULT_RANKER_WEIGHTS, rankCandidatePool } from "./rankerService.js";
+import { derivePersonalizedRankerWeights, sanitizeFeatureSnapshot } from "./onlineLearningService.js";
 import {
     loadDefaultEmbeddingIndex,
     buildCollabSimMapFromIndex,
@@ -1048,6 +1049,7 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
             matchScore: calibratedScore,
             matchReasons: Array.isArray(candidate.matchReasons) ? candidate.matchReasons : [],
             rankerProbability: candidate.rankerProbability ?? null,
+            features: sanitizeFeatureSnapshot(candidate.features ?? rec.features),
             reason: rec.reason || "Matches your cinematic taste profile.",
             plot: candidate.overview || rec.reason,
             sourceBucket: candidate.sourceBucket || "TMDB",
@@ -1128,6 +1130,7 @@ function buildRankerFallbackResponse(
             matchScore: typeof cand.matchScore === "number" ? cand.matchScore : 85,
             matchReasons: Array.isArray(cand.matchReasons) ? cand.matchReasons : [],
             rankerProbability: cand.rankerProbability ?? null,
+            features: sanitizeFeatureSnapshot(cand.features),
             reason,
             plot: cand.overview || "",
             sourceBucket: cand.sourceBucket || "TMDB",
@@ -1494,9 +1497,14 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     });
                 }
 
+                const rankerWeights =
+                    options.rankerWeights ||
+                    derivePersonalizedRankerWeights(options.feedbackLog, watchedMovies, DEFAULT_RANKER_WEIGHTS);
+
                 onProgress?.("AI Oracle re-ranking candidates against taste DNA...");
                 const result = await reRankCandidatesWithGemini(ai, profile, mood, mergedCandidates, {
                     ...options,
+                    rankerWeights,
                     embeddingIndex,
                     collabSimMap,
                     repulsionMap,

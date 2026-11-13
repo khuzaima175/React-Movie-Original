@@ -1,6 +1,7 @@
 /**
  * Feedback Signal Normalization & Conversion Tracking Service
  */
+import { sanitizeFeatureSnapshot } from "./onlineLearningService.js";
 
 function matchesFeedbackEntry(existing, incoming) {
   if (!existing || !incoming) return false;
@@ -28,6 +29,11 @@ export function normalizeFeedbackEvent(feedbackItem, prevLog = [], maxEvents = 5
   const existing = list.find(f => matchesFeedbackEntry(f, feedbackItem));
   const filtered = list.filter(f => !matchesFeedbackEntry(f, feedbackItem));
 
+  const cleanFeatures =
+    sanitizeFeatureSnapshot(feedbackItem.features) ||
+    sanitizeFeatureSnapshot(existing?.features) ||
+    null;
+
   const merged = {
     ...(existing || {}),
     ...feedbackItem,
@@ -35,6 +41,7 @@ export function normalizeFeedbackEvent(feedbackItem, prevLog = [], maxEvents = 5
     imdbID: feedbackItem.imdbID ?? existing?.imdbID ?? null,
     matchScoreAtTime: feedbackItem.matchScoreAtTime ?? existing?.matchScoreAtTime ?? null,
     sourceBucket: feedbackItem.sourceBucket ?? existing?.sourceBucket ?? null,
+    features: cleanFeatures,
     previousAction: existing && existing.action !== feedbackItem.action ? existing.action : (existing?.previousAction ?? null),
     ts: feedbackItem.ts || new Date().toISOString()
   };
@@ -64,6 +71,7 @@ export function recordRatedMovieConversion(movie, prevLog = [], aiRecommendation
       imdbID: movie.imdbID ?? matchedRec?.imdbID ?? matchedLog?.imdbID ?? null,
       matchScoreAtTime: matchedLog?.matchScoreAtTime ?? matchedRec?.matchScore ?? null,
       sourceBucket: matchedLog?.sourceBucket ?? matchedRec?.sourceBucket ?? null,
+      features: matchedLog?.features ?? matchedRec?.features ?? null,
       action: "rated",
       userRating: Number(movie.userRating)
     },

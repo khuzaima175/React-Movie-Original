@@ -337,6 +337,7 @@ export default function MovieRecommendations({
       imdbID: rec.imdbID ?? null,
       matchScoreAtTime: rec.matchScore ?? null,
       sourceBucket: rec.sourceBucket ?? null,
+      features: rec.features ?? null,
       action: "added_watchlist"
     });
 
@@ -371,6 +372,7 @@ export default function MovieRecommendations({
       imdbID: rec.imdbID ?? null,
       matchScoreAtTime: rec.matchScore ?? null,
       sourceBucket: rec.sourceBucket ?? null,
+      features: rec.features ?? null,
       action: "dismissed",
       reason: reason
     });

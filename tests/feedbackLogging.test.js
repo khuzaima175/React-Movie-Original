@@ -38,3 +38,21 @@ test("recordRatedMovieConversion logs rated conversion when movie matches aiReco
   assert.equal(updatedLog[0].matchScoreAtTime, 94);
   assert.equal(updatedLog[0].sourceBucket, "Bucket A: Semantic");
 });
+
+test("normalizeFeedbackEvent preserves sanitized feature snapshot for online weight learning", () => {
+  const updated = normalizeFeedbackEvent(
+    {
+      title: "Dune",
+      year: "2021",
+      tmdbId: 438631,
+      action: "dismissed",
+      matchScoreAtTime: 91,
+      features: { collabSim: 0.7, crewMatch: 1, keywordOverlap: 0.4, unknownField: 999 }
+    },
+    []
+  );
+  assert.equal(updated[0].features.collabSim, 0.7);
+  assert.equal(updated[0].features.crewMatch, 1);
+  assert.equal(updated[0].features.unknownField, undefined);
+});
+

@@ -266,3 +266,42 @@ test("DEFAULT_RANKER_WEIGHTS uses softened negativeKeywordPenalty=-0.5 so hated 
   assert.ok(curLogitDrop < oldLogitDrop, "current penalty logit drop should be smaller than previous -2.0 drop");
   assert.ok(curProbDrop < oldProbDrop, "current penalty probability drop should be smaller than previous -2.0 drop");
 });
+
+test("derivePersonalizedRankerWeights returns priorWeights below minimum threshold and enforces safety rails when active", async () => {
+  const { derivePersonalizedRankerWeights } = await import("../src/services/onlineLearningService.js");
+  const { DEFAULT_RANKER_WEIGHTS } = await import("../src/services/rankerService.js");
+
+  // Below threshold (only 1 negative dismissal) -> must not drift from priorWeights
+  const sparse = derivePersonalizedRankerWeights(
+    [
+      { action: "rated", userRating: 9, features: { collabSim: 0.8, crewMatch: 1, keywordOverlap: 0.9, repulsion: 0, negativeKeywordPenalty: 0 } },
+      { action: "rated", userRating: 9, features: { collabSim: 0.7, crewMatch: 1, keywordOverlap: 0.8, repulsion: 0, negativeKeywordPenalty: 0 } },
+      { action: "dismissed", features: { collabSim: 0.2, crewMatch: 0, keywordOverlap: 0.1, repulsion: 0.9, negativeKeywordPenalty: 1 } }
+    ],
+    [],
+    DEFAULT_RANKER_WEIGHTS
+  );
+  assert.deepEqual(sparse, DEFAULT_RANKER_WEIGHTS);
+
+  // Active threshold (3 positives, 3 negatives) -> adjusts bounded weights and keeps safety floors intact
+  const posFeats = { collabSim: 0.8, crewMatch: 1, keywordOverlap: 0.9, bayesianRatingNorm: 0.6, noveltyBonus: 0.4, repulsion: 0, negativeKeywordPenalty: 0 };
+  const negFeats = { collabSim: 0.1, crewMatch: 0, keywordOverlap: 0.0, bayesianRatingNorm: 0.8, noveltyBonus: 0.1, repulsion: 0.6, negativeKeywordPenalty: 1 };
+  const active = derivePersonalizedRankerWeights(
+    [
+      { action: "rated", userRating: 10, features: posFeats },
+      { action: "rated", userRating: 9, features: posFeats },
+      { action: "added_watchlist", features: posFeats },
+      { action: "dismissed", features: negFeats },
+      { action: "dismissed", features: negFeats },
+      { action: "rated", userRating: 2, features: negFeats }
+    ],
+    [],
+    DEFAULT_RANKER_WEIGHTS
+  );
+  assert.ok(active.crewMatch > DEFAULT_RANKER_WEIGHTS.crewMatch);
+  assert.ok(active.repulsion <= -1.0, "repulsion safety floor preserved");
+  assert.ok(active.negativeKeywordPenalty <= -0.35, "negativeKeywordPenalty safety floor preserved");
+  assert.ok(active.collabSim >= 3.5, "collabSim minimum preserved");
+  assert.ok(Math.abs(active.crewMatch - DEFAULT_RANKER_WEIGHTS.crewMatch) <= 0.6 + 1e-9);
+});
+
