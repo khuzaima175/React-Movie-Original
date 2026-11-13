@@ -820,7 +820,7 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   return bucketD.length > 0 ? [...basePool, ...bucketD] : basePool;
 }
 
-function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQuery = false) {
+export function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQuery = false) {
   const genreNames = (m.genre_ids || [])
     .map(id => TMDB_ID_TO_GENRE[id])
     .filter(Boolean);

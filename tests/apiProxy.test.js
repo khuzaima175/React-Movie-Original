@@ -206,3 +206,32 @@ test("api/gemini handler enforces explicit CinemaVault model allowlist and gates
     else process.env.VITE_ENABLE_ARGON = prevViteArgon;
   }
 });
+
+test("api/tmdb handler allows trending/movie/(day|week) and rejects trending/person/week", async () => {
+  const prevTmdb = process.env.TMDB_API_KEY;
+  process.env.TMDB_API_KEY = "SERVER_TMDB_SECRET";
+  try {
+    let forwardedUrl = "";
+    const okRes = createMockRes();
+    await tmdbHandler(
+      {
+        method: "GET",
+        query: { path: "/3/trending/movie/week" },
+        fetchFn: async (url) => {
+          forwardedUrl = String(url);
+          return { ok: true, status: 200, json: async () => ({ results: [{ id: 550 }] }) };
+        }
+      },
+      okRes
+    );
+    assert.equal(okRes.statusCode, 200);
+    assert.match(forwardedUrl, /\/3\/trending\/movie\/week\?api_key=SERVER_TMDB_SECRET/);
+
+    const badRes = createMockRes();
+    await tmdbHandler({ method: "GET", query: { path: "/3/trending/person/week" } }, badRes);
+    assert.equal(badRes.statusCode, 400);
+  } finally {
+    if (prevTmdb === undefined) delete process.env.TMDB_API_KEY;
+    else process.env.TMDB_API_KEY = prevTmdb;
+  }
+});
