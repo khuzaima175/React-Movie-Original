@@ -273,22 +273,21 @@ test("modelCooldowns applies parsed retryDelay, daily RPD, transient, and fatal 
         assert.ok(r2);
         assert.deepEqual(attempts, ["gemini-2.5-flash"]);
 
-        // At +45s total, hydrogen parsed retryDelay (45s) has expired; default cascade order puts preferred 2.5-flash first,
-        // so simulate 2.5-flash failing (transient) and verify expired hydrogen is retried instead of staying permanently blocked
+        // At +45s total, hydrogen parsed retryDelay (45s) has expired; primary model must recover ahead of session fallback 2.5-flash
         fakeNow += 15_000; // +45_000 total
         delete errorsByModel["gemini-4-hydrogen"];
-        errorsByModel["gemini-2.5-flash"] = new Error("503 down again");
         attempts.length = 0;
         const r3 = await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "p3" }, { cascadeType: "curation" });
         assert.ok(r3);
-        assert.deepEqual(attempts, ["gemini-2.5-flash", "gemini-4-hydrogen"]);
+        assert.deepEqual(attempts, ["gemini-4-hydrogen"]);
         assert.equal(getSessionCurationModel(), "gemini-4-hydrogen");
 
-        // Verify un-delayed 429 defaults to QUOTA_COOLDOWN_MS (120_000ms)
+        // Verify un-delayed 429 defaults to QUOTA_COOLDOWN_MS (120_000ms) and falls back to 2.5-flash while other fallbacks remain cooled down
         errorsByModel["gemini-4-hydrogen"] = new Error("429 RESOURCE_EXHAUSTED");
-        delete errorsByModel["gemini-2.5-flash"];
+        attempts.length = 0;
         fakeNow += TRANSIENT_COOLDOWN_MS;
         await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "p4" }, { cascadeType: "curation" });
+        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-2.5-flash"]);
         assert.equal(modelCooldowns.get("gemini-4-hydrogen").untilMs, fakeNow + QUOTA_COOLDOWN_MS);
     } finally {
         setClockForTests(null);
@@ -357,14 +356,14 @@ test("executeCascade localStorage working model persists across reloads, expires
                 generateContent: async ({ model }) => {
                     attempts.push(model);
                     if (model === "gemini-4-hydrogen" && failHydrogen) {
-                        throw new Error("429 RESOURCE_EXHAUSTED");
+                        throw new Error("429 RESOURCE_EXHAUSTED limit: 0 per_day");
                     }
                     return { text: JSON.stringify({ ok: model }), usageMetadata: {} };
                 }
             }
         };
 
-        // Call 1: hydrogen 429s -> 3.5-flash-lite succeeds and is persisted under cinemavault_working_model_curation_v1
+        // Call 1: hydrogen daily-429s -> 3.5-flash-lite succeeds and is persisted under cinemavault_working_model_curation_v1
         const r1 = await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "init" }, {
             cascadeType: "curation",
             now: () => fakeNow
@@ -373,12 +372,20 @@ test("executeCascade localStorage working model persists across reloads, expires
         assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.5-flash-lite"]);
         const storedRaw = memStorage.getItem(getWorkingModelStorageKey("curation"));
         assert.ok(storedRaw);
-        assert.deepEqual(JSON.parse(storedRaw), { model: "gemini-3.5-flash-lite", savedAt: fakeNow });
+        const stored = JSON.parse(storedRaw);
+        assert.equal(stored.model, "gemini-3.5-flash-lite");
+        assert.equal(stored.savedAt, fakeNow);
+        assert.ok(stored.primaryBlockedUntilMs > fakeNow + 20 * 60 * 1000, "daily-exhausted primary block must survive 20m reload");
 
         // Simulate page reload at +20 min (within 30-min TTL): session memory & cooldowns cleared, localStorage kept
         resetSessionWorkingModels();
         failHydrogen = false;
         fakeNow += 20 * 60 * 1000;
+        assert.equal(
+            getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow, storage: memStorage }),
+            "gemini-3.5-flash-lite",
+            "getPreferredCascadeModel must match executeCascade across reload while primary is blocked"
+        );
         attempts.length = 0;
         const r2 = await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "after reload valid" }, {
             cascadeType: "curation",
@@ -579,6 +586,108 @@ test("getPreferredCascadeModel & resolveResultModelInfo skip cooled-down models 
         const explicitInfo = buildCascadeModelInfo(CURATION_MODEL_CASCADE, "gemini-2.5-flash", "curation", "gemini-curation", { recordedAt: fakeNow });
         assert.equal(resolveResultModelInfo({ modelInfo: explicitInfo }, "curation").model, "gemini-2.5-flash");
     } finally {
+        resetSessionWorkingModels();
+        resetModelInfoForTests();
+    }
+});
+
+test("executeCascade recovers back to primary model (gemini-4-hydrogen) after transient 30s cooldown expires in-session and across reload", async () => {
+    const prevGlobalStorage = globalThis.localStorage;
+    const store = new Map();
+    const memStorage = {
+        getItem: (k) => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => { store.set(k, String(v)); },
+        removeItem: (k) => { store.delete(k); }
+    };
+    globalThis.localStorage = memStorage;
+    resetSessionWorkingModels({ clearStorage: true });
+    resetModelInfoForTests();
+
+    let fakeNow = 2_000_000_000_000;
+    let failPrimary = true;
+    const attempts = [];
+
+    const mockAi = {
+        models: {
+            generateContent: async ({ model }) => {
+                attempts.push(model);
+                if (model === "gemini-4-hydrogen" && failPrimary) {
+                    throw new Error("504 DEADLINE_EXCEEDED timeout");
+                }
+                return { text: JSON.stringify({ ok: model }), usageMetadata: {} };
+            }
+        }
+    };
+
+    try {
+        // Call 1: hydrogen fails transiently -> 3.5-flash-lite wins and sets transient 30s cooldown + persisted block
+        await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c1" }, {
+            cascadeType: "curation",
+            now: () => fakeNow
+        });
+        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.5-flash-lite"]);
+
+        // Call 2 (+10s, inside 30s cooldown): uses session working fallback directly
+        attempts.length = 0;
+        fakeNow += 10_000;
+        assert.equal(
+            getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow, storage: memStorage }),
+            "gemini-3.5-flash-lite"
+        );
+        await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c2" }, {
+            cascadeType: "curation",
+            now: () => fakeNow
+        });
+        assert.deepEqual(attempts, ["gemini-3.5-flash-lite"]);
+
+        // Call 3 (+31s total, cooldown expired): retries primary gemini-4-hydrogen and promotes it back
+        attempts.length = 0;
+        fakeNow += 21_000;
+        failPrimary = false;
+        assert.equal(
+            getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow, storage: memStorage }),
+            "gemini-4-hydrogen"
+        );
+        await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c3" }, {
+            cascadeType: "curation",
+            now: () => fakeNow
+        });
+        assert.deepEqual(attempts, ["gemini-4-hydrogen"]);
+        assert.equal(getSessionCurationModel(), "gemini-4-hydrogen");
+
+        // Reload recovery check for transient 30s errors: stays bypassed at +10s after reload, probes primary at +31s
+        failPrimary = true;
+        attempts.length = 0;
+        await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c4" }, {
+            cascadeType: "curation",
+            now: () => fakeNow
+        });
+        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.5-flash-lite"]);
+
+        resetSessionWorkingModels();
+        fakeNow += 10_000;
+        attempts.length = 0;
+        await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c5" }, {
+            cascadeType: "curation",
+            now: () => fakeNow
+        });
+        assert.deepEqual(attempts, ["gemini-3.5-flash-lite"]);
+
+        resetSessionWorkingModels();
+        fakeNow += TRANSIENT_COOLDOWN_MS;
+        failPrimary = false;
+        attempts.length = 0;
+        await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c6" }, {
+            cascadeType: "curation",
+            now: () => fakeNow
+        });
+        assert.deepEqual(attempts, ["gemini-4-hydrogen"]);
+    } finally {
+        if (prevGlobalStorage === undefined) {
+            delete globalThis.localStorage;
+        } else {
+            globalThis.localStorage = prevGlobalStorage;
+        }
         resetSessionWorkingModels();
         resetModelInfoForTests();
     }

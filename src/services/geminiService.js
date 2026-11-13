@@ -259,20 +259,35 @@ export function classifyGeminiError(err) {
     return "transient";
 }
 
+function isDailyExhaustedError(err) {
+    const msg = [err?.message, err?.error?.message, typeof err === "string" ? err : ""]
+        .filter(Boolean)
+        .join(" ");
+    return /\blimit\s*:\s*0\b|perday|per_day|requests\s+per\s+day|daily\s+(?:rpd\s+)?(?:quota\s+)?exhausted|\brpd\b.*exhaust/i.test(msg);
+}
+
 function getCooldownMsForError(err, reason) {
     if (reason === "quota") {
         const retryMs = parseRetryDelayMs(err);
         if (retryMs) return retryMs;
-        const msg = [err?.message, err?.error?.message, typeof err === "string" ? err : ""]
-            .filter(Boolean)
-            .join(" ");
-        const isDailyExhausted = /\blimit\s*:\s*0\b|perday|per_day|requests\s+per\s+day|daily\s+(?:rpd\s+)?(?:quota\s+)?exhausted|\brpd\b.*exhaust/i.test(msg);
-        return isDailyExhausted ? DAILY_QUOTA_COOLDOWN_MS : QUOTA_COOLDOWN_MS;
+        return isDailyExhaustedError(err) ? DAILY_QUOTA_COOLDOWN_MS : QUOTA_COOLDOWN_MS;
     }
     if (reason === "invalid_config" || reason === "auth_fatal") {
         return FATAL_COOLDOWN_MS;
     }
     return TRANSIENT_COOLDOWN_MS;
+}
+
+function getPrimaryBlockMeta(err, reason, nowMs, cooldownMs) {
+    const isPersistentBlock =
+        reason === "invalid_config" ||
+        reason === "auth_fatal" ||
+        (reason === "quota" && isDailyExhaustedError(err));
+    const blockDuration = isPersistentBlock ? WORKING_MODEL_TTL_MS : cooldownMs;
+    return {
+        primaryBlockedUntilMs: nowMs + blockDuration,
+        primaryReason: reason
+    };
 }
 
 function isModelInCooldown(model, nowMs) {
@@ -299,17 +314,24 @@ function readPersistedWorkingModel(cascadeType, nowMs, storage) {
             try { storage.removeItem?.(key); } catch (_) {}
             return null;
         }
-        return parsed.model;
+        return parsed;
     } catch (_) {
         return null;
     }
 }
 
-function writePersistedWorkingModel(cascadeType, model, nowMs, storage) {
+function writePersistedWorkingModel(cascadeType, model, nowMs, storage, primaryMeta = null) {
     if (!storage || typeof storage.setItem !== "function") return;
     const key = getWorkingModelStorageKey(cascadeType);
+    const payload = { model, savedAt: nowMs };
+    if (primaryMeta && Number.isFinite(primaryMeta.primaryBlockedUntilMs) && primaryMeta.primaryBlockedUntilMs > nowMs) {
+        payload.primaryBlockedUntilMs = primaryMeta.primaryBlockedUntilMs;
+        if (primaryMeta.primaryReason) {
+            payload.primaryReason = primaryMeta.primaryReason;
+        }
+    }
     try {
-        storage.setItem(key, JSON.stringify({ model, savedAt: nowMs }));
+        storage.setItem(key, JSON.stringify(payload));
     } catch (_) {}
 }
 
@@ -335,6 +357,55 @@ export const resetSessionWorkingModels = (options = {}) => {
 export const getSessionCurationModel = () => sessionCurationModel;
 export const getSessionFastModel = () => sessionFastModel;
 
+function resolveCascadeOrder(
+    cascade = CURATION_MODEL_CASCADE,
+    cascadeType = "curation",
+    nowMs = Date.now(),
+    storage = null
+) {
+    if (!Array.isArray(cascade) || cascade.length === 0) {
+        return { candidateModels: [], allInCooldown: false, persisted: null };
+    }
+    const primary = cascade[0];
+    let candidateModels = [...cascade].filter(m => !isModelInCooldown(m, nowMs));
+
+    if (candidateModels.length === 0) {
+        // Every model is currently inside its cooldown window: try only the single soonest-expiring model
+        let soonestModel = primary;
+        let minUntil = Infinity;
+        for (const m of cascade) {
+            const until = modelCooldowns.get(m)?.untilMs ?? Infinity;
+            if (until < minUntil) {
+                minUntil = until;
+                soonestModel = m;
+            }
+        }
+        return { candidateModels: [soonestModel], allInCooldown: true, persisted: null };
+    }
+
+    const sessionActive =
+        cascadeType === "curation"
+            ? sessionCurationModel
+            : (cascadeType === "fast" ? sessionFastModel : null);
+    const persisted = readPersistedWorkingModel(cascadeType, nowMs, storage);
+    const persistedPrimaryBlocked =
+        Number.isFinite(persisted?.primaryBlockedUntilMs) && persisted.primaryBlockedUntilMs > nowMs;
+    const primaryAvailable = candidateModels.includes(primary) && !persistedPrimaryBlocked;
+
+    // Only promote a working fallback ahead of cascade[0] while cascade[0] is actually blocked/in-cooldown.
+    if (!primaryAvailable) {
+        const preferred =
+            sessionActive && candidateModels.includes(sessionActive)
+                ? sessionActive
+                : (persisted?.model && candidateModels.includes(persisted.model) ? persisted.model : null);
+        if (preferred) {
+            candidateModels = [preferred, ...candidateModels.filter(m => m !== preferred)];
+        }
+    }
+
+    return { candidateModels, allInCooldown: false, persisted };
+}
+
 /**
  * Executes a resilient cascade across models with cooldown backoff, abort-on-timeout,
  * all-on-cooldown soonest-expiry fallback, and persisted working-model preference.
@@ -352,34 +423,20 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
     const startNowMs = getNow();
     const storage = resolveLocalStorage(options);
 
-    const sessionActive =
-        cascadeType === "curation"
-            ? sessionCurationModel
-            : (cascadeType === "fast" ? sessionFastModel : null);
-    const persistedActive = readPersistedWorkingModel(cascadeType, startNowMs, storage);
-
-    let candidateModels = [...cascade].filter(m => !isModelInCooldown(m, startNowMs));
-
-    if (candidateModels.length > 0) {
-        const preferred =
-            sessionActive && candidateModels.includes(sessionActive)
-                ? sessionActive
-                : (persistedActive && candidateModels.includes(persistedActive) ? persistedActive : null);
-        if (preferred) {
-            candidateModels = [preferred, ...candidateModels.filter(m => m !== preferred)];
+    const { candidateModels, persisted } = resolveCascadeOrder(cascade, cascadeType, startNowMs, storage);
+    const primaryModel = cascade[0];
+    let primaryFailureMeta =
+        persisted && Number.isFinite(persisted.primaryBlockedUntilMs) && persisted.primaryBlockedUntilMs > startNowMs
+            ? { primaryBlockedUntilMs: persisted.primaryBlockedUntilMs, primaryReason: persisted.primaryReason }
+            : null;
+    if (!primaryFailureMeta) {
+        const existingPrimaryCd = modelCooldowns.get(primaryModel);
+        if (existingPrimaryCd && existingPrimaryCd.untilMs > startNowMs) {
+            primaryFailureMeta = {
+                primaryBlockedUntilMs: existingPrimaryCd.untilMs,
+                primaryReason: existingPrimaryCd.reason
+            };
         }
-    } else {
-        // Every model is currently inside its cooldown window: try only the single soonest-expiring model
-        let soonestModel = cascade[0];
-        let minUntil = Infinity;
-        for (const m of cascade) {
-            const until = modelCooldowns.get(m)?.untilMs ?? Infinity;
-            if (until < minUntil) {
-                minUntil = until;
-                soonestModel = m;
-            }
-        }
-        candidateModels = [soonestModel];
     }
 
     let lastError = null;
@@ -450,7 +507,13 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
             } else if (cascadeType === "fast") {
                 sessionFastModel = model;
             }
-            writePersistedWorkingModel(cascadeType, model, successNowMs, storage);
+            writePersistedWorkingModel(
+                cascadeType,
+                model,
+                successNowMs,
+                storage,
+                model === primaryModel ? null : primaryFailureMeta
+            );
 
             cascadeRunSeq += 1;
             const winInfo = buildCascadeModelInfo(
@@ -480,12 +543,15 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
                 untilMs: failNowMs + cooldownMs,
                 reason
             });
+            if (model === primaryModel) {
+                primaryFailureMeta = getPrimaryBlockMeta(err, reason, failNowMs, cooldownMs);
+            }
             if (cascadeType === "curation" && sessionCurationModel === model) {
                 sessionCurationModel = null;
             } else if (cascadeType === "fast" && sessionFastModel === model) {
                 sessionFastModel = null;
             }
-            if (readPersistedWorkingModel(cascadeType, failNowMs, storage) === model) {
+            if (readPersistedWorkingModel(cascadeType, failNowMs, storage)?.model === model) {
                 clearPersistedWorkingModel(cascadeType, storage);
             }
             console.warn(`Model ${model} failed in ${cascadeType} cascade [${reason}, cooldown=${cooldownMs}ms] (${err.message || err}). Trying fallback...`);
@@ -679,20 +745,9 @@ export function getPreferredCascadeModel(
     options = {}
 ) {
     const nowMs = typeof options.now === "function" ? options.now() : Date.now();
-    const sessionModel = cascadeType === "fast" ? sessionFastModel : sessionCurationModel;
-    if (sessionModel && cascade.includes(sessionModel)) {
-        const cd = modelCooldowns.get(sessionModel);
-        if (!cd || cd.untilMs <= nowMs) {
-            return sessionModel;
-        }
-    }
-    for (const candidate of cascade) {
-        const cd = modelCooldowns.get(candidate);
-        if (!cd || cd.untilMs <= nowMs) {
-            return candidate;
-        }
-    }
-    return null;
+    const storage = resolveLocalStorage(options);
+    const { candidateModels } = resolveCascadeOrder(cascade, cascadeType, nowMs, storage);
+    return candidateModels[0] ?? null;
 }
 
 export function resolveResultModelInfo(result, cascadeType = "curation") {
