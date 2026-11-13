@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AVAILABLE_REGIONS, POPULAR_WATCH_PROVIDERS } from "../src/services/tmdbService.js";
-import { formatStreamingSummary } from "../src/services/oracleViewHelpers.js";
+import { formatStreamingSummary, formatRecBadgeSummary } from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
   const result = formatStreamingSummary("GLOBAL", [], AVAILABLE_REGIONS, POPULAR_WATCH_PROVIDERS);
@@ -36,4 +36,49 @@ test("formatStreamingSummary marks region-only or provider-only selections as cu
     summaryText: "All Regions • Netflix",
     hasCustomFilter: true
   });
+});
+
+test("formatRecBadgeSummary returns Local Ranker and user-friendly freshness labels for keyless fallback", () => {
+  const fresh = formatRecBadgeSummary({ model: null, pipeline: "local-ranker" }, false);
+  assert.equal(fresh.modelLabel, "Local Ranker");
+  assert.equal(fresh.freshnessLabel, "Fresh Picks");
+  assert.equal(fresh.freshnessTone, "stale");
+  assert.match(fresh.tooltip, /Offline Fallback|local-ranker/i);
+
+  const cached = formatRecBadgeSummary(null, true);
+  assert.equal(cached.modelLabel, "Local Ranker");
+  assert.equal(cached.freshnessLabel, "Saved Picks");
+  assert.equal(cached.freshnessTone, "cached");
+});
+
+test("formatRecBadgeSummary hides raw model slugs and LRU cache text from visible badges while preserving tooltip", () => {
+  const summary = formatRecBadgeSummary(
+    {
+      model: "gemini-4-hydrogen",
+      isFallback: false,
+      pipeline: "gemini-curation",
+      fromCache: true,
+      usageMetadata: { totalTokenCount: 1420 },
+      cooldownModels: [{ model: "gemini-3.5-flash-lite", reason: "429" }]
+    },
+    true
+  );
+
+  assert.equal(summary.modelLabel, "Gemini 4 Hydrogen");
+  assert.equal(summary.freshnessLabel, "Saved Picks");
+  assert.equal(summary.modelLabel.includes("gemini-4-hydrogen"), false);
+  assert.equal(summary.freshnessLabel.includes("500KB"), false);
+  assert.match(summary.tooltip, /gemini-4-hydrogen/);
+  assert.match(summary.tooltip, /500KB LRU Cache/);
+  assert.match(summary.tooltip, /1420/);
+  assert.match(summary.tooltip, /gemini-3\.5-flash-lite \(429\)/);
+});
+
+test("formatRecBadgeSummary prefixes fallback models cleanly", () => {
+  const summary = formatRecBadgeSummary(
+    { model: "gemini-3.5-flash-lite", isFallback: true },
+    false
+  );
+  assert.equal(summary.modelLabel, "Fallback: Gemini 3.5 Flash-Lite");
+  assert.equal(summary.freshnessLabel, "Fresh Picks");
 });

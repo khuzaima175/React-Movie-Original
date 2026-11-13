@@ -18,7 +18,7 @@ import {
 import { resolveGeminiKey } from "../services/apiTransport";
 import { getRecommendationExplanation } from "../services/geminiExplanationService";
 import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS, AVAILABLE_REGIONS } from "../services/tmdbService";
-import { formatStreamingSummary } from "../services/oracleViewHelpers";
+import { formatStreamingSummary, formatRecBadgeSummary } from "../services/oracleViewHelpers";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import {
@@ -82,65 +82,21 @@ function TasteMatchBadge({ score }) {
   );
 }
 
-function buildModelTooltip(modelInfo, queuedModel) {
-  if (!modelInfo) {
-    return queuedModel
-      ? `Next cascade model queued: ${formatModelDisplayName(queuedModel)} (${queuedModel})`
-      : "Model usage details unavailable for legacy cache.";
-  }
-  const parts = [
-    `Model: ${modelInfo.model ? `${modelInfo.displayName || formatModelDisplayName(modelInfo.model)} (${modelInfo.model})` : "Local Ranker (Offline Fallback)"}`,
-    `Pipeline: ${modelInfo.pipeline || "gemini-curation"}`
-  ];
-  if (modelInfo.fromCache) {
-    parts.push("Origin: 500KB LRU Cache");
-  }
-  if (modelInfo.cooldownModels?.length > 0) {
-    const skipped = modelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ");
-    parts.push(`Skipped/Fallback from: ${skipped}`);
-  }
-  if (modelInfo.usageMetadata?.totalTokenCount) {
-    parts.push(`Tokens: ${modelInfo.usageMetadata.totalTokenCount}`);
-  }
-  return parts.join(" | ");
-}
-
 function ModelUsageBadge({ modelInfo, isCacheValid, queuedModel }) {
-  if (!modelInfo) {
-    return (
-      <span
-        className="model-status-badge fallback"
-        title={buildModelTooltip(null, queuedModel)}
-      >
-        <Cpu size={12} />
-        {isCacheValid
-          ? "Model: Legacy Cache"
-          : `Queued: ${queuedModel || "Local Ranker"}`}
-      </span>
-    );
-  }
-
-  const tierClass = !modelInfo.model
+  const { modelLabel, tooltip } = formatRecBadgeSummary(modelInfo, isCacheValid, queuedModel);
+  const tierClass = !modelInfo?.model
     ? "offline"
     : modelInfo.isFallback
       ? "fallback"
       : "primary";
 
-  const shortLabel = modelInfo.model
-    ? `${modelInfo.displayName || formatModelDisplayName(modelInfo.model)} (${modelInfo.model})`
-    : "Local Ranker (Offline Fallback)";
-
   return (
     <span
       className={`model-status-badge ${tierClass}`}
-      title={buildModelTooltip(modelInfo, queuedModel)}
+      title={tooltip}
     >
       <Cpu size={12} />
-      <span>
-        {modelInfo.isFallback && modelInfo.model ? "Fallback: " : "Model: "}
-        {shortLabel}
-        {modelInfo.fromCache ? " · Cached" : ""}
-      </span>
+      <span>{modelLabel}</span>
     </span>
   );
 }
@@ -913,27 +869,31 @@ export default function MovieRecommendations({
               <Sparkles size={16} className="text-accent" />
               <h2 className="recs-title">Curated Picks</h2>
               <span className="recs-badge">{sortedRecommendations.length} Films</span>
-              {isCacheValid ? (
-                <span className="cache-status-badge cached" title="Instant cache from storage">
-                  <Check size={11} /> 500KB LRU Cache
-                </span>
-              ) : (
-                <span className="cache-status-badge stale" title="Ratings or mood updated">
-                  <AlertCircle size={11} /> Live 3-Bucket Re-ranked
-                </span>
-              )}
-              <ModelUsageBadge
-                modelInfo={
+              {(() => {
+                const effectiveModelInfo =
                   displayedModelInfo &&
                   isCacheValid &&
                   !getLastModelInfo("curation") &&
                   !displayedModelInfo.fromCache
                     ? { ...displayedModelInfo, fromCache: true }
-                    : displayedModelInfo
-                }
-                isCacheValid={isCacheValid}
-                queuedModel={queuedModel}
-              />
+                    : displayedModelInfo;
+                const badgeSummary = formatRecBadgeSummary(effectiveModelInfo, isCacheValid, queuedModel);
+                return (
+                  <>
+                    <span
+                      className={`cache-status-badge ${badgeSummary.freshnessTone}`}
+                      title={badgeSummary.tooltip}
+                    >
+                      {isCacheValid ? <Check size={11} /> : <AlertCircle size={11} />} {badgeSummary.freshnessLabel}
+                    </span>
+                    <ModelUsageBadge
+                      modelInfo={effectiveModelInfo}
+                      isCacheValid={isCacheValid}
+                      queuedModel={queuedModel}
+                    />
+                  </>
+                );
+              })()}
             </div>
 
             <div className="recs-actions-group">
@@ -1072,27 +1032,6 @@ export default function MovieRecommendations({
                         <span className="rec-meta">
                           {rec.year} • {rec.genre}
                         </span>
-                        {Array.isArray(rec.matchReasons) && rec.matchReasons.length > 0 && (
-                          <div className="rec-match-reasons" style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.35rem" }}>
-                            {rec.matchReasons.slice(0, 2).map((badge, bIdx) => (
-                              <span
-                                key={bIdx}
-                                style={{
-                                  fontSize: "1.05rem",
-                                  fontWeight: 500,
-                                  color: "#d4d4d0",
-                                  background: "rgba(255, 255, 255, 0.06)",
-                                  border: "1px solid rgba(255, 255, 255, 0.12)",
-                                  padding: "0.15rem 0.55rem",
-                                  borderRadius: "1rem",
-                                  lineHeight: "1.4"
-                                }}
-                              >
-                                {badge}
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       <div className="rec-ratings-group">
@@ -1120,21 +1059,10 @@ export default function MovieRecommendations({
 
                     {/* Streaming Provider Badges */}
                     {rec.streamProviders && rec.streamProviders.length > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.8rem" }}>
-                        <span style={{ fontSize: "1.1rem", fontWeight: 600, color: "#8a8a86", textTransform: "uppercase", letterSpacing: "0.05em" }}>Stream on:</span>
-                        {rec.streamProviders.slice(0, 3).map((p, pIdx) => (
-                          <span
-                            key={pIdx}
-                            style={{
-                              fontSize: "1.15rem",
-                              fontWeight: 600,
-                              color: "#f4f4f2",
-                              background: "#1c1d20",
-                              border: "1px solid rgba(255, 255, 255, 0.1)",
-                              padding: "0.2rem 0.6rem",
-                              borderRadius: "0.4rem"
-                            }}
-                          >
+                      <div className="rec-stream-row">
+                        <span className="rec-stream-label">Stream on:</span>
+                        {rec.streamProviders.slice(0, 2).map((p, pIdx) => (
+                          <span key={pIdx} className="rec-stream-pill">
                             {p.name}
                           </span>
                         ))}
@@ -1173,7 +1101,7 @@ export default function MovieRecommendations({
                         onClick={() => handleToggleExplanation(rec)}
                       >
                         <Sparkles size={13} className="btn-explain-icon" />
-                        <span>{isExpanded ? "Hide Match" : "Match Breakdown"}</span>
+                        <span>{isExpanded ? "Hide Details" : "Why It Fits"}</span>
                         {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                       </button>
 
@@ -1226,6 +1154,15 @@ export default function MovieRecommendations({
                       return (
                         <div className="rec-explanation-drawer">
                           <div className="drawer-content">
+                            {Array.isArray(rec.matchReasons) && rec.matchReasons.length > 0 && (
+                              <div className="rec-match-reasons-drawer">
+                                {rec.matchReasons.slice(0, 3).map((badge, bIdx) => (
+                                  <span key={bIdx} className="rec-match-reason-pill">
+                                    {badge}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             <p>
                               <strong>Thematic Connection:</strong> {rec.reason}
                             </p>

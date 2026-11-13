@@ -8204,8 +8204,8 @@ button {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 2rem;
-  padding: 2rem;
+  gap: 1.8rem;
+  padding: 1.8rem;
   background: var(--surface-1);
   border: 1px solid var(--hairline);
   border-radius: var(--r-card);
@@ -8258,7 +8258,7 @@ button {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
+  gap: 1rem;
 }
 
 .rec-header {
@@ -8386,12 +8386,55 @@ button {
   font-weight: 800;
 }
 
+.rec-stream-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.rec-stream-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rec-stream-pill {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  padding: 0.2rem 0.65rem;
+  border-radius: 0.45rem;
+}
+
+.rec-match-reasons-drawer {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.rec-match-reason-pill {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--hairline-strong);
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  line-height: 1.35;
+}
+
 .rec-actions {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.9rem;
   flex-wrap: wrap;
-  margin-top: 0.2rem;
+  margin-top: 0.35rem;
 }
 
 .btn-add-watchlist {
