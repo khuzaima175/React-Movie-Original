@@ -8,6 +8,7 @@ import WatchedMoviesList from "../components/WatchedMoviesList";
 import EmptyState from "../components/EmptyState";
 import BackupManagerModal from "../components/BackupManagerModal";
 import ToastNotification from "../components/ToastNotification";
+import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
 import { Bookmark, Sparkles, Compass } from "lucide-react";
 
@@ -26,6 +27,7 @@ export default function VaultPage() {
   const [isManageMode, setIsManageMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [quickAddMovie, setQuickAddMovie] = useState(null);
   const [toast, setToast] = useState(null);
 
   // Sync tab if URL param changes
@@ -240,6 +242,7 @@ export default function VaultPage() {
                     movie={movie}
                     onSelectMovie={handleSelectMovie}
                     onDeleteMovie={handleDeleteSingle}
+                    onQuickAdd={activeTab === "watchlist" ? setQuickAddMovie : null}
                     onAddWatched={activeTab === "watchlist" ? addWatched : null}
                     isWatched={activeTab === "watched"}
                     isManageMode={isManageMode}
@@ -325,6 +328,14 @@ export default function VaultPage() {
       <BackupManagerModal
         isOpen={isBackupOpen}
         onClose={() => setIsBackupOpen(false)}
+      />
+
+      <QuickRateModal
+        movie={quickAddMovie}
+        watched={watched}
+        watchlist={watchlist}
+        onClose={() => setQuickAddMovie(null)}
+        onSaveWatched={addWatched}
       />
 
       <ToastNotification

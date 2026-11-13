@@ -57,11 +57,11 @@ export default function VaultBanner({
   if (days > 0) timeString += `${days}d `;
   timeString += `${hours}h ${mins}m`;
 
-  const userRatings = watched.map((m) => Number(m.userRating) || Number(m.imdbRating) || 8).filter(Boolean);
-  const imdbRatings = watched.map((m) => Number(m.imdbRating) || 8).filter(Boolean);
-  const avgUser = userRatings.length > 0 ? (userRatings.reduce((a, b) => a + b, 0) / userRatings.length).toFixed(1) : "0.0";
-  const avgImdb = imdbRatings.length > 0 ? (imdbRatings.reduce((a, b) => a + b, 0) / imdbRatings.length).toFixed(1) : "0.0";
-  const ratingDelta = (Number(avgUser) - Number(avgImdb)).toFixed(1);
+  const userRatings = watched.map((m) => Number(m.userRating)).filter((r) => Number.isFinite(r) && r > 0);
+  const imdbRatings = watched.map((m) => Number(m.imdbRating)).filter((r) => Number.isFinite(r) && r > 0);
+  const avgUser = userRatings.length > 0 ? (userRatings.reduce((a, b) => a + b, 0) / userRatings.length).toFixed(1) : "—";
+  const avgImdb = imdbRatings.length > 0 ? (imdbRatings.reduce((a, b) => a + b, 0) / imdbRatings.length).toFixed(1) : null;
+  const ratingDelta = userRatings.length > 0 && avgImdb !== null ? (Number(avgUser) - Number(avgImdb)).toFixed(1) : null;
   const isHigherThanImdb = Number(ratingDelta) >= 0;
 
   // Top Genres & Distribution
@@ -107,8 +107,10 @@ export default function VaultBanner({
   const longestFilm = [...watched].sort((a, b) => (parseInt(b.runtime) || 0) - (parseInt(a.runtime) || 0))[0];
   const longestFilmStr = longestFilm ? `${longestFilm.title || longestFilm.Title} (${parseInt(longestFilm.runtime) || 120}m)` : "N/A";
 
-  const topRatedFilm = [...watched].sort((a, b) => (Number(b.userRating) || 0) - (Number(a.userRating) || 0))[0];
-  const topRatedFilmStr = topRatedFilm ? `${topRatedFilm.title || topRatedFilm.Title} (★ ${topRatedFilm.userRating || topRatedFilm.imdbRating})` : "N/A";
+  const topRatedFilm = [...watched]
+    .filter((m) => Number(m.userRating) > 0)
+    .sort((a, b) => Number(b.userRating) - Number(a.userRating))[0];
+  const topRatedFilmStr = topRatedFilm ? `${topRatedFilm.title || topRatedFilm.Title} (★ ${topRatedFilm.userRating})` : "N/A";
 
   return (
     <div className="vault-studio-header-spacious" aria-label="Vault Control Center">
@@ -128,7 +130,7 @@ export default function VaultBanner({
                 <span className="meta-sep">•</span>
                 <span className="meta-star-stat">
                   <Star size={13} className="text-accent fill-current" aria-hidden="true" />
-                  <strong>{avgUser}</strong> avg ({isHigherThanImdb ? `+${ratingDelta}` : ratingDelta} vs IMDb)
+                  <strong>{avgUser}</strong> avg{ratingDelta !== null ? ` (${isHigherThanImdb ? `+${ratingDelta}` : ratingDelta} vs IMDb)` : ""}
                 </span>
                 {topGenre && (
                   <>

@@ -3,12 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import HeroBillboard from "../components/HeroBillboard";
 import MovieCarouselRow from "../components/MovieCarouselRow";
+import QuickRateModal from "../components/QuickRateModal";
 import { loadHomeDiscoveryFeeds } from "../services/dashboardService";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { watched = [], watchlist = [], userRegion = "GLOBAL", addWatched, addToWatchlist } = useApp();
   const [feeds, setFeeds] = useState({ heroSlides: [], rows: [], isLive: false });
+  const [quickAddMovie, setQuickAddMovie] = useState(null);
 
   useEffect(() => {
     let isActive = true;
@@ -51,6 +53,7 @@ export default function DashboardPage() {
             title="Saved Watchlist"
             movies={watchlist}
             onSelectMovie={handleSelectMovie}
+            onQuickAdd={setQuickAddMovie}
             onAddWatched={addWatched}
             watched={watched}
             seeAllLink="/vault?tab=watchlist"
@@ -63,6 +66,7 @@ export default function DashboardPage() {
             title={row.title}
             movies={row.movies}
             onSelectMovie={handleSelectMovie}
+            onQuickAdd={setQuickAddMovie}
             onAddWatched={addWatched}
             watched={watched}
           />
@@ -73,12 +77,22 @@ export default function DashboardPage() {
             title="Your Vault Highlights"
             movies={watched}
             onSelectMovie={handleSelectMovie}
+            onQuickAdd={setQuickAddMovie}
             onAddWatched={addWatched}
             watched={watched}
             seeAllLink="/vault"
           />
         )}
       </div>
+
+      <QuickRateModal
+        movie={quickAddMovie}
+        watched={watched}
+        watchlist={watchlist}
+        onClose={() => setQuickAddMovie(null)}
+        onSaveWatched={addWatched}
+        onAddToWatchlist={addToWatchlist}
+      />
     </div>
   );
 }

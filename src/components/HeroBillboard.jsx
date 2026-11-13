@@ -4,6 +4,7 @@ import { Star, Plus, Check, Info, Sparkles, ChevronLeft, ChevronRight } from "lu
 import { motion, AnimatePresence } from "framer-motion";
 import { buildSeenCollisionSet } from "../services/dashboardService";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
+import { prepareWatchlistPayload } from "../services/ratingTiers";
 
 export default function HeroBillboard({
   slides = [],
@@ -77,15 +78,14 @@ export default function HeroBillboard({
 
   function handlePrimaryAction() {
     if (!slide) return;
-    const payload = buildQuickAddWatchedMovie(slide);
     if (!isWatched && onAddToWatchlist) {
       if (!isWatchlisted) {
-        onAddToWatchlist({ ...payload, userRating: 0 });
+        onAddToWatchlist(prepareWatchlistPayload(slide));
       }
       return;
     }
     if (!isWatched && onAddWatched) {
-      onAddWatched(payload);
+      onAddWatched(buildQuickAddWatchedMovie(slide));
     }
   }
 

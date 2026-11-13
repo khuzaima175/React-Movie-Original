@@ -5,6 +5,7 @@ import PosterImage from "./PosterImage";
 import { useApp } from "../context/AppContext";
 import { findTmdbByImdbId, findTmdbByTitleAndYear, fetchTmdbMovieDetails, getFallbackPoster } from "../services/tmdbService";
 import { fetchOmdbJson } from "../services/apiTransport";
+import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
 import {
   ArrowLeft,
   Star,
@@ -35,99 +36,6 @@ import {
 // Cache enriched detail objects for this session
 const enrichedDetailsSessionCache = new Map();
 
-const RATING_TIERS = {
-  10: {
-    label: "Masterpiece (Anchor Film)",
-    icon: "🏆",
-    desc: "Cinematic zenith • Sets top AI taste anchor",
-    color: "#e2b13c",
-    bg: "rgba(226, 177, 60, 0.16)",
-    border: "rgba(226, 177, 60, 0.45)",
-    glow: "0 0 24px rgba(226, 177, 60, 0.45)"
-  },
-  9: {
-    label: "Exceptional Cinema",
-    icon: "✨",
-    desc: "Essential viewing • Strong positive affinity",
-    color: "#f59e0b",
-    bg: "rgba(245, 158, 11, 0.15)",
-    border: "rgba(245, 158, 11, 0.4)",
-    glow: "0 0 18px rgba(245, 158, 11, 0.35)"
-  },
-  8: {
-    label: "Great Film",
-    icon: "🍿",
-    desc: "Highly recommended & deeply engaging",
-    color: "#10b981",
-    bg: "rgba(16, 185, 129, 0.14)",
-    border: "rgba(16, 185, 129, 0.35)",
-    glow: "0 0 16px rgba(16, 185, 129, 0.25)"
-  },
-  7: {
-    label: "Good Watch",
-    icon: "👍",
-    desc: "Solid craft, enjoyable & well-made",
-    color: "#06b6d4",
-    bg: "rgba(6, 182, 212, 0.14)",
-    border: "rgba(6, 182, 212, 0.35)",
-    glow: "0 0 14px rgba(6, 182, 212, 0.2)"
-  },
-  6: {
-    label: "Decent Baseline",
-    icon: "😐",
-    desc: "Watchable with balanced qualities",
-    color: "#8b5cf6",
-    bg: "rgba(139, 92, 246, 0.14)",
-    border: "rgba(139, 92, 246, 0.35)",
-    glow: "0 0 12px rgba(139, 92, 246, 0.2)"
-  },
-  5: {
-    label: "Mediocre",
-    icon: "📉",
-    desc: "Forgettable with noticeable flaws",
-    color: "#94a3b8",
-    bg: "rgba(148, 163, 184, 0.12)",
-    border: "rgba(148, 163, 184, 0.25)",
-    glow: "none"
-  },
-  4: {
-    label: "Flawed",
-    icon: "⚠️",
-    desc: "Weak storytelling or execution",
-    color: "#f97316",
-    bg: "rgba(249, 115, 22, 0.14)",
-    border: "rgba(249, 115, 22, 0.3)",
-    glow: "none"
-  },
-  3: {
-    label: "Disliked",
-    icon: "🚫",
-    desc: "Trope penalty applied to AI engine",
-    color: "#ef4444",
-    bg: "rgba(239, 68, 68, 0.15)",
-    border: "rgba(239, 68, 68, 0.3)",
-    glow: "0 0 14px rgba(239, 68, 68, 0.2)"
-  },
-  2: {
-    label: "Poor Experience",
-    icon: "⛔",
-    desc: "AI engine suppresses matching motifs",
-    color: "#dc2626",
-    bg: "rgba(220, 38, 38, 0.16)",
-    border: "rgba(220, 38, 38, 0.35)",
-    glow: "0 0 16px rgba(220, 38, 38, 0.25)"
-  },
-  1: {
-    label: "Severe Dislike",
-    icon: "💀",
-    desc: "Strict negative weight applied",
-    color: "#b91c1c",
-    bg: "rgba(185, 28, 28, 0.18)",
-    border: "rgba(185, 28, 28, 0.4)",
-    glow: "0 0 18px rgba(185, 28, 28, 0.3)"
-  }
-};
-
 const QUICK_TAGS = [
   "Masterpiece",
   "MindBlowing",
@@ -154,7 +62,7 @@ export default function MovieDetails({
   const [movie, setMovie] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [userRating, setUserRating] = useState(8);
+  const [userRating, setUserRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [userNote, setUserNote] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -176,10 +84,11 @@ export default function MovieDetails({
   // Sync state when watched item changes or opens
   useEffect(() => {
     if (watchedItem) {
-      setUserRating(Number(watchedItem.userRating) || 8);
+      const existingRating = Number(watchedItem.userRating);
+      setUserRating(Number.isFinite(existingRating) && existingRating > 0 ? existingRating : 0);
       setUserNote(watchedItem.userNote || "");
     } else {
-      setUserRating(8);
+      setUserRating(0);
       setUserNote("");
       setIsEditing(false);
     }
@@ -370,9 +279,11 @@ export default function MovieDetails({
 
   // Save to Vault
   function handleSave() {
-    if (!movie) return;
+    const numericRating = Number(userRating);
+    if (!movie || !Number.isFinite(numericRating) || numericRating < 1) return;
     const shortPlot = movie.plot ? movie.plot.split(" ").slice(0, 18).join(" ") + "..." : "";
 
+    const rawImdb = Number(movie.imdbRating) || Number(movie.tmdbRating);
     const savedMovie = {
       imdbID: movie.imdbID || selectedId,
       tmdbId: movie.tmdbId || null,
@@ -380,9 +291,9 @@ export default function MovieDetails({
       year: movie.year,
       poster: movie.poster,
       backdrop: movie.backdrop,
-      imdbRating: Number(movie.imdbRating) || Number(movie.tmdbRating) || 8.0,
+      imdbRating: Number.isFinite(rawImdb) && rawImdb > 0 ? rawImdb : null,
       runtime: Number(movie.runtimeMinutes) || (typeof movie.runtime === "string" ? parseInt(movie.runtime) : 120) || 120,
-      userRating: Number(userRating) || 8,
+      userRating: Math.min(10, Math.max(1, Math.round(numericRating))),
       userNote: userNote.trim(),
       director: movie.director,
       cinematographer: movie.cinematographer,
@@ -444,8 +355,8 @@ export default function MovieDetails({
     }
   }
 
-  const activeDisplayRating = hoverRating || userRating || 8;
-  const currentTier = RATING_TIERS[activeDisplayRating] || RATING_TIERS[8];
+  const activeDisplayRating = hoverRating || userRating || 0;
+  const currentTier = getRatingTier(activeDisplayRating);
 
   return (
     <div className="netflix-detail-modal" aria-label={`Movie details for ${movie?.title || "Film"}`}>
@@ -539,13 +450,25 @@ export default function MovieDetails({
                     </div>
 
                     <div className="vault-saved-score-row">
-                      <div className="vault-score-display">
-                        <span className="vault-score-num">★ {watchedItem?.userRating || userRating}</span>
-                        <span className="vault-score-denom">/ 10</span>
-                      </div>
-                      <div className="vault-tier-pill" style={{ background: RATING_TIERS[watchedItem?.userRating || userRating]?.bg, borderColor: RATING_TIERS[watchedItem?.userRating || userRating]?.border, color: RATING_TIERS[watchedItem?.userRating || userRating]?.color }}>
-                        <span>{RATING_TIERS[watchedItem?.userRating || userRating]?.icon} {RATING_TIERS[watchedItem?.userRating || userRating]?.label.split("(")[0]}</span>
-                      </div>
+                      {(() => {
+                        const savedRating = Number(watchedItem?.userRating) || 0;
+                        const savedTier = getRatingTier(savedRating);
+                        return savedRating > 0 ? (
+                          <>
+                            <div className="vault-score-display">
+                              <span className="vault-score-num">★ {savedRating}</span>
+                              <span className="vault-score-denom">/ 10</span>
+                            </div>
+                            <div className="vault-tier-pill" style={{ background: savedTier.bg, borderColor: savedTier.border, color: savedTier.color }}>
+                              <span>{savedTier.icon} {savedTier.label.split("(")[0]}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="vault-tier-pill" style={{ background: savedTier.bg, borderColor: savedTier.border, color: savedTier.color }}>
+                            <span>Unrated — tap Edit below to score 1–10</span>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {watchedItem?.userNote && (
@@ -573,7 +496,7 @@ export default function MovieDetails({
                         <h4 className="rating-module-title">{isWatched ? "Update Vault Entry" : "Rate & Save to Vault"}</h4>
                       </div>
                       <span className="rating-score-badge-preview" style={{ color: currentTier.color, borderColor: currentTier.border, background: currentTier.bg }}>
-                        {activeDisplayRating} / 10
+                        {activeDisplayRating > 0 ? `${activeDisplayRating} / 10` : "— / 10"}
                       </span>
                     </div>
 
@@ -693,12 +616,18 @@ export default function MovieDetails({
                       <button
                         className={`btn-vault-primary luxury-save-btn ${saveSuccess ? "is-saved" : ""}`}
                         onClick={handleSave}
+                        disabled={!(Number(userRating) > 0)}
                         aria-label={isWatched ? "Update Vault Entry" : "Add to Watched Vault"}
                       >
                         {saveSuccess ? (
                           <>
                             <CheckCircle2 size={18} className="text-[#10b981]" aria-hidden="true" />
                             <span>Vault Synchronized!</span>
+                          </>
+                        ) : !(Number(userRating) > 0) ? (
+                          <>
+                            <Star size={18} aria-hidden="true" />
+                            <span>Select Rating (1–10)</span>
                           </>
                         ) : isWatched ? (
                           <>

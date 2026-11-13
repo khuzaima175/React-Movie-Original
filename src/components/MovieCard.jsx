@@ -6,6 +6,7 @@ import { buildQuickAddWatchedMovie } from "../services/csvImport";
 export default function MovieCard({
   movie,
   onSelectMovie,
+  onQuickAdd,
   onAddWatched,
   onDeleteMovie,
   isWatched = false,
@@ -22,13 +23,20 @@ export default function MovieCard({
   const year = movie.Year || movie.year;
   const imdbRating = movie.imdbRating || movie.rating;
   const userRating = movie.userRating;
+  const numericUserRating = Number(userRating);
+  const hasUserRating = Number.isFinite(numericUserRating) && numericUserRating > 0;
 
   // Perfect 10 badge check
-  const isPerfectTen = Number(userRating) === 10 || Number(imdbRating) === 10;
+  const isPerfectTen = numericUserRating === 10 || Number(imdbRating) === 10;
 
   function handleQuickAdd(e) {
     e.stopPropagation();
-    if (isWatched || !onAddWatched) return;
+    if (isWatched) return;
+    if (onQuickAdd) {
+      onQuickAdd(movie);
+      return;
+    }
+    if (!onAddWatched) return;
     onAddWatched(buildQuickAddWatchedMovie(movie));
   }
 
@@ -76,13 +84,13 @@ export default function MovieCard({
         )}
 
         {/* Badges: Curated Rating Badge (Gold for 10s, Glass for rated) */}
-        {!isManageMode && (userRating || isPerfectTen) && (
+        {!isManageMode && (hasUserRating || isPerfectTen) && (
           <div
             className={`card-corner-badge ${isPerfectTen ? "badge-gold" : "badge-glass"}`}
-            title={userRating ? `Your Rating: ${userRating}/10` : "Masterpiece 10"}
+            title={hasUserRating ? `Your Rating: ${numericUserRating}/10` : "Masterpiece 10"}
           >
             <Star size={11} className={isPerfectTen ? "icon-star-dark" : "icon-star-accent"} aria-hidden="true" />
-            <span>{userRating ? userRating : "10"}</span>
+            <span>{hasUserRating ? numericUserRating : "10"}</span>
           </div>
         )}
 
@@ -96,9 +104,9 @@ export default function MovieCard({
                   {imdbRating}
                 </span>
               )}
-              {userRating && (
+              {hasUserRating && (
                 <span className="unified-overlay-user-rating" title="Your Rating">
-                  ★ {userRating}
+                  ★ {numericUserRating}
                 </span>
               )}
             </div>
@@ -109,12 +117,12 @@ export default function MovieCard({
             <h4 className="unified-overlay-title">{title}</h4>
 
             <div className="unified-overlay-actions">
-              {!isManageMode && onAddWatched && (
+              {!isManageMode && (onQuickAdd || onAddWatched) && (
                 <button
                   className={`btn-card-action ${isWatched ? "added" : ""}`}
                   onClick={handleQuickAdd}
-                  title={isWatched ? "In Vault" : "Add to Vault"}
-                  aria-label={isWatched ? `${title} is in Vault` : `Add ${title} to Vault`}
+                  title={isWatched ? "In Vault" : "Rate or Save"}
+                  aria-label={isWatched ? `${title} is in Vault` : `Rate or save ${title}`}
                 >
                   {isWatched ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
                 </button>

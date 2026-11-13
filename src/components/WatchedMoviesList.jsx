@@ -116,7 +116,7 @@ function WatchedMovieRow({
 
       <div className="list-col-ratings">
         <div className="row-ratings-group">
-          {userRating && (
+          {Number(userRating) > 0 && (
             <span className="row-user-rating-badge" title="Your Rating">
               ★ {userRating}
             </span>

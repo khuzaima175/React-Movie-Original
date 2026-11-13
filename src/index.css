@@ -11128,3 +11128,222 @@ body,
     max-width: 20rem;
   }
 }
+
+/* Quick Rate & Save Modal */
+.quick-rate-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.quick-rate-movie-head {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.quick-rate-poster-thumb {
+  width: 6.4rem;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-poster);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+}
+
+.quick-rate-movie-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.quick-rate-movie-title {
+  font-family: var(--font-sans);
+  font-size: 1.85rem;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 0;
+  line-height: 1.25;
+}
+
+.quick-rate-meta-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.quick-rate-year {
+  font-size: 1.25rem;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.quick-rate-imdb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.quick-rate-watchlist-tag {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 0.15rem 0.65rem;
+  border-radius: 999px;
+}
+
+.quick-rate-genre {
+  font-size: 1.25rem;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.quick-rate-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  padding: 1.4rem;
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+}
+
+.quick-rate-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.quick-rate-picker-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.quick-rate-tier-pill {
+  font-size: 1.15rem;
+  font-weight: 700;
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+}
+
+.quick-rate-number-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.quick-rate-pill-btn {
+  height: 4rem;
+  border-radius: var(--r-control);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: 1.45rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.quick-rate-pill-btn:hover,
+.quick-rate-pill-btn.is-hovered {
+  border-color: var(--accent);
+  color: var(--text-1);
+  transform: translateY(-1px);
+}
+
+.quick-rate-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.9rem 1.2rem;
+  border-radius: var(--r-control);
+  border: 1px solid var(--hairline);
+  background: var(--surface-1);
+  color: var(--text-1);
+  font-size: 1.3rem;
+  outline: none;
+}
+
+.quick-rate-note-input:focus {
+  border-color: rgba(226, 177, 60, 0.55);
+}
+
+.quick-rate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.quick-rate-primary-group {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-left: auto;
+}
+
+.btn-quick-watchlist,
+.btn-quick-cancel,
+.btn-quick-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.4rem;
+  border-radius: var(--r-control);
+  font-size: 1.3rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.btn-quick-watchlist {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  color: var(--text-1);
+}
+
+.btn-quick-watchlist:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-quick-cancel {
+  background: transparent;
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+}
+
+.btn-quick-cancel:hover {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.btn-quick-save {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border: 1px solid transparent;
+}
+
+.btn-quick-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-quick-save:not(:disabled):hover {
+  background: var(--btn-primary-hover);
+}

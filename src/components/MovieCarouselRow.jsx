@@ -8,6 +8,7 @@ export default function MovieCarouselRow({
   title,
   movies = [],
   onSelectMovie,
+  onQuickAdd,
   onAddWatched,
   watched = [],
   seeAllLink
@@ -89,6 +90,7 @@ export default function MovieCarouselRow({
               key={id}
               movie={movie}
               onSelectMovie={onSelectMovie}
+              onQuickAdd={onQuickAdd}
               onAddWatched={onAddWatched}
               isWatched={isWatched}
             />
