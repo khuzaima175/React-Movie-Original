@@ -35,7 +35,7 @@ export default function AIPage() {
               </span>
             </div>
             <p className="ai-studio-desc">
-              Cinematic intelligence trained on your personal vault affinities and ratings.
+              Personalized picks tuned to your rated films.
             </p>
           </div>
 

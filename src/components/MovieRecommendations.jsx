@@ -18,6 +18,7 @@ import {
 import { resolveGeminiKey } from "../services/apiTransport";
 import { getRecommendationExplanation } from "../services/geminiExplanationService";
 import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS, AVAILABLE_REGIONS } from "../services/tmdbService";
+import { formatStreamingSummary } from "../services/oracleViewHelpers";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import {
@@ -184,6 +185,7 @@ export default function MovieRecommendations({
   const [moodParseNote, setMoodParseNote] = useState("");
   const [deepExplanations, setDeepExplanations] = useState({});
   const [loadingExplanationKey, setLoadingExplanationKey] = useState(null);
+  const [isStreamingOpen, setIsStreamingOpen] = useState(false);
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
   const activeRequestRef = useRef(0);
@@ -211,6 +213,12 @@ export default function MovieRecommendations({
 
   const queuedModel = getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation");
   const displayedModelInfo = aiModelInfo || getLastModelInfo("curation");
+  const { summaryText: streamingSummary, hasCustomFilter: hasStreamingFilter } = formatStreamingSummary(
+    userRegion,
+    userWatchProviders,
+    AVAILABLE_REGIONS,
+    POPULAR_WATCH_PROVIDERS
+  );
 
   const loadingSteps = [
     watched.length >= 3 ? `Analyzing ${watched.length} rated films with mathematical weights...` : "Initializing cold-start vibe calibration...",
@@ -485,7 +493,6 @@ export default function MovieRecommendations({
             <Compass size={16} className="text-accent" aria-hidden="true" />
             <span className="vibe-label">1. Select Cinematic Mood</span>
           </div>
-          <span className="vibe-active-hint">{activeMoodObj.label}: {activeMoodObj.desc}</span>
         </div>
 
         <div className="vibe-chips-grid">
@@ -556,149 +563,164 @@ export default function MovieRecommendations({
       </div>
 
       {/* Watch Providers & Global Cinema Filter Strip */}
-      <div className="vibe-selection-block" style={{ marginTop: "2rem" }}>
-        <div className="vibe-header-row">
-          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+      <div className="vibe-selection-block" style={{ marginTop: "1.6rem" }}>
+        <div className={`streaming-summary-bar ${hasStreamingFilter ? "is-custom" : ""}`}>
+          <div className="streaming-summary-info">
             <Tv size={16} className="text-accent" aria-hidden="true" />
-            <span className="vibe-label">2. Streaming Access & Region</span>
-            <span style={{ fontSize: "1.15rem", color: "#8a8a86", fontWeight: 500 }}>(Optional)</span>
+            <span className="vibe-label">2. Streaming</span>
+            <span style={{ color: "rgba(255, 255, 255, 0.22)" }} aria-hidden="true">|</span>
+            <span className="streaming-summary-value">{streamingSummary}</span>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "#1c1d20", border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "0.8rem", padding: "0.4rem 1rem" }}>
-              <Globe size={14} style={{ color: "#e2b13c" }} />
-              <select
-                value={userRegion}
-                onChange={(e) => setUserRegion(e.target.value)}
-                style={{
-                  background: "transparent",
-                  color: "#f4f4f2",
-                  border: "none",
-                  fontSize: "1.25rem",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  outline: "none"
-                }}
-                aria-label="Select Streaming Region"
-              >
-                {AVAILABLE_REGIONS.map((reg) => (
-                  <option key={reg.code} value={reg.code} style={{ background: "#141416", color: "#f4f4f2" }}>
-                    {reg.flag} {reg.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginTop: "0.4rem" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-            <p style={{ fontSize: "1.25rem", color: "#8a8a86", margin: 0 }}>
-              {userWatchProviders.length === 0
-                ? "✨ Recommending from the entire world cinema catalog across all platforms without restriction."
-                : `🔒 Filtering recommendations to movies available on ${userWatchProviders.length} selected service${userWatchProviders.length > 1 ? "s" : ""}.`}
-            </p>
-            {userRegion === "GLOBAL" && userWatchProviders.length > 0 && (
-              <span style={{ fontSize: "1.15rem", color: "#e2b13c", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                <span>💡 Worldwide catalog: Streaming verified against primary global catalog. Select a specific country above for local licensing.</span>
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-            <button
-              type="button"
-              onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map(p => p.id))}
-              style={{
-                fontSize: "1.2rem",
-                fontWeight: 600,
-                color: "#8a8a86",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                textDecoration: "underline",
-                padding: "0.2rem 0.4rem"
-              }}
-              className="hover:text-accent"
-            >
-              Select All
-            </button>
-            <span style={{ color: "rgba(255, 255, 255, 0.2)" }}>•</span>
-            <button
-              type="button"
-              onClick={() => setUserWatchProviders([])}
-              style={{
-                fontSize: "1.2rem",
-                fontWeight: 600,
-                color: "#8a8a86",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                textDecoration: "underline",
-                padding: "0.2rem 0.4rem"
-              }}
-              className="hover:text-accent"
-            >
-              Reset (Unlimited Access)
-            </button>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.9rem", marginTop: "1.2rem" }}>
-          {/* All Platforms Universal Pill */}
           <button
             type="button"
-            onClick={() => setUserWatchProviders([])}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.8rem",
-              padding: "0.9rem 1.6rem",
-              borderRadius: "0.9rem",
-              fontSize: "1.3rem",
-              fontWeight: 700,
-              background: userWatchProviders.length === 0 ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
-              color: userWatchProviders.length === 0 ? "#e2b13c" : "#b6b6b2",
-              border: userWatchProviders.length === 0 ? "1px solid rgba(226, 177, 60, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
-              boxShadow: userWatchProviders.length === 0 ? "0 0 16px rgba(226, 177, 60, 0.2)" : "none",
-              cursor: "pointer",
-              transition: "all 0.2s ease"
-            }}
+            className="streaming-summary-toggle"
+            onClick={() => setIsStreamingOpen((prev) => !prev)}
+            aria-expanded={isStreamingOpen}
           >
-            <Globe size={15} />
-            <span>All Platforms / Universal Access</span>
+            {isStreamingOpen ? (
+              <>
+                <span>Done</span>
+                <ChevronUp size={14} aria-hidden="true" />
+              </>
+            ) : (
+              <>
+                <span>Customize</span>
+                <ChevronDown size={14} aria-hidden="true" />
+              </>
+            )}
           </button>
+        </div>
 
-          {POPULAR_WATCH_PROVIDERS.map((provider) => {
-            const isSelected = userWatchProviders.includes(provider.id);
-            return (
+        {isStreamingOpen && (
+          <div className="streaming-drawer-body">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "#1c1d20", border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "0.8rem", padding: "0.4rem 1rem" }}>
+                <Globe size={14} style={{ color: "#e2b13c" }} />
+                <select
+                  value={userRegion}
+                  onChange={(e) => setUserRegion(e.target.value)}
+                  style={{
+                    background: "transparent",
+                    color: "#f4f4f2",
+                    border: "none",
+                    fontSize: "1.25rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    outline: "none"
+                  }}
+                  aria-label="Select Streaming Region"
+                >
+                  {AVAILABLE_REGIONS.map((reg) => (
+                    <option key={reg.code} value={reg.code} style={{ background: "#141416", color: "#f4f4f2" }}>
+                      {reg.flag} {reg.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                <button
+                  type="button"
+                  onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map(p => p.id))}
+                  style={{
+                    fontSize: "1.2rem",
+                    fontWeight: 600,
+                    color: "#8a8a86",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    padding: "0.2rem 0.4rem"
+                  }}
+                  className="hover:text-accent"
+                >
+                  Select All
+                </button>
+                <span style={{ color: "rgba(255, 255, 255, 0.2)" }}>•</span>
+                <button
+                  type="button"
+                  onClick={() => setUserWatchProviders([])}
+                  style={{
+                    fontSize: "1.2rem",
+                    fontWeight: 600,
+                    color: "#8a8a86",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    padding: "0.2rem 0.4rem"
+                  }}
+                  className="hover:text-accent"
+                >
+                  Reset (All Platforms)
+                </button>
+              </div>
+            </div>
+
+            {userRegion === "GLOBAL" && userWatchProviders.length > 0 && (
+              <p style={{ fontSize: "1.15rem", color: "#e2b13c", margin: "0.8rem 0 0" }}>
+                Select a specific country above for local licensing.
+              </p>
+            )}
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.9rem", marginTop: "1.2rem" }}>
+              {/* All Platforms Universal Pill */}
               <button
-                key={provider.id}
                 type="button"
-                onClick={() => toggleWatchProvider(provider.id)}
+                onClick={() => setUserWatchProviders([])}
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "0.7rem",
-                  padding: "0.9rem 1.4rem",
+                  gap: "0.8rem",
+                  padding: "0.9rem 1.6rem",
                   borderRadius: "0.9rem",
                   fontSize: "1.3rem",
-                  fontWeight: 600,
-                  background: isSelected ? "rgba(226, 177, 60, 0.15)" : "#1c1d20",
-                  color: isSelected ? "#e2b13c" : "#b6b6b2",
-                  border: isSelected ? "1px solid rgba(226, 177, 60, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
-                  boxShadow: isSelected ? "0 0 12px rgba(226, 177, 60, 0.15)" : "none",
+                  fontWeight: 700,
+                  background: userWatchProviders.length === 0 ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
+                  color: userWatchProviders.length === 0 ? "#e2b13c" : "#b6b6b2",
+                  border: userWatchProviders.length === 0 ? "1px solid rgba(226, 177, 60, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
+                  boxShadow: userWatchProviders.length === 0 ? "0 0 16px rgba(226, 177, 60, 0.2)" : "none",
                   cursor: "pointer",
                   transition: "all 0.2s ease"
                 }}
-                className="hover:border-white/20 hover:bg-[#242528]"
               >
-                <span style={{ fontSize: "1.4rem" }}>{provider.icon}</span>
-                <span>{provider.name}</span>
+                <Globe size={15} />
+                <span>All Platforms</span>
               </button>
-            );
-          })}
-        </div>
+
+              {POPULAR_WATCH_PROVIDERS.map((provider) => {
+                const isSelected = userWatchProviders.includes(provider.id);
+                return (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    onClick={() => toggleWatchProvider(provider.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.7rem",
+                      padding: "0.9rem 1.4rem",
+                      borderRadius: "0.9rem",
+                      fontSize: "1.3rem",
+                      fontWeight: 600,
+                      background: isSelected ? "rgba(226, 177, 60, 0.15)" : "#1c1d20",
+                      color: isSelected ? "#e2b13c" : "#b6b6b2",
+                      border: isSelected ? "1px solid rgba(226, 177, 60, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
+                      boxShadow: isSelected ? "0 0 12px rgba(226, 177, 60, 0.15)" : "none",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    className="hover:border-white/20 hover:bg-[#242528]"
+                  >
+                    <span style={{ fontSize: "1.4rem" }}>{provider.icon}</span>
+                    <span>{provider.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Launch CTA */}
@@ -759,10 +781,6 @@ export default function MovieRecommendations({
             </button>
           )}
         </div>
-
-        <span style={{ fontSize: "1.25rem", color: "#8a8a86", textAlign: "center" }}>
-          TMDB 3-Bucket Waterfall Engine • Google Gemini Strict Re-Ranking • Zero Hallucinations
-        </span>
       </div>
     </div>
   );

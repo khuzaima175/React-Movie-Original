@@ -7246,7 +7246,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 2rem;
-  padding: 1.4rem 0 1.8rem;
+  padding: 0.9rem 0 1.4rem;
   border-bottom: 1px solid var(--hairline);
   flex-wrap: wrap;
 }
@@ -7373,10 +7373,10 @@ button {
   background: var(--surface-1);
   border: 1px solid var(--hairline);
   border-radius: var(--r-card);
-  padding: 2.8rem;
+  padding: 2.2rem;
   display: flex;
   flex-direction: column;
-  gap: 2.8rem;
+  gap: 2rem;
   box-shadow: var(--sh-2);
   position: relative;
   overflow: hidden;
@@ -7427,8 +7427,65 @@ button {
 
 .vibe-chips-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1.2rem;
+}
+
+.streaming-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  padding: 1.15rem 1.4rem;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  flex-wrap: wrap;
+}
+
+.streaming-summary-bar.is-custom {
+  border-color: rgba(226, 177, 60, 0.35);
+}
+
+.streaming-summary-info {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.streaming-summary-value {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.streaming-summary-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.15rem;
+  border-radius: var(--r-control);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline-strong);
+  color: var(--text-1);
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--dur-2) ease, background var(--dur-2) ease;
+}
+
+.streaming-summary-toggle:hover {
+  border-color: var(--accent);
+}
+
+.streaming-drawer-body {
+  margin-top: 1.2rem;
+  padding: 1.4rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
 }
 
 .vibe-chip-card {
@@ -8543,11 +8600,11 @@ button {
 
   .ai-studio-deck {
     padding: 1.8rem 1.4rem;
-    gap: 2rem;
+    gap: 1.8rem;
   }
 
   .vibe-chips-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.8rem;
   }
 
