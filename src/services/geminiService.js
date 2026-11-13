@@ -985,7 +985,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
     });
 
     if (!response) {
-        console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output:", lastError?.message || lastError);
+        console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output.");
         return {
             tasteProfile: {
                 favoriteGenres: (profile.lovedGenreNames || []).slice(0, 3),
