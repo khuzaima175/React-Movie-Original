@@ -27,16 +27,20 @@ import {
     resetModelInfoForTests
 } from "../src/services/geminiService.js";
 
-test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.5, and budget:0 to 2.5", () => {
+test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.6/3.5/3-curation, MINIMAL to 3-flash fast, and budget:0 to 2.5", () => {
     assert.deepEqual(CURATION_MODEL_CASCADE, [
         "gemini-4-hydrogen",
         "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3-flash-preview",
         "gemini-2.5-flash",
         "gemini-3.8-flash"
     ]);
     assert.deepEqual(FAST_INTERACTIVE_CASCADE, [
         "gemini-3.5-flash-lite",
         "gemini-4-hydrogen",
+        "gemini-3.6-flash",
+        "gemini-3-flash-preview",
         "gemini-2.5-flash",
         "gemini-3.8-flash"
     ]);
@@ -45,6 +49,9 @@ test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to
     assert.deepEqual(getModelThinkingConfig("gemini-4-hydrogen", "fast"), { thinkingLevel: "MEDIUM" });
     assert.notEqual(getModelThinkingConfig("gemini-4-hydrogen", "curation")?.thinkingLevel, "LOW");
     assert.notEqual(getModelThinkingConfig("gemini-4-hydrogen", "fast")?.thinkingLevel, "LOW");
+    assert.deepEqual(getModelThinkingConfig("gemini-3.6-flash"), { thinkingLevel: "LOW" });
+    assert.deepEqual(getModelThinkingConfig("gemini-3-flash-preview", "curation"), { thinkingLevel: "LOW" });
+    assert.deepEqual(getModelThinkingConfig("gemini-3-flash-preview", "fast"), { thinkingLevel: "MINIMAL" });
     assert.deepEqual(getModelThinkingConfig("gemini-3.8-flash"), { thinkingLevel: "LOW" });
     assert.deepEqual(getModelThinkingConfig("gemini-3.5-flash-lite"), { thinkingLevel: "LOW" });
     assert.deepEqual(getModelThinkingConfig("gemini-3.5-flash"), { thinkingLevel: "LOW" });
@@ -62,7 +69,12 @@ test("executeCascade falls back from 429 on hydrogen to 3.5-flash-lite, skips de
             generateContent: async ({ model, config }) => {
                 attempts.push(model);
                 seenConfigs.push({ model, config });
-                if (model === "gemini-4-hydrogen" || model === "gemini-2.5-flash") {
+                if (
+                    model === "gemini-4-hydrogen" ||
+                    model === "gemini-3.6-flash" ||
+                    model === "gemini-3-flash-preview" ||
+                    model === "gemini-2.5-flash"
+                ) {
                     throw new Error(`429 RESOURCE_EXHAUSTED on ${model}`);
                 }
                 if (model === "gemini-3.5-flash-lite" && failFlashLiteOnNextCall) {
@@ -114,7 +126,13 @@ test("executeCascade falls back from 429 on hydrogen to 3.5-flash-lite, skips de
         contents: "test prompt 3"
     }, { cascadeType: "curation", timeoutMs: 1000 });
     assert.ok(res3);
-    assert.deepEqual(attempts, ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-3.8-flash"]);
+    assert.deepEqual(attempts, [
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash",
+        "gemini-3.8-flash"
+    ]);
     assert.equal(getSessionCurationModel(), "gemini-3.8-flash");
 });
 
@@ -219,6 +237,8 @@ test("modelCooldowns applies parsed retryDelay, daily RPD, transient, and fatal 
         const errorsByModel = {
             "gemini-4-hydrogen": new Error("429 RESOURCE_EXHAUSTED; Please retry in 45s."),
             "gemini-3.5-flash-lite": Object.assign(new Error("429 RESOURCE_EXHAUSTED limit: 0"), { status: 429 }),
+            "gemini-3.6-flash": new Error("400 INVALID_ARGUMENT"),
+            "gemini-3-flash-preview": new Error("429 RESOURCE_EXHAUSTED"),
             "gemini-2.5-flash": new Error("503 Service Unavailable"),
             "gemini-3.8-flash": new Error("400 INVALID_ARGUMENT")
         };
@@ -233,13 +253,15 @@ test("modelCooldowns applies parsed retryDelay, daily RPD, transient, and fatal 
             }
         };
 
-        // Call 1: all 4 fail with distinct cooldown durations
+        // Call 1: all 6 fail with distinct cooldown durations
         const r1 = await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "p1" }, { cascadeType: "curation" });
         assert.equal(r1, null);
         assert.deepEqual(attempts, CURATION_MODEL_CASCADE);
 
         assert.deepEqual(modelCooldowns.get("gemini-4-hydrogen"), { untilMs: fakeNow + 45_000, reason: "quota" });
         assert.deepEqual(modelCooldowns.get("gemini-3.5-flash-lite"), { untilMs: fakeNow + DAILY_QUOTA_COOLDOWN_MS, reason: "quota" });
+        assert.deepEqual(modelCooldowns.get("gemini-3.6-flash"), { untilMs: fakeNow + FATAL_COOLDOWN_MS, reason: "invalid_config" });
+        assert.deepEqual(modelCooldowns.get("gemini-3-flash-preview"), { untilMs: fakeNow + QUOTA_COOLDOWN_MS, reason: "quota" });
         assert.deepEqual(modelCooldowns.get("gemini-2.5-flash"), { untilMs: fakeNow + TRANSIENT_COOLDOWN_MS, reason: "transient" });
         assert.deepEqual(modelCooldowns.get("gemini-3.8-flash"), { untilMs: fakeNow + FATAL_COOLDOWN_MS, reason: "invalid_config" });
 
@@ -279,6 +301,8 @@ test("executeCascade all-on-cooldown fallback tries only the single model whose 
     const baseNow = 2_000_000_000_000;
     modelCooldowns.set("gemini-4-hydrogen", { untilMs: baseNow + 120_000, reason: "quota" });
     modelCooldowns.set("gemini-3.5-flash-lite", { untilMs: baseNow + 600_000, reason: "quota" });
+    modelCooldowns.set("gemini-3.6-flash", { untilMs: baseNow + 90_000, reason: "quota" });
+    modelCooldowns.set("gemini-3-flash-preview", { untilMs: baseNow + 95_000, reason: "quota" });
     modelCooldowns.set("gemini-2.5-flash", { untilMs: baseNow + 10_000, reason: "transient" });
     modelCooldowns.set("gemini-3.8-flash", { untilMs: baseNow + 1_800_000, reason: "auth_fatal" });
 
@@ -456,9 +480,11 @@ test("executeCascade records transient cooldown on abort-timeout with injected f
     resetSessionWorkingModels();
 });
 
-test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen and preserves flash timeouts", () => {
+test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen, 15000ms for 3-flash, 10000ms for 3.6-flash, and preserves flash timeouts", () => {
     assert.equal(HYDROGEN_TIMEOUT_MS, 35000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-4-hydrogen"), 35000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3-flash-preview"), 15000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.6-flash"), 10000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 5000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.5-flash-lite"), 8000);
 });
@@ -466,10 +492,12 @@ test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen and p
 test("formatModelDisplayName maps known Gemini models and offline ranker fallback cleanly", () => {
     assert.equal(formatModelDisplayName("gemini-4-hydrogen"), "Gemini 4 Hydrogen");
     assert.equal(formatModelDisplayName("gemini-3.5-flash-lite"), "Gemini 3.5 Flash-Lite");
+    assert.equal(formatModelDisplayName("gemini-3.6-flash"), "Gemini 3.6 Flash");
+    assert.equal(formatModelDisplayName("gemini-3-flash-preview"), "Gemini 3 Flash Preview");
     assert.equal(formatModelDisplayName("gemini-2.5-flash"), "Gemini 2.5 Flash");
     assert.equal(formatModelDisplayName("gemini-3.8-flash"), "Gemini 3.8 Flash");
     assert.equal(formatModelDisplayName(null), "Local Ranker (Offline Fallback)");
-    assert.equal(formatModelDisplayName("gemini-3.6-flash"), "gemini-3.6-flash");
+    assert.equal(formatModelDisplayName("gemini-experimental-custom"), "gemini-experimental-custom");
 });
 
 test("executeCascade records getLastModelInfo across primary, fallback, and fast vs curation isolation", async () => {
@@ -496,7 +524,7 @@ test("executeCascade records getLastModelInfo across primary, fallback, and fast
         assert.deepEqual(info1.cooldownModels, []);
         assert.equal(info1.seq, 1);
 
-        // Now simulate Hydrogen 429 + 3.5-flash-lite fallback on curation, AND separate fast chat falling back to 2.5-flash
+        // Now simulate fast chat falling back through 3.5-flash-lite & 4-hydrogen -> 3.6-flash
         resetSessionWorkingModels();
         const mockFallbackAi = {
             models: {
@@ -515,8 +543,8 @@ test("executeCascade records getLastModelInfo across primary, fallback, and fast
         });
         assert.ok(rFast);
         const fastInfo = getLastModelInfo("fast");
-        assert.equal(fastInfo.model, "gemini-2.5-flash");
-        assert.equal(fastInfo.displayName, "Gemini 2.5 Flash");
+        assert.equal(fastInfo.model, "gemini-3.6-flash");
+        assert.equal(fastInfo.displayName, "Gemini 3.6 Flash");
         assert.equal(fastInfo.isFallback, true);
         assert.equal(fastInfo.pipeline, "gemini-fast");
         assert.equal(fastInfo.seq, 2);

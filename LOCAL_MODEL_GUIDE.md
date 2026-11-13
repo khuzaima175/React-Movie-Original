@@ -93,8 +93,8 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
    │      • Locks deterministic 50–99% matchScore + up to 3 matchReasons badges
    │
    └─► 5. geminiService.js (H1 Resilient Gemini 4 Hydrogen Cascade)
-          • Sends Top 15 to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 2.5-flash -> 3.8-flash
-          • Hydrogen uses 35,000ms AbortController + SDK httpOptions timeout
+          • Sends Top 15 to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
+          • Uses per-model AbortController timeouts (35s Hydrogen, 15s 3-flash, 10s 3.6-flash, 5s 3.8-flash, 8s flash-lite/2.5)
           • Classifies errors (quota/transient/invalid_config/auth_fatal) with smart cooldown backoff
           • If every cloud model fails or hits daily quota, falls back cleanly to Top 6 from ranker!
 ```
@@ -166,11 +166,12 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
   - **`HIGH` thinking:** `HTTP 200`, `10,030 ms`, tokens `2604` prompt / `502` output / `1507` thinking, parsed 6 valid picks.
   - In extended `I3` evaluation (`.data/phaseI3_model_eval.json`), `gemini-4-hydrogen` `HIGH` succeeded across all 9 attempted runs (latency `8,276 ms – 24,947 ms`, prompting us to bump `HYDROGEN_TIMEOUT_MS` & SDK `httpOptions.timeout` from `25,000 ms` to **`35,000 ms`** in `95ee2a6`).
 - **H1 Resilient Cascade (`a47601b`, `74ed429`, `95ee2a6`, `1336dcc`):**
-  - `CURATION_MODEL_CASCADE`: `["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-3.8-flash"]` (`HIGH` thinking on Hydrogen).
-  - `FAST_INTERACTIVE_CASCADE`: `["gemini-3.5-flash-lite", "gemini-4-hydrogen", "gemini-2.5-flash", "gemini-3.8-flash"]` (`MEDIUM` thinking on Hydrogen — never `LOW`).
+  - `CURATION_MODEL_CASCADE`: `["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]` (`HIGH` thinking on Hydrogen; `LOW` on `3.6-flash` / `3-flash-preview`).
+  - `FAST_INTERACTIVE_CASCADE`: `["gemini-3.5-flash-lite", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]` (`MEDIUM` thinking on Hydrogen — never `LOW`; `MINIMAL` on `3-flash-preview` fast chat).
+  - Live JSON schema verification (`gemini-3.6-flash` `3,057 ms` `LOW`, `gemini-3-flash-preview` `8,532 ms` `LOW` / `2,116 ms` `MINIMAL`) informed `10,000 ms` (`3.6-flash`) and `15,000 ms` (`3-flash-preview`) `AbortController` timeouts.
   - Strips `frequencyPenalty`, `presencePenalty`, unsupported `candidateCount`, and `temperature` on `gemini-4-hydrogen`.
   - **4-Way Error Classification (`classifyGeminiError`) + Cooldowns:** `quota` (`retryDelay`, `120s` RPM, or `600s` RPD), `transient` (`30s`), `invalid_config` (`1800s`), `auth_fatal` (`1800s`), plus `30 min` `localStorage` working-model persistence, soonest-expiring probe when all models are cooling down, and removed a dangling `lastError` `ReferenceError` on total failure (`1336dcc`).
-  - **Live UI Model Telemetry (`ModelUsageBadge` & `.chat-model-bar`):** `executeCascade`, `reRankCandidatesWithGemini`, and `generateWithOmdbFallback` attach structured `modelInfo` (`buildCascadeModelInfo` / `getLastModelInfo` / `resolveResultModelInfo`), persisted alongside cached recommendations (`cinemavault_recs_model_v1`), so **AI Picks** (toolbar badge + loading step queue hint + cache flag) and **Film Companion Chat** (top model bar + per-reply model tag + fallback cooldown tooltips) always show which model answered (`gemini-4-hydrogen`, `gemini-3.5-flash-lite`, `gemini-2.5-flash`, `gemini-3.8-flash`, or `Local Ranker (Offline Fallback)`).
+  - **Live UI Model Telemetry (`ModelUsageBadge` & `.chat-model-bar`):** `executeCascade`, `reRankCandidatesWithGemini`, and `generateWithOmdbFallback` attach structured `modelInfo` (`buildCascadeModelInfo` / `getLastModelInfo` / `resolveResultModelInfo`), persisted alongside cached recommendations (`cinemavault_recs_model_v1`), so **AI Picks** (toolbar badge + loading step queue hint + cache flag) and **Film Companion Chat** (top model bar + per-reply model tag + fallback cooldown tooltips) always show which model answered (`gemini-4-hydrogen`, `gemini-3.5-flash-lite`, `gemini-3.6-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-3.8-flash`, or `Local Ranker (Offline Fallback)`).
 
 ---
 

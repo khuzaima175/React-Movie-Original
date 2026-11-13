@@ -26,7 +26,7 @@
 1. Per-user z-scored rating normalization, exponential recency decay with an 180-day undated backlog prior, and a vault-relative weight cutoff (`scoringUtils.js` + `tmdbService.js`).
 2. An on-device **64-D float16 collaborative embedding index** (`CVEM v1`, 25,000 MovieLens 32M films at `/models/item_embeddings_f16.bin`, `3,300,016` bytes) with Spherical K-Means taste personas and disliked-film quadratic repulsion (`embeddingService.js`).
 3. **5-bucket candidate retrieval** combining TMDB keyword matching (`Bucket B`), auteur networks (`Bucket C`), mood-calibrated genre discovery (`Bucket A`), an 18-month recent-release lane (`Bucket D`), and local embedding nearest neighbors (`Bucket E`), scored by a **calibrated 11-feature logistic ranker** (`rankerService.js`) with **2 reserved recent-release slots**, locked `50–99%` match percentages, and deterministic match reason badges.
-4. A **resilient H1 Gemini cascade** (`gemini-4-hydrogen` → `gemini-3.5-flash-lite` → `gemini-2.5-flash` → `gemini-3.8-flash`) constrained via strict JSON schemas to selecting a diverse top 6 out of 15 and writing personalized explanations, backed by error-class cooldowns and deterministic ranker fallback (`geminiService.js`).
+4. A **resilient H1 Gemini cascade** (`gemini-4-hydrogen` → `gemini-3.5-flash-lite` → `gemini-3.6-flash` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-3.8-flash`) constrained via strict JSON schemas to selecting a diverse top 6 out of 15 and writing personalized explanations, backed by error-class cooldowns and deterministic ranker fallback (`geminiService.js`).
 
 > 📖 **Technical & Local Model Documentation**: Check out the complete **[Architecture Specification (ARCHITECTURE.md)](./ARCHITECTURE.md)** for mathematical formulations, H1 cascade rules, reserve scoring, and TMDB query grammar, and the plain-English **[Local Model & Troubleshooting Guide (LOCAL_MODEL_GUIDE.md)](./LOCAL_MODEL_GUIDE.md)** for provenance audits, bug resolutions, and one-line health checks.
 
@@ -35,7 +35,7 @@
 ## Key Features
 
 - **4-Stage Hybrid Recommendation Pipeline**: On-device `CVEM v1` collaborative embeddings (zero verified holdout leakage), Spherical K-Means multi-persona clustering, quadratic repulsion (`-1.5`), 5-bucket TMDB retrieval (`A/B/C/D/E`), and calibrated logistic ranking (`collabSim: 4.8`, `negativeKeywordPenalty: -0.5`, pool-relative normalization, `0.20x` metadata damping, and 2 recent-release reserve slots).
-- **Resilient H1 Gemini Cascade & Concierge**: Dual cascades (`CURATION_MODEL_CASCADE` led by `gemini-4-hydrogen` with `HIGH` thinking and `35s` timeout; `FAST_INTERACTIVE_CASCADE` led by `gemini-3.5-flash-lite`), `modelCooldowns` backoff (`quota`, `transient`, `invalid_config`, `auth_fatal`), `30 min` `localStorage` working-model persistence, soonest-expiring cooldown probe, deterministic math fallback, and live UI active-model badges (`ModelUsageBadge` + Film Companion model pills).
+- **Resilient H1 Gemini Cascade & Concierge**: Dual 6-model cascades (`CURATION_MODEL_CASCADE` led by `gemini-4-hydrogen` HIGH `35s`; `FAST_INTERACTIVE_CASCADE` led by `gemini-3.5-flash-lite`, both backed by `3.6-flash`, `3-flash-preview`, `2.5-flash`, `3.8-flash`), `modelCooldowns` backoff (`quota`, `transient`, `invalid_config`, `auth_fatal`), `30 min` `localStorage` working-model persistence, soonest-expiring cooldown probe, deterministic math fallback, and live UI active-model badges (`ModelUsageBadge` + Film Companion model pills).
 - **Taste Profile Weighting**: Per-user z-scored weights ($z_i$), exponential recency time-decay ($e^{-0.002 \cdot \Delta t}$), `180`-day bulk backlog prior, relative cutoff (`1e-6 * maxAbsWeight`), sorted negative keyword exclusions (`without_keywords`), anchor selection (`>= 9★`), star-power actors, and auteur crew graphing.
 - **Movie Details & Multi-Source Ratings**: High-resolution backdrops, taglines, unified score cards (IMDb, Rotten Tomatoes, Metacritic, TMDB Community), and crew credits.
 - **Rating Deck & Review Editor**: Synchronized 10-star rating bar and 1–10 numeric dial, dynamic taste anchor tiers (`1★–10★`), custom review tags, and notes.
@@ -68,7 +68,7 @@ flowchart TD
 
     subgraph ReRanking ["3. Calibrated Ranker, Reserve Lane & H1 Gemini"]
         CP --> RNK["Calibrated Logistic Ranker (Pool-Scaled + 0.20x Damping)\nSelects Top 15 with 2 Reserved Recent-Release Slots + Badges"]
-        RNK --> GEM["H1 Cascade: gemini-4-hydrogen (HIGH, 35s)\n-> 3.5-flash-lite -> 2.5-flash -> 3.8-flash\n(Cooldowns + Math Fallback)"]
+        RNK --> GEM["H1 Cascade: gemini-4-hydrogen (HIGH, 35s)\n-> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash\n(Cooldowns + Math Fallback)"]
         GEM --> CACHE["500KB LocalStorage LRU Cache (ID Collision Guard)"]
         CACHE --> UI["Curated Discovery Deck & Trailer Portal"]
     end

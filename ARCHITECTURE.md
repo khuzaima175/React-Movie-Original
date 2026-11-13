@@ -15,7 +15,7 @@
 | **Multi-Persona & Relative Cutoff** | Spherical K-Means (`computeUserPersonas`, `K` in `[1, 4]`), disliked repulsion (`repulsion: -1.5`), and vault-relative weight cutoff (`1e-6 * maxAbsWeight`) supporting multi-decade vaults (`ml-user-263`, `ml-user-409`) | [embeddingService.js](./src/services/embeddingService.js), [scoringUtils.js](./src/services/scoringUtils.js) |
 | **5-Bucket Retrieval + Recent Lane** | Buckets `B` (Anchor Keywords), `C` (Auteur Crew), `A` (Semantic/Mood Discover), `D` (Recent Releases `18m`, `popularity.desc`, `avg >= 7.0`, `votes >= 150`, max `12`), and `E` (up to `30` embedding neighbors) | [tmdbService.js](./src/services/tmdbService.js) |
 | **Calibrated Ranker & Reserve Slots** | 11-feature logistic ranker (`collabSim: 4.8`, softened `negativeKeywordPenalty: -0.5`), pool-relative normalization, `0.20x` metadata damping, and `RECENT_RELEASE_RESERVE_COUNT = 2` via `computeReserveQualityScore` (`noveltyBonus = 0`) | [rankerService.js](./src/services/rankerService.js) |
-| **H1 Gemini Cascade** | `CURATION_MODEL_CASCADE` (`gemini-4-hydrogen` HIGH -> `3.5-flash-lite` -> `2.5-flash` -> `3.8-flash`) & `FAST_INTERACTIVE_CASCADE` (`3.5-flash-lite` -> `gemini-4-hydrogen` MEDIUM -> `2.5-flash` -> `3.8-flash`), `35,000 ms` Hydrogen timeout, error-class cooldowns, `localStorage` persistence, math fallback & UI model telemetry badges | [geminiService.js](./src/services/geminiService.js), [geminiChatService.js](./src/services/geminiChatService.js), [geminiExplanationService.js](./src/services/geminiExplanationService.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx), [AIChat.jsx](./src/components/AIChat.jsx) |
+| **H1 Gemini Cascade** | `CURATION_MODEL_CASCADE` (`gemini-4-hydrogen` HIGH -> `3.5-flash-lite` -> `3.6-flash` -> `3-flash-preview` -> `2.5-flash` -> `3.8-flash`) & `FAST_INTERACTIVE_CASCADE` (`3.5-flash-lite` -> `gemini-4-hydrogen` MEDIUM -> `3.6-flash` -> `3-flash-preview` MINIMAL -> `2.5-flash` -> `3.8-flash`), per-model timeouts (`35s` Hydrogen, `15s` `3-flash-preview`, `10s` `3.6-flash`), error-class cooldowns, `localStorage` persistence, math fallback & UI model telemetry badges | [geminiService.js](./src/services/geminiService.js), [geminiChatService.js](./src/services/geminiChatService.js), [geminiExplanationService.js](./src/services/geminiExplanationService.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx), [AIChat.jsx](./src/components/AIChat.jsx) |
 | **Letterboxd CSV Hardening** | Pure testable pipeline prioritizing `Watched Date` (`"watched"`) over `Date` (`"logged"`), rejecting invalid calendar rollovers (`2026-02-30`) & future dates (`> now + 24h`), suppressing clustered bulk dates, and deduplicating diary rewatches | [csvImport.js](./src/services/csvImport.js) |
 | **Evaluation & Verification** | Rolling temporal cross-validation (`evaluateRankerRolling`), CLI harness `scripts/run_eval.mjs`, and **99 / 99** unit tests across 12 test suites (`npm test`) | [evalHarness.js](./src/services/evalHarness.js), [tests/](./tests) |
 
@@ -102,7 +102,7 @@ flowchart TD
 
     subgraph Phase4 ["4. Calibrated Ranker + Reserve + H1 Gemini Cascade & Smart Cache"]
         CP --> RNK["Logistic Ranker: Pool-Relative collabSim + 0.20x Metadata Damping\nTop 15 with 2 Recent-Release Reserve Slots (computeReserveQualityScore)\nLocked 50-99% matchScore + Deterministic matchReasons Badges"]
-        RNK --> GEM["H1 Cascade: gemini-4-hydrogen (HIGH, 35s)\n-> 3.5-flash-lite -> 2.5-flash -> 3.8-flash\n(Error-Class Cooldowns, Persisted Model, Math Fallback)"]
+        RNK --> GEM["H1 Cascade: gemini-4-hydrogen (HIGH, 35s)\n-> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash\n(Error-Class Cooldowns, Persisted Model, Math Fallback)"]
         GEM --> NORM["Regex JSON Sanitizer + Locked Score Merger"]
         NORM --> CACHE["500KB LocalStorage LRU Cache\n(Master ID Collision Guard & 24h TTL)"]
         CACHE --> UI["Curated Discovery Showcase & Trailer Portal"]
@@ -453,20 +453,21 @@ export function sanitizeAndParseJSON(rawText) {
 ### 7.4 H1 Resilient Cascade Architecture, Thinking Config, Timeouts, Cooldowns & Fallbacks
 Following empirical free-tier testing (where `gemini-4-argon` returned `HTTP 429` with `limit: 0` and `gemini-3.8-flash` timed out after `8000ms`), CinemaVault v4.2 runs an **H1 Resilient Cascade** in `executeCascade` (`src/services/geminiService.js`, shared by `geminiChatService.js` and `geminiExplanationService.js`):
 
-1. **Dual-Intent Cascades (`src/services/geminiService.js:20-32`)**:
+1. **Dual-Intent Cascades (`src/services/geminiService.js:20-34`)**:
    - **`CURATION_MODEL_CASCADE`** (re-ranking & deep explanations):
-     `["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-3.8-flash"]`
+     `["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]`
    - **`FAST_INTERACTIVE_CASCADE`** (concierge chat & mood query parsing):
-     `["gemini-3.5-flash-lite", "gemini-4-hydrogen", "gemini-2.5-flash", "gemini-3.8-flash"]`
+     `["gemini-3.5-flash-lite", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]`
 
 2. **Model-Aware `thinkingConfig` & Request Sanitization (`getModelThinkingConfig`)**:
    - `gemini-4-hydrogen`: `{ thinkingLevel: "HIGH" }` in curation mode and `{ thinkingLevel: "MEDIUM" }` in fast mode (**never `LOW`**), and deletes `temperature`, `frequencyPenalty`, `presencePenalty`, and multi-candidate fields that cause HTTP 400 errors.
-   - `gemini-3.8-flash` / `gemini-3.5-flash-lite` / `gemini-3.5-flash`: `{ thinkingLevel: "LOW" }` (`3.5-flash-lite` rejects `thinkingBudget: 0`).
+   - `gemini-3-flash-preview`: `{ thinkingLevel: "LOW" }` in curation mode (`8,532 ms` observed on 15-movie JSON schema) and `{ thinkingLevel: "MINIMAL" }` in fast mode (`2,116 ms` observed).
+   - `gemini-3.6-flash` / `gemini-3.8-flash` / `gemini-3.5-flash-lite` / `gemini-3.5-flash`: `{ thinkingLevel: "LOW" }` (`3.5-flash-lite` rejects `thinkingBudget: 0`; `3.6-flash` completed 15-movie schema in `3,057 ms`).
    - `gemini-2.5-flash`: `{ thinkingBudget: 0 }`.
 
 3. **AbortController Timeouts & Client Timeout Alignment (`HYDROGEN_TIMEOUT_MS = 35000`)**:
    - SDK client initialized with `httpOptions: { timeout: 35000 }` across `geminiService.js`, `geminiChatService.js`, and `geminiExplanationService.js`.
-   - Per-attempt `AbortController` timers enforce **`35,000 ms`** for `gemini-4-hydrogen` (accommodating observed ~25s Free-Tier `HIGH` reasoning calls without premature abort), `5,000 ms` for `gemini-3.8-flash`, and `8,000 ms` for remaining flash models.
+   - Per-attempt `AbortController` timers enforce **`35,000 ms`** for `gemini-4-hydrogen`, **`15,000 ms`** for `gemini-3-flash-preview`, **`10,000 ms`** for `gemini-3.6-flash`, **`5,000 ms`** for `gemini-3.8-flash`, and **`8,000 ms`** for remaining flash models.
 
 4. **H1 Error Taxonomy & Cooldown Backoff (`classifyGeminiError` + `modelCooldowns`)**:
    Instead of permanently banning a model for an entire session on one error, failures enter temporary cooldown windows:
@@ -702,8 +703,8 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
 ### `executeCascade` Resiliency Core (`src/services/geminiService.js`)
 Key v4.2 guarantees inside `executeCascade(ai, cascade, requestParams, options)`:
 - Filters out cooling-down models (`isModelInCooldown`), prioritizing `sessionCurationModel` / `sessionFastModel` -> persisted `localStorage` model (`30 min` TTL) -> remaining healthy models; if all are cooling down, probes only the soonest-expiring model.
-- Applies `getModelThinkingConfig` (`HIGH`/`MEDIUM` on Hydrogen, `LOW` on 3.8/3.5, `thinkingBudget: 0` on 2.5) and strips `temperature` / `frequencyPenalty` / `presencePenalty` safely.
-- Races `ai.models.generateContent` against an `AbortController` timeout (`35,000 ms` Hydrogen, `5,000 ms` `3.8-flash`, `8,000 ms` flash), records token telemetry via `spendTracker.record`, and logs H1 error-class cooldowns on failure before returning `null` for clean deterministic fallback.
+- Applies `getModelThinkingConfig` (`HIGH`/`MEDIUM` on Hydrogen, `MINIMAL`/`LOW` on 3-flash, `LOW` on 3.8/3.6/3.5, `thinkingBudget: 0` on 2.5) and strips `temperature` / `frequencyPenalty` / `presencePenalty` safely.
+- Races `ai.models.generateContent` against an `AbortController` timeout (`35,000 ms` Hydrogen, `15,000 ms` `3-flash-preview`, `10,000 ms` `3.6-flash`, `5,000 ms` `3.8-flash`, `8,000 ms` flash), records token telemetry via `spendTracker.record`, and logs H1 error-class cooldowns on failure before returning `null` for clean deterministic fallback.
 
 ### Unit & Integration Test Verification Matrix (`npm test` -> `99 / 99` Passing)
 | Test Suite (`tests/*.test.js`) | Verified Coverage |

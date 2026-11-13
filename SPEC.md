@@ -354,7 +354,7 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
     - AI explanation with 2px brass left-border ("Because you liked...").
     - Actions: `＋ Vault` secondary-sm, `Details` ghost-sm, `⋯` menu.
     - Mobile breakpoint (<640px): 96px poster + text, rank as micro-label above title, 3-line clamped explanation, icon-only actions.
-  - Controls: `Mood` single-select `Menu` (clean text labels without emojis), `Sort` `Menu`, stale hash refresh quiet button, and `ModelUsageBadge` showing the active/cached Gemini model (`gemini-4-hydrogen`, `gemini-3.5-flash-lite`, `gemini-2.5-flash`, `gemini-3.8-flash`) or `Local Ranker (Offline Fallback)`.
+  - Controls: `Mood` single-select `Menu` (clean text labels without emojis), `Sort` `Menu`, stale hash refresh quiet button, and `ModelUsageBadge` showing the active/cached Gemini model (`gemini-4-hydrogen`, `gemini-3.5-flash-lite`, `gemini-3.6-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-3.8-flash`) or `Local Ranker (Offline Fallback)`.
   - Taste profile: Collapsed `Accordion` ("Why these picks?") with flat brass-on-surface bars.
 - **[MODIFY] [src/components/AIChat.jsx](./src/components/AIChat.jsx)**:
   - Centered 720px column. User bubbles in `--surface-2`, assistant in `--surface-1` with hairline border, active model status bar (`.chat-model-bar`), and per-reply model pill.

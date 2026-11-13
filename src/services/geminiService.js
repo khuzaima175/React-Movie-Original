@@ -20,6 +20,8 @@ import {
 export const CURATION_MODEL_CASCADE = [
     "gemini-4-hydrogen",
     "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3-flash-preview",
     "gemini-2.5-flash",
     "gemini-3.8-flash"
 ];
@@ -27,6 +29,8 @@ export const CURATION_MODEL_CASCADE = [
 export const FAST_INTERACTIVE_CASCADE = [
     "gemini-3.5-flash-lite",
     "gemini-4-hydrogen",
+    "gemini-3.6-flash",
+    "gemini-3-flash-preview",
     "gemini-2.5-flash",
     "gemini-3.8-flash"
 ];
@@ -34,6 +38,8 @@ export const FAST_INTERACTIVE_CASCADE = [
 export const MODEL_DISPLAY_NAMES = {
     "gemini-4-hydrogen": "Gemini 4 Hydrogen",
     "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+    "gemini-3.6-flash": "Gemini 3.6 Flash",
+    "gemini-3-flash-preview": "Gemini 3 Flash Preview",
     "gemini-3.5-flash": "Gemini 3.5 Flash",
     "gemini-2.5-flash": "Gemini 2.5 Flash",
     "gemini-3.8-flash": "Gemini 3.8 Flash"
@@ -56,7 +62,8 @@ const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
 /**
  * Returns model-specific thinking configuration per Google API spec.
  * gemini-4-hydrogen uses HIGH in curation mode and MEDIUM in fast/interactive mode (never LOW).
- * 3.8-flash and 3.5 models use thinkingLevel: "LOW"; 2.5-flash supports thinkingBudget: 0.
+ * gemini-3-flash-preview uses LOW in curation mode and MINIMAL in fast chat mode.
+ * 3.8-flash, 3.6-flash, and 3.5 models use thinkingLevel: "LOW"; 2.5-flash supports thinkingBudget: 0.
  */
 export function getModelThinkingConfig(modelName = "", cascadeType = "curation") {
     const m = String(modelName || "").toLowerCase();
@@ -64,7 +71,15 @@ export function getModelThinkingConfig(modelName = "", cascadeType = "curation")
     if (m.includes("gemini-4-hydrogen")) {
         return { thinkingLevel: isFast ? "MEDIUM" : "HIGH" };
     }
-    if (m.includes("gemini-3.8-flash") || m.includes("gemini-3.5-flash-lite") || m.includes("gemini-3.5-flash")) {
+    if (m.includes("gemini-3-flash")) {
+        return { thinkingLevel: isFast ? "MINIMAL" : "LOW" };
+    }
+    if (
+        m.includes("gemini-3.8-flash") ||
+        m.includes("gemini-3.6-flash") ||
+        m.includes("gemini-3.5-flash-lite") ||
+        m.includes("gemini-3.5-flash")
+    ) {
         return { thinkingLevel: "LOW" };
     }
     if (m.includes("gemini-2.5-flash")) {
@@ -83,6 +98,8 @@ export const HYDROGEN_TIMEOUT_MS = 35000;
 export function getDefaultAttemptTimeoutMs(model = "") {
     const lowerModel = String(model || "").toLowerCase();
     if (lowerModel.includes("gemini-4-hydrogen")) return HYDROGEN_TIMEOUT_MS;
+    if (lowerModel.includes("gemini-3-flash")) return 15000;
+    if (lowerModel.includes("gemini-3.6-flash")) return 10000;
     if (lowerModel.includes("gemini-3.8-flash")) return 5000;
     return 8000;
 }
