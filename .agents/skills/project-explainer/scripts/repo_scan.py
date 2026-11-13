@@ -52,8 +52,9 @@ CODE_EXTS = {
 
 TEST_FILE_EXTS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
-    ".vue", ".svelte", ".go", ".rs", ".java", ".kt", ".swift", ".cs",
-    ".rb", ".php", ".sol",
+    ".vue", ".svelte", ".go", ".rs", ".java", ".kt", ".kts", ".swift",
+    ".dart", ".scala", ".c", ".cpp", ".cs", ".rb", ".php", ".sol",
+    ".sh", ".ps1", ".r",
 }
 
 TEST_DIR_PARTS = {"test", "tests", "__tests__", "spec", "e2e"}
@@ -235,7 +236,7 @@ def inspect_git_history(root: Path, max_commits: int = 8, churn_window: int = 20
     if churn_res and churn_res.returncode == 0:
         for line in churn_res.stdout.splitlines():
             cleaned = line.strip()
-            if cleaned:
+            if cleaned and not any(part in IGNORE_DIRS for part in Path(cleaned).parts):
                 counts[cleaned] += 1
 
     top_churn = [
@@ -356,7 +357,7 @@ def scan_repo(root: Path, max_files: int = 2500, include_git: bool = True) -> di
                     result["test_files"].append(rel_path)
                     is_test = True
 
-            if ENTRYPOINT_PATTERNS.match(fname) and len(rel_dir.parts) <= 3:
+            if ENTRYPOINT_PATTERNS.match(fname) and len(rel_dir.parts) <= 3 and not is_test:
                 result["entrypoints"].append(rel_path)
 
             if suffix in CODE_EXTS and not is_test:

@@ -128,6 +128,43 @@ class TestRepoScan(unittest.TestCase):
             self.assertEqual(result["git"]["top_churn"][0]["path"], "app.py")
             self.assertEqual(result["git"]["top_churn"][0]["touches"], 2)
 
+    def test_test_files_excluded_from_entrypoints_and_cover_cpp_shell(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "src" / "index.ts").write_text("export {}\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests" / "server.js").write_text("// test server helper\n", encoding="utf-8")
+            (root / "tests" / "test_parser.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+            (root / "tests" / "run_tests.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+            result = repo_scan.scan_repo(root, include_git=False)
+            self.assertNotIn("tests/server.js", result["entrypoints"])
+            self.assertIn("tests/server.js", result["test_files"])
+            self.assertIn("tests/test_parser.cpp", result["test_files"])
+            self.assertIn("tests/run_tests.sh", result["test_files"])
+            self.assertEqual(result["total_code_files"], 1)
+
+    def test_git_churn_ignores_ignored_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Tester"], cwd=root, check=True, capture_output=True)
+            (root / "src").mkdir()
+            (root / ".agents" / "skills").mkdir(parents=True)
+            for i in range(3):
+                (root / ".agents" / "skills" / "SKILL.md").write_text(f"v{i}\n", encoding="utf-8")
+                if i < 2:
+                    (root / "src" / "app.py").write_text(f"v{i}\n", encoding="utf-8")
+                subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+                subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=root, check=True, capture_output=True)
+
+            result = repo_scan.scan_repo(root, include_git=True)
+            churn_paths = [item["path"] for item in result["git"]["top_churn"]]
+            self.assertNotIn(".agents/skills/SKILL.md", churn_paths)
+            self.assertEqual(churn_paths, ["src/app.py"])
+
 
 if __name__ == "__main__":
     unittest.main()
