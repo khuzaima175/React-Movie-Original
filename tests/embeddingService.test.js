@@ -243,3 +243,83 @@ test("buildRepulsionMapFromIndex penalizes neighbors of disliked films without c
   const simMap = buildCollabSimMapFromIndex(weightedRatings, index);
   assert.ok(simMap.get(10) > 0.9, `expected collabSim(10) > 0.9, got ${simMap.get(10)}`);
 });
+
+test("relative weight cutoff scales uniformly by 1e-8 without losing personas, embedding, or repulsion", async () => {
+  const { computeUserPersonas, buildRepulsionMapFromIndex } = await import("../src/services/embeddingService.js");
+  const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 2, vector: [0.98, 0.1, 0, 0] },
+    { tmdbId: 3, vector: [0, 1, 0, 0] },
+    { tmdbId: 4, vector: [0.1, 0.98, 0, 0] },
+    { tmdbId: 5, vector: [0, 0, 1, 0] },
+    { tmdbId: 10, vector: [0.99, 0.05, 0, 0] },
+    { tmdbId: 20, vector: [0.05, 0.05, 0.99, 0] }
+  ]));
+
+  const baseRatings = [
+    { movie: { tmdbId: 1 }, rating: 9, weight: 1.4 },
+    { movie: { tmdbId: 2 }, rating: 9, weight: 1.1 },
+    { movie: { tmdbId: 3 }, rating: 9, weight: 1.2 },
+    { movie: { tmdbId: 4 }, rating: 8, weight: 0.9 },
+    { movie: { tmdbId: 5 }, rating: 2, weight: -1.3 }
+  ];
+  const scaledRatings = baseRatings.map(r => ({ ...r, weight: r.weight * 1e-8 }));
+
+  const basePersonas = computeUserPersonas(baseRatings, index);
+  const scaledPersonas = computeUserPersonas(scaledRatings, index);
+  assert.equal(basePersonas.length, scaledPersonas.length);
+  assert.ok(basePersonas.length >= 2);
+  for (let k = 0; k < basePersonas.length; k++) {
+    for (let d = 0; d < 4; d++) {
+      assert.ok(Math.abs(basePersonas[k][d] - scaledPersonas[k][d]) < 1e-5);
+    }
+  }
+
+  const baseEmb = computeUserEmbedding(baseRatings, index);
+  const scaledEmb = computeUserEmbedding(scaledRatings, index);
+  assert.ok(scaledEmb instanceof Float32Array);
+  for (let d = 0; d < 4; d++) {
+    assert.ok(Math.abs(baseEmb[d] - scaledEmb[d]) < 1e-5);
+  }
+
+  const scaledSim = buildCollabSimMapFromIndex(scaledRatings, index);
+  assert.ok(scaledSim.get(10) > 0.9);
+  const scaledRep = buildRepulsionMapFromIndex(scaledRatings, index, { threshold: 0.35 });
+  assert.ok(scaledRep.get(20) > 0);
+});
+
+test("relative weight cutoff preserves normal-vault behavior while pruning < 1e-6 * maxAbsW and handling all-zero weights", async () => {
+  const { computeUserPersonas, buildRepulsionMapFromIndex } = await import("../src/services/embeddingService.js");
+  const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 2, vector: [0.9, 0.435, 0, 0] },
+    { tmdbId: 3, vector: [0, 1, 0, 0] },
+    { tmdbId: 4, vector: [0, 0, 1, 0] }
+  ]));
+
+  // Normal vault: maxAbsW = 1.0, active entries = {1, 3}, tiny entry <= 1e-6 * 1.0 pruned identically to old 1e-6 logic
+  const normalWithTiny = [
+    { movie: { tmdbId: 1 }, rating: 9, weight: 1.0 },
+    { movie: { tmdbId: 3 }, rating: 9, weight: 0.8 },
+    { movie: { tmdbId: 4 }, rating: 9, weight: 5e-7 }
+  ];
+  const normalActiveOnly = normalWithTiny.slice(0, 2);
+  const pWithTiny = computeUserPersonas(normalWithTiny, index);
+  const pActiveOnly = computeUserPersonas(normalActiveOnly, index);
+  assert.equal(pWithTiny.length, pActiveOnly.length);
+  for (let k = 0; k < pWithTiny.length; k++) {
+    for (let d = 0; d < 4; d++) {
+      assert.ok(Math.abs(pWithTiny[k][d] - pActiveOnly[k][d]) < 1e-6);
+    }
+  }
+
+  // All-zero weights must return empty everywhere
+  const zeroRatings = [
+    { movie: { tmdbId: 1 }, rating: 8, weight: 0 },
+    { movie: { tmdbId: 3 }, rating: 3, weight: -0 }
+  ];
+  assert.deepEqual(computeUserPersonas(zeroRatings, index), []);
+  assert.equal(computeUserEmbedding(zeroRatings, index), null);
+  assert.equal(buildCollabSimMapFromIndex(zeroRatings, index).size, 0);
+  assert.equal(buildRepulsionMapFromIndex(zeroRatings, index).size, 0);
+});
