@@ -87,6 +87,25 @@ class TestSkillContract(unittest.TestCase):
         if len(dc_text.splitlines()) > 100:
             self.assertIn("## Contents", dc_text)
 
+    def test_defense_quiz_and_final_pack_upgrades(self):
+        fd_text = (REFS_DIR / "feature-defense.md").read_text(encoding="utf-8")
+        self.assertIn("feature <name> challenge", fd_text)
+        self.assertNotIn("CinemaVault", fd_text)
+        self.assertIn("FeedRanker", fd_text)
+
+        qd_text = (REFS_DIR / "quiz-and-defense.md").read_text(encoding="utf-8")
+        self.assertIn("Predict the Output", qd_text)
+        self.assertIn("Session Ledger", qd_text)
+        if len(qd_text.splitlines()) > 100:
+            self.assertIn("## Contents", qd_text)
+
+        fp_text = (REFS_DIR / "final-pack.md").read_text(encoding="utf-8")
+        self.assertIn("M0 trace anchor", fp_text)
+        self.assertIn("Session Ledger", fp_text)
+        self.assertIn("❓", fp_text)
+        self.assertIn("[Needs approval]", fp_text)
+        self.assertIn("OWNERSHIP_GUIDE.md", fp_text)
+
 
 if __name__ == "__main__":
     unittest.main()

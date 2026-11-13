@@ -2,6 +2,11 @@
 
 Load this file whenever the user invokes `quiz`, `quiz all`, `defense`, or `defense guide`.
 
+## Contents
+- 1. Quiz Protocol (`quiz` / `quiz all`)
+- 2. Phase B: Defense Mode (`defense` / `defense guide`)
+- 3. Additions to Defense at `standard` and `deep` Depth
+
 ---
 
 ## 1. Quiz Protocol (`quiz` / `quiz all`)
@@ -21,13 +26,16 @@ Load this file whenever the user invokes `quiz`, `quiz all`, `defense`, or `defe
 
 ### The 3 Quiz Dimensions
 - **Q1 — Purpose:** “In your own words, what does this module do, and what problem would the system have without it?”
-- **Q2 — Logic:** “Walk me through how it works at a high level: what goes in, what are the main steps, and what comes out?”
+- **Q2 — Logic (or Predict the Output):**
+  - *Standard:* “Walk me through how it works at a high level: what goes in, what are the main steps, and what comes out?”
+  - *Predict the Output (use for math, ranking, or stateful modules):* “Given concrete input `[realistic edge/normal example X]`, what exact output or state change does this module produce, and why?”
 - **Q3 — Impact & Change:** “Suppose we needed to change `[specific realistic behavior X]`. Which part of this module would you edit, and what else might break?”
   *(Note: Only require exact file/function names if the session is in `code` or `deep` mode; otherwise accept the correct logical step or component.)*
 
 ### Quiz Completion
-After grading Q3, state a 1-line module ownership result (`✅ Ready to defend`, `⚠️ Review the catch`, or `❌ Re-read Brief Card`) to track for the Final Ownership Pack, then show the menu:
-`continue` · `defense` · `deeper` · `code`
+After grading Q3, output a 1-line **Session Ledger** update alongside the menu so `Carry-Forward` and `finish` record real confidence:
+`Session Ledger update: M# · Quiz ✅ Ready to defend | ⚠️ Review the catch | ❌ Re-read Brief Card · Weak spot: [topic or "none"]`
+Menu: `continue` · `defense` · `deeper` · `code`
 
 ---
 
@@ -53,8 +61,9 @@ The four questions are one each of: **How** ("walk me through how you built it")
 ### After Question 4 is Graded
 Output:
 1. **Top Weak Spots:** The 1 to 3 mismatches, unverified guarantees, security gaps, or dependency risks most likely to get caught, plus the honest verbal framing or code fix for each.
-2. **Standard/Deep Additions** (if `depth` is `standard` or `deep`—see below).
-3. **Handoff Menu:** `continue` · `deeper` · `simpler` · `quiz`
+2. **Session Ledger update:** `Session Ledger update: M# · Defense ✅ Defended | ⚠️ Partial | ❌ Weak · Weak spot: [topic or "none"]`
+3. **Standard/Deep Additions** (if `depth` is `standard` or `deep`—see below).
+4. **Handoff Menu:** `continue` · `deeper` · `simpler` · `quiz`
 
 ### Passive Option (`defense guide`)
 Only when the user explicitly requests `defense guide`, output everything in one turn without waiting:
@@ -63,7 +72,9 @@ Only when the user explicitly requests `defense guide`, output everything in one
 3. **Top weak spots** + honest framing/fix.
 4. **Standard/Deep Additions** (if applicable) + Handoff Menu.
 
-### Additions to Defense at `standard` and `deep` Depth
+---
+
+## 3. Additions to Defense at `standard` and `deep` Depth
 Append after Question 4 (or inside `defense guide`):
 - **Decision Log (2 to 4 choices):** Choice made → Code location → Status (`Documented` / `Inferred` / `Likely accidental`) → Standard alternative → Tradeoff → Exact break condition.
 - **Follow-Up Pressure:** 2 to 3 “If they push further…” follow-up questions and short counters.
