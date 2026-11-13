@@ -383,3 +383,43 @@ test("buildBucketAParams includes all 3 watchlistGenreIds matching extractTasteP
   );
   assert.equal(params.get("with_genres"), "878|18|80|9648");
 });
+
+test("enrichCandidatePoolMetadata hydrates keywords, castIds, crewPersonId, and streamProviders on Buckets A-D while surviving partial fetch failures", async () => {
+  const { enrichCandidatePoolMetadata } = await import("../src/services/tmdbService.js");
+  const pool = [
+    { id: 101, tmdbId: 101, title: "Bucket A Film", genre_ids: [878], sourceBucket: "Bucket A: Semantic", providerMatchedByQuery: true },
+    { id: 102, tmdbId: 102, title: "Failing Detail Film", genre_ids: [18], sourceBucket: "D", providerMatchedByQuery: false },
+    { id: 103, tmdbId: 103, title: "Already Rich Film", tmdbKeywords: [77], castIds: [8], crewPersonId: 9, sourceBucket: "Bucket E (Embedding)" }
+  ];
+
+  let fetchCount = 0;
+  const enriched = await enrichCandidatePoolMetadata(pool, {
+    maxEnrich: 10,
+    concurrency: 2,
+    detailFetcher: async (id) => {
+      fetchCount++;
+      if (id === 102) throw new Error("429 Too Many Requests");
+      return {
+        tmdbId: id,
+        director: "Denis Villeneuve",
+        crewPersonId: 137427,
+        castIds: [5292, 90633],
+        tmdbKeywords: [4565, 9882],
+        keywordNames: ["dystopia", "space"],
+        tmdbGenreIds: [878, 18],
+        streamProviders: [{ id: 8, name: "Netflix" }],
+        runtimeMinutes: 163
+      };
+    }
+  });
+
+  assert.equal(enriched.length, 3, "failed detail lookups must never drop candidates");
+  assert.equal(fetchCount, 2, "must skip candidates already carrying tmdbKeywords and castIds");
+  assert.deepEqual(enriched[0].tmdbKeywords, [4565, 9882]);
+  assert.deepEqual(enriched[0].castIds, [5292, 90633]);
+  assert.equal(enriched[0].crewPersonId, 137427);
+  assert.equal(enriched[0].sourceBucket, "Bucket A: Semantic", "must preserve sourceBucket");
+  assert.equal(enriched[0].providerMatchedByQuery, true, "must preserve providerMatchedByQuery");
+  assert.equal(enriched[1].id, 102, "unhydrated candidate remains intact");
+  assert.deepEqual(enriched[2].tmdbKeywords, [77], "already-enriched candidate preserved");
+});

@@ -843,6 +843,7 @@ function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQuery = fa
     vote_count: m.vote_count || 0,
     popularity: m.popularity || 0,
     genre_ids: m.genre_ids || [],
+    tmdbGenreIds: m.genre_ids || [],
     genre_names: genreNames,
     genre: genreNames.join(", ") || "Cinema",
     poster_path: m.poster_path,
@@ -899,7 +900,7 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
       append_to_response: "videos,credits,external_ids,keywords,watch/providers,release_dates",
       language: "en-US"
     });
-    if (!data) return null;
+    if (!data || !data.id) return null;
 
     const directorObj = data.credits?.crew?.find(c => c.job === "Director");
     const director = directorObj?.name || "Unknown";
@@ -1159,6 +1160,82 @@ export async function bridgeTmdbToOmdb(tmdbMovie, userRegion = "US") {
 
 const embeddingDetailCache = new Map();
 
+async function getCachedTmdbDetails(id, userRegion = "US", detailFetcher = null) {
+  if (!id) return null;
+  if (typeof detailFetcher === "function") {
+    return await detailFetcher(id, userRegion);
+  }
+  const cacheKey = `${userRegion}:${id}`;
+  if (embeddingDetailCache.has(cacheKey)) {
+    return embeddingDetailCache.get(cacheKey);
+  }
+  const details = await fetchTmdbMovieDetails(id, userRegion);
+  if (details) embeddingDetailCache.set(cacheKey, details);
+  return details;
+}
+
+/**
+ * Concurrency-limited batch metadata enrichment for Bucket A-D candidates so the
+ * ranker receives real tmdbKeywords, castIds, crewPersonId, and streamProviders.
+ */
+export async function enrichCandidatePoolMetadata(candidates = [], options = {}) {
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
+
+  const maxEnrich = Math.max(0, options.maxEnrich ?? 45);
+  const concurrency = Math.max(1, options.concurrency ?? 6);
+  const userRegion = options.userRegion || "US";
+  const detailFetcher = typeof options.detailFetcher === "function" ? options.detailFetcher : null;
+
+  const out = candidates.map(c => (c ? { ...c } : c));
+  const pendingIndices = [];
+  for (let i = 0; i < out.length && pendingIndices.length < maxEnrich; i++) {
+    const c = out[i];
+    if (!c) continue;
+    const tmdbId = Number(c.tmdbId ?? c.id ?? 0);
+    if (!tmdbId) continue;
+    const needsEnrich = !Array.isArray(c.tmdbKeywords) || !Array.isArray(c.castIds);
+    if (needsEnrich) {
+      pendingIndices.push({ idx: i, tmdbId });
+    }
+  }
+
+  if (pendingIndices.length === 0) return out;
+
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const slot = cursor++;
+      if (slot >= pendingIndices.length) return;
+      const { idx, tmdbId } = pendingIndices[slot];
+      try {
+        const details = await getCachedTmdbDetails(tmdbId, userRegion, detailFetcher);
+        if (!details) continue;
+        const existing = out[idx];
+        out[idx] = {
+          ...existing,
+          director: details.director || existing.director,
+          crewPersonId: details.crewPersonId ?? existing.crewPersonId ?? null,
+          castIds: Array.isArray(details.castIds) ? details.castIds : (existing.castIds || []),
+          tmdbKeywords: Array.isArray(details.tmdbKeywords) ? details.tmdbKeywords : (existing.tmdbKeywords || []),
+          keywordNames: Array.isArray(details.keywordNames) ? details.keywordNames : (existing.keywordNames || []),
+          tmdbGenreIds: Array.isArray(details.tmdbGenreIds) ? details.tmdbGenreIds : (existing.tmdbGenreIds || existing.genre_ids || []),
+          streamProviders: Array.isArray(details.streamProviders) ? details.streamProviders : (existing.streamProviders || []),
+          runtimeMinutes: details.runtimeMinutes ?? existing.runtimeMinutes ?? null,
+          imdbID: details.imdbID ?? existing.imdbID ?? null,
+          sourceBucket: existing.sourceBucket,
+          providerMatchedByQuery: existing.providerMatchedByQuery,
+          collabSim: existing.collabSim
+        };
+      } catch (_) {
+        // Keep unhydrated candidate intact when detail lookup fails
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, pendingIndices.length) }, worker));
+  return out;
+}
+
 /**
  * Enriches top embedding-retrieved neighbor IDs with TMDB metadata (concurrency-limited, memory-cached)
  * and tags them as "Bucket E (Embedding)" so they enter the candidate pool with full features.
@@ -1175,15 +1252,7 @@ export async function fetchEmbeddingCandidates(
   const maxNeighbors = options.maxNeighbors ?? 30;
   const concurrency = Math.max(1, options.concurrency ?? 6);
   const userRegion = options.userRegion || "US";
-  const detailFetcher =
-    typeof options.detailFetcher === "function"
-      ? options.detailFetcher
-      : async (id) => {
-          if (embeddingDetailCache.has(id)) return embeddingDetailCache.get(id);
-          const d = await fetchTmdbMovieDetails(id, userRegion);
-          if (d) embeddingDetailCache.set(id, d);
-          return d;
-        };
+  const customFetcher = typeof options.detailFetcher === "function" ? options.detailFetcher : null;
 
   const seenIds = new Set([
     ...(watchedMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
@@ -1212,7 +1281,7 @@ export async function fetchEmbeddingCandidates(
       if (idx >= unseen.length) return;
       const item = unseen[idx];
       try {
-        const details = await detailFetcher(item.tmdbId, userRegion);
+        const details = await getCachedTmdbDetails(item.tmdbId, userRegion, customFetcher);
         if (!details) continue;
         results[idx] = {
           id: details.tmdbId || item.tmdbId,

@@ -11,6 +11,7 @@ import {
     extractTasteProfile,
     fetchCandidatePool,
     fetchEmbeddingCandidates,
+    enrichCandidatePoolMetadata,
     getRecentReleaseDateFloor,
     getFallbackPoster as getTmdbFallbackPoster
 } from "./tmdbService.js";
@@ -1475,6 +1476,19 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     if (injected.length > 0) {
                         mergedCandidates = [...candidates, ...injected];
                     }
+                }
+
+                const shouldEnrich =
+                    options.enrichCandidates !== false &&
+                    (typeof options.detailFetcher === "function" ||
+                        (hasTmdbBackend(options) && !hasInjectedCandidates));
+                if (shouldEnrich) {
+                    mergedCandidates = await enrichCandidatePoolMetadata(mergedCandidates, {
+                        userRegion,
+                        detailFetcher: options.detailFetcher,
+                        maxEnrich: options.maxEnrich,
+                        concurrency: options.enrichConcurrency
+                    });
                 }
 
                 onProgress?.("AI Oracle re-ranking candidates against taste DNA...");
