@@ -9,6 +9,6 @@
   "castMatch": 0.5,
   "bayesianRatingNorm": 1.2,
   "noveltyBonus": 0.35,
-  "negativeKeywordPenalty": -2.0,
+  "negativeKeywordPenalty": -0.5,
   "providerMatch": 0.25
 }
