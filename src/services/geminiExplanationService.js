@@ -11,7 +11,7 @@ export const getRecommendationExplanation = async (movieTitle, userTasteProfile,
         throw new Error("Gemini API Key is missing.");
     }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 12000 } });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 35000 } });
 
     // Get a snapshot of user's high-rated movies (8+)
     const favorites = (watchedMovies || [])

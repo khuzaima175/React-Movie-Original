@@ -17,31 +17,35 @@ import {
 } from "./embeddingService.js";
 
 export const CURATION_MODEL_CASCADE = [
-    "gemini-4-argon",
-    "gemini-3.8-flash",
+    "gemini-4-hydrogen",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-flash"
+    "gemini-2.5-flash",
+    "gemini-3.8-flash"
 ];
 
 export const FAST_INTERACTIVE_CASCADE = [
-    "gemini-3.8-flash",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-flash"
+    "gemini-4-hydrogen",
+    "gemini-2.5-flash",
+    "gemini-3.8-flash"
 ];
 
 export const MODELS = CURATION_MODEL_CASCADE;
-const ARGON_MODEL = "gemini-4-argon";
 const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
 const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
 
 /**
  * Returns model-specific thinking configuration per Google API spec.
- * gemini-4-argon, 3.8-flash, and 3.5 models require thinkingLevel: "LOW" (bypasses 10-15s thinking pause, prevents 400s).
- * gemini-2.5-flash supports thinkingBudget: 0 for sub-second execution.
+ * gemini-4-hydrogen uses HIGH in curation mode and MEDIUM in fast/interactive mode (never LOW).
+ * 3.8-flash and 3.5 models use thinkingLevel: "LOW"; 2.5-flash supports thinkingBudget: 0.
  */
-export function getModelThinkingConfig(modelName = "") {
+export function getModelThinkingConfig(modelName = "", cascadeType = "curation") {
     const m = String(modelName || "").toLowerCase();
-    if (m.includes("gemini-4-argon") || m.includes("gemini-3.8-flash") || m.includes("gemini-3.5-flash-lite") || m.includes("gemini-3.5-flash")) {
+    const isFast = String(cascadeType || "curation").toLowerCase() === "fast";
+    if (m.includes("gemini-4-hydrogen")) {
+        return { thinkingLevel: isFast ? "MEDIUM" : "HIGH" };
+    }
+    if (m.includes("gemini-3.8-flash") || m.includes("gemini-3.5-flash-lite") || m.includes("gemini-3.5-flash")) {
         return { thinkingLevel: "LOW" };
     }
     if (m.includes("gemini-2.5-flash")) {
@@ -50,92 +54,391 @@ export function getModelThinkingConfig(modelName = "") {
     return undefined;
 }
 
+export const WORKING_MODEL_TTL_MS = 30 * 60 * 1000;
+export const QUOTA_COOLDOWN_MS = 120_000;
+export const DAILY_QUOTA_COOLDOWN_MS = 600_000;
+export const TRANSIENT_COOLDOWN_MS = 30_000;
+export const FATAL_COOLDOWN_MS = 1_800_000;
+export const HYDROGEN_TIMEOUT_MS = 35000;
+
+export function getDefaultAttemptTimeoutMs(model = "") {
+    const lowerModel = String(model || "").toLowerCase();
+    if (lowerModel.includes("gemini-4-hydrogen")) return HYDROGEN_TIMEOUT_MS;
+    if (lowerModel.includes("gemini-3.8-flash")) return 5000;
+    return 8000;
+}
+
+export function getWorkingModelStorageKey(cascadeType = "curation") {
+    return `cinemavault_working_model_${cascadeType}_v1`;
+}
+
 let sessionCurationModel = null;
 let sessionFastModel = null;
-const sessionDegradedModels = new Set();
+export const modelCooldowns = new Map();
+let clockFn = () => Date.now();
 
-export const resetSessionWorkingModels = () => {
+export function setClockForTests(fn) {
+    clockFn = typeof fn === "function" ? fn : () => Date.now();
+}
+
+function resolveLocalStorage(options = {}) {
+    if (options && "storage" in options) {
+        return options.storage || null;
+    }
+    try {
+        if (typeof localStorage !== "undefined" && localStorage) {
+            return localStorage;
+        }
+    } catch (_) {}
+    return null;
+}
+
+function parseDurationStringMs(val) {
+    if (val === null || val === undefined) return null;
+    if (typeof val === "object" && ("seconds" in val || "nanos" in val)) {
+        const ms = Number(val.seconds || 0) * 1000 + Number(val.nanos || 0) / 1e6;
+        return Number.isFinite(ms) && ms > 0 ? Math.ceil(ms) : null;
+    }
+    const str = String(val).trim();
+    if (!str) return null;
+    const unitRe = /(\d+(?:\.\d+)?)\s*(ms|s|m|h|seconds?|minutes?|hours?)/gi;
+    let totalMs = 0;
+    let matched = false;
+    for (const m of str.matchAll(unitRe)) {
+        matched = true;
+        const num = Number(m[1]);
+        const unit = m[2].toLowerCase();
+        if (!Number.isFinite(num)) continue;
+        if (unit === "ms") totalMs += num;
+        else if (unit === "s" || unit.startsWith("sec")) totalMs += num * 1000;
+        else if (unit === "m" || unit.startsWith("min")) totalMs += num * 60_000;
+        else if (unit === "h" || unit.startsWith("hour")) totalMs += num * 3_600_000;
+    }
+    if (matched && totalMs > 0) return Math.ceil(totalMs);
+    if (/^\d+(?:\.\d+)?$/.test(str)) {
+        const secs = Number(str);
+        return Number.isFinite(secs) && secs > 0 ? Math.ceil(secs * 1000) : null;
+    }
+    return null;
+}
+
+function parseRetryDelayMs(err) {
+    if (!err) return null;
+    if (Number.isFinite(err?.retryAfterMs) && err.retryAfterMs > 0) {
+        return Math.ceil(err.retryAfterMs);
+    }
+    if (err?.retryDelay !== undefined) {
+        const direct = parseDurationStringMs(err.retryDelay);
+        if (direct) return direct;
+    }
+    const details = [
+        ...(Array.isArray(err?.details) ? err.details : []),
+        ...(Array.isArray(err?.error?.details) ? err.error.details : [])
+    ];
+    for (const d of details) {
+        if (d?.retryDelay !== undefined) {
+            const parsed = parseDurationStringMs(d.retryDelay);
+            if (parsed) return parsed;
+        }
+    }
+    const text = [err?.message, err?.error?.message, typeof err === "string" ? err : ""]
+        .filter(Boolean)
+        .join(" ");
+    const jsonMatch = text.match(/"retryDelay"\s*:\s*"([^"]+)"/i);
+    if (jsonMatch) {
+        const parsed = parseDurationStringMs(jsonMatch[1]);
+        if (parsed) return parsed;
+    }
+    const fieldMatch = text.match(/retryDelay\s*[:=]\s*["']?([0-9]+(?:\.[0-9]+)?\s*(?:ms|s|m|h))/i);
+    if (fieldMatch) {
+        const parsed = parseDurationStringMs(fieldMatch[1]);
+        if (parsed) return parsed;
+    }
+    const proseMatch = text.match(/retry(?:\s+(?:after|in))?\s+([0-9]+(?:\.[0-9]+)?\s*(?:ms|s|m|h|seconds?|minutes?|hours?))/i);
+    if (proseMatch) {
+        const parsed = parseDurationStringMs(proseMatch[1]);
+        if (parsed) return parsed;
+    }
+    return null;
+}
+
+/**
+ * Classifies a Gemini API error into:
+ * "quota" | "transient" | "invalid_config" | "auth_fatal"
+ */
+export function classifyGeminiError(err) {
+    if (!err) return "transient";
+    const status = Number(err?.status ?? err?.statusCode ?? err?.error?.code ?? err?.code);
+    const name = String(err?.name || "").toLowerCase();
+    const parts = [
+        err?.message,
+        err?.error?.message,
+        err?.error?.status,
+        err?.statusText,
+        typeof err === "string" ? err : ""
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (
+        status === 429 ||
+        /\b429\b(?!\s*ms)/.test(parts) ||
+        parts.includes("resource_exhausted") ||
+        parts.includes("quota")
+    ) {
+        return "quota";
+    }
+
+    if (
+        status === 401 ||
+        status === 403 ||
+        status === 404 ||
+        /\b(?:401|403|404)\b(?!\s*ms)/.test(parts) ||
+        parts.includes("unauthenticated") ||
+        parts.includes("permission_denied") ||
+        parts.includes("not_found")
+    ) {
+        return "auth_fatal";
+    }
+
+    if (
+        status === 400 ||
+        /\b400\b(?!\s*ms)/.test(parts) ||
+        parts.includes("invalid_argument") ||
+        parts.includes("invalid argument")
+    ) {
+        return "invalid_config";
+    }
+
+    if (
+        status === 503 ||
+        status === 504 ||
+        /\b(?:503|504)\b(?!\s*ms)/.test(parts) ||
+        name.includes("abort") ||
+        name.includes("timeout") ||
+        /timeout|timed out|abort|network|fetch failed|econn|enotfound|etimedout|unavailable/i.test(parts)
+    ) {
+        return "transient";
+    }
+
+    return "transient";
+}
+
+function getCooldownMsForError(err, reason) {
+    if (reason === "quota") {
+        const retryMs = parseRetryDelayMs(err);
+        if (retryMs) return retryMs;
+        const msg = [err?.message, err?.error?.message, typeof err === "string" ? err : ""]
+            .filter(Boolean)
+            .join(" ");
+        const isDailyExhausted = /\blimit\s*:\s*0\b|perday|per_day|requests\s+per\s+day|daily\s+(?:rpd\s+)?(?:quota\s+)?exhausted|\brpd\b.*exhaust/i.test(msg);
+        return isDailyExhausted ? DAILY_QUOTA_COOLDOWN_MS : QUOTA_COOLDOWN_MS;
+    }
+    if (reason === "invalid_config" || reason === "auth_fatal") {
+        return FATAL_COOLDOWN_MS;
+    }
+    return TRANSIENT_COOLDOWN_MS;
+}
+
+function isModelInCooldown(model, nowMs) {
+    const entry = modelCooldowns.get(model);
+    if (!entry) return false;
+    if (nowMs >= entry.untilMs) {
+        modelCooldowns.delete(model);
+        return false;
+    }
+    return true;
+}
+
+function readPersistedWorkingModel(cascadeType, nowMs, storage) {
+    if (!storage || typeof storage.getItem !== "function") return null;
+    const key = getWorkingModelStorageKey(cascadeType);
+    try {
+        const raw = storage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed.model !== "string" || !Number.isFinite(parsed.savedAt)) {
+            return null;
+        }
+        if (nowMs - parsed.savedAt >= WORKING_MODEL_TTL_MS) {
+            try { storage.removeItem?.(key); } catch (_) {}
+            return null;
+        }
+        return parsed.model;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writePersistedWorkingModel(cascadeType, model, nowMs, storage) {
+    if (!storage || typeof storage.setItem !== "function") return;
+    const key = getWorkingModelStorageKey(cascadeType);
+    try {
+        storage.setItem(key, JSON.stringify({ model, savedAt: nowMs }));
+    } catch (_) {}
+}
+
+function clearPersistedWorkingModel(cascadeType, storage) {
+    if (!storage || typeof storage.removeItem !== "function") return;
+    const key = getWorkingModelStorageKey(cascadeType);
+    try {
+        storage.removeItem(key);
+    } catch (_) {}
+}
+
+export const resetSessionWorkingModels = (options = {}) => {
     sessionCurationModel = null;
     sessionFastModel = null;
-    sessionDegradedModels.clear();
+    modelCooldowns.clear();
+    if (options?.clearStorage) {
+        const storage = resolveLocalStorage(options);
+        clearPersistedWorkingModel("curation", storage);
+        clearPersistedWorkingModel("fast", storage);
+    }
 };
 
 export const getSessionCurationModel = () => sessionCurationModel;
 export const getSessionFastModel = () => sessionFastModel;
 
 /**
- * Executes a resilient cascade across models with per-attempt timeout and session health memoization.
+ * Executes a resilient cascade across models with cooldown backoff, abort-on-timeout,
+ * all-on-cooldown soonest-expiry fallback, and persisted working-model preference.
  */
 export async function executeCascade(ai, cascade, requestParams, options = {}) {
     if (!ai?.models?.generateContent) {
         throw new Error("Invalid GoogleGenAI client provided to executeCascade");
     }
-
-    const cascadeType = options.cascadeType || "curation";
-    const activeModel = cascadeType === "curation" ? sessionCurationModel : sessionFastModel;
-
-    let candidateModels = [...cascade];
-    if (activeModel && candidateModels.includes(activeModel) && !sessionDegradedModels.has(activeModel)) {
-        candidateModels = [activeModel, ...candidateModels.filter(m => m !== activeModel)];
-    } else {
-        candidateModels = candidateModels.filter(m => !sessionDegradedModels.has(m));
+    if (!Array.isArray(cascade) || cascade.length === 0) {
+        return null;
     }
 
-    if (candidateModels.length === 0) {
-        candidateModels = [...cascade];
+    const cascadeType = options.cascadeType || "curation";
+    const getNow = typeof options.now === "function" ? options.now : clockFn;
+    const startNowMs = getNow();
+    const storage = resolveLocalStorage(options);
+
+    const sessionActive =
+        cascadeType === "curation"
+            ? sessionCurationModel
+            : (cascadeType === "fast" ? sessionFastModel : null);
+    const persistedActive = readPersistedWorkingModel(cascadeType, startNowMs, storage);
+
+    let candidateModels = [...cascade].filter(m => !isModelInCooldown(m, startNowMs));
+
+    if (candidateModels.length > 0) {
+        const preferred =
+            sessionActive && candidateModels.includes(sessionActive)
+                ? sessionActive
+                : (persistedActive && candidateModels.includes(persistedActive) ? persistedActive : null);
+        if (preferred) {
+            candidateModels = [preferred, ...candidateModels.filter(m => m !== preferred)];
+        }
+    } else {
+        // Every model is currently inside its cooldown window: try only the single soonest-expiring model
+        let soonestModel = cascade[0];
+        let minUntil = Infinity;
+        for (const m of cascade) {
+            const until = modelCooldowns.get(m)?.untilMs ?? Infinity;
+            if (until < minUntil) {
+                minUntil = until;
+                soonestModel = m;
+            }
+        }
+        candidateModels = [soonestModel];
     }
 
     let lastError = null;
     for (const model of candidateModels) {
-        const isArgon = model.includes("argon");
-        if (isArgon && typeof spendTracker?.canUseArgon === "function" && !spendTracker.canUseArgon()) {
-            continue;
+        const lowerModel = String(model || "").toLowerCase();
+        const isHydrogen = lowerModel.includes("gemini-4-hydrogen");
+
+        const thinkingConfig = getModelThinkingConfig(model, cascadeType);
+        const sanitizedConfig = { ...(requestParams.config || {}) };
+        delete sanitizedConfig.frequencyPenalty;
+        delete sanitizedConfig.presencePenalty;
+        if (sanitizedConfig.candidateCount !== undefined && sanitizedConfig.candidateCount > 1) {
+            delete sanitizedConfig.candidateCount;
+        }
+        if (isHydrogen) {
+            delete sanitizedConfig.temperature;
         }
 
-        const thinkingConfig = getModelThinkingConfig(model);
+        const controller = new AbortController();
+        const callerSignal = sanitizedConfig.abortSignal;
+        let onCallerAbort;
+        if (callerSignal) {
+            if (callerSignal.aborted) {
+                controller.abort(callerSignal.reason);
+            } else {
+                onCallerAbort = () => controller.abort(callerSignal.reason);
+                callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+            }
+        }
+
         const mergedConfig = {
-            ...(requestParams.config || {}),
-            ...(thinkingConfig ? { thinkingConfig } : {})
+            ...sanitizedConfig,
+            ...(thinkingConfig ? { thinkingConfig } : {}),
+            abortSignal: controller.signal
         };
 
-        const defaultTimeout = isArgon ? 12000 : 8000;
+        const defaultTimeout = getDefaultAttemptTimeoutMs(model);
         const perAttemptTimeout = options.timeoutMs || defaultTimeout;
 
         let timer;
         const timeoutPromise = new Promise((_, reject) => {
             timer = setTimeout(() => {
-                reject(new Error(`Model ${model} timed out after ${perAttemptTimeout}ms`));
+                const err = new Error(`Model ${model} timed out after ${perAttemptTimeout}ms`);
+                controller.abort(err);
+                reject(err);
             }, perAttemptTimeout);
         });
 
         try {
-            const callPromise = ai.models.generateContent({
-                ...requestParams,
-                model,
-                config: mergedConfig
-            });
+            const callPromise = Promise.resolve().then(() =>
+                ai.models.generateContent({
+                    ...requestParams,
+                    model,
+                    config: mergedConfig
+                })
+            );
+            callPromise.catch(() => {});
             const response = await Promise.race([callPromise, timeoutPromise]);
-            clearTimeout(timer);
 
             if (response?.usageMetadata && typeof spendTracker?.record === "function") {
                 spendTracker.record(model, response.usageMetadata);
             }
 
+            const successNowMs = getNow();
+            modelCooldowns.delete(model);
             if (cascadeType === "curation") {
                 sessionCurationModel = model;
             } else if (cascadeType === "fast") {
                 sessionFastModel = model;
             }
+            writePersistedWorkingModel(cascadeType, model, successNowMs, storage);
 
             return response;
         } catch (err) {
-            clearTimeout(timer);
             lastError = err;
-            sessionDegradedModels.add(model);
-            if (isArgon && typeof spendTracker?.markArgonUnavailable === "function") {
-                spendTracker.markArgonUnavailable();
+            const failNowMs = getNow();
+            const reason = classifyGeminiError(err);
+            const cooldownMs = getCooldownMsForError(err, reason);
+            modelCooldowns.set(model, {
+                untilMs: failNowMs + cooldownMs,
+                reason
+            });
+            if (cascadeType === "curation" && sessionCurationModel === model) {
+                sessionCurationModel = null;
+            } else if (cascadeType === "fast" && sessionFastModel === model) {
+                sessionFastModel = null;
             }
-            console.warn(`Model ${model} failed in ${cascadeType} cascade (${err.message || err}). Trying fallback...`);
+            if (readPersistedWorkingModel(cascadeType, failNowMs, storage) === model) {
+                clearPersistedWorkingModel(cascadeType, storage);
+            }
+            console.warn(`Model ${model} failed in ${cascadeType} cascade [${reason}, cooldown=${cooldownMs}ms] (${err.message || err}). Trying fallback...`);
+        } finally {
+            clearTimeout(timer);
+            if (callerSignal && onCallerAbort) {
+                callerSignal.removeEventListener("abort", onCallerAbort);
+            }
         }
     }
 
@@ -800,7 +1103,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
         throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
     }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 12000 } });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: HYDROGEN_TIMEOUT_MS } });
     const mood = options.mood || "any";
     const userRegion = options.userRegion || "US";
     const userProviders = options.userProviders || [];
