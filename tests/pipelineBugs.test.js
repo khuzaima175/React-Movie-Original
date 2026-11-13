@@ -6,6 +6,7 @@ import {
   buildGeminiReRankPrompt,
   mergeGeminiExplanationsWithRanker,
   getMovieRecommendations,
+  normalizeMatchScore,
   resetSessionWorkingModels,
   resetModelInfoForTests
 } from "../src/services/geminiService.js";
@@ -290,5 +291,81 @@ test("OMDb fallback throws clear error when Gemini returns invalid JSON or empty
     else process.env.VITE_TMDB_KEY = prevTmdbKey;
     resetSessionWorkingModels();
     resetModelInfoForTests();
+  }
+});
+
+test("normalizeMatchScore preserves calibrated scores between 50 and 69 without clamping up to 70", () => {
+  assert.equal(normalizeMatchScore(55), 55);
+  assert.equal(normalizeMatchScore(50), 50);
+  assert.equal(normalizeMatchScore(69), 69);
+  assert.equal(normalizeMatchScore(42), 50);
+  assert.equal(normalizeMatchScore(104), 99);
+  assert.equal(normalizeMatchScore(0.62), 62);
+  assert.equal(normalizeMatchScore(0.06), 60);
+  assert.equal(normalizeMatchScore(0.94), 94);
+  assert.equal(normalizeMatchScore(NaN), 88);
+});
+
+test("getMovieRecommendations completes via local ranker when VITE_GEMINI_KEY is unset and candidates or TMDB exist", async () => {
+  const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+  const prevTmdbKey = process.env.VITE_TMDB_KEY;
+  delete process.env.VITE_GEMINI_KEY;
+  delete process.env.VITE_TMDB_KEY;
+  resetSessionWorkingModels();
+  resetModelInfoForTests();
+
+  try {
+    const candidates = Array.from({ length: 6 }, (_, i) => ({
+      id: 700 + i,
+      tmdbId: 700 + i,
+      title: `Keyless Film ${i}`,
+      year: "2019",
+      release_date: "2019-06-01",
+      overview: `Plot ${i}`,
+      genre: "Drama",
+      genre_ids: [18],
+      vote_average: 7.5 - i * 0.2,
+      vote_count: 600
+    }));
+
+    const res = await getMovieRecommendations(
+      [{ id: 10, tmdbId: 10, title: "Watched", userRating: 9, tmdbGenreIds: [18] }],
+      [],
+      null,
+      { candidates, embeddingIndex: null }
+    );
+    assert.equal(res.recommendations.length, 6);
+    assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
+  } finally {
+    if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+    else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+    if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+    else process.env.VITE_TMDB_KEY = prevTmdbKey;
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+  }
+});
+
+test("getMovieRecommendations throws explicit error when neither Gemini key nor TMDB candidates are available", async () => {
+  const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+  const prevTmdbKey = process.env.VITE_TMDB_KEY;
+  delete process.env.VITE_GEMINI_KEY;
+  delete process.env.VITE_TMDB_KEY;
+
+  try {
+    await assert.rejects(
+      () => getMovieRecommendations(
+        [{ id: 11, tmdbId: 11, title: "Watched", userRating: 8, tmdbGenreIds: [18] }],
+        [],
+        null,
+        { embeddingIndex: null }
+      ),
+      /missing|TMDB/i
+    );
+  } finally {
+    if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+    else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+    if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+    else process.env.VITE_TMDB_KEY = prevTmdbKey;
   }
 });

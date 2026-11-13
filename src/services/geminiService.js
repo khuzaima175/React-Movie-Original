@@ -578,7 +578,7 @@ export const cleanStr = (val) => {
 };
 
 /**
- * Normalizes matchScore to a valid percentage (70 - 99)
+ * Normalizes matchScore to a valid percentage (50 - 99)
  * Corrects LLM decimal probabilities (e.g., 0.94 -> 94) and raw 1s
  */
 export const normalizeMatchScore = (val) => {
@@ -586,12 +586,12 @@ export const normalizeMatchScore = (val) => {
     if (isNaN(n) || n <= 0) return 88;
     // If LLM returned a decimal ratio (0.01 - 1.0) or edge 1
     if (n <= 1.0) {
-        if (n <= 0.1) return Math.min(99, Math.max(75, Math.round(n * 1000))); // e.g. 0.09 -> 90
-        return Math.min(99, Math.max(75, Math.round(n * 100)));
+        const scaled = n <= 0.1 ? n * 1000 : n * 100;
+        return Math.min(99, Math.max(50, Math.round(scaled)));
     }
-    // If accidentally scored 1 (integer 1), map to realistic 88%
+    // If accidentally scored 1-5 (legacy 5-star scores), map to realistic 88%
     if (n <= 5) return 88;
-    return Math.min(99, Math.max(70, Math.round(n)));
+    return Math.min(99, Math.max(50, Math.round(n)));
 };
 
 /**
@@ -1150,6 +1150,20 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         reserveConfig
     );
 
+    if (!ai) {
+        const rankerFallbackInfo = buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback");
+        lastCurationModelInfo = rankerFallbackInfo;
+        options.onDiagnostics?.({
+            mergedCandidates: candidates,
+            topCandidates,
+            reserve: reserveConfig,
+            model: null,
+            modelInfo: rankerFallbackInfo,
+            usageMetadata: null
+        });
+        return buildRankerFallbackResponse(topCandidates, profile, rankerFallbackInfo);
+    }
+
     const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates, {
         watched: options.watched,
         watchlist: options.watchlist
@@ -1387,9 +1401,11 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
 export const getMovieRecommendations = async (watchedMovies = [], watchlist = [], onProgress, options = {}) => {
     const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
     const ai = options.aiClient || (apiKey ? new GoogleGenAI({ apiKey, httpOptions: { timeout: HYDROGEN_TIMEOUT_MS } }) : null);
+    const hasInjectedCandidates = Array.isArray(options.candidates) && options.candidates.length >= 6;
+    const hasTmdb = Boolean(getTmdbKey() || hasInjectedCandidates);
 
-    if (!ai) {
-        throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
+    if (!ai && !hasTmdb) {
+        throw new Error("Neither Gemini API Key (VITE_GEMINI_KEY) nor TMDB credentials (VITE_TMDB_KEY) are configured.");
     }
 
     const mood = options.mood || "any";
@@ -1401,8 +1417,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
     const profile = await extractTasteProfile(watchedMovies, watchlist);
 
     // 2. Primary Engine: Dynamic Waterfall TMDB Retrieval + Gemini Re-Ranking
-    const hasInjectedCandidates = Array.isArray(options.candidates) && options.candidates.length >= 6;
-    if (getTmdbKey() || hasInjectedCandidates) {
+    if (hasTmdb) {
         try {
             onProgress?.("Harvesting 3-bucket verified candidate catalogue from TMDB...");
             const candidates = hasInjectedCandidates
@@ -1464,5 +1479,8 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
     }
 
     // 3. Fallback Engine: Generative Gemini + OMDb Verification
+    if (!ai) {
+        throw new Error("Unable to retrieve TMDB candidates and no Gemini key is configured for generative fallback.");
+    }
     return await generateWithOmdbFallback(ai, watchedMovies, watchlist, onProgress, options);
 };
