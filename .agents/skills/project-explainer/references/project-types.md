@@ -4,13 +4,22 @@ Use this reference during **Step 0.2** and **Step 0.3** to order modules by **le
 
 ## Goal Emphasis Shift
 
-| Active Goal | What to Emphasize Across Modules |
-|---|---|
-| `explain` / `defend` | Design choices, tradeoffs, weak spots, and reviewer traps. |
-| `debug` | Execution flow, state mutations, race conditions, and edge cases. |
-| `extend` | Module boundaries, coupling, invariants, and safe extension points. |
-| `simplify` | Accidental complexity, dead scaffolding, and removable abstractions. |
-| `audit` | Trust boundaries, untrusted inputs, secrets, missing validation, and risky dependencies. |
+| Active Goal | What to Emphasize Across Modules | Brief Card Focus (`Main catch` & `How to check`) |
+|---|---|---|
+| `explain` / `defend` *(default)* | Design choices, tradeoffs, weak spots, and reviewer traps. | **Main catch:** biggest assumption or `⚠️ Mismatch`; **How to check:** hand-trace or smallest proof check. |
+| `debug` | Execution flow, state mutations, race conditions, and edge cases. | **Main catch:** state mutation, null/NaN edge, or silent fallback; **How to check:** reproduce or assert failing boundary input. |
+| `extend` | Module boundaries, coupling, invariants, and safe extension points. | **Main catch:** hidden callers, tight coupling, or fragile invariants; **How to check:** test downstream caller behavior after change. |
+| `simplify` | Accidental complexity, dead scaffolding, and removable abstractions. | **Main catch:** redundant wrappers, unused config, or dead branches; **How to check:** `git grep` / caller check before deletion. |
+| `audit` | Trust boundaries, untrusted inputs, secrets, missing validation, and risky dependencies. | **Main catch:** unvalidated input, missing authz, or secret/dep risk; **How to check:** negative/abuse input check or lockfile audit. |
+
+## Doc/Spec Verification Checklist
+
+When `README.md`, `SPEC.md`, `ARCHITECTURE.md`, or comments make factual claims, treat them as unverified until cross-checked against code:
+
+- **Constants & formulas:** Re-derive exact coefficients, weights, timeouts, and thresholds against enforcing lines.
+- **Routes, signatures & inputs:** Confirm documented endpoints, CLI flags, and schemas actually exist and reject malformed data.
+- **Auth & trust boundaries:** Verify middleware, role checks, or rate limits are actually wired into every claimed path.
+- **Env vars & feature flags:** Confirm every documented env var name and fallback matches what the code reads at runtime.
 
 ## Architecture Order & Hotspot Matrix
 

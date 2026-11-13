@@ -1,12 +1,19 @@
 # Standard/Deep Teaching Additions & Specialized Commands
 
-Load this file when `depth` is set to `deep`, or when the user runs `code`, `trace`, `change`, `security`, `simplify`, `deps`, or `prove`.
+Load this file when `depth` is set to `standard` or `deep`, when the user runs `deeper`, or when the user runs `code`, `trace`, `change`, `security`, `simplify`, `deps`, or `prove`.
+
+## Contents
+- 1. Teaching Additions at `standard` Depth
+- 2. Teaching Additions at `deep` Depth
+- 3. Specialized Command Protocols (`code`, `trace`, `change`, `security`, `simplify`, `deps`, `prove`)
 
 ---
 
 ## 1. Teaching Additions at `standard` Depth (~500–850 words total)
 
 Start with the **Phase A Brief Card**, then append:
+*(When entered via `deeper` on the current module, emit ONLY these newly added sections — do not repeat the Brief Card.)*
+
 - **ASCII Flow Diagram:** A compact visual path (`Input ──► Step 1 ──► Step 2 ──► Output`).
 - **Worked Example:** Up to 4 numbered steps showing intermediate values at each stage.
 - **Top 2 Knobs:** Constant/config name, `file:line`, and what happens when raised vs. lowered.
@@ -19,6 +26,8 @@ Start with the **Phase A Brief Card**, then append:
 ## 2. Teaching Additions at `deep` Depth (No word cap, structured)
 
 Include all `standard` sections, plus:
+*(When entered via `deeper` from `standard` on the current module, emit ONLY the newly added sections below — do not repeat the Brief Card or `standard` additions.)*
+
 - **The 7-Step Math Ladder** (for every formula in the module):
   1. *Plain sentence:* What the formula achieves in everyday words.
   2. *Physical analogy:* One concrete real-world comparison.
@@ -47,7 +56,7 @@ Show the minimal code coordinates for the current module now that the concept is
 ### `trace <flow>`
 Follow one concrete request or data path end-to-end across modules:
 - Use numbered hops (`Hop 1 → Hop 2 → Hop 3...`).
-- At each hop state: **Logical role** + **Data shape change** + `file:function:line-range` + **Main failure mode at this hop**.
+- At each hop state: **Logical role** + **Data shape change** + `file:function:line-range` + **Main failure mode** + **Async/error/fallback branch** (what happens if this hop times out, throws, or falls back silently).
 - Budget: ≤ 400 words (up to 600 words if crossing more than 5 module boundaries).
 
 ### `change <goal>`
@@ -55,7 +64,8 @@ Give a safe modification plan in ≤ 200 words (offer `deeper` if complex; never
 1. **Where to touch:** Exact files/functions.
 2. **Smallest safe change:** The minimal diff or logic adjustment.
 3. **Blast radius (what could break):** Callers, state assumptions, or schemas affected.
-4. **How to verify:** Exact existing test to run + 1 new test to add.
+4. **Safe rollout / rollback check:** When touching persisted state, schemas, or external APIs, state how to guard behind a feature flag or verify safe rollback.
+5. **How to verify:** Exact existing test to run + 1 new test to add.
 
 ### `security`
 Run a practical security review (≤ 250 words for current module; ≤ 500 words for whole project). Never declare the code “secure”:
@@ -79,4 +89,5 @@ Audit load-bearing dependencies:
 Show the strongest hard evidence for the current module:
 - **Enforcing code:** Exact `file:function:line-range` for core claims.
 - **Test evidence:** Existing test files/cases and command output (if run).
+- **Predict the Output micro-check:** Walk one concrete edge input through the actual code/formula and compare predicted vs. implemented result (flagging any `⚠️ Mismatch`).
 - **Unproven gap:** What is still only assumed or docs-based, and how to prove it.

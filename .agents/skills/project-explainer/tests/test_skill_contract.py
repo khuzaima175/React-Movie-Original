@@ -71,6 +71,22 @@ class TestSkillContract(unittest.TestCase):
         for md in [SKILL_MD, *REFS_DIR.glob("*.md")]:
             self.assertNotIn("CinemaVault", md.read_text(encoding="utf-8"), f"Leak found in {md.name}")
 
+    def test_project_types_and_deep_commands_upgrades(self):
+        pt_text = (REFS_DIR / "project-types.md").read_text(encoding="utf-8")
+        self.assertIn("Doc/Spec Verification Checklist", pt_text)
+        for goal in ("explain", "defend", "debug", "extend", "simplify", "audit"):
+            self.assertIn(goal, pt_text)
+        self.assertIn("Main catch", pt_text)
+        self.assertIn("How to check", pt_text)
+
+        dc_text = (REFS_DIR / "deep-and-commands.md").read_text(encoding="utf-8")
+        self.assertIn("do not repeat the Brief Card", dc_text)
+        self.assertIn("fallback branch", dc_text)
+        self.assertIn("rollback", dc_text)
+        self.assertIn("Predict the Output", dc_text)
+        if len(dc_text.splitlines()) > 100:
+            self.assertIn("## Contents", dc_text)
+
 
 if __name__ == "__main__":
     unittest.main()
