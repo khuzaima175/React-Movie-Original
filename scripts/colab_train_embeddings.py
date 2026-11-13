@@ -21,7 +21,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
 
 
-def compute_svd_vecs(df: pd.DataFrame, dim: int, shrink: float):
+def compute_svd_vecs(df: pd.DataFrame, dim: int, shrink: float, norm_power: float = 1.0):
     user_means = df.groupby("userId")["rating"].transform("mean")
     user_stds = df.groupby("userId")["rating"].transform("std").fillna(1.0).clip(lower=0.5)
     z = (df["rating"] - user_means) / user_stds
@@ -49,11 +49,12 @@ def compute_svd_vecs(df: pd.DataFrame, dim: int, shrink: float):
 
     raw_vecs = (vt.T * np.sqrt(s)).astype(np.float32)
     norms = np.linalg.norm(raw_vecs, axis=1, keepdims=True)
-    item_vecs = raw_vecs / np.clip(norms + float(shrink), 1e-12, None)
+    denom = np.power(np.clip(norms, 1e-12, None), float(norm_power)) + float(shrink)
+    item_vecs = raw_vecs / np.clip(denom, 1e-12, None)
     return tmdb_ids, item_vecs, z.to_numpy(dtype=np.float32)
 
 
-def run_offline_sanity_check(df: pd.DataFrame, dim: int, shrink: float) -> tuple[float, float]:
+def run_offline_sanity_check(df: pd.DataFrame, dim: int, shrink: float, norm_power: float = 1.0) -> tuple[float, float]:
     """
     Holds out the last 10 liked films (rating >= 4.0) for up to 50 active users and compares
     SVD Recall@20 against the MovieLens popularity baseline.
@@ -75,7 +76,7 @@ def run_offline_sanity_check(df: pd.DataFrame, dim: int, shrink: float) -> tuple
             drop_indices.extend(after.index.tolist())
 
     fit_df = sorted_df.drop(index=drop_indices).copy()
-    tmdb_ids, vecs, z_vals = compute_svd_vecs(fit_df, dim=dim, shrink=shrink)
+    tmdb_ids, vecs, z_vals = compute_svd_vecs(fit_df, dim=dim, shrink=shrink, norm_power=norm_power)
     fit_df["z"] = z_vals
     id_to_idx = {int(t): i for i, t in enumerate(tmdb_ids)}
     pop_order = fit_df.groupby("tmdbId")["rating"].count().sort_values(ascending=False).index.tolist()
@@ -133,6 +134,7 @@ def train_and_export(
     shrink: float = 0.5,
     holdout_users: list[int] | None = None,
     benchmark_path: str | None = None,
+    norm_power: float = 1.0,
 ):
     ratings_path = os.path.join(ml_dir, "ratings.csv")
     links_path = os.path.join(ml_dir, "links.csv")
@@ -170,14 +172,14 @@ def train_and_export(
     popular_tmdb = counts.nlargest(top_k_movies).index
     filtered = merged[merged["tmdbId"].isin(popular_tmdb)].copy()
 
-    svd_r20, pop_r20 = run_offline_sanity_check(filtered, dim=dim, shrink=shrink)
+    svd_r20, pop_r20 = run_offline_sanity_check(filtered, dim=dim, shrink=shrink, norm_power=norm_power)
     print(f"Offline MovieLens Sanity Check (50 users): SVD Recall@20 = {svd_r20:.4f} vs Popularity Recall@20 = {pop_r20:.4f}")
     if svd_r20 <= pop_r20:
         raise RuntimeError(
             f"Refusing to export embeddings: SVD Recall@20 ({svd_r20:.4f}) did not beat popularity ({pop_r20:.4f})"
         )
 
-    tmdb_ids, item_vecs, _ = compute_svd_vecs(filtered, dim=dim, shrink=shrink)
+    tmdb_ids, item_vecs, _ = compute_svd_vecs(filtered, dim=dim, shrink=shrink, norm_power=norm_power)
     item_vecs_f16 = item_vecs.astype("<f2")
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -236,6 +238,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-items", type=int, default=20000)
     parser.add_argument("--dim", type=int, default=64)
     parser.add_argument("--shrink", type=float, default=0.5)
+    parser.add_argument("--norm-power", type=float, default=1.0, help="Denominator norm power (1.0=shrunk dot, 0.5=half_norm)")
     parser.add_argument("--holdout-users", default="", help="Comma-separated MovieLens userIds to strip holdout windows for")
     parser.add_argument("--benchmark", default="", help="Optional benchmark JSON path to report coverage")
     args = parser.parse_args()
@@ -249,4 +252,5 @@ if __name__ == "__main__":
         args.shrink,
         holdout_u,
         args.benchmark or None,
+        args.norm_power,
     )

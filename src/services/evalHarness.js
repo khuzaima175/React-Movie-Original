@@ -2,6 +2,8 @@ import { computeZScoredWeights, computeBayesianScore } from "./scoringUtils.js";
 import { rankCandidatePool, DEFAULT_RANKER_WEIGHTS } from "./rankerService.js";
 import { extractTasteProfile } from "./tmdbService.js";
 import { buildCollabSimMapFromIndex, buildRepulsionMapFromIndex } from "./embeddingService.js";
+import { buildContentSimMap } from "./contentSimService.js";
+import { buildDnaSimMap } from "./dnaService.js";
 
 function getMovieKey(m) {
   return String(m?.id ?? m?.tmdbId ?? m?.imdbID ?? "");
@@ -188,6 +190,36 @@ export function computeNovelty(recommendedItems = [], maxPopularity = 25000) {
 }
 
 /**
+ * Computes Negative Hit Rate@K: fraction of top-K ranked items matching held-out dislikes.
+ */
+export function computeNegHitAtK(recommendedIds = [], holdoutNegatives = new Set(), k = 20) {
+  if (!holdoutNegatives || holdoutNegatives.size === 0 || !recommendedIds || recommendedIds.length === 0) {
+    return 0;
+  }
+  const topK = recommendedIds.slice(0, k).map(String);
+  if (topK.length === 0) return 0;
+  let hits = 0;
+  for (const id of topK) {
+    if (holdoutNegatives.has(id)) hits++;
+  }
+  return hits / topK.length;
+}
+
+/**
+ * Computes median vote count across a candidate slice to audit popularity skew.
+ */
+export function computeMedianVotes(recommendedItems = []) {
+  if (!recommendedItems || recommendedItems.length === 0) return 0;
+  const votes = recommendedItems
+    .map(item => Number(item?.vote_count ?? 0))
+    .filter(v => Number.isFinite(v) && v >= 0)
+    .sort((a, b) => a - b);
+  if (votes.length === 0) return 0;
+  const mid = Math.floor(votes.length / 2);
+  return votes.length % 2 === 1 ? votes[mid] : (votes[mid - 1] + votes[mid]) / 2;
+}
+
+/**
  * Grid-searches decay rate lambda and anchor cutoffs against a temporal holdout.
  */
 export function gridSearchHyperparams(watched = [], candidateCatalog = [], paramGrid = {}) {
@@ -336,11 +368,17 @@ export async function evaluateRanker(options = {}) {
     collabSimMap,
     contentSimMap,
     repulsionMap,
+    dnaSimMap,
     embeddingIndex,
+    contentIndex,
+    dnaIndex,
     embeddingOptions = {},
+    contentOptions = {},
+    dnaMinRating = 7,
     rankerOptions = {},
     holdoutSize = 10,
     minPositiveRating = 8,
+    negativeThreshold = 4,
     minTrain = 10,
     minHoldoutPositives = 3,
     excludeIds = [],
@@ -354,9 +392,14 @@ export async function evaluateRanker(options = {}) {
   }
 
   const split = temporalHoldoutSplit(watched, holdoutSize, minPositiveRating);
+  const holdoutNegatives = new Set();
+  for (const [key, rel] of split.holdoutRelevance.entries()) {
+    if (Number(rel) <= negativeThreshold) holdoutNegatives.add(key);
+  }
   const counts = {
     train: split.trainWatched.length,
-    holdoutPositives: split.holdoutPositives.size
+    holdoutPositives: split.holdoutPositives.size,
+    holdoutNegatives: holdoutNegatives.size
   };
 
   if (counts.train < minTrain) {
@@ -431,16 +474,25 @@ export async function evaluateRanker(options = {}) {
     const effectiveCollabSimMap =
       collabSimMap ??
       (embeddingIndex ? buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex, embeddingOptions) : new Map());
+    const effectiveContentSimMap =
+      contentSimMap ??
+      (contentIndex || contentOptions?.enableOverviewTfIdf
+        ? buildContentSimMap(profile.weightedRatings, contentIndex ?? null, candidates, contentOptions)
+        : new Map());
     const effectiveRepulsionMap =
       repulsionMap ??
       (embeddingIndex ? buildRepulsionMapFromIndex(profile.weightedRatings, embeddingIndex, embeddingOptions) : new Map());
+    const effectiveDnaSimMap =
+      dnaSimMap ??
+      (dnaIndex ? buildDnaSimMap(profile.weightedRatings, dnaIndex, dnaMinRating) : new Map());
     ranked = rankCandidatePool(
       candidates,
       {
         profile,
         collabSimMap: effectiveCollabSimMap,
-        contentSimMap: contentSimMap ?? new Map(),
+        contentSimMap: effectiveContentSimMap,
         repulsionMap: effectiveRepulsionMap,
+        dnaSimMap: effectiveDnaSimMap,
         anchorKeywords: profile.lovedKeywordIds || [],
         userProviders: []
       },
@@ -458,16 +510,20 @@ export async function evaluateRanker(options = {}) {
   }
 
   const ids = ranked.map(getMovieKey);
+  const top30Ids = ids.slice(0, 30);
   const metrics = {
     recallAt20: computeRecallAtK(ids, split.holdoutPositives, 20),
     ndcgAt10: computeNDCGAtK(ids, split.holdoutRelevance, 10),
-    novelty: computeNovelty(ranked.slice(0, 20))
+    negHitAt20: computeNegHitAtK(ids, holdoutNegatives, 20),
+    novelty: computeNovelty(ranked.slice(0, 20)),
+    uniqueRecommendedCount: new Set(top30Ids).size,
+    medianCandidateVotes: computeMedianVotes(ranked.slice(0, 20))
   };
   if (typeof embeddingLookup === "function") {
     metrics.ild = computeILD(ids.slice(0, 10), embeddingLookup);
   }
 
-  const out = { status: "ok", strategy, counts, metrics };
+  const out = { status: "ok", strategy, counts, metrics, top30Ids };
   if (coverage) out.coverage = coverage;
   return out;
 }
@@ -545,12 +601,21 @@ export async function evaluateRankerRolling(options = {}) {
       stdMetrics[key] = stdDev(values);
     }
 
+    const uniqueTop30Set = new Set();
+    for (const f of ok) {
+      for (const id of f.top30Ids || []) {
+        uniqueTop30Set.add(id);
+      }
+    }
+
     result.strategies[strategy] = {
       status: "ok",
       folds: foldResults,
       foldsUsed: ok.length,
       mean: meanMetrics,
-      std: stdMetrics
+      std: stdMetrics,
+      uniqueTop30: uniqueTop30Set.size,
+      medianVoteCount: meanMetrics.medianCandidateVotes ?? 0
     };
   }
 

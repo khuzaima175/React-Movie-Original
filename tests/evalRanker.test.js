@@ -231,3 +231,48 @@ test("formatEvalReport renders a comparable table of strategies", async () => {
   assert.match(text, /popularity/);
   assert.match(text, /ndcgAt10/);
 });
+
+test("evaluateRanker reports negHitAt20, uniqueRecommendedCount, medianCandidateVotes, and supports contentIndex/dnaIndex", async () => {
+  const { encodeDnaBinary, parseDnaBinary } = await import("../src/services/dnaService.js");
+  const { watched } = vaults[0];
+  const split = temporalHoldoutSplit(watched, 10, 8);
+  const likedTrain = split.trainWatched.filter(m => m.userRating >= 8);
+
+  const items = catalog.map(c => ({
+    tmdbId: Number(c.id),
+    vector: likedTrain.some(m => Number(m.id) === Number(c.id)) || split.holdoutPositives.has(String(c.id))
+      ? [1, 0, 0, 0]
+      : [0, 1, 0, 0]
+  }));
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary(items));
+  const dnaIndex = parseDnaBinary(
+    encodeDnaBinary(
+      catalog.map(c => ({
+        tmdbId: Number(c.id),
+        axes: split.holdoutPositives.has(String(c.id)) || likedTrain.some(m => Number(m.id) === Number(c.id))
+          ? [95, 85, 75, 65]
+          : [10, 20, 30, 40]
+      }))
+    )
+  );
+
+  const res = await evaluateRanker({
+    watched,
+    catalog,
+    strategy: "ranker",
+    holdoutSize: 10,
+    minTrain: 5,
+    minHoldoutPositives: 2,
+    negativeThreshold: 4,
+    contentIndex,
+    dnaIndex
+  });
+
+  assert.equal(res.status, "ok");
+  assert.equal(typeof res.metrics.negHitAt20, "number");
+  assert.ok(res.metrics.negHitAt20 >= 0 && res.metrics.negHitAt20 <= 1);
+  assert.equal(typeof res.metrics.uniqueRecommendedCount, "number");
+  assert.equal(typeof res.metrics.medianCandidateVotes, "number");
+  assert.ok(res.metrics.uniqueRecommendedCount > 0);
+});
+
