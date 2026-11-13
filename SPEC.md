@@ -3,6 +3,8 @@
 **Target Application:** CinemaVault (`khuzaima175/React-Movie-Original`)  
 **Objective:** Replace the "AI-demo" aesthetic (cyan `#38bdf8` glows, gradient pills, orb background, emoji chips, badge clutter) with a restrained, content-first, streaming-platform-grade frontend. Retain 100% of existing features, data structures, and services with zero regressions, consolidating secondary controls into accessible menus and introducing portal-based hover-preview cards and synchronized motion.
 
+> **Status Note (Updated Nov 13, 2026):** The v1.2 frontend overhaul described in this document is **complete and live on `main`**. Subsequent v4.0–v4.2 work on the recommendation engine, on-device `CVEM v1` float16 embeddings, CSV date import hardening, Bucket D recent-release reserve slots, and the H1 `gemini-4-hydrogen` cascade is documented in [ARCHITECTURE.md](./ARCHITECTURE.md), [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md), and [summary.md](./summary.md).
+
 ---
 
 ## 1. System Architecture & Context Wireframes
@@ -209,20 +211,20 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 ### Phase 1: Tokens, Tailwind Mapping & Global Cleanup
 *Commit: `chore(theme): replace design tokens with neutral streaming palette`*
 
-- **[MODIFY] [index.html](file:///g:/Important%20Projects/movie-ratings/index.html)**:
+- **[MODIFY] [index.html](./index.html)**:
   - Load Google Font **Inter** (400, 500, 600, 700, 800) with `display=swap`.
   - Set `<meta name="theme-color" content="#0b0b0c">`, preconnect to `fonts.gstatic.com`, add brass SVG favicon.
-- **[MODIFY] [src/index.css](file:///g:/Important%20Projects/movie-ratings/src/index.css)**:
+- **[MODIFY] [src/index.css](./src/index.css)**:
   - Complete rewrite of `:root` with neutral streaming tokens, z-scale, and font definitions.
   - Configure Tailwind v4 `@theme` block.
   - Global scrollbar: `scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent`.
   - Delete legacy cyan glows, gradient borders, orb styling, and pill radius overrides.
-- **[MODIFY] [src/components/AnimatedBackground.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/AnimatedBackground.jsx)**:
+- **[MODIFY] [src/components/AnimatedBackground.jsx](./src/components/AnimatedBackground.jsx)**:
   - Delete gradient orbs and animated grid lines.
   - Render static subtle vignette (`radial-gradient(1200px 400px at 50% -10%, rgba(255,255,255,.03), transparent)`).
-- **[NEW] [src/motion.js](file:///g:/Important%20Projects/movie-ratings/src/motion.js)**:
+- **[NEW] [src/motion.js](./src/motion.js)**:
   - Export motion presets: `EASE`, `reveal`, `stagger`, `cardIn`, `springHover`.
-- **[MODIFY] [src/services/geminiService.jsx](file:///g:/Important%20Projects/movie-ratings/src/services/geminiService.jsx)**:
+- **[MODIFY] [src/services/geminiService.js](./src/services/geminiService.js)**:
   - Recolor `getFallbackPoster` SVG to tokens (charcoal `#141416`, brass stroke `#e2b13c`, text `--text-2`) while keeping logic and caching untouched.
 
 ---
@@ -230,25 +232,25 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 ### Phase 2: Core UI Primitives (`src/components/ui/*`)
 *Commit: `feat(ui): add button/menu/tabs/modal primitives`*
 
-- **[NEW] [src/components/ui/Button.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/Button.jsx)**:
+- **[NEW] [src/components/ui/Button.jsx](./src/components/ui/Button.jsx)**:
   - Variants: `primary` (white), `secondary` (translucent gray), `ghost` (hairline border), `quiet` (borderless text-only).
   - Sizes: `sm`, `md`. Interactive `scale: 0.98` press feedback, 120ms background transitions.
-- **[NEW] [src/components/ui/IconButton.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/IconButton.jsx)**:
+- **[NEW] [src/components/ui/IconButton.jsx](./src/components/ui/IconButton.jsx)**:
   - Accessible square button for icon triggers with built-in `aria-label` and brass focus ring.
-- **[NEW] [src/components/ui/Menu.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/Menu.jsx)**:
+- **[NEW] [src/components/ui/Menu.jsx](./src/components/ui/Menu.jsx)**:
   - Accessible dropdown with `role="menu"`, Escape key, outside click handling, roving tabindex, and keyboard arrow navigation.
   - Supports standard actions (`role="menuitem"`) and multi-select items (`role="menuitemcheckbox"` with `aria-checked`).
-- **[NEW] [src/components/ui/Tabs.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/Tabs.jsx)**:
+- **[NEW] [src/components/ui/Tabs.jsx](./src/components/ui/Tabs.jsx)**:
   - Underline tabs with 2px brass active indicator sliding via Framer Motion `layoutId`.
-- **[NEW] [src/components/ui/Modal.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/Modal.jsx)**:
+- **[NEW] [src/components/ui/Modal.jsx](./src/components/ui/Modal.jsx)**:
   - Backdrop fade + panel entrance animation (`scale: 0.96 -> 1`, 200ms) with Esc handling, focus return, and `role="dialog"`.
-- **[NEW] [src/components/ui/Skeleton.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/Skeleton.jsx)**:
+- **[NEW] [src/components/ui/Skeleton.jsx](./src/components/ui/Skeleton.jsx)**:
   - Neutral `--surface-2` shimmer sweep for poster, text, and cell loading states.
-- **[NEW] [src/components/ui/SectionHeader.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/SectionHeader.jsx)**:
+- **[NEW] [src/components/ui/SectionHeader.jsx](./src/components/ui/SectionHeader.jsx)**:
   - Section header with H2 title on left and hover-revealed quiet link on right.
-- **[NEW] [src/components/ui/StatCell.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/StatCell.jsx)**:
+- **[NEW] [src/components/ui/StatCell.jsx](./src/components/ui/StatCell.jsx)**:
   - Clean hairline-bordered stat cell displaying micro-label, tabular H2 value, and muted delta text.
-- **[NEW] [src/components/ui/Accordion.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ui/Accordion.jsx)**:
+- **[NEW] [src/components/ui/Accordion.jsx](./src/components/ui/Accordion.jsx)**:
   - Collapsible container with smooth height animation for secondary metrics and taste explanations.
 
 ---
@@ -256,27 +258,27 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 ### Phase 3: Shell Architecture & Global Modals
 *Commit: `feat(shell): text-link nav, overflow menus, page transitions`*
 
-- **[MODIFY] [src/components/Logo.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/Logo.jsx)**:
+- **[MODIFY] `Logo.jsx` (consolidated into [src/components/NavBar.jsx](./src/components/NavBar.jsx))**:
   - Clean SVG vault-dial / film glyph in brass accent (`--accent`) + "CinemaVault" 700 / `-0.02em`.
-- **[MODIFY] [src/components/NavBar.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/NavBar.jsx)**:
+- **[MODIFY] [src/components/NavBar.jsx](./src/components/NavBar.jsx)**:
   - 64px header: transparent over billboard, transitioning to `rgba(11,11,12,.92)` + `backdrop-filter: blur(10px)` + bottom hairline on scroll (>40px).
   - Navigation links: text links (`Home`, `My Vault`, `Recommendations`) with brass sliding underline tabs. Tabular counts (`My Vault 115`).
   - Right group: search `IconButton` (opens modal), profile/overflow `Menu` containing: *Watchlist (count)*, *Random Picker*, *Import/Export Portability*, *Manage Vault*, *GitHub Link*.
   - Mobile bottom navigation using unified token styling.
-- **[MODIFY] [src/components/Main.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/Main.jsx)**:
+- **[MODIFY] `Main.jsx` (layout tokens integrated into [src/App.jsx](./src/App.jsx) & `src/pages/*`)**:
   - Standardize container, gutter, and section-gap tokens with `min-height: calc(100vh - var(--nav-h))`.
-- **[MODIFY] [src/App.jsx](file:///g:/Important%20Projects/movie-ratings/src/App.jsx)**:
+- **[MODIFY] [src/App.jsx](./src/App.jsx)**:
   - Wire global modals (`SearchModal`, `BackupManagerModal`, `RandomPickerModal`).
   - Route transitions via `<Routes location={location} key={location.pathname}>` wrapped in `AnimatePresence mode="wait"`.
   - Scroll-to-top on route change.
   - Slim editorial footer (hairline top, micro logo, OMDb/Gemini attribution, "Built by Khuzaima").
-- **[MODIFY] [src/components/SearchModal.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/SearchModal.jsx)**:
+- **[MODIFY] [src/components/SearchModal.jsx](./src/components/SearchModal.jsx)**:
   - 640px modal at 15vh, borderless 1.25rem input over hairline, 40×60 poster thumbnail list, footer micro text (`↑↓ navigate · ↵ open · esc close`).
-- **[MODIFY] [src/components/BackupManagerModal.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/BackupManagerModal.jsx)**:
+- **[MODIFY] [src/components/BackupManagerModal.jsx](./src/components/BackupManagerModal.jsx)**:
   - Restyle using `Modal.jsx`, `Tabs.jsx`, and `Button.jsx` primitives while keeping all CSV/Letterboxd/JSON import/export and merge logic intact.
-- **[MODIFY] [src/components/ToastNotification.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ToastNotification.jsx)**:
+- **[MODIFY] [src/components/ToastNotification.jsx](./src/components/ToastNotification.jsx)**:
   - Top-center placement under navbar (slide-down 8px) with hairline border, `--sh-2`, and `--z-toast: 90` to avoid bulk bar collision.
-- **[MODIFY] [src/components/ErrorBoundary.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ErrorBoundary.jsx)**:
+- **[MODIFY] [src/components/ErrorBoundary.jsx](./src/components/ErrorBoundary.jsx)**:
   - Restyle crash boundary with design tokens, neutral icon, and secondary retry button.
 
 ---
@@ -284,29 +286,29 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 ### Phase 4: Home, Billboard & Portal-Based Hover Preview
 *Commit: `feat(home): billboard hero + hover-preview rows`*
 
-- **[NEW] [src/components/HoverPreviewCard.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/HoverPreviewCard.jsx)**:
+- **[NEW] `HoverPreviewCard.jsx` (preview interaction integrated into [src/components/MovieCard.jsx](./src/components/MovieCard.jsx))**:
   - Portaled to `document.body`, `position: fixed`, `z-index: var(--z-hover)`.
   - Triggered on 250ms dwell; spring-expands smoothly from trigger rect to preview bounds (`scale: 1 -> 1.05`, width ≈320px).
   - Viewport clamping with 16px safe margins (vertical flip if clearance < 300px).
   - Closes on scroll, wheel, resize, route change, Escape, or pointer leave with 150ms grace timer.
   - Mobile touch support: 450ms long-press.
-- **[MODIFY] [src/components/MovieCard.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/MovieCard.jsx)**:
+- **[MODIFY] [src/components/MovieCard.jsx](./src/components/MovieCard.jsx)**:
   - Variant API: `variant="row" | "grid" | "list"`.
   - `variant="row"`: card never scales, passes trigger rect on 250ms dwell to `HoverPreviewCard`. Rating corner chip (`rgba(0,0,0,.7)`).
   - `variant="grid"`: standard card with hover overlay actions.
-- **[MODIFY] [src/components/HeroBillboard.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/HeroBillboard.jsx)**:
+- **[MODIFY] [src/components/HeroBillboard.jsx](./src/components/HeroBillboard.jsx)**:
   - Height: `clamp(520px, 78vh, 720px)` full-bleed backdrop.
   - Synchronized motion: `--hero-slide: 9s` driving auto-advance and Ken Burns zoom (`scale: 1 -> 1.06` over 9s) with 700ms crossfade.
   - Pauses on hover, `:focus-within`, and `document.hidden`.
   - Backdrop source fallback: blur-cover composition (poster `object-fit: cover` + `scale(1.25)` + `blur(48px) saturate(.9)` under scrims).
   - Container: micro-label "Featured", title in `--fs-hero`, meta row (brass ★, year, runtime, muted genres), 2-line clamped overview with "More" toggle, primary white `Details` button + secondary `＋/✓ Vault` button.
-- **[MODIFY] [src/components/MovieCarouselRow.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/MovieCarouselRow.jsx)**:
+- **[MODIFY] [src/components/MovieCarouselRow.jsx](./src/components/MovieCarouselRow.jsx)**:
   - Native horizontal scroll with edge fade mask (`mask-image`), hidden scrollbar, scroll-snap.
   - Row hover reveals quiet arrow buttons (`scrollBy(0.9 * clientWidth)`) and `SectionHeader` with "See all →".
   - Section scroll-reveal with Framer Motion `whileInView` (`once: true, margin: "-80px"`).
-- **[MODIFY] [src/components/PosterImage.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/PosterImage.jsx)**:
+- **[MODIFY] [src/components/PosterImage.jsx](./src/components/PosterImage.jsx)**:
   - Explicit aspect ratio (`2/3`), `loading="lazy"`, `decoding="async"`, skeleton placeholder.
-- **[MODIFY] [src/pages/DashboardPage.jsx](file:///g:/Important%20Projects/movie-ratings/src/pages/DashboardPage.jsx)**:
+- **[MODIFY] [src/pages/DashboardPage.jsx](./src/pages/DashboardPage.jsx)**:
   - Clean section gaps and structured catalogue rows.
 
 ---
@@ -314,25 +316,25 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 ### Phase 5: Vault Page & Analytics
 *Commit: `feat(vault): compact analytics + menu-based filters`*
 
-- **[MODIFY] [src/pages/VaultPage.jsx](file:///g:/Important%20Projects/movie-ratings/src/pages/VaultPage.jsx)**:
+- **[MODIFY] [src/pages/VaultPage.jsx](./src/pages/VaultPage.jsx)**:
   - Top-right `⋯ Manage` Menu (Portability, "Select titles..." entering bulk mode, Clear).
   - `Genre` multi-select `Menu` (shows active count + clear option).
   - `Sort` dropdown `Menu`.
   - Grid view uses `MovieCard variant="grid"`, list view uses `WatchedMoviesList`.
   - Search input with max-width 320px.
-- **[MODIFY] [src/components/VaultBanner.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/VaultBanner.jsx)**:
+- **[MODIFY] [src/components/VaultBanner.jsx](./src/components/VaultBanner.jsx)**:
   - Single-row editorial header: H1 "My Vault" + meta line (`115 films · 237h 27m · ★ 8.1 avg`) + taste tagline.
   - Underline `Tabs` for *Watched (count)* and *Plan to Watch (count)* with unique `layoutId="vault-tabs"`.
-- **[MODIFY] [src/components/VaultAnalyticsHeader.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/VaultAnalyticsHeader.jsx)**:
+- **[MODIFY] `VaultAnalyticsHeader.jsx` (analytics integrated into [src/components/VaultBanner.jsx](./src/components/VaultBanner.jsx) & [src/pages/VaultPage.jsx](./src/pages/VaultPage.jsx))**:
   - 4-cell hairline `StatCell` strip (Total watched, Screen time, Avg rating vs IMDb, Top genre).
   - Collapsible `Accordion` "Insights": 6px flat rating distribution bars + trivia items.
   - Fold in all metrics from `WatchedSummary.jsx`.
-- **[MODIFY] [src/components/WatchedMoviesList.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/WatchedMoviesList.jsx)** & [src/components/MovieList.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/MovieList.jsx):
+- **[MODIFY] [src/components/WatchedMoviesList.jsx](./src/components/WatchedMoviesList.jsx)** (consolidated list view, replacing legacy `MovieList.jsx`):
   - 40×60 thumbnail list rows with subtle `--surface-1` hover highlight.
-- **[MODIFY] [src/components/VaultBulkBar.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/VaultBulkBar.jsx)**:
+- **[MODIFY] [src/components/VaultBulkBar.jsx](./src/components/VaultBulkBar.jsx)**:
   - Solid `--surface-2` floating bar with hairline border, `--sh-3`, and clean slide-up.
   - Actions disabled until `selectedCount >= 1`. Exit via Cancel button or `Esc`.
-- **[MODIFY] [src/components/RandomPicker.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/RandomPicker.jsx)**:
+- **[MODIFY] [src/components/RandomPicker.jsx](./src/components/RandomPicker.jsx)**:
   - Restyle modal presentation using design tokens without emoji chips.
 
 ---
@@ -340,11 +342,11 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 ### Phase 6: Recommendations & Calm AI Chat
 *Commit: `feat(ai): editorial recommendation list + calm chat`*
 
-- **[MODIFY] [src/pages/AIPage.jsx](file:///g:/Important%20Projects/movie-ratings/src/pages/AIPage.jsx)**:
+- **[MODIFY] [src/pages/AIPage.jsx](./src/pages/AIPage.jsx)**:
   - Clean header: H1 "Recommended for You" + micro text "Powered by Gemini · synced 115 films" + refresh `IconButton`.
   - Underline `Tabs`: *Picks* | *Chat* with unique `layoutId="ai-tabs"`.
   - Remove ambient colored aura blobs.
-- **[MODIFY] [src/components/MovieRecommendations.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/MovieRecommendations.jsx)**:
+- **[MODIFY] [src/components/MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx)**:
   - Convert recommendations into **ranked list rows**:
     - Outlined rank numeral (`01`, `02`, `03` in `--text-3`).
     - 100×150 poster thumbnail.
@@ -352,10 +354,10 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
     - AI explanation with 2px brass left-border ("Because you liked...").
     - Actions: `＋ Vault` secondary-sm, `Details` ghost-sm, `⋯` menu.
     - Mobile breakpoint (<640px): 96px poster + text, rank as micro-label above title, 3-line clamped explanation, icon-only actions.
-  - Controls: `Mood` single-select `Menu` (clean text labels without emojis), `Sort` `Menu`, stale hash refresh quiet button.
+  - Controls: `Mood` single-select `Menu` (clean text labels without emojis), `Sort` `Menu`, stale hash refresh quiet button, and `ModelUsageBadge` showing the active/cached Gemini model (`gemini-4-hydrogen`, `gemini-3.5-flash-lite`, `gemini-2.5-flash`, `gemini-3.8-flash`) or `Local Ranker (Offline Fallback)`.
   - Taste profile: Collapsed `Accordion` ("Why these picks?") with flat brass-on-surface bars.
-- **[MODIFY] [src/components/AIChat.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/AIChat.jsx)**:
-  - Centered 720px column. User bubbles in `--surface-2`, assistant in `--surface-1` with hairline border.
+- **[MODIFY] [src/components/AIChat.jsx](./src/components/AIChat.jsx)**:
+  - Centered 720px column. User bubbles in `--surface-2`, assistant in `--surface-1` with hairline border, active model status bar (`.chat-model-bar`), and per-reply model pill.
   - Clean 3-dot typing indicator and primary send `IconButton`.
 
 ---
@@ -363,11 +365,11 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 ### Phase 7: Movie Details & Feedback States
 *Commit: `style(details): restyle movie page + feedback states`*
 
-- **[MODIFY] [src/components/MovieDetails.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/MovieDetails.jsx)** & [src/pages/MoviePage.jsx](file:///g:/Important%20Projects/movie-ratings/src/pages/MoviePage.jsx):
+- **[MODIFY] [src/components/MovieDetails.jsx](./src/components/MovieDetails.jsx)** & [src/pages/MoviePage.jsx](./src/pages/MoviePage.jsx):
   - Restyle with hero backdrop scrim, `--fs-hero` / H1 title, brass rating badges, and action buttons.
-- **[MODIFY] [src/components/StarRating.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/StarRating.jsx)**:
+- **[MODIFY] [src/components/StarRating.jsx](./src/components/StarRating.jsx)**:
   - Brass stars (`--accent`), crisp hover states, no glow shadows.
-- **[MODIFY] [src/components/Loader.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/Loader.jsx)**, [ErrorMessage.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/ErrorMessage.jsx), [EmptyState.jsx](file:///g:/Important%20Projects/movie-ratings/src/components/EmptyState.jsx):
+- **[MODIFY] [src/components/Loader.jsx](./src/components/Loader.jsx)**, [ErrorMessage.jsx](./src/components/ErrorMessage.jsx), [EmptyState.jsx](./src/components/EmptyState.jsx):
   - Standardize on `Skeleton.jsx` and neutral feedback states with quiet typography.
 
 ---
@@ -389,7 +391,7 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
 *Commit: `docs: refresh README for redesign`*
 
 - **Dead Code Cleanup:** Delete unreferenced legacy files (`src/components/Box.jsx`, `src/components/Search.jsx`, `src/components/NumResults.jsx`, `src/components/WatchedSummary.jsx`).
-- **[MODIFY] [README.md](file:///g:/Important%20Projects/movie-ratings/README.md)**: Update documentation reflecting the streaming-grade redesign, design tokens, and consolidated hierarchy.
+- **[MODIFY] [README.md](./README.md)**: Update documentation reflecting the streaming-grade redesign, design tokens, and consolidated hierarchy.
 
 ---
 
@@ -420,3 +422,21 @@ To ensure that all features from the consolidation map (Watchlist, Portability, 
    - `aria-current="page"` on active navigation links.
    - `Menu` and `Modal` manage roving focus and restore focus to trigger on close.
    - All 115-film features (ratings, notes, bulk operations, Letterboxd CSV/JSON portability, randomizer, AI picks & chat) fully operational.
+
+---
+
+## 6. Post-Overhaul Architecture & UI Extensions (v4.0–v4.2 Additions)
+
+Following completion of the v1.2 visual overhaul, the core services and presentation layer received major recommendation, import-safety, and resilience upgrades while preserving every design token and layout constraint in Sections 1–5:
+
+- **Deterministic Match Percentages & Badges ([src/components/MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx) + [src/services/rankerService.js](./src/services/rankerService.js))**:
+  - Recommendation match percentages (`50–99%`) are mathematically locked by the local 11-feature logistic ranker (`scoreCandidate`), never overwritten by LLM output.
+  - Up to 2–3 deterministic **Match Reason Badges** (`🧬 High Taste-Twin Match`, `🎬 Favorite Filmmaker`, `🎯 Core Theme Match`, `💎 Personal Cult Pick`, `🎪 Genre Bullseye`, `⭐ Critical Acclaim`) render seamlessly within existing recommendation row metadata without breaking mobile line clamping.
+- **On-Device Float16 Collaborative Map & 5-Bucket Retrieval ([src/services/embeddingService.js](./src/services/embeddingService.js), [src/services/tmdbService.js](./src/services/tmdbService.js))**:
+  - Lazy runtime loader fetches `/models/item_embeddings_f16.bin` (`CVEM v1`, `25,000 × 64`) once per session, computes vault-relative weight cutoffs (`1e-6 * maxAbsWeight`), clusters up to 4 Spherical K-Means taste personas, builds negative repulsion maps, injects Bucket E embedding neighbors, and appends Bucket D recent releases (`18`-month window) with **2 reserved Top-15 slots**.
+- **Hardened CSV Date, Cluster & Rewatch Pipeline ([src/services/csvImport.js](./src/services/csvImport.js))**:
+  - Wired into [src/components/BackupManagerModal.jsx](./src/components/BackupManagerModal.jsx), [src/components/MovieCard.jsx](./src/components/MovieCard.jsx), and [src/pages/VaultPage.jsx](./src/pages/VaultPage.jsx) for strict `Watched Date` > `Date` priority, calendar rollover rejection, clustered bulk-import detection (`isBulkImported: true`), and diary rewatch deduplication.
+- **H1 Resilient Gemini Cascade ([src/services/geminiService.js](./src/services/geminiService.js), [src/services/geminiChatService.js](./src/services/geminiChatService.js), [src/services/geminiExplanationService.js](./src/services/geminiExplanationService.js))**:
+  - Routes curation (`HIGH`) and fast chat/mood parsing (`MEDIUM`/`3.5-flash-lite`) with `35,000 ms` `gemini-4-hydrogen` timeouts, H1 error-specific cooldowns, 30-minute `localStorage` model persistence, and deterministic ranker fallback on total cloud exhaustion.
+- **Automated Regression Suite ([tests/](./tests))**:
+  - `npm test` verifies **99 / 99** unit and integration assertions across 12 `node --test` suites alongside `npm run build` (`vite build`).
