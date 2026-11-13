@@ -305,3 +305,35 @@ test("parseCSVImport always trusts Watched Date even when Date column is cluster
     assert.equal(rows[i].isBulkImported, undefined);
   }
 });
+
+test("parseCSVImport keeps most recent non-empty rating when newest rewatch row has blank rating", () => {
+  const csv = [
+    "Date,Name,Year,Letterboxd URI,Rating,Rewatch,Tags,Watched Date",
+    "2022-01-12,Stalker,1979,https://boxd.it/s1,3,,,2022-01-10",
+    "2024-05-12,Stalker,1979,https://boxd.it/s2,4.5,Yes,,2024-05-10",
+    "2026-06-02,stalker,1979,https://boxd.it/s3,,Yes,,2026-06-01",
+    // Out-of-order CSV (newest row first with blank rating) + separate film with all blank ratings
+    "2026-03-02,Chungking Express,1994,https://boxd.it/c1,,Yes,,2026-03-01",
+    "2021-04-02,Chungking Express,1994,https://boxd.it/c2,3.5,,,2021-04-01",
+    "2025-07-02,Chungking Express,1994,https://boxd.it/c3,5,Yes,,2025-07-01",
+    "2023-02-01,Paris Texas,1984,https://boxd.it/p1,,,,2023-02-01",
+    "2024-08-01,Paris Texas,1984,https://boxd.it/p2,,Yes,,2024-08-01"
+  ].join("\n");
+
+  const { rows } = parseCSVImport(csv, { now: NOW });
+  assert.equal(rows.length, 3);
+
+  const stalker = rows.find(r => r.title.toLowerCase() === "stalker");
+  assert.equal(stalker.dateWatched, "2026-06-01T00:00:00.000Z");
+  assert.equal(stalker.dateSource, "watched");
+  assert.equal(stalker.rating, 9);
+
+  const chungking = rows.find(r => r.title === "Chungking Express");
+  assert.equal(chungking.dateWatched, "2026-03-01T00:00:00.000Z");
+  assert.equal(chungking.dateSource, "watched");
+  assert.equal(chungking.rating, 10);
+
+  const paris = rows.find(r => r.title === "Paris Texas");
+  assert.equal(paris.dateWatched, "2024-08-01T00:00:00.000Z");
+  assert.equal(paris.rating, null);
+});

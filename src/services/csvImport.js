@@ -338,9 +338,14 @@ function shouldReplaceDuplicateRow(existing, candidate) {
   return candidateMs >= existingMs;
 }
 
+function hasValidRating(row) {
+  return typeof row?.rating === "number" && row.rating > 0;
+}
+
 /**
  * Collapses diary rewatches matching the same normalized title + year down to one
- * row per film, preferring the most recent valid watched date (or later row order).
+ * row per film, preferring the most recent valid watched date (or later row order)
+ * and retaining the most recent non-empty rating if the newest entry is unrated.
  */
 function deduplicateDiaryRows(rows) {
   const deduped = new Map();
@@ -348,18 +353,31 @@ function deduplicateDiaryRows(rows) {
     const normTitle = row.title.toLowerCase().trim().replace(/\s+/g, " ");
     const normYear = String(row.year || "").trim();
     const key = `${normTitle}::${normYear}`;
+    const rated = hasValidRating(row);
 
     if (!deduped.has(key)) {
-      deduped.set(key, row);
+      deduped.set(key, {
+        latestRow: row,
+        latestRatedRow: rated ? row : null
+      });
       continue;
     }
 
-    const incumbent = deduped.get(key);
-    if (shouldReplaceDuplicateRow(incumbent, row)) {
-      deduped.set(key, row);
+    const entry = deduped.get(key);
+    if (shouldReplaceDuplicateRow(entry.latestRow, row)) {
+      entry.latestRow = row;
+    }
+    if (rated && (!entry.latestRatedRow || shouldReplaceDuplicateRow(entry.latestRatedRow, row))) {
+      entry.latestRatedRow = row;
     }
   }
-  return Array.from(deduped.values());
+
+  return Array.from(deduped.values(), ({ latestRow, latestRatedRow }) => {
+    if (hasValidRating(latestRow) || !latestRatedRow) {
+      return latestRow;
+    }
+    return { ...latestRow, rating: latestRatedRow.rating };
+  });
 }
 
 /**
