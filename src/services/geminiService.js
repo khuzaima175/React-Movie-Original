@@ -101,8 +101,15 @@ export function getDefaultAttemptTimeoutMs(model = "") {
     if (lowerModel.includes("gemini-4-hydrogen")) return HYDROGEN_TIMEOUT_MS;
     if (lowerModel.includes("gemini-3-flash")) return 15000;
     if (lowerModel.includes("gemini-3.6-flash")) return 10000;
-    if (lowerModel.includes("gemini-3.8-flash")) return 5000;
+    if (lowerModel.includes("gemini-3.8-flash")) return 10000;
     return 8000;
+}
+
+export function createGeminiClient(apiKey, options = {}) {
+    return new GoogleGenAI({
+        apiKey,
+        httpOptions: { timeout: options.timeoutMs ?? HYDROGEN_TIMEOUT_MS }
+    });
 }
 
 export function getWorkingModelStorageKey(cascadeType = "curation") {
@@ -1400,7 +1407,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
  */
 export const getMovieRecommendations = async (watchedMovies = [], watchlist = [], onProgress, options = {}) => {
     const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
-    const ai = options.aiClient || (apiKey ? new GoogleGenAI({ apiKey, httpOptions: { timeout: HYDROGEN_TIMEOUT_MS } }) : null);
+    const ai = options.aiClient || (apiKey ? createGeminiClient(apiKey, options) : null);
     const hasInjectedCandidates = Array.isArray(options.candidates) && options.candidates.length >= 6;
     const hasTmdb = Boolean(getTmdbKey() || hasInjectedCandidates);
 

@@ -385,7 +385,7 @@ export function buildBucketAParams(profile = {}, mood = "any", options = {}, api
 
   const combinedLoved = Array.from(new Set([
     ...(profile.lovedGenreIds || []).slice(0, 4),
-    ...(profile.watchlistGenreIds || []).slice(0, 2),
+    ...(profile.watchlistGenreIds || []).slice(0, 3),
     ...moodBoostGenreIds
   ]));
 

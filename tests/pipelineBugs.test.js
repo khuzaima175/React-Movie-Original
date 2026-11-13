@@ -369,3 +369,17 @@ test("getMovieRecommendations throws explicit error when neither Gemini key nor 
     else process.env.VITE_TMDB_KEY = prevTmdbKey;
   }
 });
+
+test("buildBucketAParams includes all 3 watchlistGenreIds matching extractTasteProfile and generateProfileHash", () => {
+  const params = buildBucketAParams(
+    {
+      lovedGenreIds: [878],
+      hatedKeywordIds: [],
+      topCastIds: [],
+      watchlistGenreIds: [18, 80, 9648]
+    },
+    "any",
+    { userRegion: "US", userProviders: [] }
+  );
+  assert.equal(params.get("with_genres"), "878|18|80|9648");
+});

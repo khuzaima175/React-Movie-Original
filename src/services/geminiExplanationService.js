@@ -1,5 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
-import { CURATION_MODEL_CASCADE, executeCascade } from "./geminiService.js";
+import { CURATION_MODEL_CASCADE, executeCascade, createGeminiClient } from "./geminiService.js";
 
 /**
  * Explains WHY a specific movie was recommended based on user's taste
@@ -11,7 +10,7 @@ export const getRecommendationExplanation = async (movieTitle, userTasteProfile,
         throw new Error("Gemini API Key is missing.");
     }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 35000 } });
+    const ai = createGeminiClient(apiKey);
 
     // Get a snapshot of user's high-rated movies (8+)
     const favorites = (watchedMovies || [])

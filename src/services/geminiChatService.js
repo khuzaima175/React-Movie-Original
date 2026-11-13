@@ -1,5 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
-import { FAST_INTERACTIVE_CASCADE, executeCascade } from "./geminiService.js";
+import { FAST_INTERACTIVE_CASCADE, executeCascade, createGeminiClient } from "./geminiService.js";
 
 /**
  * Sends a message to the AI movie assistant with user context.
@@ -8,7 +7,7 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) =
     const apiKey = import.meta.env?.VITE_GEMINI_KEY || globalThis.process?.env?.VITE_GEMINI_KEY;
     if (!apiKey) throw new Error("API Key missing");
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 35000 } });
+    const ai = createGeminiClient(apiKey);
 
     // 1. Construct the System Context with User Data
     const movieContext = (watchedMovies || []).map(m =>

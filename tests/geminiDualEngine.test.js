@@ -24,7 +24,8 @@ import {
     getPreferredCascadeModel,
     resolveResultModelInfo,
     buildCascadeModelInfo,
-    resetModelInfoForTests
+    resetModelInfoForTests,
+    createGeminiClient
 } from "../src/services/geminiService.js";
 
 test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.6/3.5/3-curation, MINIMAL to 3-flash fast, and budget:0 to 2.5", () => {
@@ -487,13 +488,15 @@ test("executeCascade records transient cooldown on abort-timeout with injected f
     resetSessionWorkingModels();
 });
 
-test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen, 15000ms for 3-flash, 10000ms for 3.6-flash, and preserves flash timeouts", () => {
+test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen, 15000ms for 3-flash, 10000ms for 3.6/3.8-flash, and preserves flash timeouts", () => {
     assert.equal(HYDROGEN_TIMEOUT_MS, 35000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-4-hydrogen"), 35000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3-flash-preview"), 15000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.6-flash"), 10000);
-    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 5000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 10000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.5-flash-lite"), 8000);
+    const client = createGeminiClient("DUMMY_KEY");
+    assert.equal(typeof client?.models?.generateContent, "function");
 });
 
 test("formatModelDisplayName maps known Gemini models and offline ranker fallback cleanly", () => {
