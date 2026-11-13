@@ -54,37 +54,287 @@ export function getModelThinkingConfig(modelName = "", cascadeType = "curation")
     return undefined;
 }
 
+export const WORKING_MODEL_TTL_MS = 30 * 60 * 1000;
+export const QUOTA_COOLDOWN_MS = 120_000;
+export const DAILY_QUOTA_COOLDOWN_MS = 600_000;
+export const TRANSIENT_COOLDOWN_MS = 30_000;
+export const FATAL_COOLDOWN_MS = 1_800_000;
+
+export function getWorkingModelStorageKey(cascadeType = "curation") {
+    return `cinemavault_working_model_${cascadeType}_v1`;
+}
+
 let sessionCurationModel = null;
 let sessionFastModel = null;
-const sessionDegradedModels = new Set();
+export const modelCooldowns = new Map();
+let clockFn = () => Date.now();
 
-export const resetSessionWorkingModels = () => {
+export function setClockForTests(fn) {
+    clockFn = typeof fn === "function" ? fn : () => Date.now();
+}
+
+function resolveLocalStorage(options = {}) {
+    if (options && "storage" in options) {
+        return options.storage || null;
+    }
+    try {
+        if (typeof localStorage !== "undefined" && localStorage) {
+            return localStorage;
+        }
+    } catch (_) {}
+    return null;
+}
+
+function parseDurationStringMs(val) {
+    if (val === null || val === undefined) return null;
+    if (typeof val === "object" && ("seconds" in val || "nanos" in val)) {
+        const ms = Number(val.seconds || 0) * 1000 + Number(val.nanos || 0) / 1e6;
+        return Number.isFinite(ms) && ms > 0 ? Math.ceil(ms) : null;
+    }
+    const str = String(val).trim();
+    if (!str) return null;
+    const unitRe = /(\d+(?:\.\d+)?)\s*(ms|s|m|h|seconds?|minutes?|hours?)/gi;
+    let totalMs = 0;
+    let matched = false;
+    for (const m of str.matchAll(unitRe)) {
+        matched = true;
+        const num = Number(m[1]);
+        const unit = m[2].toLowerCase();
+        if (!Number.isFinite(num)) continue;
+        if (unit === "ms") totalMs += num;
+        else if (unit === "s" || unit.startsWith("sec")) totalMs += num * 1000;
+        else if (unit === "m" || unit.startsWith("min")) totalMs += num * 60_000;
+        else if (unit === "h" || unit.startsWith("hour")) totalMs += num * 3_600_000;
+    }
+    if (matched && totalMs > 0) return Math.ceil(totalMs);
+    if (/^\d+(?:\.\d+)?$/.test(str)) {
+        const secs = Number(str);
+        return Number.isFinite(secs) && secs > 0 ? Math.ceil(secs * 1000) : null;
+    }
+    return null;
+}
+
+function parseRetryDelayMs(err) {
+    if (!err) return null;
+    if (Number.isFinite(err?.retryAfterMs) && err.retryAfterMs > 0) {
+        return Math.ceil(err.retryAfterMs);
+    }
+    if (err?.retryDelay !== undefined) {
+        const direct = parseDurationStringMs(err.retryDelay);
+        if (direct) return direct;
+    }
+    const details = [
+        ...(Array.isArray(err?.details) ? err.details : []),
+        ...(Array.isArray(err?.error?.details) ? err.error.details : [])
+    ];
+    for (const d of details) {
+        if (d?.retryDelay !== undefined) {
+            const parsed = parseDurationStringMs(d.retryDelay);
+            if (parsed) return parsed;
+        }
+    }
+    const text = [err?.message, err?.error?.message, typeof err === "string" ? err : ""]
+        .filter(Boolean)
+        .join(" ");
+    const jsonMatch = text.match(/"retryDelay"\s*:\s*"([^"]+)"/i);
+    if (jsonMatch) {
+        const parsed = parseDurationStringMs(jsonMatch[1]);
+        if (parsed) return parsed;
+    }
+    const fieldMatch = text.match(/retryDelay\s*[:=]\s*["']?([0-9]+(?:\.[0-9]+)?\s*(?:ms|s|m|h))/i);
+    if (fieldMatch) {
+        const parsed = parseDurationStringMs(fieldMatch[1]);
+        if (parsed) return parsed;
+    }
+    const proseMatch = text.match(/retry(?:\s+(?:after|in))?\s+([0-9]+(?:\.[0-9]+)?\s*(?:ms|s|m|h|seconds?|minutes?|hours?))/i);
+    if (proseMatch) {
+        const parsed = parseDurationStringMs(proseMatch[1]);
+        if (parsed) return parsed;
+    }
+    return null;
+}
+
+/**
+ * Classifies a Gemini API error into:
+ * "quota" | "transient" | "invalid_config" | "auth_fatal"
+ */
+export function classifyGeminiError(err) {
+    if (!err) return "transient";
+    const status = Number(err?.status ?? err?.statusCode ?? err?.error?.code ?? err?.code);
+    const name = String(err?.name || "").toLowerCase();
+    const parts = [
+        err?.message,
+        err?.error?.message,
+        err?.error?.status,
+        err?.statusText,
+        typeof err === "string" ? err : ""
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (
+        status === 429 ||
+        /\b429\b(?!\s*ms)/.test(parts) ||
+        parts.includes("resource_exhausted") ||
+        parts.includes("quota")
+    ) {
+        return "quota";
+    }
+
+    if (
+        status === 401 ||
+        status === 403 ||
+        status === 404 ||
+        /\b(?:401|403|404)\b(?!\s*ms)/.test(parts) ||
+        parts.includes("unauthenticated") ||
+        parts.includes("permission_denied") ||
+        parts.includes("not_found")
+    ) {
+        return "auth_fatal";
+    }
+
+    if (
+        status === 400 ||
+        /\b400\b(?!\s*ms)/.test(parts) ||
+        parts.includes("invalid_argument") ||
+        parts.includes("invalid argument")
+    ) {
+        return "invalid_config";
+    }
+
+    if (
+        status === 503 ||
+        status === 504 ||
+        /\b(?:503|504)\b(?!\s*ms)/.test(parts) ||
+        name.includes("abort") ||
+        name.includes("timeout") ||
+        /timeout|timed out|abort|network|fetch failed|econn|enotfound|etimedout|unavailable/i.test(parts)
+    ) {
+        return "transient";
+    }
+
+    return "transient";
+}
+
+function getCooldownMsForError(err, reason) {
+    if (reason === "quota") {
+        const retryMs = parseRetryDelayMs(err);
+        if (retryMs) return retryMs;
+        const msg = [err?.message, err?.error?.message, typeof err === "string" ? err : ""]
+            .filter(Boolean)
+            .join(" ");
+        const isDailyExhausted = /\blimit\s*:\s*0\b|perday|per_day|requests\s+per\s+day|daily\s+(?:rpd\s+)?(?:quota\s+)?exhausted|\brpd\b.*exhaust/i.test(msg);
+        return isDailyExhausted ? DAILY_QUOTA_COOLDOWN_MS : QUOTA_COOLDOWN_MS;
+    }
+    if (reason === "invalid_config" || reason === "auth_fatal") {
+        return FATAL_COOLDOWN_MS;
+    }
+    return TRANSIENT_COOLDOWN_MS;
+}
+
+function isModelInCooldown(model, nowMs) {
+    const entry = modelCooldowns.get(model);
+    if (!entry) return false;
+    if (nowMs >= entry.untilMs) {
+        modelCooldowns.delete(model);
+        return false;
+    }
+    return true;
+}
+
+function readPersistedWorkingModel(cascadeType, nowMs, storage) {
+    if (!storage || typeof storage.getItem !== "function") return null;
+    const key = getWorkingModelStorageKey(cascadeType);
+    try {
+        const raw = storage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed.model !== "string" || !Number.isFinite(parsed.savedAt)) {
+            return null;
+        }
+        if (nowMs - parsed.savedAt >= WORKING_MODEL_TTL_MS) {
+            try { storage.removeItem?.(key); } catch (_) {}
+            return null;
+        }
+        return parsed.model;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writePersistedWorkingModel(cascadeType, model, nowMs, storage) {
+    if (!storage || typeof storage.setItem !== "function") return;
+    const key = getWorkingModelStorageKey(cascadeType);
+    try {
+        storage.setItem(key, JSON.stringify({ model, savedAt: nowMs }));
+    } catch (_) {}
+}
+
+function clearPersistedWorkingModel(cascadeType, storage) {
+    if (!storage || typeof storage.removeItem !== "function") return;
+    const key = getWorkingModelStorageKey(cascadeType);
+    try {
+        storage.removeItem(key);
+    } catch (_) {}
+}
+
+export const resetSessionWorkingModels = (options = {}) => {
     sessionCurationModel = null;
     sessionFastModel = null;
-    sessionDegradedModels.clear();
+    modelCooldowns.clear();
+    if (options?.clearStorage) {
+        const storage = resolveLocalStorage(options);
+        clearPersistedWorkingModel("curation", storage);
+        clearPersistedWorkingModel("fast", storage);
+    }
 };
 
 export const getSessionCurationModel = () => sessionCurationModel;
 export const getSessionFastModel = () => sessionFastModel;
 
 /**
- * Executes a resilient cascade across models with per-attempt timeout and session health memoization.
+ * Executes a resilient cascade across models with cooldown backoff, abort-on-timeout,
+ * all-on-cooldown soonest-expiry fallback, and persisted working-model preference.
  */
 export async function executeCascade(ai, cascade, requestParams, options = {}) {
     if (!ai?.models?.generateContent) {
         throw new Error("Invalid GoogleGenAI client provided to executeCascade");
     }
-
-    const cascadeType = options.cascadeType || "curation";
-    const activeModel = cascadeType === "curation" ? sessionCurationModel : sessionFastModel;
-
-    let candidateModels = [...cascade].filter(m => !sessionDegradedModels.has(m));
-    if (activeModel && candidateModels.includes(activeModel)) {
-        candidateModels = [activeModel, ...candidateModels.filter(m => m !== activeModel)];
+    if (!Array.isArray(cascade) || cascade.length === 0) {
+        return null;
     }
 
-    if (candidateModels.length === 0) {
-        candidateModels = [...cascade];
+    const cascadeType = options.cascadeType || "curation";
+    const getNow = typeof options.now === "function" ? options.now : clockFn;
+    const startNowMs = getNow();
+    const storage = resolveLocalStorage(options);
+
+    const sessionActive =
+        cascadeType === "curation"
+            ? sessionCurationModel
+            : (cascadeType === "fast" ? sessionFastModel : null);
+    const persistedActive = readPersistedWorkingModel(cascadeType, startNowMs, storage);
+
+    let candidateModels = [...cascade].filter(m => !isModelInCooldown(m, startNowMs));
+
+    if (candidateModels.length > 0) {
+        const preferred =
+            sessionActive && candidateModels.includes(sessionActive)
+                ? sessionActive
+                : (persistedActive && candidateModels.includes(persistedActive) ? persistedActive : null);
+        if (preferred) {
+            candidateModels = [preferred, ...candidateModels.filter(m => m !== preferred)];
+        }
+    } else {
+        // Every model is currently inside its cooldown window: try only the single soonest-expiring model
+        let soonestModel = cascade[0];
+        let minUntil = Infinity;
+        for (const m of cascade) {
+            const until = modelCooldowns.get(m)?.untilMs ?? Infinity;
+            if (until < minUntil) {
+                minUntil = until;
+                soonestModel = m;
+            }
+        }
+        candidateModels = [soonestModel];
     }
 
     let lastError = null;
@@ -149,22 +399,34 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
                 spendTracker.record(model, response.usageMetadata);
             }
 
+            const successNowMs = getNow();
+            modelCooldowns.delete(model);
             if (cascadeType === "curation") {
                 sessionCurationModel = model;
             } else if (cascadeType === "fast") {
                 sessionFastModel = model;
             }
+            writePersistedWorkingModel(cascadeType, model, successNowMs, storage);
 
             return response;
         } catch (err) {
             lastError = err;
-            sessionDegradedModels.add(model);
+            const failNowMs = getNow();
+            const reason = classifyGeminiError(err);
+            const cooldownMs = getCooldownMsForError(err, reason);
+            modelCooldowns.set(model, {
+                untilMs: failNowMs + cooldownMs,
+                reason
+            });
             if (cascadeType === "curation" && sessionCurationModel === model) {
                 sessionCurationModel = null;
             } else if (cascadeType === "fast" && sessionFastModel === model) {
                 sessionFastModel = null;
             }
-            console.warn(`Model ${model} failed in ${cascadeType} cascade (${err.message || err}). Trying fallback...`);
+            if (readPersistedWorkingModel(cascadeType, failNowMs, storage) === model) {
+                clearPersistedWorkingModel(cascadeType, storage);
+            }
+            console.warn(`Model ${model} failed in ${cascadeType} cascade [${reason}, cooldown=${cooldownMs}ms] (${err.message || err}). Trying fallback...`);
         } finally {
             clearTimeout(timer);
             if (callerSignal && onCallerAbort) {
