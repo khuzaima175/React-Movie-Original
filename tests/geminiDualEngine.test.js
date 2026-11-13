@@ -18,7 +18,13 @@ import {
     TRANSIENT_COOLDOWN_MS,
     FATAL_COOLDOWN_MS,
     HYDROGEN_TIMEOUT_MS,
-    getDefaultAttemptTimeoutMs
+    getDefaultAttemptTimeoutMs,
+    formatModelDisplayName,
+    getLastModelInfo,
+    getPreferredCascadeModel,
+    resolveResultModelInfo,
+    buildCascadeModelInfo,
+    resetModelInfoForTests
 } from "../src/services/geminiService.js";
 
 test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.5, and budget:0 to 2.5", () => {
@@ -455,4 +461,97 @@ test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen and p
     assert.equal(getDefaultAttemptTimeoutMs("gemini-4-hydrogen"), 35000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 5000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.5-flash-lite"), 8000);
+});
+
+test("formatModelDisplayName maps known Gemini models and offline ranker fallback cleanly", () => {
+    assert.equal(formatModelDisplayName("gemini-4-hydrogen"), "Gemini 4 Hydrogen");
+    assert.equal(formatModelDisplayName("gemini-3.5-flash-lite"), "Gemini 3.5 Flash-Lite");
+    assert.equal(formatModelDisplayName("gemini-2.5-flash"), "Gemini 2.5 Flash");
+    assert.equal(formatModelDisplayName("gemini-3.8-flash"), "Gemini 3.8 Flash");
+    assert.equal(formatModelDisplayName(null), "Local Ranker (Offline Fallback)");
+    assert.equal(formatModelDisplayName("gemini-3.6-flash"), "gemini-3.6-flash");
+});
+
+test("executeCascade records getLastModelInfo across primary, fallback, and fast vs curation isolation", async () => {
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+    let fakeNow = 5_000_000_000_000;
+
+    try {
+        const mockPrimaryAi = {
+            models: {
+                generateContent: async () => ({ text: JSON.stringify({ ok: true }), usageMetadata: { totalTokenCount: 120 } })
+            }
+        };
+        const r1 = await executeCascade(mockPrimaryAi, CURATION_MODEL_CASCADE, { contents: "curation win" }, {
+            cascadeType: "curation",
+            now: () => fakeNow
+        });
+        assert.ok(r1);
+        const info1 = getLastModelInfo("curation");
+        assert.equal(info1.model, "gemini-4-hydrogen");
+        assert.equal(info1.displayName, "Gemini 4 Hydrogen");
+        assert.equal(info1.isFallback, false);
+        assert.equal(info1.pipeline, "gemini-curation");
+        assert.deepEqual(info1.cooldownModels, []);
+        assert.equal(info1.seq, 1);
+
+        // Now simulate Hydrogen 429 + 3.5-flash-lite fallback on curation, AND separate fast chat falling back to 2.5-flash
+        resetSessionWorkingModels();
+        const mockFallbackAi = {
+            models: {
+                generateContent: async ({ model }) => {
+                    if (model === "gemini-4-hydrogen" || model === "gemini-3.5-flash-lite") {
+                        throw new Error(`429 RESOURCE_EXHAUSTED on ${model}`);
+                    }
+                    return { text: JSON.stringify({ ok: true }), usageMetadata: { totalTokenCount: 55 } };
+                }
+            }
+        };
+
+        const rFast = await executeCascade(mockFallbackAi, FAST_INTERACTIVE_CASCADE, { contents: "chat turn" }, {
+            cascadeType: "fast",
+            now: () => fakeNow
+        });
+        assert.ok(rFast);
+        const fastInfo = getLastModelInfo("fast");
+        assert.equal(fastInfo.model, "gemini-2.5-flash");
+        assert.equal(fastInfo.displayName, "Gemini 2.5 Flash");
+        assert.equal(fastInfo.isFallback, true);
+        assert.equal(fastInfo.pipeline, "gemini-fast");
+        assert.equal(fastInfo.seq, 2);
+        // Cooldown list contains both skipped models
+        assert.ok(fastInfo.cooldownModels.some((c) => c.model === "gemini-3.5-flash-lite" && c.reason === "quota"));
+        assert.ok(fastInfo.cooldownModels.some((c) => c.model === "gemini-4-hydrogen" && c.reason === "quota"));
+        // Curation lastModelInfo remained isolated at seq 1
+        assert.equal(getLastModelInfo("curation").model, "gemini-4-hydrogen");
+        assert.equal(getLastModelInfo("curation").seq, 1);
+    } finally {
+        resetSessionWorkingModels();
+        resetModelInfoForTests();
+    }
+});
+
+test("getPreferredCascadeModel & resolveResultModelInfo skip cooled-down models and fall back cleanly", () => {
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+    const fakeNow = 6_000_000_000_000;
+
+    try {
+        assert.equal(getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow }), "gemini-4-hydrogen");
+
+        modelCooldowns.set("gemini-4-hydrogen", { untilMs: fakeNow + QUOTA_COOLDOWN_MS, reason: "quota" });
+        assert.equal(getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow }), "gemini-3.5-flash-lite");
+
+        const fallbackInfo = resolveResultModelInfo({ recommendations: [] }, "curation");
+        assert.equal(fallbackInfo.model, null);
+        assert.equal(fallbackInfo.pipeline, "ranker-fallback");
+        assert.equal(fallbackInfo.isFallback, true);
+
+        const explicitInfo = buildCascadeModelInfo(CURATION_MODEL_CASCADE, "gemini-2.5-flash", "curation", "gemini-curation", { recordedAt: fakeNow });
+        assert.equal(resolveResultModelInfo({ modelInfo: explicitInfo }, "curation").model, "gemini-2.5-flash");
+    } finally {
+        resetSessionWorkingModels();
+        resetModelInfoForTests();
+    }
 });

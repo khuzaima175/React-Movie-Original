@@ -5,7 +5,12 @@ import {
   generateProfileHash,
   generateFallbackId,
   getSmartCache,
-  setSmartCache
+  setSmartCache,
+  CURATION_MODEL_CASCADE,
+  formatModelDisplayName,
+  getLastModelInfo,
+  getPreferredCascadeModel,
+  resolveResultModelInfo
 } from "../services/geminiService";
 import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS, AVAILABLE_REGIONS } from "../services/tmdbService";
 import { useApp } from "../context/AppContext";
@@ -32,7 +37,8 @@ import {
   Play,
   Tv,
   Globe,
-  RotateCcw
+  RotateCcw,
+  Cpu
 } from "lucide-react";
 
 const MOOD_OPTIONS = [
@@ -80,6 +86,69 @@ function TasteMatchBadge({ score }) {
   );
 }
 
+function buildModelTooltip(modelInfo, queuedModel) {
+  if (!modelInfo) {
+    return queuedModel
+      ? `Next cascade model queued: ${formatModelDisplayName(queuedModel)} (${queuedModel})`
+      : "Model usage details unavailable for legacy cache.";
+  }
+  const parts = [
+    `Model: ${modelInfo.model ? `${modelInfo.displayName || formatModelDisplayName(modelInfo.model)} (${modelInfo.model})` : "Local Ranker (Offline Fallback)"}`,
+    `Pipeline: ${modelInfo.pipeline || "gemini-curation"}`
+  ];
+  if (modelInfo.fromCache) {
+    parts.push("Origin: 500KB LRU Cache");
+  }
+  if (modelInfo.cooldownModels?.length > 0) {
+    const skipped = modelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ");
+    parts.push(`Skipped/Fallback from: ${skipped}`);
+  }
+  if (modelInfo.usageMetadata?.totalTokenCount) {
+    parts.push(`Tokens: ${modelInfo.usageMetadata.totalTokenCount}`);
+  }
+  return parts.join(" | ");
+}
+
+function ModelUsageBadge({ modelInfo, isCacheValid, queuedModel }) {
+  if (!modelInfo) {
+    return (
+      <span
+        className="model-status-badge fallback"
+        title={buildModelTooltip(null, queuedModel)}
+      >
+        <Cpu size={12} />
+        {isCacheValid
+          ? "Model: Legacy Cache"
+          : `Queued: ${queuedModel || "Local Ranker"}`}
+      </span>
+    );
+  }
+
+  const tierClass = !modelInfo.model
+    ? "offline"
+    : modelInfo.isFallback
+      ? "fallback"
+      : "primary";
+
+  const shortLabel = modelInfo.model
+    ? `${modelInfo.displayName || formatModelDisplayName(modelInfo.model)} (${modelInfo.model})`
+    : "Local Ranker (Offline Fallback)";
+
+  return (
+    <span
+      className={`model-status-badge ${tierClass}`}
+      title={buildModelTooltip(modelInfo, queuedModel)}
+    >
+      <Cpu size={12} />
+      <span>
+        {modelInfo.isFallback && modelInfo.model ? "Fallback: " : "Model: "}
+        {shortLabel}
+        {modelInfo.fromCache ? " · Cached" : ""}
+      </span>
+    </span>
+  );
+}
+
 export default function MovieRecommendations({
   watched = [],
   onAddToWatchlist,
@@ -96,6 +165,7 @@ export default function MovieRecommendations({
     setUserWatchProviders,
     toggleWatchProvider,
     aiRecommendationsHash,
+    aiModelInfo,
     aiFeedbackLog,
     saveAiRecommendations,
     addAiFeedback
@@ -139,11 +209,14 @@ export default function MovieRecommendations({
     recommendations.length > 0
   );
 
+  const queuedModel = getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation");
+  const displayedModelInfo = aiModelInfo || getLastModelInfo("curation");
+
   const loadingSteps = [
     watched.length >= 3 ? `Analyzing ${watched.length} rated films with mathematical weights...` : "Initializing cold-start vibe calibration...",
     "Querying TMDB 3-Bucket waterfall engine...",
     "Synthesizing taste DNA & time-decay affinities...",
-    "Calibrating precision match scores..."
+    `Calibrating precision match scores via ${queuedModel ? formatModelDisplayName(queuedModel) : "Calibrated Ranker"}...`
   ];
 
   // Advance loading steps smoothly
@@ -165,9 +238,12 @@ export default function MovieRecommendations({
     if (!recommendations && currentHash && !isLoading) {
       const cached = getSmartCache(currentHash, watched, watchlist);
       if (cached && cached.recommendations?.length >= 4) {
+        const cachedModelInfo = cached.modelInfo
+          ? { ...cached.modelInfo, fromCache: true }
+          : null;
         setTasteProfile(cached.tasteProfile);
         setRecommendations(cached.recommendations);
-        saveAiRecommendations(cached.recommendations, cached.tasteProfile, currentHash);
+        saveAiRecommendations(cached.recommendations, cached.tasteProfile, currentHash, cachedModelInfo);
       }
     }
   }, [currentHash, isLoading]);
@@ -192,11 +268,19 @@ export default function MovieRecommendations({
 
       const profile = await extractTasteProfile(watched, watchlist);
       const newHash = generateProfileHash(profile, profile.watchlistGenreIds, selectedMood, userWatchProviders);
+      const liveModelInfo = {
+        ...resolveResultModelInfo(result, "curation"),
+        fromCache: false
+      };
+      const cacheableResult = {
+        ...result,
+        modelInfo: liveModelInfo
+      };
 
       setTasteProfile(result.tasteProfile);
       setRecommendations(result.recommendations);
-      saveAiRecommendations(result.recommendations, result.tasteProfile, newHash);
-      setSmartCache(newHash, result);
+      saveAiRecommendations(result.recommendations, result.tasteProfile, newHash, liveModelInfo);
+      setSmartCache(newHash, cacheableResult);
       setShowFilterDeck(false);
     } catch (err) {
       if (activeRequestRef.current !== requestId) return;
@@ -728,6 +812,18 @@ export default function MovieRecommendations({
                   <AlertCircle size={11} /> Live 3-Bucket Re-ranked
                 </span>
               )}
+              <ModelUsageBadge
+                modelInfo={
+                  displayedModelInfo &&
+                  isCacheValid &&
+                  !getLastModelInfo("curation") &&
+                  !displayedModelInfo.fromCache
+                    ? { ...displayedModelInfo, fromCache: true }
+                    : displayedModelInfo
+                }
+                isCacheValid={isCacheValid}
+                queuedModel={queuedModel}
+              />
             </div>
 
             <div className="recs-actions-group">

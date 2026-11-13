@@ -31,6 +31,24 @@ export const FAST_INTERACTIVE_CASCADE = [
     "gemini-3.8-flash"
 ];
 
+export const MODEL_DISPLAY_NAMES = {
+    "gemini-4-hydrogen": "Gemini 4 Hydrogen",
+    "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+    "gemini-3.5-flash": "Gemini 3.5 Flash",
+    "gemini-2.5-flash": "Gemini 2.5 Flash",
+    "gemini-3.8-flash": "Gemini 3.8 Flash"
+};
+
+export function formatModelDisplayName(modelName) {
+    if (!modelName) return "Local Ranker (Offline Fallback)";
+    const normalized = String(modelName).trim();
+    return MODEL_DISPLAY_NAMES[normalized] || normalized;
+}
+
+let cascadeRunSeq = 0;
+let lastCurationModelInfo = null;
+let lastFastModelInfo = null;
+
 export const MODELS = CURATION_MODEL_CASCADE;
 const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
 const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
@@ -416,6 +434,24 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
             }
             writePersistedWorkingModel(cascadeType, model, successNowMs, storage);
 
+            cascadeRunSeq += 1;
+            const winInfo = buildCascadeModelInfo(
+                cascade,
+                model,
+                cascadeType,
+                cascadeType === "fast" ? "gemini-fast" : "gemini-curation",
+                {
+                    usageMetadata: response?.usageMetadata ?? null,
+                    recordedAt: successNowMs,
+                    seq: cascadeRunSeq
+                }
+            );
+            if (cascadeType === "curation") {
+                lastCurationModelInfo = winInfo;
+            } else if (cascadeType === "fast") {
+                lastFastModelInfo = winInfo;
+            }
+
             return response;
         } catch (err) {
             lastError = err;
@@ -578,6 +614,91 @@ export function clearSmartCache(hash) {
             localStorage.removeItem(SMART_CACHE_KEY);
         }
     } catch (_) { }
+}
+
+/**
+ * Summarize which Gemini model ran (or why fallback occurred) for UI diagnostics & testing.
+ */
+export function buildCascadeModelInfo(
+    cascade = CURATION_MODEL_CASCADE,
+    winningModel = null,
+    cascadeType = "curation",
+    pipeline = "gemini-curation",
+    extra = {}
+) {
+    const nowMs = Number.isFinite(extra.recordedAt) ? extra.recordedAt : Date.now();
+    const cooldownModels = [];
+    for (const candidate of cascade || []) {
+        const entry = modelCooldowns.get(candidate);
+        if (entry && entry.untilMs > nowMs) {
+            cooldownModels.push({ model: candidate, reason: entry.reason });
+        }
+    }
+    const primaryModel = cascade?.[0] || null;
+    const normalizedModel = winningModel || null;
+    return {
+        model: normalizedModel,
+        displayName: formatModelDisplayName(normalizedModel),
+        cascadeType,
+        pipeline,
+        primaryModel,
+        isFallback: Boolean(!normalizedModel || (primaryModel && normalizedModel !== primaryModel)),
+        cooldownModels,
+        usageMetadata: extra.usageMetadata ?? null,
+        recordedAt: nowMs,
+        seq: extra.seq ?? 0
+    };
+}
+
+export function getLastModelInfo(cascadeType = "curation") {
+    const info = cascadeType === "fast" ? lastFastModelInfo : lastCurationModelInfo;
+    return info ? { ...info, cooldownModels: [...(info.cooldownModels || [])] } : null;
+}
+
+export function getPreferredCascadeModel(
+    cascade = CURATION_MODEL_CASCADE,
+    cascadeType = "curation",
+    options = {}
+) {
+    const nowMs = typeof options.now === "function" ? options.now() : Date.now();
+    const sessionModel = cascadeType === "fast" ? sessionFastModel : sessionCurationModel;
+    if (sessionModel && cascade.includes(sessionModel)) {
+        const cd = modelCooldowns.get(sessionModel);
+        if (!cd || cd.untilMs <= nowMs) {
+            return sessionModel;
+        }
+    }
+    for (const candidate of cascade) {
+        const cd = modelCooldowns.get(candidate);
+        if (!cd || cd.untilMs <= nowMs) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+export function resolveResultModelInfo(result, cascadeType = "curation") {
+    if (result?.modelInfo) {
+        return result.modelInfo;
+    }
+    if (cascadeType === "curation" && lastCurationModelInfo) {
+        return {
+            ...lastCurationModelInfo,
+            cooldownModels: [...(lastCurationModelInfo.cooldownModels || [])]
+        };
+    }
+    return buildCascadeModelInfo(
+        cascadeType === "fast" ? FAST_INTERACTIVE_CASCADE : CURATION_MODEL_CASCADE,
+        null,
+        cascadeType,
+        "ranker-fallback"
+    );
+}
+
+export function resetModelInfoForTests() {
+    lastCurationModelInfo = null;
+    lastFastModelInfo = null;
+    cascadeRunSeq = 0;
 }
 
 const getOmdbKey = () => {
@@ -969,6 +1090,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         }
     };
 
+    const prevSeq = lastCurationModelInfo?.seq || 0;
     const response = await executeCascade(
         ai,
         CURATION_MODEL_CASCADE,
@@ -976,11 +1098,26 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         { cascadeType: "curation" }
     );
 
+    const activeRunModelInfo = response
+        ? buildCascadeModelInfo(
+            CURATION_MODEL_CASCADE,
+            lastCurationModelInfo?.seq > prevSeq ? lastCurationModelInfo.model : sessionCurationModel,
+            "curation",
+            "gemini-curation",
+            {
+                usageMetadata: response?.usageMetadata ?? null,
+                seq: lastCurationModelInfo?.seq || prevSeq
+            }
+        )
+        : buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback");
+    lastCurationModelInfo = activeRunModelInfo;
+
     options.onDiagnostics?.({
         mergedCandidates: candidates,
         topCandidates,
         reserve: reserveConfig,
-        model: response ? sessionCurationModel : null,
+        model: response ? activeRunModelInfo.model : null,
+        modelInfo: activeRunModelInfo,
         usageMetadata: response?.usageMetadata ?? null
     });
 
@@ -1013,7 +1150,11 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
     }
 
     const result = sanitizeAndParseJSON(response.text);
-    return mergeGeminiExplanationsWithRanker(result, topCandidates, profile);
+    const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile);
+    return {
+        ...merged,
+        modelInfo: activeRunModelInfo
+    };
 }
 
 /**
@@ -1071,6 +1212,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
         }
     };
 
+    const prevOmdbSeq = lastCurationModelInfo?.seq || 0;
     const response = await executeCascade(
         ai,
         CURATION_MODEL_CASCADE,
@@ -1078,7 +1220,22 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
         { cascadeType: "curation" }
     );
 
-    if (!response) throw new Error("Fallback recommendation generation failed");
+    if (!response) {
+        lastCurationModelInfo = buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "gemini-omdb-fallback");
+        throw new Error("Fallback recommendation generation failed");
+    }
+
+    const omdbModelInfo = buildCascadeModelInfo(
+        CURATION_MODEL_CASCADE,
+        lastCurationModelInfo?.seq > prevOmdbSeq ? lastCurationModelInfo.model : sessionCurationModel,
+        "curation",
+        "gemini-omdb-fallback",
+        {
+            usageMetadata: response?.usageMetadata ?? null,
+            seq: lastCurationModelInfo?.seq || prevOmdbSeq
+        }
+    );
+    lastCurationModelInfo = omdbModelInfo;
 
     const result = sanitizeAndParseJSON(response.text);
 
@@ -1114,6 +1271,7 @@ Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and re
         result.recommendations = enriched;
     }
 
+    result.modelInfo = omdbModelInfo;
     return result;
 }
 

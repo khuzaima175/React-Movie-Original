@@ -1,7 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { sendChatMessage } from "../services/geminiChatService";
-import { getFallbackPoster, generateFallbackId } from "../services/geminiService";
+import {
+  getFallbackPoster,
+  generateFallbackId,
+  FAST_INTERACTIVE_CASCADE,
+  formatModelDisplayName,
+  getLastModelInfo,
+  getPreferredCascadeModel
+} from "../services/geminiService";
 import PosterImage from "./PosterImage";
 import {
   Sparkles,
@@ -11,7 +18,8 @@ import {
   Star,
   Plus,
   Check,
-  AlertCircle
+  AlertCircle,
+  Cpu
 } from "lucide-react";
 
 const SUGGESTED_PROMPTS = [
@@ -153,6 +161,7 @@ export default function AIChat({ watched }) {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [activeChatModelInfo, setActiveChatModelInfo] = useState(() => getLastModelInfo("fast"));
   const chatContainerRef = useRef(null);
 
   useEffect(() => {
@@ -180,17 +189,24 @@ export default function AIChat({ watched }) {
     setIsLoading(true);
 
     try {
+      const prevSeq = getLastModelInfo("fast")?.seq || 0;
       const responseText = await sendChatMessage(
         query,
         newMessages.filter((m) => m !== newMessages[0]),
         watched
       );
+      const latestFast = getLastModelInfo("fast");
+      const turnModelInfo = latestFast && latestFast.seq > prevSeq ? latestFast : null;
+      if (turnModelInfo) {
+        setActiveChatModelInfo(turnModelInfo);
+      }
 
       setMessages((prev) => [
         ...prev,
         {
           role: "model",
           text: responseText,
+          modelInfo: turnModelInfo,
           time: new Date().toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit"
@@ -224,6 +240,26 @@ export default function AIChat({ watched }) {
   return (
     <div className="ai-chat-wrapper">
       <div className="ai-chat-container">
+        <div
+          className={`chat-model-bar ${activeChatModelInfo?.isFallback ? "fallback" : ""}`}
+          title={
+            activeChatModelInfo?.cooldownModels?.length
+              ? `Skipped/Fallback from: ${activeChatModelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ")}`
+              : "Active Film Companion Gemini cascade model"
+          }
+        >
+          <Cpu size={12} />
+          <span>
+            {activeChatModelInfo?.model
+              ? `${activeChatModelInfo.isFallback ? "Fallback Model" : "Active Model"}: ${formatModelDisplayName(activeChatModelInfo.model)} (${activeChatModelInfo.model})`
+              : (() => {
+                  const queued = getPreferredCascadeModel(FAST_INTERACTIVE_CASCADE, "fast");
+                  return queued
+                    ? `Queued Model: ${formatModelDisplayName(queued)} (${queued})`
+                    : "All Gemini models in cooldown";
+                })()}
+          </span>
+        </div>
         {/* Messages list */}
         <div className="chat-messages" ref={chatContainerRef} aria-live="polite">
           {messages.map((msg, index) => {
@@ -250,7 +286,24 @@ export default function AIChat({ watched }) {
                     </div>
                   )}
 
-                  <span className="bubble-timestamp">{msg.time}</span>
+                  <div className="bubble-meta-row">
+                    {msg.role === "model" && msg.modelInfo?.model ? (
+                      <span
+                        className={`bubble-model-tag ${msg.modelInfo.isFallback ? "fallback" : ""}`}
+                        title={
+                          msg.modelInfo.cooldownModels?.length
+                            ? `Fallback from: ${msg.modelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ")}`
+                            : `Answered by ${msg.modelInfo.displayName || msg.modelInfo.model}`
+                        }
+                      >
+                        <Cpu size={10} />
+                        {msg.modelInfo.model}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    <span className="bubble-timestamp">{msg.time}</span>
+                  </div>
                 </div>
 
                 {msg.role === "user" && (

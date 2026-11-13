@@ -19,6 +19,7 @@ export const safeSetItem = (key, value) => {
       const purgeOrder = [
         "cinemavault_smart_cache_v3",
         "cinemavault_explanations_v1",
+        "cinemavault_recs_model_v1",
         "cinemavault_recs_v1",
         "cinemavault_recs_hash_v1",
         "cinemavault_feedback_v1"
@@ -118,6 +119,16 @@ export function AppProvider({ children }) {
     }
   });
 
+  const [aiModelInfo, setAiModelInfo] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cinemavault_recs_model_v1");
+      return saved && saved !== "undefined" ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.warn("Error parsing cinemavault_recs_model_v1 from localStorage:", e);
+      return null;
+    }
+  });
+
   const [aiFeedbackLog, setAiFeedbackLog] = useState(() => {
     try {
       const saved = localStorage.getItem("cinemavault_feedback_v1");
@@ -174,13 +185,26 @@ export function AppProvider({ children }) {
   }, [aiRecommendationsHash]);
 
   useEffect(() => {
+    if (aiModelInfo) {
+      safeSetItem("cinemavault_recs_model_v1", aiModelInfo);
+    } else {
+      localStorage.removeItem("cinemavault_recs_model_v1");
+    }
+  }, [aiModelInfo]);
+
+  useEffect(() => {
     safeSetItem("cinemavault_feedback_v1", aiFeedbackLog || []);
   }, [aiFeedbackLog]);
 
-  function saveAiRecommendations(recs, profile, hash) {
+  function saveAiRecommendations(recs, profile, hash, modelInfo = undefined) {
     setAiRecommendations(recs);
     setAiTasteProfile(profile);
     setAiRecommendationsHash(hash || "");
+    if (modelInfo !== undefined) {
+      setAiModelInfo(modelInfo);
+    } else if (!recs) {
+      setAiModelInfo(null);
+    }
   }
 
   function addAiFeedback(feedbackItem) {
@@ -256,6 +280,8 @@ export function AppProvider({ children }) {
         setAiTasteProfile,
         aiRecommendationsHash,
         setAiRecommendationsHash,
+        aiModelInfo,
+        setAiModelInfo,
         aiFeedbackLog,
         saveAiRecommendations,
         addAiFeedback,

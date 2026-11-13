@@ -8013,6 +8013,7 @@ button {
 .recs-count-group {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1rem;
 }
 
@@ -9304,6 +9305,90 @@ body,
   background: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.3);
   color: #fbbf24;
+}
+
+/* ── AI Model Used Testing Badges ── */
+.model-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.01em;
+}
+
+.model-status-badge.primary {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+}
+
+.model-status-badge.fallback {
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  color: #d8b4fe;
+}
+
+.model-status-badge.offline {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #fda4af;
+}
+
+.chat-model-bar {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.55rem;
+  margin: 1rem 1.6rem 0;
+  padding: 0.35rem 0.9rem;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: #7dd3fc;
+  font-size: 1.12rem;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+}
+
+.chat-model-bar.fallback {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #d8b4fe;
+}
+
+.bubble-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+
+.bubble-meta-row .bubble-timestamp {
+  margin-top: 0;
+}
+
+.bubble-model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #7dd3fc;
+  font-size: 1rem;
+  font-family: var(--font-mono, monospace);
+}
+
+.bubble-model-tag.fallback {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.3);
+  color: #d8b4fe;
 }
 
 /* ── Card Dismiss Button & Reason Popover ── */
