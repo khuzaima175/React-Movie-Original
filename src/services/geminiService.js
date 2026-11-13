@@ -59,6 +59,14 @@ export const QUOTA_COOLDOWN_MS = 120_000;
 export const DAILY_QUOTA_COOLDOWN_MS = 600_000;
 export const TRANSIENT_COOLDOWN_MS = 30_000;
 export const FATAL_COOLDOWN_MS = 1_800_000;
+export const HYDROGEN_TIMEOUT_MS = 35000;
+
+export function getDefaultAttemptTimeoutMs(model = "") {
+    const lowerModel = String(model || "").toLowerCase();
+    if (lowerModel.includes("gemini-4-hydrogen")) return HYDROGEN_TIMEOUT_MS;
+    if (lowerModel.includes("gemini-3.8-flash")) return 5000;
+    return 8000;
+}
 
 export function getWorkingModelStorageKey(cascadeType = "curation") {
     return `cinemavault_working_model_${cascadeType}_v1`;
@@ -341,7 +349,6 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
     for (const model of candidateModels) {
         const lowerModel = String(model || "").toLowerCase();
         const isHydrogen = lowerModel.includes("gemini-4-hydrogen");
-        const isFlash38 = lowerModel.includes("gemini-3.8-flash");
 
         const thinkingConfig = getModelThinkingConfig(model, cascadeType);
         const sanitizedConfig = { ...(requestParams.config || {}) };
@@ -372,7 +379,7 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
             abortSignal: controller.signal
         };
 
-        const defaultTimeout = isHydrogen ? 25000 : (isFlash38 ? 5000 : 8000);
+        const defaultTimeout = getDefaultAttemptTimeoutMs(model);
         const perAttemptTimeout = options.timeoutMs || defaultTimeout;
 
         let timer;
@@ -1096,7 +1103,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
         throw new Error("Gemini API Key is missing. Please add VITE_GEMINI_KEY to your .env file.");
     }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 25000 } });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: HYDROGEN_TIMEOUT_MS } });
     const mood = options.mood || "any";
     const userRegion = options.userRegion || "US";
     const userProviders = options.userProviders || [];

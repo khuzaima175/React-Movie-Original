@@ -16,7 +16,9 @@ import {
     QUOTA_COOLDOWN_MS,
     DAILY_QUOTA_COOLDOWN_MS,
     TRANSIENT_COOLDOWN_MS,
-    FATAL_COOLDOWN_MS
+    FATAL_COOLDOWN_MS,
+    HYDROGEN_TIMEOUT_MS,
+    getDefaultAttemptTimeoutMs
 } from "../src/services/geminiService.js";
 
 test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.5, and budget:0 to 2.5", () => {
@@ -446,4 +448,11 @@ test("executeCascade records transient cooldown on abort-timeout with injected f
     });
     assert.equal(getSessionCurationModel(), "gemini-3.5-flash-lite");
     resetSessionWorkingModels();
+});
+
+test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen and preserves flash timeouts", () => {
+    assert.equal(HYDROGEN_TIMEOUT_MS, 35000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-4-hydrogen"), 35000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 5000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.5-flash-lite"), 8000);
 });
