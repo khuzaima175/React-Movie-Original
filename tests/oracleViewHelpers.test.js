@@ -199,3 +199,19 @@ test("shouldAutoRefreshOnDrawerClose refreshes only when closing drawer with sta
   assert.equal(shouldAutoRefreshOnDrawerClose(true, "hash_new", "hash_old", true), false);
   assert.equal(shouldAutoRefreshOnDrawerClose(false, "hash_new", "hash_old", false), false);
 });
+
+test("formatRecBadgeSummary formats hydrationCoverage when present and returns null hydrationLabel otherwise", () => {
+  const withoutCov = formatRecBadgeSummary({ model: "gemini-4-hydrogen", pipeline: "gemini-curation" }, false);
+  assert.equal(withoutCov.hydrationLabel, null);
+
+  const withCov = formatRecBadgeSummary(
+    {
+      model: "gemini-4-hydrogen",
+      pipeline: "gemini-curation",
+      hydrationCoverage: { hydrated: 78, total: 80, ratio: 0.975, percent: 98 }
+    },
+    false
+  );
+  assert.equal(withCov.hydrationLabel, "78/80 films hydrated (98%)");
+  assert.match(withCov.tooltip, /Metadata: 78\/80 films hydrated \(98%\)/);
+});

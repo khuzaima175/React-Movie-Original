@@ -205,6 +205,9 @@ export function mergeLocalAndCloudVault({
       if (localMovie.userNote && !cloudLocal.userNote) {
         cloudLocal.userNote = localMovie.userNote;
       }
+      if (localMovie.recSource && !cloudLocal.recSource) {
+        cloudLocal.recSource = localMovie.recSource;
+      }
       resolvedWatchedMap.set(key, cloudLocal);
     }
   }
@@ -225,7 +228,11 @@ export function mergeLocalAndCloudVault({
       resolvedWatchlistMap.set(key, localSaved);
       toUpsertMap.set(key, mapLocalMovieToDbRow(localSaved, "watchlist", userId, nowIso));
     } else if (cloudRow.status === "watchlist") {
-      resolvedWatchlistMap.set(key, mapDbRowToLocalMovie(cloudRow));
+      const cloudLocal = mapDbRowToLocalMovie(cloudRow);
+      if (localSaved.recSource && !cloudLocal.recSource) {
+        cloudLocal.recSource = localSaved.recSource;
+      }
+      resolvedWatchlistMap.set(key, cloudLocal);
     }
   }
 

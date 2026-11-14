@@ -25,7 +25,8 @@ import {
   resolveOmdbKey,
   hasTmdbBackend,
   fetchTmdbJson,
-  fetchOmdbJson
+  fetchOmdbJson,
+  getMovieDetailsBatch
 } from "./apiTransport.js";
 
 export const getTmdbKey = () => resolveTmdbKey();
@@ -235,6 +236,11 @@ export function mapOmdbToTmdbGenreIds(omdbGenreStr = "") {
     .filter(Boolean);
 }
 
+// Generic structural/meta TMDB keyword IDs suppressed from taste keyword slots:
+// 818 (based on novel or book), 179430 (aftercreditsstinger), 179431 (duringcreditsstinger),
+// 187056 (woman director), 9663 (sequel)
+export const GENERIC_META_KEYWORD_IDS = new Set([818, 179430, 179431, 187056, 9663]);
+
 /**
  * Mathematical Weighted Taste Profiler
  * Integrates Z-Scored Rating Weights + Bulk-Import-Aware Time-Decay + Surgical Trope Math
@@ -248,10 +254,27 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   const genreScores = {};
   const lovedKeywordScores = {};
   const hatedKeywordCounts = {};
+  const keywordDf = {};
   const castScores = {};
   const crewScores = {};
+  const castNetScores = {};
+  const castPosCounts = {};
+  const crewNetScores = {};
+  const crewPosCounts = {};
   const DECAY_RATE = options.lambda ?? 0.002;
   const anchorCutoff = options.anchorCutoff ?? 9;
+  const personShrinkageK = options.personShrinkageK ?? 2;
+
+  for (const m of rated) {
+    if (!Array.isArray(m.tmdbKeywords)) continue;
+    const seenInFilm = new Set();
+    for (const rawId of m.tmdbKeywords) {
+      const kId = Number(rawId);
+      if (!Number.isFinite(kId) || kId <= 0 || GENERIC_META_KEYWORD_IDS.has(kId) || seenInFilm.has(kId)) continue;
+      seenInFilm.add(kId);
+      keywordDf[kId] = (keywordDf[kId] || 0) + 1;
+    }
+  }
 
   const userStats = computeUserRatingStats(rated);
   const zScoredList = computeZScoredWeights(rated, {
@@ -273,16 +296,21 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
       });
     }
 
-    // 2. Surgical Negative Trope Extraction (from low rated or negative z-score films with slower dislike decay)
-    if ((rating <= 4 || zScore < -0.4) && movie.tmdbKeywords && Array.isArray(movie.tmdbKeywords)) {
+    const filmKeywords = Array.isArray(movie.tmdbKeywords)
+      ? [...new Set(movie.tmdbKeywords.map(Number).filter(kId => Number.isFinite(kId) && kId > 0 && !GENERIC_META_KEYWORD_IDS.has(kId)))]
+      : [];
+
+    // 2. Surgical Negative Trope Extraction (from low rated or <= 5★ negative z-score films; never 6-10★)
+    if ((rating <= 4 || (rating <= 5 && zScore < -0.4)) && filmKeywords.length > 0) {
       const negativeDecay = Math.exp(-(DECAY_RATE / 2) * daysSince);
       const negMagnitude = Math.max(1, Math.abs(zScore)) * negativeDecay;
-      movie.tmdbKeywords.forEach(kId => {
+      filmKeywords.forEach(kId => {
         hatedKeywordCounts[kId] = (hatedKeywordCounts[kId] || 0) + negMagnitude;
       });
     }
 
-    // 3. Star Power Cast & Auteur Crew Scoring (from >= 8/10 films)
+    // 3. Star Power Cast & Auteur Crew Scoring
+    // Preserve topCastIds / topCrewIds (>= 8★) for backward-compatible Bucket A/C queries & cache hashes
     if (rating >= 8 && positiveWeight > 0) {
       if (movie.castIds && Array.isArray(movie.castIds)) {
         movie.castIds.slice(0, 3).forEach(cId => {
@@ -292,10 +320,37 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
       if (movie.crewPersonId) {
         crewScores[movie.crewPersonId] = (crewScores[movie.crewPersonId] || 0) + positiveWeight;
       }
-      if (movie.tmdbKeywords && Array.isArray(movie.tmdbKeywords)) {
-        movie.tmdbKeywords.forEach(kId => {
+      if (filmKeywords.length > 0) {
+        filmKeywords.forEach(kId => {
           lovedKeywordScores[kId] = (lovedKeywordScores[kId] || 0) + positiveWeight;
         });
+      }
+    }
+
+    // Continuous signed person accumulation across all stored castIds (billing-decayed) and crewPersonId
+    if (Array.isArray(movie.castIds) && movie.castIds.length > 0) {
+      const seenCast = new Set();
+      movie.castIds.forEach((rawId, idx) => {
+        const cId = Number(rawId);
+        if (!Number.isFinite(cId) || cId <= 0 || seenCast.has(cId)) return;
+        seenCast.add(cId);
+        const billingDecay = 1 / (1 + 0.2 * idx);
+        if (weight > 0) {
+          castNetScores[cId] = (castNetScores[cId] || 0) + weight * billingDecay;
+          castPosCounts[cId] = (castPosCounts[cId] || 0) + 1;
+        } else if (weight < 0 && rating < 7) {
+          castNetScores[cId] = (castNetScores[cId] || 0) + weight * billingDecay;
+        }
+      });
+    }
+
+    const crewPersonId = Number(movie.crewPersonId || 0);
+    if (Number.isFinite(crewPersonId) && crewPersonId > 0) {
+      if (weight > 0) {
+        crewNetScores[crewPersonId] = (crewNetScores[crewPersonId] || 0) + weight;
+        crewPosCounts[crewPersonId] = (crewPosCounts[crewPersonId] || 0) + 1;
+      } else if (weight < 0 && rating < 7) {
+        crewNetScores[crewPersonId] = (crewNetScores[crewPersonId] || 0) + weight;
       }
     }
 
@@ -321,10 +376,31 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     .map(([id]) => Number(id));
   const topCrewMemberId = topCrewIds[0] || null;
 
-  const lovedKeywordIds = Object.entries(lovedKeywordScores)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([id]) => Number(id));
+  // Net keyword polarity + vault IDF damping prevents self-collision and generic-tag domination
+  const allSeenKeywordIds = new Set([
+    ...Object.keys(lovedKeywordScores),
+    ...Object.keys(hatedKeywordCounts)
+  ]);
+  const lovedKeywordEntries = [];
+  const hatedKeywordEntries = [];
+  for (const rawId of allSeenKeywordIds) {
+    const id = Number(rawId);
+    const pos = lovedKeywordScores[rawId] || 0;
+    const neg = hatedKeywordCounts[rawId] || 0;
+    const df = keywordDf[id] || 1;
+    const idf = 1 / Math.log2(2 + df);
+    const netPolarity = pos - neg;
+    if (netPolarity > 0) {
+      lovedKeywordEntries.push([id, netPolarity * idf]);
+    } else if (netPolarity < 0) {
+      hatedKeywordEntries.push([id, -netPolarity * idf]);
+    }
+  }
+  lovedKeywordEntries.sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  hatedKeywordEntries.sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+
+  const lovedKeywordIds = lovedKeywordEntries.slice(0, 8).map(([id]) => id);
+  const top15LovedKeywords = lovedKeywordEntries.slice(0, 15);
 
   const maxGenreScore = Math.max(1e-6, ...Object.values(genreScores));
   const genreAffinities = {};
@@ -332,17 +408,48 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     genreAffinities[Number(id)] = (genreScores[id] || 0) / maxGenreScore;
   }
 
-  const maxKwScore = Math.max(1e-6, ...Object.values(lovedKeywordScores));
+  const maxKwScore = top15LovedKeywords.length > 0 ? Math.max(1e-6, top15LovedKeywords[0][1]) : 1e-6;
   const keywordAffinities = {};
-  for (const [id, score] of Object.entries(lovedKeywordScores)) {
-    keywordAffinities[Number(id)] = score / maxKwScore;
+  for (const [id, score] of top15LovedKeywords) {
+    keywordAffinities[id] = score / maxKwScore;
   }
 
-  const hatedKeywordIds = Object.entries(hatedKeywordCounts)
-    .filter(([_, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1])
+  // Bayesian support-shrunk person affinities: shrunk = netScore / (posCount + k)
+  const shrunkCrewEntries = Object.entries(crewNetScores)
+    .map(([rawId, net]) => {
+      const id = Number(rawId);
+      const posCount = crewPosCounts[rawId] || 0;
+      if (posCount <= 0 || net <= 0) return [id, 0];
+      return [id, net / (posCount + personShrinkageK)];
+    })
+    .filter(([_, score]) => score > 0)
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .slice(0, 15);
+  const maxCrewAff = shrunkCrewEntries.length > 0 ? Math.max(1e-6, shrunkCrewEntries[0][1]) : 1e-6;
+  const crewAffinities = {};
+  for (const [id, score] of shrunkCrewEntries) {
+    crewAffinities[id] = score / maxCrewAff;
+  }
+
+  const shrunkCastEntries = Object.entries(castNetScores)
+    .map(([rawId, net]) => {
+      const id = Number(rawId);
+      const posCount = castPosCounts[rawId] || 0;
+      if (posCount <= 0 || net <= 0) return [id, 0];
+      return [id, net / (posCount + personShrinkageK)];
+    })
+    .filter(([_, score]) => score > 0)
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .slice(0, 20);
+  const maxCastAff = shrunkCastEntries.length > 0 ? Math.max(1e-6, shrunkCastEntries[0][1]) : 1e-6;
+  const castAffinities = {};
+  for (const [id, score] of shrunkCastEntries) {
+    castAffinities[id] = score / maxCastAff;
+  }
+
+  const hatedKeywordIds = hatedKeywordEntries
     .slice(0, 5)
-    .map(([id]) => Number(id));
+    .map(([id]) => id);
 
   // Top anchor film selected from highest finalWeight
   const eliteAnchors = weightedRated.filter(m => Number(m.userRating || 0) >= anchorCutoff);
@@ -389,6 +496,8 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     lovedKeywordIds,
     genreAffinities,
     keywordAffinities,
+    crewAffinities,
+    castAffinities,
     anchorTmdbId,
     hatedKeywordIds,
     watchlistGenreIds,
@@ -1008,6 +1117,108 @@ export function extractOfficialTrailerKey(videosList = []) {
 }
 
 /**
+ * Formats a raw TMDB /3/movie/{id}?append_to_response=... payload into CinemaVault's detail shape.
+ */
+export function formatTmdbMovieDetails(data, userRegion = "US") {
+  if (!data || !data.id) return null;
+
+  const directorObj = data.credits?.crew?.find(c => c.job === "Director");
+  const director = directorObj?.name || "Unknown";
+  const cinematographer = data.credits?.crew?.find(c => c.job === "Director of Photography")?.name || null;
+  const composer = data.credits?.crew?.find(c => c.job === "Original Music Composer" || c.job === "Music")?.name || null;
+  const writers = data.credits?.crew?.filter(c => ["Screenplay", "Writer", "Story"].includes(c.job)).map(c => c.name).slice(0, 3).join(", ") || null;
+
+  const fallbackCrew = data.credits?.crew?.find(c => ["Director of Photography", "Original Music Composer", "Screenplay", "Writer"].includes(c.job));
+  const crewPersonId = (directorObj || fallbackCrew)?.id || null;
+
+  const cast = (data.credits?.cast || []).slice(0, 6).map(c => c.name).join(", ") || "N/A";
+  const castIds = (data.credits?.cast || []).slice(0, 6).map(c => c.id);
+  const castDetails = (data.credits?.cast || []).slice(0, 8).map(c => ({
+    id: c.id,
+    name: c.name,
+    character: c.character,
+    profile: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null
+  }));
+
+  const tmdbKeywords = (data.keywords?.keywords || []).slice(0, 10).map(k => k.id);
+  const keywordNames = (data.keywords?.keywords || []).slice(0, 10).map(k => k.name);
+  const tmdbGenreIds = (data.genres || []).map(g => g.id);
+
+  const trailerKey = extractOfficialTrailerKey(data.videos?.results || []);
+  const trailerUrl = trailerKey ? `https://www.youtube.com/watch?v=${trailerKey}` : null;
+  const imdbId = data.external_ids?.imdb_id || null;
+
+  const providerRegion = (userRegion && userRegion !== "GLOBAL")
+    ? (data["watch/providers"]?.results?.[userRegion] || data["watch/providers"]?.results?.US)
+    : (data["watch/providers"]?.results?.US || Object.values(data["watch/providers"]?.results || {})[0]);
+
+  const streamProviders = (providerRegion?.flatrate || []).map(p => ({
+    id: p.provider_id,
+    name: p.provider_name,
+    logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
+  }));
+  const buyRentProviders = (providerRegion?.rent || providerRegion?.buy || []).map(p => ({
+    id: p.provider_id,
+    name: p.provider_name,
+    logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
+  }));
+  const freeProviders = (providerRegion?.free || providerRegion?.ads || []).map(p => ({
+    id: p.provider_id,
+    name: p.provider_name,
+    logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
+  }));
+
+  // Extract US / Regional certification rating
+  let mpaaRating = null;
+  const usRelease = data.release_dates?.results?.find(r => r.iso_3166_1 === "US");
+  if (usRelease?.release_dates) {
+    const cert = usRelease.release_dates.find(d => d.certification)?.certification;
+    if (cert) mpaaRating = cert;
+  }
+
+  return {
+    tmdbId: data.id,
+    imdbID: imdbId,
+    title: data.title,
+    original_title: data.original_title,
+    year: data.release_date ? data.release_date.slice(0, 4) : "N/A",
+    release_date: data.release_date,
+    runtime: data.runtime ? `${data.runtime} min` : "N/A",
+    runtimeMinutes: data.runtime || null,
+    poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
+    backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/original${data.backdrop_path}` : null,
+    director,
+    cinematographer,
+    composer,
+    writers,
+    crewPersonId,
+    cast,
+    castIds,
+    castDetails,
+    tmdbKeywords,
+    keywordNames,
+    tmdbGenreIds,
+    trailerUrl,
+    trailerKey: trailerKey || null,
+    genre: (data.genres || []).map(g => g.name).join(", ") || "Cinema",
+    plot: data.overview || "",
+    tagline: data.tagline || "",
+    vote_average: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
+    vote_count: data.vote_count || 0,
+    popularity: data.popularity || 0,
+    budget: data.budget ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(data.budget) : null,
+    revenue: data.revenue ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(data.revenue) : null,
+    productionCompanies: (data.production_companies || []).slice(0, 3).map(c => c.name).join(", ") || null,
+    originCountry: (data.origin_country || data.production_countries?.map(c => c.iso_3166_1) || []).join(", ") || null,
+    spokenLanguages: (data.spoken_languages || []).map(l => l.english_name).join(", ") || null,
+    mpaaRating,
+    streamProviders,
+    buyRentProviders,
+    freeProviders
+  };
+}
+
+/**
  * Fetch detailed movie data with append_to_response=videos,credits,external_ids,watch/providers,keywords,release_dates
  */
 export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
@@ -1018,102 +1229,7 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
       append_to_response: "videos,credits,external_ids,keywords,watch/providers,release_dates",
       language: "en-US"
     });
-    if (!data || !data.id) return null;
-
-    const directorObj = data.credits?.crew?.find(c => c.job === "Director");
-    const director = directorObj?.name || "Unknown";
-    const cinematographer = data.credits?.crew?.find(c => c.job === "Director of Photography")?.name || null;
-    const composer = data.credits?.crew?.find(c => c.job === "Original Music Composer" || c.job === "Music")?.name || null;
-    const writers = data.credits?.crew?.filter(c => ["Screenplay", "Writer", "Story"].includes(c.job)).map(c => c.name).slice(0, 3).join(", ") || null;
-
-    const fallbackCrew = data.credits?.crew?.find(c => ["Director of Photography", "Original Music Composer", "Screenplay", "Writer"].includes(c.job));
-    const crewPersonId = (directorObj || fallbackCrew)?.id || null;
-
-    const cast = (data.credits?.cast || []).slice(0, 6).map(c => c.name).join(", ") || "N/A";
-    const castIds = (data.credits?.cast || []).slice(0, 6).map(c => c.id);
-    const castDetails = (data.credits?.cast || []).slice(0, 8).map(c => ({
-      id: c.id,
-      name: c.name,
-      character: c.character,
-      profile: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null
-    }));
-
-    const tmdbKeywords = (data.keywords?.keywords || []).slice(0, 10).map(k => k.id);
-    const keywordNames = (data.keywords?.keywords || []).slice(0, 10).map(k => k.name);
-    const tmdbGenreIds = (data.genres || []).map(g => g.id);
-
-    const trailerKey = extractOfficialTrailerKey(data.videos?.results || []);
-    const trailerUrl = trailerKey ? `https://www.youtube.com/watch?v=${trailerKey}` : null;
-    const imdbId = data.external_ids?.imdb_id || null;
-
-    const providerRegion = (userRegion && userRegion !== "GLOBAL")
-      ? (data["watch/providers"]?.results?.[userRegion] || data["watch/providers"]?.results?.US)
-      : (data["watch/providers"]?.results?.US || Object.values(data["watch/providers"]?.results || {})[0]);
-
-    const streamProviders = (providerRegion?.flatrate || []).map(p => ({
-      id: p.provider_id,
-      name: p.provider_name,
-      logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
-    }));
-    const buyRentProviders = (providerRegion?.rent || providerRegion?.buy || []).map(p => ({
-      id: p.provider_id,
-      name: p.provider_name,
-      logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
-    }));
-    const freeProviders = (providerRegion?.free || providerRegion?.ads || []).map(p => ({
-      id: p.provider_id,
-      name: p.provider_name,
-      logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
-    }));
-
-    // Extract US / Regional certification rating
-    let mpaaRating = null;
-    const usRelease = data.release_dates?.results?.find(r => r.iso_3166_1 === "US");
-    if (usRelease?.release_dates) {
-      const cert = usRelease.release_dates.find(d => d.certification)?.certification;
-      if (cert) mpaaRating = cert;
-    }
-
-    return {
-      tmdbId: data.id,
-      imdbID: imdbId,
-      title: data.title,
-      original_title: data.original_title,
-      year: data.release_date ? data.release_date.slice(0, 4) : "N/A",
-      release_date: data.release_date,
-      runtime: data.runtime ? `${data.runtime} min` : "N/A",
-      runtimeMinutes: data.runtime || null,
-      poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
-      backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/original${data.backdrop_path}` : null,
-      director,
-      cinematographer,
-      composer,
-      writers,
-      crewPersonId,
-      cast,
-      castIds,
-      castDetails,
-      tmdbKeywords,
-      keywordNames,
-      tmdbGenreIds,
-      trailerUrl,
-      trailerKey: trailerKey || null,
-      genre: (data.genres || []).map(g => g.name).join(", ") || "Cinema",
-      plot: data.overview || "",
-      tagline: data.tagline || "",
-      vote_average: data.vote_average ? Number(data.vote_average.toFixed(1)) : null,
-      vote_count: data.vote_count || 0,
-      popularity: data.popularity || 0,
-      budget: data.budget ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(data.budget) : null,
-      revenue: data.revenue ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(data.revenue) : null,
-      productionCompanies: (data.production_companies || []).slice(0, 3).map(c => c.name).join(", ") || null,
-      originCountry: (data.origin_country || data.production_countries?.map(c => c.iso_3166_1) || []).join(", ") || null,
-      spokenLanguages: (data.spoken_languages || []).map(l => l.english_name).join(", ") || null,
-      mpaaRating,
-      streamProviders,
-      buyRentProviders,
-      freeProviders
-    };
+    return formatTmdbMovieDetails(data, userRegion);
   } catch (err) {
     console.warn("Failed to fetch detailed TMDB movie data:", err);
     return null;
@@ -1292,19 +1408,109 @@ async function getCachedTmdbDetails(id, userRegion = "US", detailFetcher = null)
   return details;
 }
 
+async function fetchBatchFormattedDetailsMap(ids = [], userRegion = "US", options = {}) {
+  const resultMap = new Map();
+  const useMemCache = !options.fetchFn && !options.cacheStore && options.bypassCache !== true;
+  const uncachedIds = [];
+  for (const rawId of ids) {
+    const id = Number(rawId);
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    const cacheKey = `${userRegion}:${id}`;
+    if (useMemCache && embeddingDetailCache.has(cacheKey)) {
+      resultMap.set(id, embeddingDetailCache.get(cacheKey));
+    } else if (!resultMap.has(id)) {
+      uncachedIds.push(id);
+    }
+  }
+
+  if (uncachedIds.length === 0) return resultMap;
+
+  const rawBatch = await getMovieDetailsBatch(uncachedIds, {
+    language: "en-US",
+    concurrency: options.concurrency,
+    fetchFn: options.fetchFn,
+    apiKey: options.apiKey,
+    forceProxy: options.forceProxy,
+    cacheStore: options.cacheStore,
+    indexedDB: options.indexedDB,
+    signal: options.signal
+  });
+
+  for (const [key, rawMovie] of Object.entries(rawBatch || {})) {
+    const formatted = formatTmdbMovieDetails(rawMovie, userRegion);
+    if (formatted && formatted.tmdbId) {
+      embeddingDetailCache.set(`${userRegion}:${formatted.tmdbId}`, formatted);
+      resultMap.set(Number(formatted.tmdbId || key), formatted);
+    }
+  }
+
+  return resultMap;
+}
+
+function applyDetailsToCandidate(existing, details) {
+  if (!details) {
+    return {
+      ...existing,
+      hydrated: false,
+      features: {
+        ...(existing.features || {}),
+        hydrated: false
+      }
+    };
+  }
+  return {
+    ...existing,
+    director: details.director || existing.director,
+    crewPersonId: details.crewPersonId ?? existing.crewPersonId ?? null,
+    castIds: Array.isArray(details.castIds) ? details.castIds : (existing.castIds || []),
+    tmdbKeywords: Array.isArray(details.tmdbKeywords) ? details.tmdbKeywords : (existing.tmdbKeywords || []),
+    keywordNames: Array.isArray(details.keywordNames) ? details.keywordNames : (existing.keywordNames || []),
+    tmdbGenreIds: Array.isArray(details.tmdbGenreIds) ? details.tmdbGenreIds : (existing.tmdbGenreIds || existing.genre_ids || []),
+    streamProviders: Array.isArray(details.streamProviders) ? details.streamProviders : (existing.streamProviders || []),
+    freeProviders: Array.isArray(details.freeProviders) ? details.freeProviders : (existing.freeProviders || []),
+    providersHydrated: true,
+    hydrated: true,
+    features: {
+      ...(existing.features || {}),
+      hydrated: true
+    },
+    runtimeMinutes: details.runtimeMinutes ?? existing.runtimeMinutes ?? null,
+    imdbID: details.imdbID ?? existing.imdbID ?? null,
+    sourceBucket: existing.sourceBucket,
+    providerMatchedByQuery: existing.providerMatchedByQuery,
+    collabSim: existing.collabSim
+  };
+}
+
 /**
- * Concurrency-limited batch metadata enrichment for Bucket A-D candidates so the
- * ranker receives real tmdbKeywords, castIds, crewPersonId, and streamProviders.
+ * Batch metadata enrichment for Bucket A-D candidates so the ranker receives real
+ * tmdbKeywords, castIds, crewPersonId, and streamProviders without exhausting TMDB/proxy rate limits.
+ * Uses IndexedDB-cached /api/tmdb-batch lookups by default (and respects injected options.detailFetcher).
  */
 export async function enrichCandidatePoolMetadata(candidates = [], options = {}) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
-  const maxEnrich = Math.max(0, options.maxEnrich ?? 80);
+  const maxEnrich = Math.max(0, options.maxEnrich ?? candidates.length);
   const concurrency = Math.max(1, options.concurrency ?? 6);
   const userRegion = options.userRegion || "US";
   const detailFetcher = typeof options.detailFetcher === "function" ? options.detailFetcher : null;
 
-  const out = candidates.map(c => (c ? { ...c } : c));
+  const out = candidates.map((c) => {
+    if (!c) return c;
+    const alreadyHydrated =
+      c.hydrated ??
+      c.features?.hydrated ??
+      (Array.isArray(c.tmdbKeywords) && Array.isArray(c.castIds));
+    return {
+      ...c,
+      hydrated: Boolean(alreadyHydrated),
+      features: {
+        ...(c.features || {}),
+        hydrated: Boolean(alreadyHydrated)
+      }
+    };
+  });
+
   const pendingIndices = [];
   for (let i = 0; i < out.length && pendingIndices.length < maxEnrich; i++) {
     const c = out[i];
@@ -1319,6 +1525,22 @@ export async function enrichCandidatePoolMetadata(candidates = [], options = {})
 
   if (pendingIndices.length === 0) return out;
 
+  if (!detailFetcher) {
+    try {
+      const detailsMap = await fetchBatchFormattedDetailsMap(
+        pendingIndices.map((p) => p.tmdbId),
+        userRegion,
+        options
+      );
+      for (const { idx, tmdbId } of pendingIndices) {
+        out[idx] = applyDetailsToCandidate(out[idx], detailsMap.get(tmdbId) || null);
+      }
+    } catch (_) {
+      // Keep unhydrated candidates intact on batch failure
+    }
+    return out;
+  }
+
   let cursor = 0;
   async function worker() {
     while (true) {
@@ -1327,25 +1549,7 @@ export async function enrichCandidatePoolMetadata(candidates = [], options = {})
       const { idx, tmdbId } = pendingIndices[slot];
       try {
         const details = await getCachedTmdbDetails(tmdbId, userRegion, detailFetcher);
-        if (!details) continue;
-        const existing = out[idx];
-        out[idx] = {
-          ...existing,
-          director: details.director || existing.director,
-          crewPersonId: details.crewPersonId ?? existing.crewPersonId ?? null,
-          castIds: Array.isArray(details.castIds) ? details.castIds : (existing.castIds || []),
-          tmdbKeywords: Array.isArray(details.tmdbKeywords) ? details.tmdbKeywords : (existing.tmdbKeywords || []),
-          keywordNames: Array.isArray(details.keywordNames) ? details.keywordNames : (existing.keywordNames || []),
-          tmdbGenreIds: Array.isArray(details.tmdbGenreIds) ? details.tmdbGenreIds : (existing.tmdbGenreIds || existing.genre_ids || []),
-          streamProviders: Array.isArray(details.streamProviders) ? details.streamProviders : (existing.streamProviders || []),
-          freeProviders: Array.isArray(details.freeProviders) ? details.freeProviders : (existing.freeProviders || []),
-          providersHydrated: true,
-          runtimeMinutes: details.runtimeMinutes ?? existing.runtimeMinutes ?? null,
-          imdbID: details.imdbID ?? existing.imdbID ?? null,
-          sourceBucket: existing.sourceBucket,
-          providerMatchedByQuery: existing.providerMatchedByQuery,
-          collabSim: existing.collabSim
-        };
+        out[idx] = applyDetailsToCandidate(out[idx], details || null);
       } catch (_) {
         // Keep unhydrated candidate intact when detail lookup fails
       }
@@ -1357,7 +1561,7 @@ export async function enrichCandidatePoolMetadata(candidates = [], options = {})
 }
 
 /**
- * Enriches top embedding-retrieved neighbor IDs with TMDB metadata (concurrency-limited, memory-cached)
+ * Enriches top embedding-retrieved neighbor IDs with TMDB metadata (batched & cached)
  * and tags them as "Bucket E (Embedding)" so they enter the candidate pool with full features.
  */
 export async function fetchEmbeddingCandidates(
@@ -1398,6 +1602,10 @@ export async function fetchEmbeddingCandidates(
 
   if (unseen.length === 0) return [];
 
+  const detailsById = !customFetcher
+    ? await fetchBatchFormattedDetailsMap(unseen.map((u) => u.tmdbId), userRegion, options)
+    : null;
+
   const results = new Array(unseen.length).fill(null);
   let cursor = 0;
 
@@ -1407,7 +1615,9 @@ export async function fetchEmbeddingCandidates(
       if (idx >= unseen.length) return;
       const item = unseen[idx];
       try {
-        const details = await getCachedTmdbDetails(item.tmdbId, userRegion, customFetcher);
+        const details = customFetcher
+          ? await getCachedTmdbDetails(item.tmdbId, userRegion, customFetcher)
+          : (detailsById?.get(item.tmdbId) || null);
         if (!details) continue;
         const candidate = {
           id: details.tmdbId || item.tmdbId,
@@ -1433,6 +1643,8 @@ export async function fetchEmbeddingCandidates(
           streamProviders: details.streamProviders || [],
           freeProviders: details.freeProviders || [],
           providersHydrated: true,
+          hydrated: true,
+          features: { hydrated: true },
           collabSim: item.collabSim,
           sourceBucket: "Bucket E (Embedding)",
           providerMatchedByQuery: hasProviderFilter ? matchesWatchProviders(details, userProviders) : false

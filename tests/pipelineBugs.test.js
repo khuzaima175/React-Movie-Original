@@ -307,7 +307,12 @@ test("normalizeMatchScore preserves calibrated scores between 50 and 69 without 
   assert.equal(normalizeMatchScore(0.62), 62);
   assert.equal(normalizeMatchScore(0.06), 60);
   assert.equal(normalizeMatchScore(0.94), 94);
-  assert.equal(normalizeMatchScore(NaN), 88);
+  assert.equal(normalizeMatchScore(NaN), null);
+  assert.equal(normalizeMatchScore(null), null);
+  assert.equal(normalizeMatchScore(undefined), null);
+  assert.equal(normalizeMatchScore(0), null);
+  assert.equal(normalizeMatchScore(-4), null);
+  assert.equal(normalizeMatchScore(4), null);
 });
 
 test("getMovieRecommendations completes via local ranker when VITE_GEMINI_KEY is unset and candidates or TMDB exist", async () => {
@@ -754,6 +759,143 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
     else process.env.VITE_GEMINI_KEY = prevGKey;
     resetSessionWorkingModels();
     resetModelInfoForTests();
+  }
+});
+
+test("generous-rater 8/10 guard: 7-10★ ratings never enter hatedKeywordIds, computeUserEmbedding subtraction, or mildNegEntries", async () => {
+  const { computeUserEmbedding, computeUserPersonas } = await import("../src/services/embeddingService.js");
+  const { computeZScoredWeights } = await import("../src/services/scoringUtils.js");
+
+  // Generous rater: mean ~ 9.1, so rating=8 has negative zScore (< -0.4)
+  const now = Date.UTC(2026, 10, 14);
+  const generousWatched = [
+    { id: 1, tmdbId: 1, title: "Ten A", userRating: 10, dateWatched: "2026-11-10", tmdbGenreIds: [18], tmdbKeywords: [701] },
+    { id: 2, tmdbId: 2, title: "Ten B", userRating: 10, dateWatched: "2026-11-10", tmdbGenreIds: [18], tmdbKeywords: [702] },
+    { id: 3, tmdbId: 3, title: "Ten C", userRating: 10, dateWatched: "2026-11-10", tmdbGenreIds: [18], tmdbKeywords: [703] },
+    { id: 4, tmdbId: 4, title: "Nine A", userRating: 9, dateWatched: "2026-11-10", tmdbGenreIds: [18], tmdbKeywords: [704] },
+    { id: 5, tmdbId: 5, title: "Eight Film", userRating: 8, dateWatched: "2026-11-10", tmdbGenreIds: [878], tmdbKeywords: [9999] }
+  ];
+
+  const weights = computeZScoredWeights(generousWatched, { now });
+  const eightWeight = weights.find((w) => w.movie.tmdbId === 5);
+  assert.ok(eightWeight.zScore < -0.4, "fixture must produce zScore < -0.4 for 8/10 generous rater");
+
+  // 1. extractTasteProfile: keyword 9999 from 8/10 must NOT become hated
+  const profile = await extractTasteProfile(generousWatched, [], { now });
+  assert.equal(profile.hatedKeywordIds.includes(9999), false, "8/10 keyword must never enter hatedKeywordIds");
+
+  // 2. computeUserEmbedding & computeUserPersonas: 8/10 orthogonal vector must NOT be subtracted
+  const embIndex = {
+    dim: 2,
+    idToIndex: new Map([[1, 0], [5, 1]]),
+    vectors: new Float32Array([
+      1, 0, // id=1 along +x
+      0, 1  // id=5 orthogonal along +y
+    ])
+  };
+  const userVec = computeUserEmbedding(
+    [
+      { movie: generousWatched[0], weight: 1.0, rating: 10 },
+      { movie: generousWatched[4], weight: -1.0, rating: 8 }
+    ],
+    embIndex
+  );
+  // Since id=5 has rating=8 (>=7), it must be skipped (y component === 0 instead of -y subtraction)
+  assert.ok(Math.abs(userVec[0] - 1) < 1e-6 && Math.abs(userVec[1]) < 1e-6, "8/10 must never subtract from computeUserEmbedding");
+
+  const personas = computeUserPersonas(
+    [
+      { movie: generousWatched[0], weight: 1.0, rating: 10 },
+      { movie: generousWatched[4], weight: -1.0, rating: 8 }
+    ],
+    embIndex
+  );
+  assert.equal(personas.length, 1);
+  assert.ok(Math.abs(personas[0][1]) < 1e-6, "8/10 must never subtract inside computeUserPersonas mildNegEntries");
+});
+
+test("vault-aware generateProfileHash, >80 candidate batch enrichment, cand.features.hydrated, and hydrationCoverage telemetry", async () => {
+  const { enrichCandidatePoolMetadata } = await import("../src/services/tmdbService.js");
+  const { rankCandidatePool, DEFAULT_RANKER_WEIGHTS } = await import("../src/services/rankerService.js");
+
+  // 1. generateProfileHash 7th parameter (watched)
+  const prof = { lovedGenreIds: [878], hatedKeywordIds: [12], anchorTmdbId: 603, topCrewMemberId: 1, topCastIds: [2] };
+  const h6 = generateProfileHash(prof, [80], "any", [8], null, "US");
+  const h7Empty = generateProfileHash(prof, [80], "any", [8], null, "US", []);
+  assert.equal(h7Empty, h6, "7-arg generateProfileHash with empty watched preserves 6-arg equality");
+
+  const w1 = [{ tmdbId: 10, title: "Film A", userRating: 8 }];
+  const w2 = [{ tmdbId: 10, title: "Film A", userRating: 9 }];
+  const hVault8 = generateProfileHash(prof, [80], "any", [8], null, "US", w1);
+  const hVault9 = generateProfileHash(prof, [80], "any", [8], null, "US", w2);
+  assert.notEqual(hVault8, h6);
+  assert.notEqual(hVault8, hVault9, "changing a rating must invalidate profile hash");
+
+  // 2. Full-pool enrichment (>80 items) via /api/tmdb-batch proxy + cand.features.hydrated + modelInfo.hydrationCoverage
+  const pool95 = Array.from({ length: 95 }, (_, i) => ({
+    id: 5000 + i,
+    tmdbId: 5000 + i,
+    title: `Batch Film ${i}`,
+    year: "2021",
+    overview: `Sci-fi mystery ${i}`,
+    genre: "Sci-Fi",
+    tmdbGenreIds: [878],
+    genre_ids: [878],
+    vote_average: 7.5,
+    vote_count: 1000
+  }));
+
+  const batchCalls = [];
+  const prevVitTmdb = process.env.VITE_TMDB_KEY;
+  delete process.env.VITE_TMDB_KEY;
+  try {
+    const enriched = await enrichCandidatePoolMetadata(pool95, {
+      forceProxy: true,
+      fetchFn: async (url) => {
+        batchCalls.push(String(url));
+        const qs = new URLSearchParams(String(url).split("?")[1] || "");
+        const ids = (qs.get("ids") || "").split(",").map(Number);
+        const results = {};
+        for (const id of ids) {
+          if (id === 5094) continue; // simulate 1 failed hydration
+          results[String(id)] = {
+            id,
+            title: `Batch Film ${id - 5000}`,
+            genres: [{ id: 878, name: "Sci-Fi" }],
+            keywords: { keywords: [{ id: 101, name: "space" }] },
+            credits: { crew: [{ job: "Director", id: 700 + (id % 50), name: `Director ${id % 50}` }], cast: [{ id: 901, name: "Actor A" }] },
+            external_ids: { imdb_id: `tt50${id}` }
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ results, errors: { "5094": { status: 404 } } }) };
+      }
+    });
+
+    assert.equal(Array.isArray(enriched), true, "enrichCandidatePoolMetadata must keep returning an Array");
+    assert.equal(batchCalls.length, 3, "95 IDs should chunk into 3 batch calls (40+40+15)");
+    assert.equal(enriched[93].hydrated, true, "items beyond 80 must be hydrated");
+    assert.equal(enriched[93].features.hydrated, true);
+    assert.equal(enriched[94].hydrated, false);
+
+    const ranked = rankCandidatePool(enriched, { profile: prof }, DEFAULT_RANKER_WEIGHTS, 30);
+    assert.equal(Array.isArray(ranked), true);
+    assert.equal(ranked.every((c) => typeof c.features?.hydrated === "boolean"), true);
+
+    const res = await getMovieRecommendations(
+      [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [878] }],
+      [],
+      null,
+      { candidates: enriched, embeddingIndex: null, enrichCandidates: false }
+    );
+    assert.deepEqual(res.modelInfo?.hydrationCoverage, {
+      hydrated: 94,
+      total: 95,
+      ratio: 94 / 95,
+      percent: 99
+    });
+  } finally {
+    if (prevVitTmdb === undefined) delete process.env.VITE_TMDB_KEY;
+    else process.env.VITE_TMDB_KEY = prevVitTmdb;
   }
 });
 

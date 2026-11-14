@@ -46,10 +46,23 @@ export function formatStreamingSummary(
  * Build concise user-facing freshness/model labels while preserving technical
  * pipeline, slug, cache, cooldown, and token details in the hover tooltip.
  */
+function formatHydrationLabel(hydrationCoverage) {
+  const total = Number(hydrationCoverage?.total);
+  const hydrated = Number(hydrationCoverage?.hydrated);
+  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(hydrated)) {
+    return null;
+  }
+  const pct = Number.isFinite(Number(hydrationCoverage?.percent))
+    ? Number(hydrationCoverage.percent)
+    : Math.round((hydrated / total) * 100);
+  return `${hydrated}/${total} films hydrated (${pct}%)`;
+}
+
 export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedModel = null) {
   const cached = Boolean(isCacheValid);
   const freshnessLabel = cached ? "Saved Picks" : "Fresh Picks";
   const freshnessTone = cached ? "cached" : "stale";
+  const hydrationLabel = formatHydrationLabel(modelInfo?.hydrationCoverage);
 
   if (!modelInfo || !modelInfo.model) {
     const tooltipParts = modelInfo
@@ -65,6 +78,9 @@ export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedMod
     if (modelInfo?.fromCache || cached) {
       tooltipParts.push("Origin: 500KB LRU Cache");
     }
+    if (hydrationLabel) {
+      tooltipParts.push(`Metadata: ${hydrationLabel}`);
+    }
     if (modelInfo?.usageMetadata?.totalTokenCount) {
       tooltipParts.push(`Tokens: ${modelInfo.usageMetadata.totalTokenCount}`);
     }
@@ -72,6 +88,7 @@ export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedMod
       freshnessLabel,
       freshnessTone,
       modelLabel: "Local Ranker",
+      hydrationLabel,
       tooltip: tooltipParts.join(" | ")
     };
   }
@@ -85,6 +102,9 @@ export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedMod
   if (modelInfo.fromCache || cached) {
     parts.push("Origin: 500KB LRU Cache");
   }
+  if (hydrationLabel) {
+    parts.push(`Metadata: ${hydrationLabel}`);
+  }
   if (modelInfo.cooldownModels?.length > 0) {
     const skipped = modelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ");
     parts.push(`Skipped/Fallback from: ${skipped}`);
@@ -97,6 +117,7 @@ export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedMod
     freshnessLabel,
     freshnessTone,
     modelLabel,
+    hydrationLabel,
     tooltip: parts.join(" | ")
   };
 }

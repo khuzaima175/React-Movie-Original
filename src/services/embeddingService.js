@@ -215,7 +215,10 @@ export function computeUserEmbedding(weightedRatings = [], index) {
   for (const entry of weightedRatings) {
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
     const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
     if (!tmdbId || !Number.isFinite(weight) || Math.abs(weight) <= weightCutoff) continue;
+    // Generous-rater guard: 7-10★ films must never subtract from taste centroids even if negative z-score
+    if (weight < 0 && Number.isFinite(rating) && rating >= 7) continue;
 
     const idx = idToIndex.get(tmdbId);
     if (idx === undefined) continue;
@@ -241,13 +244,16 @@ export function computeUserEmbedding(weightedRatings = [], index) {
  * Clusters a user's positively weighted films into K in [1, 4] deterministic spherical K-Means
  * taste personas so contrasting genres (e.g. Oldboy + Toy Story) do not collapse into a midpoint.
  */
-export function computeUserPersonas(weightedRatings = [], index, options = {}) {
+/**
+ * Computes K-Means++ user taste centroids along with each cluster's normalized positive mass.
+ */
+export function computePersonaDetails(weightedRatings = [], index, options = {}) {
   if (!index || !index.dim || !weightedRatings || weightedRatings.length === 0) {
-    return [];
+    return { centroids: [], masses: [] };
   }
 
   const weightCutoff = getRelativeWeightCutoff(weightedRatings);
-  if (weightCutoff === null) return [];
+  if (weightCutoff === null) return { centroids: [], masses: [] };
 
   const { dim, vectors, idToIndex } = index;
   const minPositiveRating = options.minPositiveRating ?? 0;
@@ -267,12 +273,12 @@ export function computeUserPersonas(weightedRatings = [], index, options = {}) {
     if (weight > 0 && (!Number.isFinite(rating) || rating >= minPositiveRating)) {
       const unitVec = getUnitSlice(vectors, idx * dim, dim);
       posEntries.push({ tmdbId, idx, weight, unitVec });
-    } else if (weight < 0 && Number.isFinite(rating) && rating > 4) {
+    } else if (weight < 0 && Number.isFinite(rating) && rating > 4 && rating < 7) {
       mildNegEntries.push({ idx, weight });
     }
   }
 
-  if (posEntries.length === 0) return [];
+  if (posEntries.length === 0) return { centroids: [], masses: [] };
 
   posEntries.sort((a, b) => (b.weight !== a.weight ? b.weight - a.weight : a.tmdbId - b.tmdbId));
 
@@ -318,7 +324,7 @@ export function computeUserPersonas(weightedRatings = [], index, options = {}) {
       }
     }
     l2NormalizeInPlace(centroid, 0, dim);
-    return [centroid];
+    return { centroids: [centroid], masses: [1.0] };
   }
 
   const assignments = new Int32Array(posEntries.length).fill(-1);
@@ -362,7 +368,157 @@ export function computeUserPersonas(weightedRatings = [], index, options = {}) {
     }
   }
 
-  return centroids;
+  const rawMasses = new Float64Array(K);
+  let totalMass = 0;
+  for (let i = 0; i < posEntries.length; i++) {
+    const k = assignments[i];
+    if (k >= 0 && k < K) {
+      rawMasses[k] += posEntries[i].weight;
+      totalMass += posEntries[i].weight;
+    }
+  }
+
+  const outCentroids = [];
+  const outMasses = [];
+  for (let k = 0; k < K; k++) {
+    if (rawMasses[k] > 0) {
+      outCentroids.push(centroids[k]);
+      outMasses.push(totalMass > 0 ? rawMasses[k] / totalMass : 1 / K);
+    }
+  }
+  if (outCentroids.length === 0) {
+    return {
+      centroids,
+      masses: centroids.map(() => 1 / centroids.length),
+    };
+  }
+  return { centroids: outCentroids, masses: outMasses };
+}
+
+export function computeUserPersonas(weightedRatings = [], index, options = {}) {
+  return computePersonaDetails(weightedRatings, index, options).centroids;
+}
+
+/**
+ * Solves weighted 64x64 Ridge Regression (E^T C E + lambda I) u = E^T C z
+ * over all indexed user ratings (positive, neutral, and negative) and returns
+ * an L2-normalized collaborative preference vector.
+ */
+export function computeUserRidgeEmbedding(weightedRatings = [], index, options = {}) {
+  if (!index || !index.dim || !weightedRatings || weightedRatings.length === 0) {
+    return null;
+  }
+
+  const { dim, vectors, idToIndex } = index;
+  const minItems = options.ridgeMinItems ?? 10;
+  const lambda = Number(options.ridgeLambda ?? 20);
+
+  const entries = [];
+  const ratings = [];
+  let maxAbsWeight = 0;
+  for (const entry of weightedRatings) {
+    const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
+    const idx = tmdbId ? idToIndex.get(tmdbId) : undefined;
+    if (idx === undefined) continue;
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    if (Number.isFinite(weight) && Math.abs(weight) > maxAbsWeight) {
+      maxAbsWeight = Math.abs(weight);
+    }
+    entries.push({ idx, rating, weight });
+    if (Number.isFinite(rating) && rating > 0) ratings.push(rating);
+  }
+
+  if (entries.length < minItems) return null;
+
+  let meanR = 7.0;
+  let stdR = 1.5;
+  if (ratings.length >= 2) {
+    meanR = ratings.reduce((s, r) => s + r, 0) / ratings.length;
+    const varR = ratings.reduce((s, r) => s + (r - meanR) * (r - meanR), 0) / ratings.length;
+    stdR = Math.max(1.0, Math.sqrt(varR));
+  }
+  const baseline = Math.min(meanR, 7.5);
+  const weightScale = maxAbsWeight > 0 ? maxAbsWeight : 1;
+
+  const A = new Float64Array(dim * dim);
+  const b = new Float64Array(dim);
+  for (let d = 0; d < dim; d++) A[d * dim + d] = lambda;
+
+  let anyNonZeroTarget = false;
+  for (const item of entries) {
+    let z = (Number.isFinite(item.rating) && item.rating > 0)
+      ? (item.rating - baseline) / stdR
+      : (item.weight / weightScale) * 2.0;
+    z = Math.max(-2.5, Math.min(2.5, Number.isFinite(z) ? z : 0));
+    if (Math.abs(z) > 1e-9) anyNonZeroTarget = true;
+
+    const normW = maxAbsWeight > 0 ? Math.abs(item.weight) / maxAbsWeight : 0;
+    const c = (Number.isFinite(item.weight) && normW > 0)
+      ? Math.max(0.5, Math.min(2.0, 0.75 + 0.5 * normW))
+      : 1.0;
+
+    const base = item.idx * dim;
+    for (let i = 0; i < dim; i++) {
+      const ei = vectors[base + i];
+      const cei = c * ei;
+      b[i] += cei * z;
+      const rowOff = i * dim;
+      for (let j = i; j < dim; j++) {
+        A[rowOff + j] += cei * vectors[base + j];
+      }
+    }
+  }
+  if (!anyNonZeroTarget) return null;
+
+  for (let i = 0; i < dim; i++) {
+    for (let j = 0; j < i; j++) {
+      A[i * dim + j] = A[j * dim + i];
+    }
+  }
+
+  for (let col = 0; col < dim; col++) {
+    let pivotRow = col;
+    let maxVal = Math.abs(A[col * dim + col]);
+    for (let r = col + 1; r < dim; r++) {
+      const v = Math.abs(A[r * dim + col]);
+      if (v > maxVal) {
+        maxVal = v;
+        pivotRow = r;
+      }
+    }
+    if (maxVal < 1e-12) return null;
+    if (pivotRow !== col) {
+      for (let k = col; k < dim; k++) {
+        const tmp = A[col * dim + k];
+        A[col * dim + k] = A[pivotRow * dim + k];
+        A[pivotRow * dim + k] = tmp;
+      }
+      const tmpB = b[col];
+      b[col] = b[pivotRow];
+      b[pivotRow] = tmpB;
+    }
+    const diag = A[col * dim + col];
+    for (let r = col + 1; r < dim; r++) {
+      const factor = A[r * dim + col] / diag;
+      if (factor === 0) continue;
+      for (let k = col; k < dim; k++) {
+        A[r * dim + k] -= factor * A[col * dim + k];
+      }
+      b[r] -= factor * b[col];
+    }
+  }
+
+  const u = new Float32Array(dim);
+  for (let i = dim - 1; i >= 0; i--) {
+    let sum = b[i];
+    for (let j = i + 1; j < dim; j++) {
+      sum -= A[i * dim + j] * u[j];
+    }
+    u[i] = sum / A[i * dim + i];
+  }
+  const norm = l2NormalizeInPlace(u, 0, dim);
+  return norm > 0 ? u : null;
 }
 
 /**
@@ -599,6 +755,89 @@ export function loadDefaultEmbeddingIndex(url = "/models/item_embeddings_f16.bin
  * Builds a Map<tmdbId, collabSim> across all items in the embedding index using multi-persona
  * K-Means centroids blended with top-3 nearest loved films.
  */
+const collabDistributionCache = new WeakMap();
+
+function getOrBuildSortedPositives(collabSimMap, minCatalogSize = 50) {
+  if (!(collabSimMap instanceof Map) || collabSimMap.size < minCatalogSize) {
+    return null;
+  }
+  let sortedPos = collabDistributionCache.get(collabSimMap);
+  if (!sortedPos) {
+    const pos = [];
+    for (const v of collabSimMap.values()) {
+      if (Number.isFinite(v) && v > 0) pos.push(v);
+    }
+    if (pos.length < 2) {
+      collabDistributionCache.set(collabSimMap, new Float64Array(0));
+      return null;
+    }
+    pos.sort((a, b) => a - b);
+    sortedPos = Float64Array.from(pos);
+    collabDistributionCache.set(collabSimMap, sortedPos);
+  }
+  return sortedPos.length >= 2 ? sortedPos : null;
+}
+
+/**
+ * Returns the maximum positive score across the catalog map so normalization
+ * stays independent of candidate pool outliers.
+ */
+export function getCollabCatalogMax(collabSimMap, minCatalogSize = 50) {
+  const sortedPos = getOrBuildSortedPositives(collabSimMap, minCatalogSize);
+  return sortedPos ? sortedPos[sortedPos.length - 1] : null;
+}
+
+/**
+ * Computes pool-independent catalog percentile in [0, 1] over positive scores.
+ */
+export function getCollabCatalogPercentile(collabSimMap, rawScore, options = {}) {
+  const sortedPos = getOrBuildSortedPositives(collabSimMap, options.minCatalogSize ?? 50);
+  if (!sortedPos) return null;
+  const n = sortedPos.length;
+
+  const s = Number(rawScore);
+  if (!Number.isFinite(s) || s <= 0) return 0;
+
+  let pct;
+  if (s < sortedPos[0]) {
+    pct = sortedPos[0] > 0 ? (s / sortedPos[0]) / n : 0;
+  } else if (s > sortedPos[n - 1]) {
+    pct = 1.0;
+  } else {
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedPos[mid] < s) lo = mid + 1;
+      else hi = mid;
+    }
+    let upper = lo;
+    if (lo < n && sortedPos[lo] === s) {
+      let uHi = n;
+      while (upper < uHi) {
+        const mid = (upper + uHi) >>> 1;
+        if (sortedPos[mid] <= s) upper = mid + 1;
+        else uHi = mid;
+      }
+      pct = (0.5 * (lo + upper + 1)) / n;
+    } else if (lo === 0) {
+      pct = sortedPos[0] > 0 ? (s / sortedPos[0]) / n : 0;
+    } else if (lo >= n) {
+      pct = 1.0;
+    } else {
+      const span = sortedPos[lo] - sortedPos[lo - 1];
+      const frac = span > 0 ? (s - sortedPos[lo - 1]) / span : 0;
+      pct = (lo + frac) / n;
+    }
+  }
+
+  const clamped = Math.max(0, Math.min(1, pct));
+  const gamma = Number(options.percentileGamma ?? 1);
+  return gamma !== 1 && Number.isFinite(gamma) && gamma > 0
+    ? Math.pow(clamped, gamma)
+    : clamped;
+}
+
 export function buildCollabSimMapFromIndex(weightedRatings = [], index = null, options = {}) {
   const map = new Map();
   if (!index || !index.count || !weightedRatings || weightedRatings.length === 0) return map;
@@ -607,18 +846,47 @@ export function buildCollabSimMapFromIndex(weightedRatings = [], index = null, o
   if (weightCutoff === null) return map;
 
   const { count, dim, ids, vectors, idToIndex } = index;
-  const personas = computeUserPersonas(weightedRatings, index, options);
+  const { centroids: personas, masses: personaMasses } = computePersonaDetails(weightedRatings, index, options);
+  const useMixture = (options.personaAggregation ?? "mixture") === "mixture";
+  const beta = Math.max(0.1, Number(options.personaBeta ?? 20));
+  const ridgeBlend = Math.max(0, Math.min(1, Number(options.ridgeBlend ?? 0.25)));
+  const ridgeVec = ridgeBlend > 0 ? computeUserRidgeEmbedding(weightedRatings, index, options) : null;
+
   if (personas.length === 0) {
     const fallbackVec = computeUserEmbedding(weightedRatings, index);
-    if (!fallbackVec) return map;
+    if (!fallbackVec && !ridgeVec) return map;
     for (let i = 0; i < count; i++) {
       const base = i * dim;
-      let dot = 0;
-      for (let d = 0; d < dim; d++) dot += fallbackVec[d] * vectors[base + d];
-      map.set(ids[i], dot);
+      let fallbackDot = 0;
+      let ridgeDot = 0;
+      if (fallbackVec) {
+        for (let d = 0; d < dim; d++) fallbackDot += fallbackVec[d] * vectors[base + d];
+      }
+      if (ridgeVec) {
+        for (let d = 0; d < dim; d++) ridgeDot += ridgeVec[d] * vectors[base + d];
+      }
+      const val = (fallbackVec && ridgeVec)
+        ? (1 - ridgeBlend) * fallbackDot + ridgeBlend * ridgeDot
+        : (ridgeVec ? ridgeDot : fallbackDot);
+      map.set(ids[i], val);
     }
     return map;
   }
+
+  if (ridgeVec && ridgeBlend >= 1) {
+    for (let i = 0; i < count; i++) {
+      const base = i * dim;
+      let ridgeDot = 0;
+      for (let d = 0; d < dim; d++) ridgeDot += ridgeVec[d] * vectors[base + d];
+      map.set(ids[i], ridgeDot);
+    }
+    return map;
+  }
+
+  const logMasses = useMixture && personas.length > 1
+    ? personaMasses.map(m => Math.log(Math.max(1e-6, m)))
+    : null;
+  const personaDots = logMasses ? new Float64Array(personas.length) : null;
 
   const minPositiveRating = options.minPositiveRating ?? 7;
   const personaBlend = options.personaBlend ?? (personas.length === 1 ? 1.0 : 0.70);
@@ -639,44 +907,68 @@ export function buildCollabSimMapFromIndex(weightedRatings = [], index = null, o
   for (let i = 0; i < count; i++) {
     const base = i * dim;
     let bestPersonaSim = -Infinity;
-    for (const p of personas) {
-      let dot = 0;
-      for (let d = 0; d < dim; d++) dot += p[d] * vectors[base + d];
-      if (dot > bestPersonaSim) bestPersonaSim = dot;
-    }
-
-    if (topLovedPool.length <= 1 || personaBlend >= 1) {
-      map.set(ids[i], bestPersonaSim);
-      continue;
-    }
-
-    // Find top-3 closest individual loved films for candidate i (preserving Bayesian shrinkage)
-    let s1 = -Infinity, w1 = 0;
-    let s2 = -Infinity, w2 = 0;
-    let s3 = -Infinity, w3 = 0;
-    for (const item of topLovedPool) {
-      const lBase = item.idx * dim;
-      let dot = 0;
-      for (let d = 0; d < dim; d++) dot += vectors[lBase + d] * vectors[base + d];
-      if (dot > s1) {
-        s3 = s2; w3 = w2;
-        s2 = s1; w2 = w1;
-        s1 = dot; w1 = item.weight;
-      } else if (dot > s2) {
-        s3 = s2; w3 = w2;
-        s2 = dot; w2 = item.weight;
-      } else if (dot > s3) {
-        s3 = dot; w3 = item.weight;
+    if (logMasses) {
+      let maxLogit = -Infinity;
+      for (let k = 0; k < personas.length; k++) {
+        const p = personas[k];
+        let dot = 0;
+        for (let d = 0; d < dim; d++) dot += p[d] * vectors[base + d];
+        const logit = beta * dot + logMasses[k];
+        personaDots[k] = logit;
+        if (logit > maxLogit) maxLogit = logit;
+      }
+      let sumExp = 0;
+      for (let k = 0; k < personas.length; k++) {
+        sumExp += Math.exp(personaDots[k] - maxLogit);
+      }
+      bestPersonaSim = (maxLogit + Math.log(sumExp)) / beta;
+    } else {
+      for (const p of personas) {
+        let dot = 0;
+        for (let d = 0; d < dim; d++) dot += p[d] * vectors[base + d];
+        if (dot > bestPersonaSim) bestPersonaSim = dot;
       }
     }
 
-    let wSum = w1;
-    let weightedSim = w1 * s1;
-    if (s2 > -Infinity) { wSum += w2; weightedSim += w2 * s2; }
-    if (s3 > -Infinity) { wSum += w3; weightedSim += w3 * s3; }
-    const topLovedSim = wSum > 0 ? weightedSim / wSum : bestPersonaSim;
+    let clusterScore;
+    if (topLovedPool.length <= 1 || personaBlend >= 1) {
+      clusterScore = bestPersonaSim;
+    } else {
+      // Find top-3 closest individual loved films for candidate i (preserving Bayesian shrinkage)
+      let s1 = -Infinity, w1 = 0;
+      let s2 = -Infinity, w2 = 0;
+      let s3 = -Infinity, w3 = 0;
+      for (const item of topLovedPool) {
+        const lBase = item.idx * dim;
+        let dot = 0;
+        for (let d = 0; d < dim; d++) dot += vectors[lBase + d] * vectors[base + d];
+        if (dot > s1) {
+          s3 = s2; w3 = w2;
+          s2 = s1; w2 = w1;
+          s1 = dot; w1 = item.weight;
+        } else if (dot > s2) {
+          s3 = s2; w3 = w2;
+          s2 = dot; w2 = item.weight;
+        } else if (dot > s3) {
+          s3 = dot; w3 = item.weight;
+        }
+      }
 
-    map.set(ids[i], personaBlend * bestPersonaSim + (1 - personaBlend) * topLovedSim);
+      let wSum = w1;
+      let weightedSim = w1 * s1;
+      if (s2 > -Infinity) { wSum += w2; weightedSim += w2 * s2; }
+      if (s3 > -Infinity) { wSum += w3; weightedSim += w3 * s3; }
+      const topLovedSim = wSum > 0 ? weightedSim / wSum : bestPersonaSim;
+      clusterScore = personaBlend * bestPersonaSim + (1 - personaBlend) * topLovedSim;
+    }
+
+    if (ridgeVec && ridgeBlend > 0) {
+      let ridgeDot = 0;
+      for (let d = 0; d < dim; d++) ridgeDot += ridgeVec[d] * vectors[base + d];
+      map.set(ids[i], (1 - ridgeBlend) * clusterScore + ridgeBlend * ridgeDot);
+    } else {
+      map.set(ids[i], clusterScore);
+    }
   }
 
   return map;

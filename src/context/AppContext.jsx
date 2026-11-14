@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { normalizeFeedbackEvent, recordRatedMovieConversion } from "../services/feedbackService.js";
+import { resolveMovieRecSource } from "../services/vaultStats.js";
 import {
   findMatchingMovie,
   removeMovieEntries,
@@ -646,8 +647,18 @@ export function AppProvider({ children }) {
       existingWatched?.imdbID ||
       movieId;
     const normalizedMovie = { ...movie, imdbID: resolvedImdbId, updatedAt };
-    const mergedEntry = existingWatched ? { ...existingWatched, ...normalizedMovie } : normalizedMovie;
-    const { removed: removedWatchlist } = removeMovieEntries(watchlistRef.current || [], mergedEntry);
+    const { removed: removedWatchlist } = removeMovieEntries(watchlistRef.current || [], normalizedMovie);
+    const resolvedRecSource = resolveMovieRecSource(
+      normalizedMovie,
+      aiRecommendations,
+      [existingWatched, ...(removedWatchlist || [])],
+      updatedAt
+    );
+    const mergedEntry = {
+      ...(existingWatched || {}),
+      ...normalizedMovie,
+      ...(resolvedRecSource ? { recSource: resolvedRecSource } : {})
+    };
 
     setWatched((prev) => upsertMovieEntry(prev, mergedEntry));
     setWatchlist((prev) => removeMovieEntries(prev, mergedEntry).nextList);
@@ -707,7 +718,13 @@ export function AppProvider({ children }) {
     const movieId = movie.imdbID || movie.id || (movie.tmdbId ? `tmdb_${movie.tmdbId}` : "");
     if (!movieId) return;
     const updatedAt = movie.updatedAt || new Date().toISOString();
-    const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId, updatedAt };
+    const resolvedRecSource = resolveMovieRecSource(movie, aiRecommendations, [], updatedAt);
+    const normalizedMovie = {
+      ...movie,
+      imdbID: movie.imdbID || movieId,
+      updatedAt,
+      ...(resolvedRecSource ? { recSource: resolvedRecSource } : {})
+    };
     if (findMatchingMovie(watchlistRef.current, normalizedMovie)) return;
     setWatchlist((prev) => (findMatchingMovie(prev, normalizedMovie) ? prev : [...(prev || []), normalizedMovie]));
     if (cloudUserRef.current?.id) {

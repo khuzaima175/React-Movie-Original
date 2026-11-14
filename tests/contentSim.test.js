@@ -75,3 +75,55 @@ test("computeOverviewBigramSim computes pure plot-text cosine strictly without g
   assert.equal(buildContentSimMap(ratings, null, candidates).size, 0);
   assert.ok(buildContentSimMap(ratings, null, candidates, { enableOverviewTfIdf: true }).get(99) > 0.15);
 });
+
+
+test("buildContentSimMap structured cold fallback scores unindexed films cleanly while gating out indexed items when coldOnly is true", () => {
+  const collabBuf = encodeEmbeddingBinary([{ tmdbId: 1, vector: [1, 0, 0, 0] }, { tmdbId: 50, vector: [0.9, 0.435, 0, 0] }]);
+  const collabIndex = parseEmbeddingBinary(collabBuf);
+  const collabSimMap = new Map([[50, 0.45]]);
+
+  const ratings = [
+    {
+      movie: {
+        tmdbId: 1,
+        tmdbGenreIds: [878, 9648],
+        tmdbKeywords: [9001, 9002],
+        castIds: [701],
+        crewPersonId: 801,
+        overview: "A lone astronaut decodes an alien signal across deep space."
+      },
+      weight: 1.8
+    },
+    {
+      movie: {
+        tmdbId: 2,
+        tmdbGenreIds: [35],
+        tmdbKeywords: [9999],
+        castIds: [799],
+        crewPersonId: 899,
+        overview: "A slapstick office prank goes wildly wrong."
+      },
+      weight: -1.5
+    }
+  ];
+
+  const candidates = [
+    { id: 50, tmdbId: 50, tmdbGenreIds: [878, 9648], tmdbKeywords: [9001], castIds: [701], crewPersonId: 801, overview: "Space mystery signal." },
+    { id: 202610, tmdbId: 202610, tmdbGenreIds: [878, 9648], tmdbKeywords: [9001, 9002], castIds: [701], crewPersonId: 801, overview: "Deep space alien signal." },
+    { id: 202611, tmdbId: 202611, tmdbGenreIds: [35], tmdbKeywords: [9999], castIds: [799], crewPersonId: 899, overview: "Slapstick office comedy." }
+  ];
+
+  const simMap = buildContentSimMap(ratings, null, candidates, {
+    collabIndex,
+    collabSimMap,
+    enableStructuredFallback: true,
+    coldOnly: true
+  });
+
+  assert.equal(simMap.has(50), false, "coldOnly leaves collab-indexed film unscored in fallback map");
+  const coldPositive = simMap.get(202610);
+  const coldNegative = simMap.get(202611) ?? 0;
+  assert.ok(coldPositive > 0.5 && coldPositive <= 1.0, `cold aligned film receives positive bounded score, got ${coldPositive}`);
+  assert.equal(simMap.has(202611), false);
+  assert.equal(coldNegative, 0, "negative-subtracted mismatch clamps cleanly at 0");
+});

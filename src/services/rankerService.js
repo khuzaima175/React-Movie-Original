@@ -1,4 +1,5 @@
 import { computeBayesianScore } from "./scoringUtils.js";
+import { getCollabCatalogMax, getCollabCatalogPercentile } from "./embeddingService.js";
 import {
   getMoodPreset,
   normalizeMoodFilters,
@@ -8,19 +9,22 @@ import {
 } from "./moodPolicy.js";
 import { matchesWatchProviders } from "./tmdbService.js";
 
+export const DEFAULT_METADATA_DAMPING_FACTOR = 0.35;
+export const DEFAULT_DISPLAY_TEMPERATURE = 1.45;
+
 /**
- * Calibrated Logistic Ranker Weights
+ * Calibrated Logistic Ranker Weights (v5.0 offline-optimized on 328-user cohort)
  */
 export const DEFAULT_RANKER_WEIGHTS = {
   bias: -1.1,
-  collabSim: 4.8,
+  collabSim: 6.4,
   contentSim: 1.4,
-  genreOverlap: 1.1,
-  keywordOverlap: 0.8,
+  genreOverlap: 0.6,
+  keywordOverlap: 0.45,
   crewMatch: 0.7,
   castMatch: 0.5,
-  bayesianRatingNorm: 1.2,
-  noveltyBonus: 0.35,
+  bayesianRatingNorm: 1.8,
+  noveltyBonus: 0.05,
   negativeKeywordPenalty: -0.5,
   repulsion: -1.5,
   providerMatch: 0.25,
@@ -57,19 +61,55 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
     ? Math.min(1, genreHits / Math.min(3, lovedSet.size))
     : 0;
 
-  const effectiveAnchorKws =
-    Array.isArray(anchorKeywords) && anchorKeywords.length > 0
-      ? anchorKeywords
-      : (profile.lovedKeywordIds || []);
-  const anchorKwSet = new Set(effectiveAnchorKws.map(Number));
   const candKeywords = candidate.tmdbKeywords || [];
-  let kwHits = 0;
-  for (const k of candKeywords) {
-    if (anchorKwSet.has(Number(k))) kwHits++;
+  const kwAff = profile.keywordAffinities && typeof profile.keywordAffinities === "object"
+    ? profile.keywordAffinities
+    : null;
+  const kwAffEntries = kwAff
+    ? Object.entries(kwAff).filter(([_, w]) => Number(w) > 0)
+    : [];
+  const profileLovedSet = new Set((profile.lovedKeywordIds || []).map(Number));
+  const hasExplicitAnchorOverride = Array.isArray(anchorKeywords) &&
+    anchorKeywords.length > 0 &&
+    anchorKeywords.some(k => !profileLovedSet.has(Number(k)));
+
+  let keywordOverlap = 0;
+  if (kwAffEntries.length > 0 && !hasExplicitAnchorOverride) {
+    let kwScoreSum = 0;
+    const seenKw = new Set();
+    for (const rawK of candKeywords) {
+      const k = Number(rawK);
+      if (seenKw.has(k)) continue;
+      seenKw.add(k);
+      const w = Number(kwAff[k] ?? kwAff[String(k)] ?? 0);
+      if (w > 0) kwScoreSum += w;
+    }
+    const topWeights = kwAffEntries
+      .map(([_, w]) => Number(w))
+      .sort((a, b) => b - a)
+      .slice(0, 3);
+    const denomWeight = topWeights.reduce((a, b) => a + b, 0);
+    keywordOverlap = kwScoreSum > 0 && denomWeight > 0
+      ? Math.min(1, kwScoreSum / denomWeight)
+      : (candidate.sourceBucket?.includes("Bucket B") ? 0.6 : 0);
+  } else {
+    const effectiveAnchorKws =
+      Array.isArray(anchorKeywords) && anchorKeywords.length > 0
+        ? anchorKeywords
+        : (profile.lovedKeywordIds || []);
+    const anchorKwSet = new Set(effectiveAnchorKws.map(Number));
+    let kwHits = 0;
+    const seenKw = new Set();
+    for (const rawK of candKeywords) {
+      const k = Number(rawK);
+      if (seenKw.has(k)) continue;
+      seenKw.add(k);
+      if (anchorKwSet.has(k)) kwHits++;
+    }
+    keywordOverlap = kwHits > 0
+      ? Math.min(1, kwHits / Math.min(3, anchorKwSet.size))
+      : (candidate.sourceBucket?.includes("Bucket B") ? 0.6 : 0);
   }
-  const keywordOverlap = kwHits > 0
-    ? Math.min(1, kwHits / Math.min(3, anchorKwSet.size))
-    : (candidate.sourceBucket?.includes("Bucket B") ? 0.6 : 0);
 
   const hatedSet = new Set(profile.hatedKeywordIds || []);
   let negHits = 0;
@@ -79,16 +119,46 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
   const negativeKeywordPenalty = Math.min(1, negHits);
 
   const candCrewId = Number(candidate.crewPersonId || 0);
-  const topCrewSet = new Set((profile.topCrewIds || []).map(Number));
-  if (profile.topCrewMemberId) topCrewSet.add(Number(profile.topCrewMemberId));
-  const crewMatch = (
-    (candCrewId > 0 && topCrewSet.has(candCrewId)) ||
-    candidate.sourceBucket?.includes("Bucket C")
-  ) ? 1 : 0;
+  const crewAff = profile.crewAffinities || {};
+  const crewAffEntries = Object.entries(crewAff).filter(([_, w]) => Number(w) > 0);
+  let crewMatch = 0;
+  if (crewAffEntries.length > 0) {
+    const aff = candCrewId > 0 ? Number(crewAff[candCrewId] ?? crewAff[String(candCrewId)] ?? 0) : 0;
+    if (aff > 0) {
+      crewMatch = Math.min(1, aff);
+    } else if (candidate.sourceBucket?.includes("Bucket C")) {
+      crewMatch = 0.5;
+    }
+  } else {
+    const topCrewSet = new Set((profile.topCrewIds || []).map(Number));
+    if (profile.topCrewMemberId) topCrewSet.add(Number(profile.topCrewMemberId));
+    crewMatch = (
+      (candCrewId > 0 && topCrewSet.has(candCrewId)) ||
+      candidate.sourceBucket?.includes("Bucket C")
+    ) ? 1 : 0;
+  }
 
-  const topCastSet = new Set(profile.topCastIds || []);
   const candCast = candidate.castIds || [];
-  const castMatch = candCast.some(c => topCastSet.has(Number(c))) ? 1 : 0;
+  const castAff = profile.castAffinities || {};
+  const castAffEntries = Object.entries(castAff).filter(([_, w]) => Number(w) > 0);
+  let castMatch = 0;
+  if (castAffEntries.length > 0) {
+    let castScoreSum = 0;
+    const seenCast = new Set();
+    candCast.forEach((rawC, idx) => {
+      const cId = Number(rawC);
+      if (!Number.isFinite(cId) || cId <= 0 || seenCast.has(cId)) return;
+      seenCast.add(cId);
+      const w = Number(castAff[cId] ?? castAff[String(cId)] ?? 0);
+      if (w > 0) {
+        castScoreSum += w * (1 / (1 + 0.2 * idx));
+      }
+    });
+    castMatch = Math.min(1, castScoreSum);
+  } else {
+    const topCastSet = new Set(profile.topCastIds || []);
+    castMatch = candCast.some(c => topCastSet.has(Number(c))) ? 1 : 0;
+  }
 
   const bayesian = computeBayesianScore(candidate.vote_average, candidate.vote_count, 500, 7.0);
   const bayesianRatingNorm = Math.max(0, Math.min(1, (bayesian - 5.0) / 4.5));
@@ -119,28 +189,50 @@ export function extractCandidateFeatures(candidate = {}, context = {}) {
 }
 
 /**
+ * Maps internal ranker logit to a calibrated display percentage in [50, 99] using a
+ * display temperature tau so top picks spread cleanly without altering ranking order.
+ */
+export function computeDisplayMatchScore(logit = 0, temperature = DEFAULT_DISPLAY_TEMPERATURE) {
+  const tau = Number.isFinite(Number(temperature)) && Number(temperature) > 0
+    ? Number(temperature)
+    : 1.0;
+  const displayProbability = 1 / (1 + Math.exp(-(Number(logit) || 0) / tau));
+  return Math.min(99, Math.max(50, Math.round(50 + 49 * displayProbability)));
+}
+
+/**
  * Scores extracted candidate features via a calibrated logistic regression model.
  * When collaborative signal is present, genre and rating norm are damped so discrete ties
  * and mainstream popularity do not push high-confidence collaborative twins out of the top 10.
  */
 export function scoreCandidate(features = {}, weights = DEFAULT_RANKER_WEIGHTS, options = {}) {
   let logit = Number(weights.bias || 0);
-  const hasCollabSignal = Math.abs(Number(features.collabSim || 0)) > 0.001;
-  const damping = options.metadataDampingFactor ?? 0.20;
+  const damping = options.metadataDampingFactor ?? DEFAULT_METADATA_DAMPING_FACTOR;
+  const smoothDamping = options.smoothDamping !== false;
+  let effectiveDamping = 1.0;
+  if (smoothDamping) {
+    const rawCollabMag = Math.abs(Number(features.rawCollabSim ?? features.collabSim ?? 0));
+    const rampMax = Number(options.dampingRampMax ?? 0.02);
+    const t = rampMax > 0 ? Math.min(1, rawCollabMag / rampMax) : (rawCollabMag > 0.001 ? 1 : 0);
+    const smoothT = t * t * (3 - 2 * t);
+    effectiveDamping = 1.0 + smoothT * (damping - 1.0);
+  } else if (Math.abs(Number(features.collabSim || 0)) > 0.001) {
+    effectiveDamping = damping;
+  }
 
   for (const [key, w] of Object.entries(weights)) {
     if (key === "bias") continue;
     let x = Number(features[key] || 0);
     if (Number.isFinite(x) && Number.isFinite(w)) {
-      if (hasCollabSignal && (key === "genreOverlap" || key === "bayesianRatingNorm")) {
-        x *= damping;
+      if (key === "genreOverlap" || key === "bayesianRatingNorm") {
+        x *= effectiveDamping;
       }
       logit += w * x;
     }
   }
 
   const probability = 1 / (1 + Math.exp(-logit));
-  const matchScore = Math.min(99, Math.max(50, Math.round(50 + 49 * probability)));
+  const matchScore = computeDisplayMatchScore(logit, options.displayTemperature);
 
   return {
     logit,
@@ -514,17 +606,30 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
     ? { ...options, metadataDampingFactor: 1.0 }
     : options;
 
+  const normMode = options.collabNormalization ?? "catalog-max";
+  const catalogMax = normMode === "catalog-max" ? getCollabCatalogMax(collabSimMap) : null;
   const scored = workingPool.map(cand => {
     const features = extractCandidateFeatures(cand, context);
     features.rawCollabSim = features.collabSim;
-    if (features.collabSim > 0 && maxPoolCollab > 0.05) {
-      features.collabSim = Math.min(1.0, features.collabSim / collabScale);
+    if (features.collabSim > 0) {
+      if (normMode === "catalog-max" && catalogMax !== null) {
+        features.collabSim = Math.min(1.0, features.collabSim / Math.max(0.05, catalogMax));
+      } else {
+        const catalogPct = normMode === "percentile"
+          ? getCollabCatalogPercentile(collabSimMap, features.rawCollabSim, options)
+          : null;
+        if (catalogPct !== null) {
+          features.collabSim = catalogPct;
+        } else if (maxPoolCollab > 0.05) {
+          features.collabSim = Math.min(1.0, features.collabSim / collabScale);
+        }
+      }
     }
     const base = scoreCandidate(features, effectiveWeights, effectiveOptions);
     const moodAdj = explicitMood ? computeMoodScoreAdjustment(cand, effectiveMood, normalizedFilters) : 0;
     const logit = explicitMood ? base.logit + moodAdj : base.logit;
     const probability = explicitMood ? 1 / (1 + Math.exp(-logit)) : base.probability;
-    const matchScore = explicitMood ? Math.min(99, Math.max(50, Math.round(50 + 49 * probability))) : base.matchScore;
+    const matchScore = explicitMood ? computeDisplayMatchScore(logit, effectiveOptions.displayTemperature) : base.matchScore;
 
     const reasons = generateMatchReasons(features);
     if (explicitMood && moodAdj >= 1.2 && effectiveMood && effectiveMood !== "any") {
@@ -534,9 +639,17 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
       }
     }
 
+    const isHydrated =
+      cand.hydrated ??
+      cand.features?.hydrated ??
+      (Array.isArray(cand.tmdbKeywords) && Array.isArray(cand.castIds));
     return {
       ...cand,
-      features,
+      hydrated: Boolean(isHydrated),
+      features: {
+        ...features,
+        hydrated: Boolean(isHydrated)
+      },
       rankerLogit: logit,
       rankerProbability: probability,
       moodAdjustment: moodAdj,
@@ -557,10 +670,16 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
       }
     }
     gatePassed.sort((a, b) => b.rankerProbability - a.rankerProbability);
-    gateRejected.sort((a, b) => b.rankerProbability - a.rankerProbability);
-    ordered = (gatePassed.length >= Math.min(10, topK) || gateRejected.length === 0)
-      ? gatePassed
-      : [...gatePassed, ...gateRejected];
+    ordered = gatePassed;
+    if (typeof options?.onDiagnostics === "function") {
+      options.onDiagnostics({
+        explicitMood: true,
+        gatePassedCount: gatePassed.length,
+        gateRejectedCount: gateRejected.length,
+        targetCount: topK,
+        moodShortfall: gatePassed.length < topK ? { requested: topK, available: gatePassed.length } : null
+      });
+    }
   } else {
     scored.sort((a, b) => b.rankerProbability - a.rankerProbability);
     ordered = scored;

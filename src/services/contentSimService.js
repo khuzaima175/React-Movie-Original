@@ -6,6 +6,7 @@ import {
   computeUserEmbedding,
   blendEmbeddings
 } from "./embeddingService.js";
+import { GENERIC_META_KEYWORD_IDS } from "./tmdbService.js";
 
 const OVERVIEW_STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "into", "onto", "over",
@@ -240,5 +241,156 @@ export function buildContentSimMap(
     }
   }
 
+  if (options.enableStructuredFallback === true && Array.isArray(candidates) && candidates.length > 0) {
+    const coldOnly = options.coldOnly !== false;
+    const collabSimMap = options.collabSimMap instanceof Map ? options.collabSimMap : null;
+    const collabIndex = options.collabIndex || null;
+    const negScale = options.negScale ?? 0.35;
+    const includeNegative = options.includeNegative !== false;
+
+    const { dfMap, docCount } = computeCorpusTermDf(candidates);
+    const userVec = buildUserStructuredVector(weightedRatings, dfMap, docCount, {
+      negScale,
+      includeNegative
+    });
+    if (userVec) {
+      for (const cand of candidates) {
+        const id = Number(cand?.tmdbId ?? cand?.id ?? 0);
+        if (!id || map.has(id)) continue;
+        if (coldOnly && hasCollaborativeCoverage(id, collabSimMap, collabIndex)) continue;
+        const sim = scoreStructuredCandidate(userVec, cand, dfMap, docCount);
+        if (sim > 0) map.set(id, sim);
+      }
+    }
+  }
+
   return map;
+}
+
+function hasCollaborativeCoverage(id, collabSimMap, collabIndex) {
+  if (collabSimMap) {
+    return Math.abs(Number(collabSimMap.get(id) ?? 0)) > 0.001;
+  }
+  return Boolean(collabIndex?.idToIndex?.has(id));
+}
+
+function extractMovieStructuredTerms(movie = {}) {
+  const weights = new Map();
+  const add = (key, val) => {
+    if (val > 0 && !weights.has(key)) weights.set(key, val);
+  };
+
+  for (const rawG of movie.tmdbGenreIds || movie.genre_ids || []) {
+    const g = Number(rawG);
+    if (g > 0) add(`g:${g}`, 1.0);
+  }
+  for (const rawKw of movie.tmdbKeywords || []) {
+    const kw = Number(rawKw);
+    if (kw > 0 && !GENERIC_META_KEYWORD_IDS.has(kw)) add(`k:${kw}`, 1.5);
+  }
+  const crewId = Number(movie.crewPersonId || 0);
+  if (crewId > 0) add(`d:${crewId}`, 1.4);
+
+  const castIds = Array.isArray(movie.castIds) ? movie.castIds : [];
+  for (let i = 0; i < castIds.length; i++) {
+    const cId = Number(castIds[i]);
+    if (cId > 0) add(`c:${cId}`, 0.8 * (1 / (1 + 0.2 * i)));
+  }
+
+  const yearNum = Number(String(movie.release_date || movie.year || "").slice(0, 4));
+  if (yearNum >= 1910 && yearNum <= 2030) {
+    add(`dec:${Math.floor(yearNum / 10) * 10}`, 0.4);
+  }
+
+  const overview = movie.overview || movie.plot || "";
+  if (overview) {
+    const tokens = tokenizeOverview(overview);
+    if (tokens.length > 0) {
+      const ovCounts = new Map();
+      for (let i = 0; i < tokens.length; i++) {
+        const uk = `ov:${tokens[i]}`;
+        ovCounts.set(uk, (ovCounts.get(uk) || 0) + 1);
+        if (i + 1 < tokens.length) {
+          const bk = `ovb:${tokens[i]}_${tokens[i + 1]}`;
+          ovCounts.set(bk, (ovCounts.get(bk) || 0) + 1);
+        }
+      }
+      for (const [k, cnt] of ovCounts.entries()) {
+        const mult = k.startsWith("ovb:") ? 0.8 : 0.6;
+        weights.set(k, mult * (1 + Math.log(cnt)));
+      }
+    }
+  }
+
+  return weights;
+}
+
+function computeCorpusTermDf(candidates = []) {
+  const dfMap = new Map();
+  let docCount = 0;
+  for (const m of candidates) {
+    docCount++;
+    for (const key of extractMovieStructuredTerms(m).keys()) {
+      dfMap.set(key, (dfMap.get(key) || 0) + 1);
+    }
+  }
+  return { dfMap, docCount: Math.max(2, docCount) };
+}
+
+function buildNormalizedMovieStructuredVec(movie, dfMap, docCount) {
+  const raw = extractMovieStructuredTerms(movie);
+  if (raw.size === 0) return null;
+  const vec = new Map();
+  let normSq = 0;
+  for (const [k, w] of raw.entries()) {
+    const idf = Math.log(1 + docCount / (1 + (dfMap.get(k) || 0)));
+    const val = w * idf;
+    vec.set(k, val);
+    normSq += val * val;
+  }
+  const norm = Math.sqrt(normSq);
+  if (norm <= 1e-12) return null;
+  for (const [k, val] of vec.entries()) vec.set(k, val / norm);
+  return vec;
+}
+
+function buildUserStructuredVector(weightedRatings, dfMap, docCount, options = {}) {
+  const { negScale = 0.35, includeNegative = true } = options;
+  const userVec = new Map();
+  let hasPos = false;
+
+  for (const entry of weightedRatings) {
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? 0);
+    if (!Number.isFinite(weight) || weight === 0) continue;
+    if (weight < 0 && (!includeNegative || rating >= 7)) continue;
+
+    const mult = weight > 0 ? weight : weight * negScale;
+    const movie = entry?.movie || entry;
+    const mVec = buildNormalizedMovieStructuredVec(movie, dfMap, docCount);
+    if (!mVec) continue;
+    if (weight > 0) hasPos = true;
+    for (const [k, val] of mVec.entries()) {
+      userVec.set(k, (userVec.get(k) || 0) + mult * val);
+    }
+  }
+
+  if (!hasPos || userVec.size === 0) return null;
+  let normSq = 0;
+  for (const val of userVec.values()) normSq += val * val;
+  const norm = Math.sqrt(normSq);
+  if (norm <= 1e-12) return null;
+  for (const [k, val] of userVec.entries()) userVec.set(k, val / norm);
+  return userVec;
+}
+
+function scoreStructuredCandidate(userVec, cand, dfMap, docCount) {
+  const cVec = buildNormalizedMovieStructuredVec(cand, dfMap, docCount);
+  if (!cVec) return 0;
+  let dot = 0;
+  for (const [k, val] of cVec.entries()) {
+    const u = userVec.get(k);
+    if (u) dot += u * val;
+  }
+  return Math.max(0, Math.min(1, dot));
 }

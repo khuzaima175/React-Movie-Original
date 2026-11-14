@@ -1,3 +1,5 @@
+import { enforceApiSecurity } from "./_security.js";
+
 const ALLOWED_TMDB_PATH_RE =
   /^\/3\/(discover\/movie|search\/movie|trending\/movie\/(?:day|week)|movie\/\d+(?:\/(?:keywords|credits|watch\/providers|videos|release_dates|external_ids))?|find\/[a-zA-Z0-9_-]+)$/;
 
@@ -7,6 +9,10 @@ function sanitizeUpstreamMessage(message, secret) {
 }
 
 export default async function handler(req, res) {
+  if (!enforceApiSecurity(req, res, { bucket: "tmdb", maxRequests: 60, windowMs: 60_000 })) {
+    return;
+  }
+
   if (req.method !== "GET") {
     res.setHeader?.("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });

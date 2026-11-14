@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 13, 2026 (`main` @ `1336dcc`)  
-**Status:** Production-ready on `main` · `99 / 99` unit tests passing · Production build green (`2232` modules)
+**Last Updated:** November 15, 2026 (`main`)  
+**Status:** Production-ready on `main` · **`215 / 215` unit tests passing** across **28** suites · Production build green (**`2302` modules**)
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -22,13 +22,13 @@ Your recommendation engine does **85–90% of the intelligence locally on the us
      - Remaining bytes (`25,000 × (4 + 64 × 2) = 3,300,000` B): repeated `[uint32 tmdbId][64 × float16 components]` records (`16 + 3,300,000 = 3,300,016` B total).
    - **How the browser loads it safely:** `loadDefaultEmbeddingIndex` in [src/services/embeddingService.js](./src/services/embeddingService.js#L516-L539) fetches `/models/item_embeddings_f16.bin` lazily once per browser session, rejects SPA `text/html` fallback pages, validates header bounds and exact `byteLength`, decodes IEEE-754 `float16` -> `Float32Array`, and caches the index in memory. If the binary is missing or running inside offline unit tests, it returns `null` safely without crashing.
 
-2. **The Calibrated Local Ranker (`DEFAULT_RANKER_WEIGHTS` in [src/services/rankerService.js](./src/services/rankerService.js#L6-L19))**
-   - Computes **11 normalized features** for every movie in the merged TMDB + Embedding candidate pool (`collabSim`, `contentSim`, `genreOverlap`, `keywordOverlap`, `crewMatch`, `castMatch`, `bayesianRatingNorm`, `noveltyBonus`, `negativeKeywordPenalty`, `repulsion`, `providerMatch`).
-   - Passes them through a calibrated logistic sigmoid $\sigma(b + w^\top x)$ and locks each film's deterministic **50–99% Match Score** plus up to 3 deterministic **Match Reason Badges** (`🧬 High Taste-Twin Match`, `🤝 Collaborative Taste Pick`, `🎬 Favorite Filmmaker`, `🎭 Top Cast Match`, `🎯 Core Theme Match`, `💎 Personal Cult Pick`, `🎪 Genre Bullseye`, `⭐ Critical Acclaim`).
-   - **Zero LLM Hallucination:** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **6** out of **15** pre-ranked titles and write personalized 1-sentence explanations.
+2. **The Calibrated Local Ranker (`DEFAULT_RANKER_WEIGHTS` in [src/services/rankerService.js](./src/services/rankerService.js#L6-L20))**
+   - Computes **12 normalized features** (`11` active weighted features + optional `dnaSim` gated at `0`) for every movie in the merged TMDB + Embedding candidate pool (`collabSim`, `contentSim`, `genreOverlap`, `keywordOverlap`, `crewMatch`, `castMatch`, `bayesianRatingNorm`, `noveltyBonus`, `negativeKeywordPenalty`, `repulsion`, `providerMatch`, `dnaSim`).
+   - Passes them through a calibrated logistic sigmoid $\sigma(b + w^\top x + \text{moodAdjustment})$ and locks each film's deterministic **50–99% Match Score** plus up to 3 deterministic **Match Reason Badges** (`🎭 <Mood> Fit`, `🧬 High Taste-Twin Match`, `🤝 Collaborative Taste Pick`, `🎬 Favorite Filmmaker`, `🎭 Top Cast Match`, `🎯 Core Theme Match`, `💎 Personal Cult Pick`, `🎪 Genre Bullseye`, `⭐ Critical Acclaim`).
+   - **Zero LLM Hallucination:** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) out of up to **`30`** pre-ranked titles, pair each pick with `1–3` vault `anchorTitles`, and write personalized 1-sentence prose free of scoring jargon (backfilling cleanly from the top ranker picks if Gemini returns fewer than `10`).
 
-3. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)) & Trainer ([scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
-   - `public/models/ranker_weights.json` is an offline training/reference JSON exported alongside the Colab trainer and kept synchronized with the live `-0.5` negative keyword penalty (`collabSim: 4.8`, `negativeKeywordPenalty: -0.5`). The browser app itself always uses `DEFAULT_RANKER_WEIGHTS` directly from `src/services/rankerService.js`.
+3. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)), Content/DNA Builders & Trainer ([scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
+   - `public/models/ranker_weights.json` is an offline training/reference JSON (`_source: "v5.0-offline-328-cv"`) exported alongside the Colab trainer and kept synchronized in exact `deepEqual` parity with `DEFAULT_RANKER_WEIGHTS` (`collabSim: 6.4`, `negativeKeywordPenalty: -0.5`, `_metadataDampingFactor: 0.35`, `_displayTemperature: 1.45`). In-app, `onlineLearningService.js` optionally nudges personal weights via bounded `fitRankerWeights` once `>= 10` events (`>= 3` positive, `>= 3` negative) accumulate, while `scripts/build_content_embeddings.mjs` supports building optional `/models/content_embeddings_f16.bin` plot vectors cleanly without metadata leakage.
    - `scripts/colab_train_embeddings.py` is the Python Truncated SVD trainer (`svds`, `k=64`, Bayesian norm shrinkage `0.5`) with built-in holdout stripping and popularity sanity gates.
 
 ---
@@ -71,32 +71,37 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
    │      • Undated logs or clustered CSV backlog imports get bulkPriorDays = 180 (not day 0!)
    │      • Future dates clamped at >= 0 days so decay never exceeds 1.0
    │
-   ├─► 2. embeddingService.js (Relative Weight Cutoff + Personas + Negative Repulsion)
+   ├─► 2. embeddingService.js (Relative Cutoff + Persona Mixture + Ridge Fold-In + Repulsion)
    │      • Keeps every item with |w| > 1e-6 * maxAbsWeight (relative to your vault!)
-   │      • Clusters loved films into 1–4 Spherical K-Means taste personas (computeUserPersonas)
-   │        so contrasting favorites (e.g., Oldboy + Toy Story) stay distinct
+   │      • Clusters loved films into 1–4 mass-weighted Spherical K-Means personas (computePersonaDetails)
+   │        and aggregates via log-sum-exp mixture (beta = 20) + top-3 loved similarity blend
+   │      • Solves an on-device 64×64 L2-regularized Ridge Fold-In vector (computeUserRidgeEmbedding,
+   │        lambda = 20, ridgeMinItems = 10, scale-invariant normW) across ALL rated films (blended 0.75 / 0.25)
    │      • Builds repulsionMap around films rated <= 5 with negative weights (penalty above cos > 0.35)
-   │      • Blended similarity: 0.70 * max_persona_sim + 0.30 * top3_loved_item_mean
+   │      • Extracts catalog-wide positive max via getCollabCatalogMax (minCatalogSize = 50)
    │
-   ├─► 3. tmdbService.js + Bucket E (5-Bucket Verified Candidate Pool)
-   │      • Bucket B: Anchor Keywords (top-weighted 9★+ film micro-keywords via '|')
-   │      • Bucket C: Auteur Crew (top director/DP/composer/writer filmography)
-   │      • Bucket A: Semantic Discover (loved genres + watchlist intent + cast + mood + without_keywords + streaming)
-   │      • Bucket D: Recent-Release Lane (last 18 months, popularity.desc, avg >= 7.0, votes >= 150, max 12)
-   │      • Bucket E: Up to 30 unseen nearest-neighbor films from your 64-D CVEM personas
+   ├─► 3. tmdbService.js + moodPolicy.js + Bucket E (5-Bucket Verified Candidate Pool)
+   │      • Bucket B: Anchor Keywords (top-weighted 9★+ film micro-keywords via '|'; scaled 20%/12 in Mood)
+   │      • Bucket C: Auteur Crew (top director/DP/composer/writer filmography; scaled 12%/8 in Mood)
+   │      • Bucket A: Semantic Discover (loved genres + watchlist intent + cast [dropped in Mood] + moodPolicy + without_keywords + expanded PROVIDER_FAMILY_MAP streaming)
+   │      • Bucket D: Recent-Release Lane (last 18 months, popularity.desc, avg >= 7.0, votes >= 150, max 12; skipped in hidden-gem/legacy era)
+   │      • Bucket E: Unseen aligned neighbors from your 64-D CVEM personas (up to 30 in Any Vibe; 15 Mood-Gated in Mood)
+   │      • Full-pool batch hydration (`enrichCandidatePoolMetadata` via `/api/tmdb-batch` + 30-day IndexedDB cache) fills missing keywords/cast/crew/providers across merged Buckets A–D
    │
-   ├─► 4. rankerService.js (Calibrated Logistic Scorer + Reserve Slots)
-   │      • Pool-relative scaling: positive collabSim divided by max(maxPoolCollab, 0.05) -> [0, 1]
-   │      • 0.20x Metadata Damping: gently damps genreOverlap & bayesianRatingNorm ONLY when collabSim exists
-   │      • Selects Top 15 while reserving RECENT_RELEASE_RESERVE_COUNT = 2 recent slots
-   │        (requiring >= 50th non-collab percentile AND prob >= 0.54; ranked by computeReserveQualityScore)
-   │      • Locks deterministic 50–99% matchScore + up to 3 matchReasons badges
+   ├─► 4. rankerService.js (Calibrated Logistic Scorer + Mood Gates + Strict Providers)
+   │      • Strict provider filter (`matchesWatchProviders`) prioritizes verified streaming candidates first
+   │      • Pool-independent `catalog-max` scaling (`collabNormalization: "catalog-max"`): divides positive
+   │        collabSim by max(catalogMax, 0.05) when catalog size >= 50 (with `poolMax` fallback for small synthetic maps)
+   │      • Any Vibe: Smoothstep `[0, 0.02]` ramp -> `0.35x` Metadata Damping + 2 recent-release reserve slots (`computeReserveQualityScore`)
+   │      • Explicit Mood / Match Vibe: `collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`, & strict `matchesMoodCandidateGate` (emitting `moodShortfall` UI alert when sparse)
+   │      • Selects Top 30 candidates -> Locks deterministic 50–99% matchScore + up to 3 matchReasons badges
    │
-   └─► 5. geminiService.js (H1 Resilient Gemini 4 Hydrogen Cascade)
-          • Sends Top 15 to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
-          • Uses per-model AbortController timeouts (35s Hydrogen, 15s 3-flash, 10s 3.6-flash, 5s 3.8-flash, 8s flash-lite/2.5)
-          • Classifies errors (quota/transient/invalid_config/auth_fatal) with smart cooldown backoff
-          • If every cloud model fails or hits daily quota, falls back cleanly to Top 6 from ranker!
+   └─► 5. geminiService.js + apiTransport.js (H1 Cascade -> 10 Picks + Rotation + Smart Cache v4)
+          • Calls `/api/gemini` proxy in production (zero client keys) or direct key in local dev
+          • Sends up to Top 30 + <=10 mood-stratified anchors + `6–7★` `NEAR MISSES` + disliked/dismissed (`already_seen`-exempt) guardrails to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
+          • Uses per-model AbortController timeouts (35s Hydrogen, 15s Flash curation models)
+          • Selects 10 diverse winners (`DEFAULT_RECOMMENDATION_COUNT = 10`) with two-pass soft max-2-per-director cap, deterministic top-up backfill, & session Refresh rotation (`120` IDs, pages `1..5`)
+          • If every cloud model fails or key/proxy is absent, falls back cleanly to Top 10 from ranker!
 ```
 
 ### Live Weights Running in `src/services/rankerService.js`
@@ -104,17 +109,18 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
 | Feature | Live Weight | Plain-English Role |
 | :--- | :---: | :--- |
 | `bias` | **`-1.1`** | Base threshold before positive or negative features shift probability |
-| `collabSim` | **`+4.8`** | 64-D collaborative similarity (pool-normalized `[0, 1]` when pool max > `0.05`) |
-| `contentSim` | **`+1.4`** | Reserved for content vectors — held at `0` at runtime to prevent double-counting |
-| `genreOverlap` | **`+1.1`** | Fraction of top loved genres matched *(damped `0.20x` when collab signal exists)* |
-| `keywordOverlap` | **`+0.8`** | Anchor/loved keyword match fraction (`0.6` proxy for Bucket B if keywords unpopulated) |
-| `crewMatch` | **`+0.7`** | `1` if matches top creative crew ID or harvested from Bucket C |
-| `castMatch` | **`+0.5`** | `1` if matches any of the user's top 2 recurring billed actors |
-| `bayesianRatingNorm` | **`+1.2`** | TMDB Bayesian acclaim normalized `(B - 5.0)/4.5` *(damped `0.20x` when collab exists)* |
-| `noveltyBonus` | **`+0.35`** | `0.5` when `100 <= vote_count <= 4000`, else `0.1` *(zeroed in `computeReserveQualityScore`)* |
-| `negativeKeywordPenalty` | **`-0.5`** | Soft penalty per hated-keyword hit *(tuned down from `-2.0` after 328/300 validation)* |
-| `repulsion` | **`-1.5`** | Quadratic penalty when cosine similarity to disliked movies exceeds `0.35` |
-| `providerMatch` | **`+0.25`** | `1.0` if streaming on user's selected services, `0.5` when no filter active, else `0` |
+| `collabSim` | **`+6.4`** | 64-D collaborative similarity (`0.75 * mixture(beta=20) + 0.25 * ridge(lambda=20)` normalized via pool-independent `catalog-max` `[0, 1]`; scaled `* 0.35` under explicit mood) |
+| `contentSim` | **`+1.4`** | Cosine similarity from optional `/models/content_embeddings_f16.bin` plot vectors, or cold-gated structured + overview TF-IDF fallback when unindexed |
+| `genreOverlap` | **`+0.6`** | Fraction of top loved genres matched *(smoothstep-damped `[0, 0.02]` → `0.35x` under Any Vibe; `1.0x` under explicit mood)* |
+| `keywordOverlap` | **`+0.45`** | Continuous affinity-weighted overlap with top 15 IDF-damped, net-positive `keywordAffinities` (`0.6` proxy for Bucket B if keywords unpopulated) |
+| `crewMatch` | **`+0.7`** | Continuous `[0, 1]` Bayesian-shrunk `crewAffinities[crewPersonId]` (or binary fallback + `0.5` Bucket C proxy) |
+| `castMatch` | **`+0.5`** | Billing-decayed continuous `[0, 1]` Bayesian-shrunk `castAffinities` across candidate `castIds` (or `topCastIds` binary fallback) |
+| `bayesianRatingNorm` | **`+1.8`** | TMDB Bayesian acclaim normalized `(B - 5.0)/4.5` *(smoothstep-damped `[0, 0.02]` → `0.35x` in Any Vibe; `1.0x` under explicit mood)* |
+| `noveltyBonus` | **`+0.05`** | `0.5` when `100 <= vote_count <= 4000`, else `0.1` *(zeroed in `computeReserveQualityScore`)* |
+| `negativeKeywordPenalty` | **`-0.5`** | Soft penalty per hit on disjoint net-negative `hatedKeywordIds` *(meta tags suppressed; `-2.0` originally)* |
+| `repulsion` | **`-1.5`** | Quadratic penalty when cosine similarity to disliked movies exceeds `0.35` *(guarded so `>= 7★` ratings are never subtracted)* |
+| `providerMatch` | **`+0.25`** | `1.0` if streaming on user's selected services (`PROVIDER_FAMILY_MAP`), `0.5` when no filter active, else `0` |
+| `dnaSim` | **`0`** | Optional mean-centred 8-bit `CDNA` axis cosine (`/models/cinematic_dna_u8.bin`, gated at `0` until validated) |
 
 ---
 
@@ -168,10 +174,29 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
 - **H1 Resilient Cascade (`a47601b`, `74ed429`, `95ee2a6`, `1336dcc`):**
   - `CURATION_MODEL_CASCADE`: `["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]` (`HIGH` thinking on Hydrogen; `LOW` on `3.6-flash` / `3-flash-preview`).
   - `FAST_INTERACTIVE_CASCADE`: `["gemini-3.5-flash-lite", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]` (`MEDIUM` thinking on Hydrogen — never `LOW`; `MINIMAL` on `3-flash-preview` fast chat).
-  - Live JSON schema verification (`gemini-3.6-flash` `3,057 ms` `LOW`, `gemini-3-flash-preview` `8,532 ms` `LOW` / `2,116 ms` `MINIMAL`) informed `10,000 ms` (`3.6-flash`) and `15,000 ms` (`3-flash-preview`) `AbortController` timeouts.
+  - Initially calibrated at `10,000 ms` (`3.6-flash`) / `15,000 ms` (`3-flash-preview`) from schema benchmarks (`3,057 ms` / `8,532 ms` `LOW`), and later standardized across all Flash curation attempts to **`15,000 ms`** (`getDefaultAttemptTimeoutMs`) so 10-pick + `anchorTitles` JSON responses do not time out prematurely.
   - Strips `frequencyPenalty`, `presencePenalty`, unsupported `candidateCount`, and `temperature` on `gemini-4-hydrogen`.
   - **4-Way Error Classification (`classifyGeminiError`) + Cooldowns:** `quota` (`retryDelay`, `120s` RPM, or `600s` RPD), `transient` (`30s`), `invalid_config` (`1800s`), `auth_fatal` (`1800s`), plus `30 min` `localStorage` working-model persistence, soonest-expiring probe when all models are cooling down, and removed a dangling `lastError` `ReferenceError` on total failure (`1336dcc`).
-  - **Live UI Model Telemetry (`ModelUsageBadge` & `.chat-model-bar`):** `executeCascade`, `reRankCandidatesWithGemini`, and `generateWithOmdbFallback` attach structured `modelInfo` (`buildCascadeModelInfo` / `getLastModelInfo` / `resolveResultModelInfo`), persisted alongside cached recommendations (`cinemavault_recs_model_v1`), so **AI Picks** (toolbar badge + loading step queue hint + cache flag) and **Film Companion Chat** (top model bar + per-reply model tag + fallback cooldown tooltips) always show which model answered (`gemini-4-hydrogen`, `gemini-3.5-flash-lite`, `gemini-3.6-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-3.8-flash`, or `Local Ranker (Offline Fallback)`).
+  - **Live UI Model Telemetry (`ModelUsageBadge` & `.chat-model-bar`):** `executeCascade`, `reRankCandidatesWithGemini`, and `generateWithOmdbFallback` attach structured `modelInfo` (`buildCascadeModelInfo` / `getLastModelInfo` / `resolveResultModelInfo`), persisted alongside cached recommendations (`cinemavault_recs_model_v1`), so **AI Picks** (expandable `"About these picks"` badge + loading step queue hint + cache flag) and **Film Companion Chat** (top model bar + per-reply model tag + fallback cooldown tooltips) always show which model answered (`gemini-4-hydrogen`, `gemini-3.5-flash-lite`, `gemini-3.6-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-3.8-flash`, or `Local Ranker (Offline Fallback)`).
+
+### Phase J & Mood-Provider Ranker v2: Proxy Security, Discover/Taste Deck/Supabase, 10 Picks & Mood Separation (`main @ f089828`)
+- **Batch Hydration, Online Learning & Non-Leaky Eval Gates:** Added `enrichCandidatePoolMetadata` across Buckets `A–D` (subsequently upgraded to full-pool batch hydration via `/api/tmdb-batch` + 30-day IndexedDB cache and `hydrationCoverage` telemetry), `onlineLearningService.js` (`derivePersonalizedRankerWeights` over `aiFeedbackLog`, skipping `already_seen`), standalone `/models/content_embeddings_f16.bin` loader (`contentSimService.js`), and `NegHit@20` + `Unique@30` evaluation metrics in `scripts/run_eval.mjs`.
+- **Production Serverless Proxy Isolation (`api/*.js` & `apiTransport.js`):** Moved `GEMINI_API_KEY`, `TMDB_API_KEY`, and `OMDB_API_KEY` cleanly behind Vercel `/api/*` proxies (`api/tmdb-batch.js`, `ALLOWED_GEMINI_MODELS`, `ALLOWED_TMDB_PATH_RE`, `vercel.json` `maxDuration: 60`, upstream error secret redaction) while keeping local `.env` dev working transparently.
+- **Canonical Mood Policy & 10-Pick Rotation (`22055ce..f089828`):**
+  - Created single-source [src/services/moodPolicy.js](./src/services/moodPolicy.js) (`DEFAULT_RECOMMENDATION_COUNT = 10`, `MIN_VALID_CACHE_COUNT = 7`), deterministic offline `parseFreeTextMoodFallback`, hard `matchesMoodCandidateGate`, and mood-rebalanced ranking (`collabSim * 0.35`, `metadataDampingFactor: 1.0`, `computeMoodScoreAdjustment`) while leaving `"any"` vibe mathematically untouched.
+  - Added strict streaming alias expansion (`PROVIDER_FAMILY_MAP`, `expandProviderIds`, `matchesWatchProviders`), Bucket E explicit-mood gating (`15` vs `30`), Bucket D skipping for `hidden-gem` / legacy `maxYear`, Top-30 shortlisting -> `10` picks with backfill & `120`-ID / 5-page refresh rotation (`oracleViewHelpers.js`), `cinemavault_smart_cache_v4` with region-scoped hashing (`_reg_<REGION>`), legacy `< 7`-pick cache discard in `AppContext.jsx`, anchor film links (`"Because you rated"`), and jargon-free `sanitizeOracleReason`.
+- **Discover, Taste Deck, Portability & Opt-In Supabase Sync:** Added multi-page unwatched TMDB carousels + `HomePosterGrid`, first-visit `TasteDeckModal` (`buildTasteDeck`, `30` films), 10-tier `QuickRateModal`, cross-ID `movieIdentity.js`, `vaultPortability.js` v2 backups, exact `1★–10★` histogram bins (`vaultStats.js`), and optional multi-user Supabase Auth + Postgres RLS schema (`supabase/migrations/20261114000000_init_cinemavault_schema.sql`, `vaultSyncService.js`).
+
+### Prompt 2 Offline Math Ablations: Catalog-Max Scaling, Smooth Damping & Persona Mixture + Ridge Fold-In
+Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddings_clean2_f16.bin` (`328`-user tune cohort, `4` benchmark vaults, and strictly held-out `fresh_300_users.json`), evaluating both pool-wide ranking metrics (`NDCG@10`, `Recall@20`, `Precision@10`, `NegHit@20`) and rated-only `withinUserAuc` (`>= 9★ vs <= 7★` and `>= 8★ vs <= 7★`):
+- **Step 2 (`catalog-max` + Smoothstep `[0, 0.02]` Damping):** Replaced pool-dependent `maxPoolCollab` with `getCollabCatalogMax` (`minCatalogSize = 50`, preserving `poolMax` fallback for small synthetic maps) and replaced the sharp step threshold at `0.001` with a smoothstep ramp across `|rawCollabSim| in [0, 0.02]`. Rejecting larger `rampMax = 0.10` (which hurt `ml-user-89`) and rank-percentile normalization (which compressed top-250 cosine spacing), `catalog-max + rampMax = 0.02` eliminated candidate-pool outlier sensitivity while lifting `328` `>= 8★` `AUC(>=8v<=7)` (`+0.0018*`) and `fresh_300 >= 9★` `AUC(>=9v<=7)` (`+0.0013*`) / `AUC(>=8v<=7)` (`+0.0011*`).
+- **Step 3 (`0.75 * Mixture(beta=20) + 0.25 * Ridge(lambda=20)` Fold-In):** Upgraded persona clustering to `computePersonaDetails` (weighted fractional cluster masses aggregated via log-sum-exp mixture) and added `computeUserRidgeEmbedding` solving `(E^T C E + lambda I) u = E^T C z` (`ridgeMinItems = 10`, scale-invariant `normW` confidence, generous-rater baseline `min(meanR, 7.5)` clipped to `[-2.5, 2.5]`) across *all* liked, neutral, and disliked ratings. Final shipped comparison (`eval_final.json` vs `post_fixes`):
+  - **`328` (`>= 8★`, `n=328`):** `NDCG@10 = 0.0909 (+0.0061*)`, `Recall@20 = 0.1256`, `Precision@10 = 0.0805`, `NegHit@20 = 0.0018`, `AUC(>=9v<=7) = 0.7335 (+0.0285*)`, `AUC(>=8v<=7) = 0.6994 (+0.0240*)`.
+  - **`328` (`>= 9★`, `n=304`):** `NDCG@10 = 0.1145 (+0.0095*)`, `Recall@20 = 0.1448 (+0.0082*)`, `Precision@10 = 0.0947 (+0.0076*)`, `AUC(>=9v<=7) = 0.7458 (+0.0301*)`, `AUC(>=8v<=7) = 0.6971 (+0.0233*)`.
+  - **Held-Out `fresh_300` (`>= 8★`, `n=300`):** `NDCG@10 = 0.0783`, `Recall@20 = 0.1247`, `Precision@10 = 0.0777`, `NegHit@20 = 0.0032 (-0.0018*)`, `AUC(>=9v<=7) = 0.7218 (+0.0338*)`, `AUC(>=8v<=7) = 0.6788 (+0.0256*)`.
+  - **Held-Out `fresh_300` (`>= 9★`, `n=284`):** `NDCG@10 = 0.1227 (+0.0067*)`, `Recall@20 = 0.1581`, `Precision@10 = 0.0986 (+0.0077*)`, `AUC(>=9v<=7) = 0.7407 (+0.0302*)`, `AUC(>=8v<=7) = 0.6926 (+0.0230*)`.
+  - **`4` Benchmark Vaults (`clean2`):** `>= 8★` rolling mean `NDCG@10 = 0.1776 (+0.0160)`, `Recall@20 = 0.2500`, `Precision@10 = 0.1667`, `AUC(>=9v<=7) = 0.7265`; `>= 9★` (`3` eligible vaults) `NDCG@10 = 0.2258 (+0.0345)`, `Recall@20 = 0.3333`, `Precision@10 = 0.2167`, `AUC(>=9v<=7) = 0.6817 (+0.0938)`.
+- **Skipped Step 4 (`eraMatch`):** Diagnostic profiling showed near-zero class separation for release-decade matching (`pos8+ = 0.0003`, `pos9+ = 0.0005` vs `neg<=7 = -0.0018`, `poolNeg = -0.0011`), so `eraMatch` was intentionally omitted to preserve zero-bloat ranker weights (`public/models/ranker_weights.json` parity unchanged).
 
 ---
 
@@ -184,11 +209,15 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
 | **3** | **`263 / 328` users had loved keywords collide with `hatedKeywordIds`** | Broad tags (e.g. `independent film`, `based on novel`) appeared in both `>= 8★` and `<= 3★` watches; `-2.0` weight crushed good candidates & `hatedKeywordIds` wasn't sorted | Sorted `hatedKeywordIds` by descending score (`236e0f8`) and softened `negativeKeywordPenalty` from `-2.0` to **`-0.5`** (`332c21c`) | `236e0f8`, `332c21c`, [rankerService.js](./src/services/rankerService.js#L16) |
 | **4** | **Letterboxd CSV imports dropped dates, saved URIs into `userNote`, accepted `2026-02-30`, & wiped ratings on blank rewatches** | Old importer ignored `Watched Date`/`Date`, fell back col 3 (`Letterboxd URI`) into `note`, JS `Date` silently rolled `2026-02-30` to March, bulk `Date` exports distorted recent decay, & blank rewatch rows overwrote stars | Extracted pure [src/services/csvImport.js](./src/services/csvImport.js): strict YMD calendar validator, `Watched Date` > `Date`, bulk-cluster suppression (`>= 10` rows / `>= 30%` top-3 / `< 14d`), & rewatch dedupe keeping newest date & latest non-empty rating | `2be4f3c`, `d095a48`, `0e2e2e3` |
 | **5** | **Offline eval showed flat `bayesianRatingNorm` (`0.44` median) & skewed decay on dated vaults** | `ml-latest-small` had median `3` votes (`m = 500` pulled Bayesian scores to ~`7.0`); offline timestamps weren't anchored to `holdoutStartTs` | Anchored timestamps to each user's `holdoutStartTs` and enriched `9,620` real TMDB films for realistic vote counts | `.data/tmdb_eval_results.json` |
-| **6** | **Pre-2024 cutoff + classics skew: `0` 2025–2026 releases entered Top 15** | MovieLens 32M stops around late 2023 (recent releases have `collabSim = 0`), while `collabSim ≈ 0.98` classics filled all 15 slots | Added **Bucket D** (18-month recent releases, `avg >= 7.0`, `votes >= 150`, max `12`) + **Reserve Lane** (`count = 2` in Top 15) | `138f0d9`, `decbd56`, [tmdbService.js](./src/services/tmdbService.js#L664-L732) |
-| **7** | **SPA HTML `index.html` fallback or wrong binary dims could break parser** | Vite SPA fallback can serve `HTTP 200 text/html` for missing `/models/...` routes | `loadDefaultEmbeddingIndex` rejects `text/html` headers, checks `"CVEM"` magic bytes, validates dims, and verifies exact byte length | `f31ff54`, [embeddingService.js](./src/services/embeddingService.js#L112-L145) |
-| **8** | **Gemini Free-Tier failures: `429` on `argon`, `8s` hang on `3.8-flash`, `400` on `thinkingBudget: 0`, ~25s abort on `hydrogen HIGH`, permanent session bans, & `ReferenceError`** | `argon` had `0` free quota; `3.8-flash` stalled; `3.5-flash-lite`/`hydrogen` reject `thinkingBudget: 0`; `25s` cut off ~24.9s `HIGH` calls; old code banned models forever on one 503; `lastError` wasn't defined in outer scope | Switched to `gemini-4-hydrogen` (`HIGH`/`MEDIUM`) + `3.5-flash-lite` ahead of `3.8-flash`; set `35s` Hydrogen timeout (`95ee2a6`); added H1 error-specific cooldowns (`74ed429`); fixed `lastError` scoping (`1336dcc`) | `a47601b`, `74ed429`, `95ee2a6`, `1336dcc`, [geminiService.js](./src/services/geminiService.js) |
-| **9** | **Reserve scorer (`count = 3`) bumped a `98%` classic for a `78%` non-genre match, and underrated `85%` Favorite Filmmaker films** | Old cold-start formula (`2.5x` Bayesian / `0.35x` genre) diverged from ranker weights & kept `noveltyBonus` asymmetry; `count = 3` reached too low in reserve candidates | `computeReserveQualityScore` now calls `scoreCandidate` with identical weights and `noveltyBonus = 0`; reduced `RECENT_RELEASE_RESERVE_COUNT` from `3` to **`2`** | `decbd56`, [rankerService.js](./src/services/rankerService.js#L227-L230) |
+| **6** | **Pre-2024 cutoff + classics skew: `0` 2025–2026 releases entered Top 15** | MovieLens 32M stops around late 2023 (recent releases have `collabSim = 0`), while `collabSim ≈ 0.98` classics filled all 15 slots | Added **Bucket D** (18-month recent releases, `avg >= 7.0`, `votes >= 150`, max `12`) + **Reserve Lane** (`count = 2` in `"any"` shortlist) | `138f0d9`, `decbd56`, [tmdbService.js](./src/services/tmdbService.js#L664-L732) |
+| **7** | **SPA HTML `index.html` fallback or wrong binary dims could break parser** | Vite SPA fallback can serve `HTTP 200 text/html` for missing `/models/...` routes | `loadDefaultEmbeddingIndex` & `loadDefaultContentIndex` reject `text/html` headers, check `"CVEM"` magic bytes, validate dims, and verify exact byte length | `f31ff54`, [embeddingService.js](./src/services/embeddingService.js) |
+| **8** | **Gemini Free-Tier failures: `429` on `argon`, `8s` hang on `3.8-flash`, `400` on `thinkingBudget: 0`, ~25s abort on `hydrogen HIGH`, permanent session bans, & `ReferenceError`** | `argon` had `0` free quota; `3.8-flash` stalled; `3.5-flash-lite`/`hydrogen` reject `thinkingBudget: 0`; `25s` cut off ~24.9s `HIGH` calls; old code banned models forever on one 503; `lastError` wasn't defined in outer scope | Switched to `gemini-4-hydrogen` (`HIGH`/`MEDIUM`) + `3.5-flash-lite` ahead of `3.8-flash`; set `35s` Hydrogen & `10s` `3.8-flash` timeouts; added H1 error-specific cooldowns; fixed `lastError` scoping | `a47601b`, `74ed429`, `95ee2a6`, `1336dcc`, [geminiService.js](./src/services/geminiService.js) |
+| **9** | **Reserve scorer (`count = 3`) bumped a `98%` classic for a `78%` non-genre match, and underrated `85%` Favorite Filmmaker films** | Old cold-start formula (`2.5x` Bayesian / `0.35x` genre) diverged from ranker weights & kept `noveltyBonus` asymmetry; `count = 3` reached too low in reserve candidates | `computeReserveQualityScore` calls `scoreCandidate` with identical weights and `noveltyBonus = 0`; reduced `RECENT_RELEASE_RESERVE_COUNT` from `3` to **`2`** | `decbd56`, [rankerService.js](./src/services/rankerService.js) |
 | **10** | **`buildCollabSimMapFromIndex` wasted time re-sorting full `25k` vectors redundantly & false-negative `providerMatch` on discover buckets** | Discover queries with `with_watch_providers` lacked per-item `streamProviders` arrays until detail fetch, causing ranker to award `0` instead of `1` | Tagged `providerMatchedByQuery: true` during filtered Bucket A/B/C/D fetches and avoided redundant sorts in `buildCollabSimMapFromIndex` | `4b6e7c7`, `f34396f` |
+| **11** | **Buckets B/C/D/E & `rankCandidatePool` ignored Mood selection (e.g., Horror appearing in `Comfort Watch` or blockbusters dominating `Hidden Gem`)** | Mood only tweaked Bucket A TMDB params while `collabSim = 4.8` & `0.20x` metadata damping kept global vault favorites at rank #1..#15; Reserve slots kept overriding legacy/obscure filters | Created canonical [moodPolicy.js](./src/services/moodPolicy.js), switched explicit moods to `collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`, & `matchesMoodCandidateGate`, skipped Bucket D in `hidden-gem`/legacy era, disabled reserve under mood, & capped Bucket E to `15` mood-gated neighbors | `22055ce..f089828`, [moodPolicy.js](./src/services/moodPolicy.js), [rankerService.js](./src/services/rankerService.js) |
+| **12** | **Streaming filters missed TMDB ad-tier / Amazon-channel IDs & region switches served stale cached picks** | TMDB assigns separate provider IDs for ad tiers & channels (e.g. `1796` Netflix Ads, `1825` Max Channel), and `generateProfileHash` excluded `userRegion` & `moodFilters` | Added `PROVIDER_FAMILY_MAP` (13 alias groups) + `expandProviderIds` + `matchesWatchProviders` strict sorting, and expanded `generateProfileHash` to 6 args with `buildMoodFilterHashSegment` + `_reg_<REGION>` | [tmdbService.js](./src/services/tmdbService.js), [geminiService.js](./src/services/geminiService.js) |
+| **13** | **"Match Vibe" failed offline & Refresh repeated the exact same 6 cards** | Free-text parser returned `null` offline/keyless and closure state lagged in React; refresh re-ran the identical TMDB page `1` with no exclusions and capped output at `6` | Added `parseFreeTextMoodFallback`, override args in `handleGetRecommendations`, **`DEFAULT_RECOMMENDATION_COUNT = 10`**, `MIN_VALID_CACHE_COUNT = 7` in `cinemavault_smart_cache_v4`, & `nextRefreshExcludeState` (`120` IDs, pages `1..5`) + exhaustion padding guard | [oracleViewHelpers.js](./src/services/oracleViewHelpers.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx) |
+| **14** | **Client production bundle risked exposing API secrets & cross-ID duplicates skipped Vault collision checks** | Vite `VITE_*` vars embed in `build/assets/*.js`; `tmdb_123` vs `tt...` caused Hero/Home/Vault duplicates & silent `5★`/`7★` fake CSV ratings | Added `/api/{gemini,tmdb,omdb}` Vercel proxies + `apiTransport.js`, canonical `movieIdentity.js` (`isSameMovie`), `vaultPortability.js` (`0` rating preservation), & opt-in Supabase RLS sync | [api/](./api), [apiTransport.js](./src/services/apiTransport.js), [movieIdentity.js](./src/services/movieIdentity.js), [vaultPortability.js](./src/services/vaultPortability.js) |
 
 ---
 
@@ -196,31 +225,48 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
 
 Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 
-### Check 1: Run All 99 Unit Tests (~0.5s, Offline)
+### Check 1: Run All 215 Unit Tests (~0.8s, Offline)
 ```bash
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with `tests 99 | pass 99 | fail 0 | skipped 0` across all **12** suites:
+- Exits `0` with **`tests 215 | pass 215 | fail 0 | skipped 0`** across all **28** suites:
   - `tests/aiSpendTracker.test.js`
+  - `tests/apiProxy.test.js`
+  - `tests/contentSim.test.js`
   - `tests/csvImport.test.js`
+  - `tests/dashboardService.test.js`
   - `tests/dnaService.test.js`
   - `tests/embeddingService.test.js`
+  - `tests/embeddingStep3.test.js`
   - `tests/evalHarness.test.js`
   - `tests/evalRanker.test.js`
   - `tests/feedbackLogging.test.js`
   - `tests/geminiDualEngine.test.js`
+  - `tests/moodPolicy.test.js`
+  - `tests/moodRanker.test.js`
+  - `tests/movieIdentity.test.js`
+  - `tests/navHelpers.test.js`
+  - `tests/oracleViewHelpers.test.js`
   - `tests/pipelineBugs.test.js`
   - `tests/rankerService.test.js`
+  - `tests/rankerStep2.test.js`
+  - `tests/ratingTiers.test.js`
   - `tests/recentReleaseSlots.test.js`
   - `tests/scoringUtils.test.js`
+  - `tests/searchService.test.js`
+  - `tests/tasteDeckService.test.js`
+  - `tests/vaultPortability.test.js`
+  - `tests/vaultStats.test.js`
+  - `tests/vaultSyncService.test.js`
 
-### Check 2: Verify Production Vite Bundle
+### Check 2: Verify Production Vite Bundle & Zero Secret Leaks
 ```bash
 npm run build
 ```
 **What "healthy" looks like:**
-- Exits `0`, transforms `2232 modules`, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- Exits `0`, transforms **`2302 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
 ### Check 3: Inspect the Active `.bin` Model Header & Exact Byte Count
 ```bash
@@ -239,12 +285,12 @@ node scripts/run_eval.mjs --synthetic
 # 2. Real 4-vault MovieLens benchmark against your 25k embedding binary (if .data/benchmark_vaults.json is present)
 node scripts/run_eval.mjs --benchmark .data/benchmark_vaults.json --embeddings public/models/item_embeddings_f16.bin
 ```
-**Verified output on current `main` (`--benchmark`):**
-- `ml-user-263`: `Recall@20 = 0.567`, `NDCG@10 = 0.351`, `Novelty = 2.004` (vs popularity `0.067 / 0.010`)
-- `ml-user-409`: `Recall@20 = 0.367`, `NDCG@10 = 0.280`, `Novelty = 2.779` (vs popularity `0.200 / 0.109`)
-- `ml-user-561`: `Recall@20 = 0.050`, `NDCG@10 = 0.000`, `Novelty = 2.423`
-- `ml-user-89`: `Recall@20 = 0.000`, `NDCG@10 = 0.000`, `Novelty = 2.042` (`vault emb cov 60/98`)
-- **4-vault mean:** **`NDCG@10 = 0.158`, `Recall@20 = 0.246`, `Novelty = 2.312`** — clearing the earlier Nov 11 32M milestone (`0.143 / 0.242 / 2.24`) and well above the `9.6k` small baseline (`0.062 / 0.083 / 1.48`).
+**Verified output on current `main` (`--benchmark` against `public/models/item_embeddings_f16.bin`):**
+- `ml-user-263`: `Recall@20 = 0.533`, `NDCG@10 = 0.322`, `Novelty = 1.763` (vs popularity `0.067 / 0.010`)
+- `ml-user-409`: `Recall@20 = 0.467`, `NDCG@10 = 0.391`, `Novelty = 2.692` (vs popularity `0.200 / 0.109`)
+- `ml-user-561`: `Recall@20 = 0.000`, `NDCG@10 = 0.000`, `Novelty = 2.458`
+- `ml-user-89`: `Recall@20 = 0.000`, `NDCG@10 = 0.000`, `Novelty = 1.911` (`vault emb cov 60/98`)
+- **4-vault mean:** **`NDCG@10 = 0.178`, `Recall@20 = 0.250`, `Novelty = 2.206`** (with `clean2` `>= 8★` rolling mean `NDCG@10 = 0.1776`, `AUC9v7 = 0.7265`, and `>= 9★` `NDCG@10 = 0.2258`, `Recall@20 = 0.3333`) — clearing the earlier Nov 11 32M milestone (`0.143 / 0.242 / 2.24`) and well above the `9.6k` small baseline (`0.062 / 0.083 / 1.48`).
 
 ### Check 5: Retrain or Regenerate the Local `.bin` Model (Only When Updating MovieLens Data)
 ```bash
@@ -256,11 +302,17 @@ Built-in safety gates in [scripts/colab_train_embeddings.py](./scripts/colab_tra
 - Post-write validates exact byte size, `CVEM` v1 header, and verifies every written ID is a valid integer `tmdbId` from `links.csv`.
 
 ### Check 6: Live In-Browser DevTools Smoke Test (`npm start`)
-1. Run `npm start` and open `http://localhost:5173`.
-2. Open DevTools → **Network** tab → open **Recommendations**:
+1. Run `npm start` (or `vercel dev` if using server-side `.env` without `VITE_*` keys) and open **`http://localhost:3000`** (`vite.config.js` configures `port: 3000`).
+2. Open DevTools → **Network** tab → open **Oracle** (`/ai`):
    - Confirm `/models/item_embeddings_f16.bin` loads with HTTP `200` (`3,300,016 B`, once per session).
-   - Confirm recommendation rows display locked percentage badges (`50–99%`) and **Match Reason Badges** (`🧬 High Taste-Twin Match`, `🎬 Favorite Filmmaker`, `🎯 Core Theme Match`, etc.).
+   - Confirm **`10`** recommendation rows render (`DEFAULT_RECOMMENDATION_COUNT = 10`) with deterministic rankings, `"Because you rated"` anchor chips (`resolveRecommendationAnchors`), clean jargon-free reasons, and `"About these picks"` model attribution.
+   - Switch **Mood** (e.g., `Comfort Watch` vs `Dark Thriller`) or use **Match Vibe** (`"like Drive but quieter"`) and verify picks adapt cleanly without off-tone classics overriding the mood; click **Refresh** to confirm new picks rotate without immediate repeats (`1..5` page rotation).
 3. Open DevTools → **Application → LocalStorage** and inspect active state keys:
-   - `cinemavault_smart_cache_v3` — 24h LRU recommendation cache (`500KB` cap).
+   - `cinemavault_smart_cache_v4` — 24h LRU recommendation cache (`500KB` cap, `>= 7` valid uncollided picks required, region- & mood-filter-scoped hashes).
    - `cinemavault_working_model_curation_v1` & `cinemavault_working_model_fast_v1` — persisted healthy Gemini model hints (`30 min` TTL).
-4. **Offline / Quota Fallback Test:** Temporarily clear/invalidate `VITE_GEMINI_KEY` (or simulate quota) and click Refresh — verify CinemaVault seamlessly serves the top 6 mathematical ranker picks with locked match scores and badges instead of crashing.
+4. **Offline / Quota Fallback Test:** Temporarily clear/invalidate Gemini credentials (or simulate quota) and click Refresh — verify CinemaVault seamlessly serves the **top `10`** mathematical ranker picks (`pipeline: "ranker-fallback"`) and falls back cleanly on free-text queries via `parseFreeTextMoodFallback`.
+
+### Check 7: Optional Supabase Cloud Vault Sync Verification (When Configured)
+1. Ensure `.env.local` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, and verify [supabase/migrations/20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql) is applied on your Supabase project (`profiles` and `user_vault_items` tables exist with RLS enabled and `anon` revoked).
+2. In Supabase Dashboard → **Authentication → URL Configuration**, add your production domain and `http://localhost:3000` under **Redirect URLs** so magic-link OTP redirects work across environments.
+3. Click the `NavBar` utility menu → **Cloud Sync**, sign in via Email Magic Link, and verify signed-in status transitions to **Synced** with rows populated under your `auth.uid()` inside `public.user_vault_items`.

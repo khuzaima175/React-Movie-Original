@@ -38,11 +38,14 @@ import {
   MIN_VALID_CACHE_COUNT,
   MOOD_OPTIONS,
   buildMoodFilterHashSegment,
+  isExplicitMoodActive,
   normalizeMoodFilters,
   parseFreeTextMoodFallback
 } from "../services/moodPolicy";
 import { useApp } from "../context/AppContext";
+import { attachRecSourceToRecommendations } from "../services/vaultStats";
 import PosterImage from "./PosterImage";
+import QuickRateModal from "./QuickRateModal";
 import { Button, MetaLine } from "./ui";
 import {
   Sparkles,
@@ -90,7 +93,8 @@ export default function MovieRecommendations({
     aiModelInfo,
     aiFeedbackLog,
     saveAiRecommendations,
-    addAiFeedback
+    addAiFeedback,
+    addWatched
   } = useApp();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -102,6 +106,8 @@ export default function MovieRecommendations({
   const [sortBy, setSortBy] = useState("match");
   const [selectedMood, setSelectedMood] = useState("any");
   const [dismissingTitle, setDismissingTitle] = useState(null);
+  const [quickRateRec, setQuickRateRec] = useState(null);
+  const [moodShortfall, setMoodShortfall] = useState(null);
   const [showDnaDetails, setShowDnaDetails] = useState(false);
   const [showFilterDeck, setShowFilterDeck] = useState(false);
   const [showAboutPicks, setShowAboutPicks] = useState(false);
@@ -134,7 +140,8 @@ export default function MovieRecommendations({
         selectedMood,
         userWatchProviders,
         activeMoodFilters,
-        userRegion
+        userRegion,
+        watched
       )
     : "";
 
@@ -243,20 +250,27 @@ export default function MovieRecommendations({
         effectiveMood,
         userWatchProviders,
         effectiveFilters,
-        userRegion
+        userRegion,
+        watched
       );
+      setMoodShortfall(result?.moodShortfall ?? null);
       const liveModelInfo = {
         ...resolveResultModelInfo(result, "curation"),
         fromCache: false
       };
+      const stampedRecommendations = attachRecSourceToRecommendations(
+        result.recommendations,
+        effectiveMood
+      );
       const cacheableResult = {
         ...result,
+        recommendations: stampedRecommendations,
         modelInfo: liveModelInfo
       };
 
       setTasteProfile(result.tasteProfile);
-      setRecommendations(result.recommendations);
-      saveAiRecommendations(result.recommendations, result.tasteProfile, newHash, liveModelInfo);
+      setRecommendations(stampedRecommendations);
+      saveAiRecommendations(stampedRecommendations, result.tasteProfile, newHash, liveModelInfo);
       setSmartCache(newHash, cacheableResult);
       setShowFilterDeck(false);
     } catch (err) {
@@ -371,7 +385,10 @@ export default function MovieRecommendations({
     try {
       const bridged = await bridgeTmdbToOmdb(rec, userRegion);
       if (bridged) {
-        onAddToWatchlist(bridged);
+        onAddToWatchlist({
+          ...bridged,
+          ...(rec?.recSource ? { recSource: rec.recSource } : {})
+        });
       }
     } catch (err) {
       console.error("Failed to add movie via schema bridge:", err);
@@ -383,7 +400,8 @@ export default function MovieRecommendations({
         runtime: "N/A",
         genre: rec.genre || "Cinema",
         imdbRating: rec.imdbRating || "N/A",
-        userRating: 0
+        userRating: 0,
+        ...(rec?.recSource ? { recSource: rec.recSource } : {})
       };
       onAddToWatchlist(fallbackMovie);
     } finally {
@@ -392,6 +410,7 @@ export default function MovieRecommendations({
   };
 
   const handleDismiss = (rec, reason) => {
+    const isAlreadySeen = reason === "Already seen";
     addAiFeedback({
       title: rec.title,
       year: rec.year,
@@ -400,7 +419,7 @@ export default function MovieRecommendations({
       matchScoreAtTime: rec.matchScore ?? null,
       sourceBucket: rec.sourceBucket ?? null,
       features: rec.features ?? null,
-      action: "dismissed",
+      action: isAlreadySeen ? "already_seen" : "dismissed",
       reason
     });
 
@@ -408,6 +427,18 @@ export default function MovieRecommendations({
     setRecommendations(updated);
     saveAiRecommendations(updated, tasteProfile, aiRecommendationsHash);
     setDismissingTitle(null);
+    if (isAlreadySeen) {
+      const parsedTmdbId = Number(rec.tmdbId ?? rec.id);
+      const validTmdbId = Number.isSafeInteger(parsedTmdbId) && parsedTmdbId > 0 ? parsedTmdbId : null;
+      setQuickRateRec({
+        ...rec,
+        Title: rec.title || rec.Title || "",
+        Year: String(rec.year || rec.Year || ""),
+        Poster: rec.posterUrl || rec.poster || rec.Poster || "",
+        imdbID: rec.imdbID || (validTmdbId ? `tmdb_${validTmdbId}` : rec.id || ""),
+        tmdbId: validTmdbId
+      });
+    }
   };
 
   const sortedRecommendations = (recommendations || [])
@@ -425,14 +456,16 @@ export default function MovieRecommendations({
       return !isWatched;
     })
     .sort((a, b) => {
-      if (sortBy === "match") return (b.matchScore || 0) - (a.matchScore || 0);
+      if (sortBy === "match") return (b.matchScore ?? -1) - (a.matchScore ?? -1);
       if (sortBy === "imdb") return (parseFloat(b.imdbRating) || 0) - (parseFloat(a.imdbRating) || 0);
       if (sortBy === "year") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
       return 0;
     });
 
   // Only show numeric match scores when they carry information (spread >= 4 pts and > 1 distinct value)
-  const scoreValues = sortedRecommendations.map((r) => normalizeMatchScore(r.matchScore));
+  const scoreValues = sortedRecommendations
+    .map((r) => normalizeMatchScore(r.matchScore))
+    .filter((v) => v !== null);
   const hasMeaningfulScoreSpread =
     scoreValues.length > 1 &&
     new Set(scoreValues).size > 1 &&
@@ -780,6 +813,11 @@ export default function MovieRecommendations({
                   <div>
                     <strong>Curated by:</strong> {badgeSummary.modelLabel}
                   </div>
+                  {badgeSummary.hydrationLabel && (
+                    <div>
+                      <strong>Pool coverage:</strong> {badgeSummary.hydrationLabel}
+                    </div>
+                  )}
                   <div>{badgeSummary.tooltip}</div>
                 </div>
               )}
@@ -898,7 +936,7 @@ export default function MovieRecommendations({
                         <h3 className="rec-movie-title display-title">{rec.title}</h3>
                       </button>
 
-                      {hasMeaningfulScoreSpread && rec.matchScore && (
+                      {hasMeaningfulScoreSpread && normalizeMatchScore(rec.matchScore) !== null && (
                         <span className="rec-score-muted" title="Estimated affinity score">
                           {normalizeMatchScore(rec.matchScore)}% match
                         </span>
@@ -1022,6 +1060,24 @@ export default function MovieRecommendations({
             })}
           </ul>
 
+          {(moodShortfall ||
+            (isExplicitMoodActive(selectedMood, activeMoodFilters) &&
+              sortedRecommendations.length > 0 &&
+              sortedRecommendations.length < DEFAULT_RECOMMENDATION_COUNT)) && (
+            <div className="mood-parse-note" role="status">
+              <span>
+                Only {sortedRecommendations.length} of {moodShortfall?.requested || DEFAULT_RECOMMENDATION_COUNT} films matched your strict mood and streaming filters. Try widening your vibe or platforms for more picks.{" "}
+              </span>
+              <button
+                type="button"
+                className="streaming-link-btn"
+                onClick={() => setShowFilterDeck(true)}
+              >
+                Widen vibe &amp; filters
+              </button>
+            </div>
+          )}
+
           <div className="recs-footer">
             <Button
               variant="primary"
@@ -1051,6 +1107,14 @@ export default function MovieRecommendations({
           </div>
         </div>
       )}
+
+      <QuickRateModal
+        movie={quickRateRec}
+        watched={watched}
+        watchlist={watchlist}
+        onClose={() => setQuickRateRec(null)}
+        onSaveWatched={addWatched}
+      />
     </div>
   );
 }

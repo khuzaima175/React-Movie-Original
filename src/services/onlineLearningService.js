@@ -114,8 +114,10 @@ export function derivePersonalizedRankerWeights(
     return prior;
   }
 
-  const minPositives = options.minPositives ?? 2;
-  const minNegatives = options.minNegatives ?? 2;
+  const minEvents = options.minEvents ?? 10;
+  const minPositives = options.minPositives ?? 3;
+  const minNegatives = options.minNegatives ?? 3;
+  const l2 = options.l2 ?? 0.55;
   const maxDrift = options.maxDrift ?? 0.6;
   const watchedIndex = buildWatchedRatingIndex(watchedMovies);
 
@@ -128,6 +130,11 @@ export function derivePersonalizedRankerWeights(
       sanitizeFeatureSnapshot(entry.features) ||
       resolveLookupFeature(options.featureLookup, entry);
     if (!rawFeatures) continue;
+
+    const isAlreadySeen =
+      entry.action === "already_seen" ||
+      (entry.action === "dismissed" && /already\s*seen/i.test(String(entry.reason || "")));
+    if (isAlreadySeen) continue;
 
     const rating = resolveEntryRating(entry, watchedIndex);
     const isPositive =
@@ -150,7 +157,7 @@ export function derivePersonalizedRankerWeights(
   if (
     recentPositives.length < minPositives ||
     recentNegatives.length < minNegatives ||
-    recentPositives.length + recentNegatives.length < 5
+    recentPositives.length + recentNegatives.length < minEvents
   ) {
     return prior;
   }
@@ -158,7 +165,7 @@ export function derivePersonalizedRankerWeights(
   const learned = fitRankerWeights(recentPositives, recentNegatives, prior, {
     iterations: 40,
     learningRate: 0.15,
-    l2: 0.35
+    l2
   });
 
   const bounded = { ...prior };

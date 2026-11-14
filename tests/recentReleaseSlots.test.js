@@ -561,11 +561,12 @@ test("computeReserveQualityScore aligns with ranker weights with noveltyBonus ne
       vote_count: 1500
     }
   ]);
-  const fullNovelty = rankCandidatePool(noveltyCandidates, ctx, undefined, noveltyCandidates.length, {}, null);
+  const noveltyBiasedWeights = { ...DEFAULT_RANKER_WEIGHTS, noveltyBonus: 0.5, bayesianRatingNorm: 1.2 };
+  const fullNovelty = rankCandidatePool(noveltyCandidates, ctx, noveltyBiasedWeights, noveltyCandidates.length, {}, null);
   const c903 = fullNovelty.find(c => c.tmdbId === 903);
   const c904 = fullNovelty.find(c => c.tmdbId === 904);
-  assert.ok(c904.rankerProbability > c903.rankerProbability, "raw rankerProbability gives 904 an edge purely via noveltyBonus");
-  assert.ok(computeReserveQualityScore(c903) > computeReserveQualityScore(c904), "neutralizing noveltyBonus makes 8.4 >4000-vote hit outscore 8.1 mid-vote film");
+  assert.ok(c904.rankerProbability > c903.rankerProbability, "raw rankerProbability gives 904 an edge under novelty-heavy weights");
+  assert.ok(computeReserveQualityScore(c903, noveltyBiasedWeights) > computeReserveQualityScore(c904, noveltyBiasedWeights), "neutralizing noveltyBonus makes 8.4 >4000-vote hit outscore 8.1 mid-vote film");
 
   const reservedNovelty = rankCandidatePool(noveltyCandidates, ctx, undefined, 8, {}, {
     count: 1,

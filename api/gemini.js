@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { enforceApiSecurity } from "./_security.js";
 
 export const ALLOWED_GEMINI_MODELS = new Set([
   "gemini-4-hydrogen",
@@ -31,6 +32,10 @@ function parseJsonBody(rawBody) {
 }
 
 export default async function handler(req, res) {
+  if (!enforceApiSecurity(req, res, { bucket: "gemini", maxRequests: 20, windowMs: 60_000 })) {
+    return;
+  }
+
   if (req.method !== "POST") {
     res.setHeader?.("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });

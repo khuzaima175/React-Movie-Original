@@ -25,7 +25,9 @@ import {
     resolveResultModelInfo,
     buildCascadeModelInfo,
     resetModelInfoForTests,
-    createGeminiClient
+    createGeminiClient,
+    buildGeminiReRankPrompt,
+    mergeGeminiExplanationsWithRanker
 } from "../src/services/geminiService.js";
 
 test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.6/3.5/3-curation, MINIMAL to 3-flash fast, and budget:0 to 2.5", () => {
@@ -488,13 +490,14 @@ test("executeCascade records transient cooldown on abort-timeout with injected f
     resetSessionWorkingModels();
 });
 
-test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen, 15000ms for 3-flash, 10000ms for 3.6/3.8-flash, and preserves flash timeouts", () => {
+test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen and 15000ms across Flash models for 30->10 JSON output", () => {
     assert.equal(HYDROGEN_TIMEOUT_MS, 35000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-4-hydrogen"), 35000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3-flash-preview"), 15000);
-    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.6-flash"), 10000);
-    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 10000);
-    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.5-flash-lite"), 8000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.6-flash"), 15000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 15000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-3.5-flash-lite"), 15000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-2.5-flash"), 15000);
     const client = createGeminiClient("DUMMY_KEY");
     assert.equal(typeof client?.models?.generateContent, "function");
 });
@@ -694,4 +697,253 @@ test("executeCascade recovers back to primary model (gemini-4-hydrogen) after tr
         resetSessionWorkingModels();
         resetModelInfoForTests();
     }
+});
+
+
+test("buildGeminiReRankPrompt prioritizes mood-stratified >=8 anchors with deterministic backfill and emits disliked/dismissed guardrails", () => {
+    const watched = [
+        // 10 higher-weighted Action/Sci-Fi/Thriller staples
+        ...Array.from({ length: 10 }, (_, idx) => ({
+            imdbID: `tt10000${idx}`,
+            tmdbId: 1000 + idx,
+            title: `Action Staple ${idx + 1}`,
+            year: `${2000 + idx}`,
+            userRating: 10,
+            genre: "Action, Sci-Fi",
+            tmdbGenreIds: [28, 878],
+            dateWatched: `2026-10-${String(idx + 1).padStart(2, "0")}`
+        })),
+        // 2 slightly lower-rated (8/10) Comedy/Romance comfort anchors that MUST appear under comfort-watch
+        {
+            imdbID: "tt200001",
+            tmdbId: 2001,
+            title: "Warm Comedy Favorite",
+            year: "2018",
+            userRating: 8,
+            genre: "Comedy, Romance",
+            tmdbGenreIds: [35, 10749],
+            dateWatched: "2025-05-01"
+        },
+        {
+            imdbID: "tt200002",
+            tmdbId: 2002,
+            title: "Family Animation Gem",
+            year: "2019",
+            userRating: 8,
+            genre: "Animation, Family",
+            tmdbGenreIds: [16, 10751],
+            dateWatched: "2025-06-01"
+        },
+        // Disliked <=4 films and negative z-score film (<7)
+        {
+            imdbID: "tt300001",
+            tmdbId: 3001,
+            title: "Grim Slasher Miss",
+            year: "2014",
+            userRating: 2,
+            genre: "Horror",
+            tmdbGenreIds: [27],
+            dateWatched: "2026-09-01"
+        },
+        {
+            imdbID: "tt300002",
+            tmdbId: 3002,
+            title: "Relative Letdown",
+            year: "2021",
+            userRating: 6,
+            genre: "Drama",
+            tmdbGenreIds: [18],
+            dateWatched: "2026-09-10"
+        }
+    ];
+
+    const profile = {
+        lovedGenreNames: ["Sci-Fi", "Action", "Comedy"],
+        weightedRatings: [
+            { tmdbId: 1009, title: "Action Staple 10", finalWeight: 3.0, zScore: 1.5 },
+            { tmdbId: 2001, title: "Warm Comedy Favorite", finalWeight: 1.1, zScore: 0.4 },
+            { tmdbId: 2002, title: "Family Animation Gem", finalWeight: 1.0, zScore: 0.3 },
+            // Deliberately test guard: high rating 8★ anchor with harsh negative zScore must NOT enter DISLIKED
+            { tmdbId: 1000, title: "Action Staple 1", finalWeight: 2.0, zScore: -0.9 },
+            { tmdbId: 3002, title: "Relative Letdown", finalWeight: -0.8, zScore: -0.9 }
+        ]
+    };
+
+    const feedbackLog = [
+        {
+            title: "Skipped Grim Reboot",
+            year: "2022",
+            tmdbId: 9001,
+            action: "dismissed",
+            reason: "Too bleak",
+            ts: "2026-11-12T10:00:00.000Z"
+        }
+    ];
+
+    const prompt = buildGeminiReRankPrompt(
+        profile,
+        "comfort-watch",
+        [{ id: 500, tmdbId: 500, title: "Paddington 2", year: "2017", genre: "Family, Comedy", vote_average: 8.1, matchScore: 91 }],
+        { watched, feedbackLog, targetCount: 10 }
+    );
+
+    const anchorSection = prompt.split("USER'S FAVORITE ANCHOR FILMS:")[1].split("USER'S DISLIKED / DISMISSED FILMS")[0];
+    assert.ok(anchorSection.includes('"Warm Comedy Favorite"'), "Comfort Watch mood prioritizes Comedy/Romance >=8 anchor");
+    assert.ok(anchorSection.includes('"Family Animation Gem"'), "Comfort Watch mood prioritizes Animation/Family >=8 anchor");
+    const anchorLines = anchorSection.trim().split("\n").filter((l) => l.startsWith("- "));
+    assert.equal(anchorLines.length, 10, "Backfills remaining anchor slots deterministically up to 10");
+
+    assert.ok(prompt.includes("USER'S DISLIKED / DISMISSED FILMS (Avoid similar tone):"));
+    const dislikedSection = prompt.split("USER'S DISLIKED / DISMISSED FILMS (Avoid similar tone):")[1].split("RECENT WATCH STREAK:")[0];
+    assert.ok(dislikedSection.includes('"Skipped Grim Reboot" (2022) [dismissed: Too bleak]'));
+    assert.ok(dislikedSection.includes('"Grim Slasher Miss" (2014) [2/10]'));
+    assert.ok(dislikedSection.includes('"Relative Letdown" (2021) [6/10]'));
+    assert.equal(dislikedSection.includes('"Action Staple 1"'), false, "Never leaks >=8★ anchors into disliked guardrails");
+});
+
+test("buildGeminiReRankPrompt emits NEAR MISSES after RECENT WATCH STREAK, uses embeddings & fallback, excludes disliked, and excludes already_seen", () => {
+    const embIndex = {
+        dim: 2,
+        idToIndex: new Map([
+            [1, 0], // 10★ favorite along +x
+            [2, 1], // 7★ Near Miss closely aligned with +x (cos = 0.99)
+            [3, 2], // 7★ orthogonal (cos = 0)
+            [4, 3]  // 6★ closely aligned (cos = 0.90)
+        ]),
+        vectors: new Float32Array([
+            1, 0,
+            0.99, 0.14,
+            0, 1,
+            0.9, 0.43
+        ])
+    };
+
+    const watched = [
+        { id: 1, tmdbId: 1, title: "Favorite Peak", year: "2020", userRating: 10, genre: "Sci-Fi", dateWatched: "2026-10-01" },
+        { id: 2, tmdbId: 2, title: "Close Near Miss", year: "2021", userRating: 7, genre: "Sci-Fi", dateWatched: "2026-10-05" },
+        { id: 3, tmdbId: 3, title: "Far Orthogonal Miss", year: "2019", userRating: 7, genre: "Drama", dateWatched: "2026-10-04" },
+        { id: 4, tmdbId: 4, title: "Second Near Miss", year: "2018", userRating: 6, genre: "Sci-Fi", dateWatched: "2026-10-03" },
+        // Harsh negative z-score 6★ letdown that lands in dislikedFilms -> must NOT duplicate into NEAR MISSES
+        { id: 5, tmdbId: 5, title: "Harsh ZScore Six", year: "2017", userRating: 6, genre: "Sci-Fi", dateWatched: "2026-10-02" }
+    ];
+    // Add high 10★ films so Harsh ZScore Six (or add zScore via weightedRatings) lands in dislikedFilms:
+    // Actually with extra 10★ anchors: 10,10,10,10,10 vs 6 -> zScore < -0.4!
+    const extraAnchors = Array.from({ length: 5 }, (_, i) => ({
+        id: 100 + i,
+        tmdbId: 100 + i,
+        title: `Anchor Extra ${i}`,
+        year: "2020",
+        userRating: 10,
+        genre: "Sci-Fi",
+        dateWatched: "2026-10-10"
+    }));
+    const fullWatched = [
+        ...extraAnchors,
+        watched[0],
+        watched[1],
+        watched[2],
+        watched[3],
+        watched[4]
+    ];
+
+    const feedbackLog = [
+        { action: "already_seen", title: "Already Seen Pick", year: "2015", reason: "Already seen" },
+        { action: "dismissed", title: "Legacy Already Seen", year: "2016", reason: "Already seen" },
+        { action: "dismissed", title: "True Dismissed Film", year: "2014", reason: "Too slow" }
+    ];
+
+    const profileWithWeights = {
+        lovedGenreNames: ["Sci-Fi"],
+        lovedGenreIds: [878],
+        weightedRatings: [{ movie: watched[4], tmdbId: 5, zScore: -1.8 }]
+    };
+    const prompt = buildGeminiReRankPrompt(
+        profileWithWeights,
+        "any",
+        [{ id: 90, tmdbId: 90, title: "Candidate X", year: "2023", genre: "Sci-Fi", matchScore: 88 }],
+        { watched: fullWatched, feedbackLog, embeddingIndex: embIndex, targetCount: 10 }
+    );
+
+    const streakIdx = prompt.indexOf("RECENT WATCH STREAK:");
+    const nearMissIdx = prompt.indexOf("NEAR MISSES");
+    const candIdx = prompt.indexOf("PRE-RANKED CANDIDATE MOVIES");
+    assert.ok(streakIdx > -1 && nearMissIdx > streakIdx && candIdx > nearMissIdx, "NEAR MISSES must appear after RECENT WATCH STREAK and before CANDIDATES");
+
+    const dislikedBlock = prompt.split("USER'S DISLIKED / DISMISSED FILMS (Avoid similar tone):")[1].split("RECENT WATCH STREAK:")[0];
+    assert.equal(dislikedBlock.includes("Already Seen Pick"), false, "already_seen action must never enter disliked section");
+    assert.equal(dislikedBlock.includes("Legacy Already Seen"), false, "legacy dismissed Already seen must never enter disliked section");
+    assert.ok(dislikedBlock.includes("True Dismissed Film"));
+    assert.ok(dislikedBlock.includes("Harsh ZScore Six"), "6★ with harsh negative z-score lands in disliked guardrails");
+
+    const nearMissBlock = prompt.slice(nearMissIdx, candIdx);
+    assert.ok(nearMissBlock.includes('"Close Near Miss" (2021) [7/10'));
+    assert.ok(nearMissBlock.includes('"Second Near Miss" (2018) [6/10'));
+    assert.equal(nearMissBlock.includes('"Favorite Peak"'), false, ">=8★ anchors are not near misses");
+    assert.equal(nearMissBlock.includes('"Harsh ZScore Six"'), false, "disliked films must never duplicate into NEAR MISSES");
+
+    // Also works without embeddingIndex via structural genre overlap fallback
+    const promptNoEmb = buildGeminiReRankPrompt(
+        profileWithWeights,
+        "any",
+        [{ id: 90, tmdbId: 90, title: "Candidate X", year: "2023", genre: "Sci-Fi", matchScore: 88 }],
+        { watched: fullWatched, feedbackLog, embeddingIndex: null, targetCount: 10 }
+    );
+    const fallbackNearIdx = promptNoEmb.indexOf("NEAR MISSES");
+    assert.ok(fallbackNearIdx > -1);
+    const fallbackNearBlock = promptNoEmb.slice(fallbackNearIdx, promptNoEmb.indexOf("PRE-RANKED CANDIDATE MOVIES"));
+    assert.ok(fallbackNearBlock.includes('"Close Near Miss"'));
+    assert.equal(fallbackNearBlock.includes('"Harsh ZScore Six"'), false);
+});
+
+test("mergeGeminiExplanationsWithRanker enforces two-pass soft max-2-per-director cap (ignoring Unknown) and relaxes to avoid underflow", () => {
+    const nolanFilms = Array.from({ length: 4 }, (_, i) => ({
+        id: 200 + i,
+        tmdbId: 200 + i,
+        title: `Nolan Film ${i}`,
+        year: String(2010 + i),
+        director: "Christopher Nolan",
+        crewPersonId: 525,
+        matchScore: 95 - i,
+        rankerProbability: 0.9 - i * 0.02
+    }));
+    const otherFilms = [
+        { id: 301, tmdbId: 301, title: "Villeneuve Film", year: "2016", director: "Denis Villeneuve", matchScore: 86 },
+        { id: 302, tmdbId: 302, title: "Bong Film", year: "2019", director: "Bong Joon-ho", matchScore: 85 },
+        { id: 303, tmdbId: 303, title: "Unknown Dir 1", year: "2020", director: "Unknown", matchScore: 80 },
+        { id: 304, tmdbId: 304, title: "Unknown Dir 2", year: "2021", director: "Unknown", matchScore: 79 },
+        { id: 305, tmdbId: 305, title: "Unknown Dir 3", year: "2022", director: "", matchScore: 78 }
+    ];
+
+    const pool = [...nolanFilms, ...otherFilms];
+    const geminiResult = {
+        tasteProfile: { favoriteGenres: ["Sci-Fi"] },
+        recommendations: nolanFilms.map((f) => ({ tmdbId: f.tmdbId, title: f.title, year: f.year, reason: "Top pick." }))
+    };
+
+    // Pass 1: 4 Nolan picks from Gemini get capped to 2, pulling non-Nolan & Unknown-director candidates up to targetCount=5
+    const capped = mergeGeminiExplanationsWithRanker(geminiResult, pool, {}, {}, 5);
+    assert.equal(capped.recommendations.length, 5);
+    const nolanCount = capped.recommendations.filter((r) => r.director === "Christopher Nolan").length;
+    assert.equal(nolanCount, 2, "director with 4 Gemini picks must be capped at 2 when backfill alternatives exist");
+    assert.ok(capped.recommendations.some((r) => r.title === "Villeneuve Film"));
+    assert.ok(capped.recommendations.some((r) => r.title === "Bong Film"));
+
+    // Unknown/empty directors must NOT trigger the cap against each other
+    const onlyUnknownAndTwoNolan = mergeGeminiExplanationsWithRanker(
+        { tasteProfile: { favoriteGenres: ["Sci-Fi"] }, recommendations: otherFilms.slice(2) },
+        otherFilms,
+        {},
+        {},
+        3
+    );
+    assert.deepEqual(
+        onlyUnknownAndTwoNolan.recommendations.map((r) => r.tmdbId),
+        [303, 304, 305],
+        "Unknown/empty directors must not cap against each other or yield slots to ranked backfill"
+    );
+
+    // Pass 2 relaxation: when pool only has 4 Nolan films and targetCount=4, relax cap so we still return 4
+    const relaxed = mergeGeminiExplanationsWithRanker(geminiResult, nolanFilms, {}, {}, 4);
+    assert.equal(relaxed.recommendations.length, 4);
+    assert.equal(relaxed.recommendations.filter((r) => r.director === "Christopher Nolan").length, 4);
 });

@@ -1,11 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   DEFAULT_RANKER_WEIGHTS,
+  DEFAULT_METADATA_DAMPING_FACTOR,
+  DEFAULT_DISPLAY_TEMPERATURE,
+  computeDisplayMatchScore,
   extractCandidateFeatures,
   scoreCandidate,
   rankCandidatePool
 } from "../src/services/rankerService.js";
+import { extractTasteProfile } from "../src/services/tmdbService.js";
 
 test("scoreCandidate produces calibrated probabilities and monotonic matchScore in [50, 99]", () => {
   const strongFeatures = {
@@ -283,25 +289,152 @@ test("derivePersonalizedRankerWeights returns priorWeights below minimum thresho
   );
   assert.deepEqual(sparse, DEFAULT_RANKER_WEIGHTS);
 
-  // Active threshold (3 positives, 3 negatives) -> adjusts bounded weights and keeps safety floors intact
+  // Default threshold requires 10+ total events (>= 3 positives & >= 3 negatives); 6 events remain unchanged
   const posFeats = { collabSim: 0.8, crewMatch: 1, keywordOverlap: 0.9, bayesianRatingNorm: 0.6, noveltyBonus: 0.4, repulsion: 0, negativeKeywordPenalty: 0 };
   const negFeats = { collabSim: 0.1, crewMatch: 0, keywordOverlap: 0.0, bayesianRatingNorm: 0.8, noveltyBonus: 0.1, repulsion: 0.6, negativeKeywordPenalty: 1 };
-  const active = derivePersonalizedRankerWeights(
-    [
-      { action: "rated", userRating: 10, features: posFeats },
-      { action: "rated", userRating: 9, features: posFeats },
-      { action: "added_watchlist", features: posFeats },
-      { action: "dismissed", features: negFeats },
-      { action: "dismissed", features: negFeats },
-      { action: "rated", userRating: 2, features: negFeats }
-    ],
-    [],
-    DEFAULT_RANKER_WEIGHTS
+  const sixEvents = [
+    { action: "rated", userRating: 10, features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    { action: "added_watchlist", features: posFeats },
+    { action: "dismissed", features: negFeats },
+    { action: "dismissed", features: negFeats },
+    { action: "rated", userRating: 2, features: negFeats }
+  ];
+  assert.deepEqual(
+    derivePersonalizedRankerWeights(sixEvents, [], DEFAULT_RANKER_WEIGHTS),
+    DEFAULT_RANKER_WEIGHTS,
+    "Default 10-event minimum blocks early weight swings on 6 events"
   );
+
+  // Even 10 total events with fewer than 3 positives keeps prior unchanged
+  const imbalancedTen = [
+    { action: "rated", userRating: 10, features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    ...Array.from({ length: 8 }, () => ({ action: "dismissed", features: negFeats }))
+  ];
+  assert.deepEqual(
+    derivePersonalizedRankerWeights(imbalancedTen, [], DEFAULT_RANKER_WEIGHTS),
+    DEFAULT_RANKER_WEIGHTS,
+    "Requires at least 3 positives and 3 negatives"
+  );
+
+  // Explicit options.minEvents remains configurable, and 10+ balanced events activate regularized adaptation
+  const active = derivePersonalizedRankerWeights(sixEvents, [], DEFAULT_RANKER_WEIGHTS, { minEvents: 6 });
   assert.ok(active.crewMatch > DEFAULT_RANKER_WEIGHTS.crewMatch);
   assert.ok(active.repulsion <= -1.0, "repulsion safety floor preserved");
   assert.ok(active.negativeKeywordPenalty <= -0.35, "negativeKeywordPenalty safety floor preserved");
   assert.ok(active.collabSim >= 3.5, "collabSim minimum preserved");
   assert.ok(Math.abs(active.crewMatch - DEFAULT_RANKER_WEIGHTS.crewMatch) <= 0.6 + 1e-9);
+
+  const tenEvents = [
+    ...sixEvents,
+    { action: "rated", userRating: 9, features: posFeats },
+    { action: "rated", userRating: 10, features: posFeats },
+    { action: "dismissed", features: negFeats },
+    { action: "rated", userRating: 3, features: negFeats }
+  ];
+  const activeDefault = derivePersonalizedRankerWeights(tenEvents, [], DEFAULT_RANKER_WEIGHTS);
+  assert.ok(activeDefault.crewMatch > DEFAULT_RANKER_WEIGHTS.crewMatch);
+  assert.ok(activeDefault.repulsion <= -1.0);
 });
 
+
+
+test("extractTasteProfile eliminates keyword self-collision via net polarity, filters meta tags, applies IDF, and shrinks cast/crew affinities", async () => {
+  const watched = [
+    // Multi-film auteur director 901 & actor 801 across 3 loved films
+    {
+      imdbID: "tt001", tmdbId: 1, title: "Love 1", year: "2020", userRating: 10,
+      tmdbGenreIds: [9648, 878],
+      tmdbKeywords: [818, 179430, 5001, 5002], // 818/179430 meta suppressed; 5001 shared across all films (higher DF)
+      crewPersonId: 901, castIds: [801, 802, 803], dateWatched: "2026-10-01"
+    },
+    {
+      imdbID: "tt002", tmdbId: 2, title: "Love 2", year: "2021", userRating: 9,
+      tmdbGenreIds: [9648, 18],
+      tmdbKeywords: [9663, 187056, 5001, 5002],
+      crewPersonId: 901, castIds: [801, 804], dateWatched: "2026-10-02"
+    },
+    {
+      imdbID: "tt003", tmdbId: 3, title: "Love 3", year: "2022", userRating: 9,
+      tmdbGenreIds: [878],
+      tmdbKeywords: [179431, 5001, 5003],
+      crewPersonId: 902, castIds: [805], dateWatched: "2026-10-03"
+    },
+    // Disliked films carrying keyword 5003 heavily -> should flip 5003 net negative and keep loved/hated disjoint
+    {
+      imdbID: "tt004", tmdbId: 4, title: "Hate 1", year: "2022", userRating: 2,
+      tmdbGenreIds: [27],
+      tmdbKeywords: [5001, 5003, 6001],
+      crewPersonId: 903, castIds: [806], dateWatched: "2026-10-04"
+    },
+    {
+      imdbID: "tt005", tmdbId: 5, title: "Hate 2", year: "2023", userRating: 2,
+      tmdbGenreIds: [27],
+      tmdbKeywords: [5003, 6001],
+      crewPersonId: 903, castIds: [806], dateWatched: "2026-10-05"
+    }
+  ];
+
+  const profile = await extractTasteProfile(watched, [], { now: Date.parse("2026-11-01T00:00:00Z") });
+  // Meta keyword IDs suppressed
+  for (const metaId of [818, 179430, 179431, 187056, 9663]) {
+    assert.equal(profile.lovedKeywordIds.includes(metaId), false);
+    assert.equal(profile.hatedKeywordIds.includes(metaId), false);
+  }
+  // Zero overlap between lovedKeywordIds and hatedKeywordIds
+  const lovedSet = new Set(profile.lovedKeywordIds);
+  assert.ok(profile.hatedKeywordIds.every((id) => !lovedSet.has(id)), "lovedKeywordIds and hatedKeywordIds must be disjoint");
+  assert.ok(profile.lovedKeywordIds.includes(5002), "clean loved keyword 5002 retained");
+  assert.ok(profile.hatedKeywordIds.includes(6001), "hated keyword 6001 retained");
+  assert.ok(profile.keywordAffinities[5002] > 0, "keywordAffinities populated continuously");
+
+  // Bayesian shrinkage: 2-film director 901 beats 1-film director 902; lead actor 801 beats supporting/1-film actor 805
+  assert.ok(profile.crewAffinities[901] > profile.crewAffinities[902], "multi-film director gets higher shrunk affinity than 1-film director");
+  assert.ok(profile.castAffinities[801] > profile.castAffinities[805], "multi-film lead actor gets higher shrunk affinity than 1-film actor");
+  assert.ok(profile.topCrewMemberId === 901 && Array.isArray(profile.topCastIds), "legacy Bucket A/C compatibility fields preserved");
+
+  // Continuous feature extraction uses shrunk affinities
+  const fMulti = extractCandidateFeatures({ id: 90, tmdbGenreIds: [9648], tmdbKeywords: [5002], crewPersonId: 901, castIds: [801] }, { profile });
+  const fSingle = extractCandidateFeatures({ id: 91, tmdbGenreIds: [9648], tmdbKeywords: [5002], crewPersonId: 902, castIds: [805] }, { profile });
+  assert.ok(fMulti.crewMatch > fSingle.crewMatch && fSingle.crewMatch > 0);
+  assert.ok(fMulti.castMatch > fSingle.castMatch && fSingle.castMatch > 0);
+});
+
+test("Experiment 4 calibrated parameters: 0.35 damping, tau=1.45 order-preserving display calibration, and ranker_weights.json parity", () => {
+  assert.equal(DEFAULT_METADATA_DAMPING_FACTOR, 0.35);
+  assert.equal(DEFAULT_DISPLAY_TEMPERATURE, 1.45);
+
+  const lowLogit = -0.2;
+  const highLogit = 1.8;
+  assert.ok(computeDisplayMatchScore(highLogit) > computeDisplayMatchScore(lowLogit), "temperature-scaled display score preserves strict order");
+  assert.ok(computeDisplayMatchScore(highLogit) <= 99 && computeDisplayMatchScore(lowLogit) >= 50);
+
+  const jsonPath = path.resolve(process.cwd(), "public/models/ranker_weights.json");
+  const diskJson = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+  assert.equal(diskJson._metadataDampingFactor, 0.35);
+  assert.equal(diskJson._displayTemperature, 1.45);
+  const diskWeights = Object.fromEntries(Object.entries(diskJson).filter(([k]) => !k.startsWith("_")));
+  assert.deepEqual(diskWeights, DEFAULT_RANKER_WEIGHTS, "public/models/ranker_weights.json must match DEFAULT_RANKER_WEIGHTS exactly");
+});
+
+test("derivePersonalizedRankerWeights ignores already_seen actions and legacy Already seen dismissals", async () => {
+  const { derivePersonalizedRankerWeights } = await import("../src/services/onlineLearningService.js");
+  const { DEFAULT_RANKER_WEIGHTS } = await import("../src/services/rankerService.js");
+
+  const posFeats = { collabSim: 0.85, crewMatch: 1, keywordOverlap: 0.8, bayesianRatingNorm: 0.7, noveltyBonus: 0.3, repulsion: 0, negativeKeywordPenalty: 0 };
+  const negFeats = { collabSim: 0.1, crewMatch: 0, keywordOverlap: 0.0, bayesianRatingNorm: 0.7, noveltyBonus: 0.1, repulsion: 0.8, negativeKeywordPenalty: 1 };
+
+  // 4 positives + 12 already_seen (both explicit action and legacy dismissed/reason="Already seen") -> never counts as negatives
+  const events = [
+    { action: "rated", userRating: 10, features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    { action: "added_watchlist", features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    ...Array.from({ length: 6 }, () => ({ action: "already_seen", reason: "Already seen", features: negFeats })),
+    ...Array.from({ length: 6 }, () => ({ action: "dismissed", reason: "Already seen", features: negFeats }))
+  ];
+
+  const derived = derivePersonalizedRankerWeights(events, [], DEFAULT_RANKER_WEIGHTS);
+  assert.deepEqual(derived, DEFAULT_RANKER_WEIGHTS, "already_seen must never supply negative training examples");
+});

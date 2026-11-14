@@ -188,7 +188,8 @@ test("rankCandidatePool preserves exact baseline on any and reorders distinctly 
   );
   assert.equal(mindRanked[0].tmdbId, 104);
 
-  // 5. Custom filter + excludeIds
+  // 5. Custom filter + excludeIds enforces strict mood gate without leaking rejected items
+  let shortfallDiag = null;
   const filtered = rankCandidatePool(
     candidates,
     {
@@ -203,9 +204,12 @@ test("rankCandidatePool preserves exact baseline on any and reorders distinctly 
       }
     },
     DEFAULT_RANKER_WEIGHTS,
-    4
+    4,
+    { onDiagnostics: (diag) => { shortfallDiag = diag; } }
   );
-  assert.deepEqual(filtered.map((c) => c.tmdbId), [102, 104]);
+  assert.deepEqual(filtered.map((c) => c.tmdbId), [102]);
+  assert.equal(filtered.some((c) => c.tmdbId === 104), false, "strict mood gate must not pad with gateRejected items");
+  assert.deepEqual(shortfallDiag?.moodShortfall, { requested: 4, available: 1 });
 });
 
 test("rankCandidatePool strictly excludes hydrated non-selected streaming providers when userProviders is active", () => {

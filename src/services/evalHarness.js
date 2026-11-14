@@ -476,8 +476,14 @@ export async function evaluateRanker(options = {}) {
       (embeddingIndex ? buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex, embeddingOptions) : new Map());
     const effectiveContentSimMap =
       contentSimMap ??
-      (contentIndex || contentOptions?.enableOverviewTfIdf
-        ? buildContentSimMap(profile.weightedRatings, contentIndex ?? null, candidates, contentOptions)
+      (contentIndex || contentOptions?.enableOverviewTfIdf || contentOptions?.enableStructuredFallback !== false
+        ? buildContentSimMap(profile.weightedRatings, contentIndex ?? null, candidates, {
+            collabIndex: embeddingIndex,
+            collabSimMap: effectiveCollabSimMap,
+            enableStructuredFallback: true,
+            coldOnly: true,
+            ...contentOptions
+          })
         : new Map());
     const effectiveRepulsionMap =
       repulsionMap ??
@@ -525,6 +531,10 @@ export async function evaluateRanker(options = {}) {
 
   const out = { status: "ok", strategy, counts, metrics, top30Ids };
   if (coverage) out.coverage = coverage;
+  if (options.includeRankedDetails) {
+    out.rankedIds = ids;
+    out.rankedScores = ranked.map(item => Number(item?.rankerLogit ?? item?.rankerProbability ?? NaN));
+  }
   return out;
 }
 

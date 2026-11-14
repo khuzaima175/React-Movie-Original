@@ -21,10 +21,12 @@ import {
     DEFAULT_RECOMMENDATION_COUNT,
     MIN_VALID_CACHE_COUNT,
     buildMoodFilterHashSegment,
+    extractGenreIdsFromCandidate,
     getMoodPreset,
     isExplicitMoodActive,
     normalizeMoodFilters
 } from "./moodPolicy.js";
+import { isSameMovie, normalizeTitleKey, normalizeYearKey } from "./movieIdentity.js";
 export { DEFAULT_RECOMMENDATION_COUNT, MIN_VALID_CACHE_COUNT };
 import {
     loadDefaultEmbeddingIndex,
@@ -122,10 +124,16 @@ export const HYDROGEN_TIMEOUT_MS = 35000;
 export function getDefaultAttemptTimeoutMs(model = "") {
     const lowerModel = String(model || "").toLowerCase();
     if (lowerModel.includes("gemini-4-hydrogen")) return HYDROGEN_TIMEOUT_MS;
-    if (lowerModel.includes("gemini-3-flash")) return 15000;
-    if (lowerModel.includes("gemini-3.6-flash")) return 10000;
-    if (lowerModel.includes("gemini-3.8-flash")) return 10000;
-    return 8000;
+    if (
+        lowerModel.includes("gemini-3-flash") ||
+        lowerModel.includes("gemini-3.5-flash") ||
+        lowerModel.includes("gemini-3.6-flash") ||
+        lowerModel.includes("gemini-3.8-flash") ||
+        lowerModel.includes("gemini-2.5-flash")
+    ) {
+        return 15000;
+    }
+    return 15000;
 }
 
 export function createGeminiClient(apiKey, options = {}) {
@@ -632,15 +640,16 @@ export const cleanStr = (val) => {
  * Corrects LLM decimal probabilities (e.g., 0.94 -> 94) and raw 1s
  */
 export const normalizeMatchScore = (val) => {
-    let n = typeof val === "number" ? val : parseFloat(val);
-    if (isNaN(n) || n <= 0) return 88;
+    if (val === null || val === undefined || val === "") return null;
+    const n = typeof val === "number" ? val : parseFloat(val);
+    if (!Number.isFinite(n) || n <= 0) return null;
     // If LLM returned a decimal ratio (0.01 - 1.0) or edge 1
     if (n <= 1.0) {
         const scaled = n <= 0.1 ? n * 1000 : n * 100;
         return Math.min(99, Math.max(50, Math.round(scaled)));
     }
-    // If accidentally scored 1-5 (legacy 5-star scores), map to realistic 88%
-    if (n <= 5) return 88;
+    // Never fabricate a fallback score for legacy 1-5 numbers
+    if (n <= 5) return null;
     return Math.min(99, Math.max(50, Math.round(n)));
 };
 
@@ -967,7 +976,33 @@ export const generateFallbackId = (title, year) => {
 /**
  * Profile-Based Sliding Window Cache Hash (Non-Mutating, Includes Anchor/Crew/Cast & Custom Vibe Filters)
  */
-export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "") => {
+function buildWatchedHashSegment(watched = []) {
+    if (!Array.isArray(watched) || watched.length === 0) return "";
+    const tokens = watched
+        .filter(Boolean)
+        .map((m) => {
+            const idPart = String(m.tmdbId ?? m.id ?? m.imdbID ?? m.title ?? m.Title ?? "").trim().toLowerCase();
+            const ratingPart = Number(m.userRating) || 0;
+            return idPart ? `${idPart}:${ratingPart}` : "";
+        })
+        .filter(Boolean)
+        .sort();
+    if (tokens.length === 0) return "";
+
+    let hash = 2166136261;
+    for (let i = 0; i < tokens.length; i += 1) {
+        const str = tokens[i];
+        for (let j = 0; j < str.length; j += 1) {
+            hash ^= str.charCodeAt(j);
+            hash = Math.imul(hash, 16777619);
+        }
+        hash ^= 124;
+        hash = Math.imul(hash, 16777619);
+    }
+    return `vlt_${tokens.length}_${(hash >>> 0).toString(36)}`;
+}
+
+export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "", watched = []) => {
     const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
     const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
     const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
@@ -980,7 +1015,9 @@ export const generateProfileHash = (profile, watchlistGenres = [], mood = "any",
     const filterSegment = buildMoodFilterHashSegment(moodFilters);
     const withFilter = filterSegment ? `${base}_${filterSegment}` : base;
     const cleanRegion = typeof userRegion === "string" ? userRegion.trim().toUpperCase() : "";
-    return cleanRegion ? `${withFilter}_reg_${cleanRegion}` : withFilter;
+    const withRegion = cleanRegion ? `${withFilter}_reg_${cleanRegion}` : withFilter;
+    const vaultSegment = buildWatchedHashSegment(watched);
+    return vaultSegment ? `${withRegion}_${vaultSegment}` : withRegion;
 };
 
 /**
@@ -1015,23 +1052,331 @@ function buildMoodPromptSummary(mood = "any", rawFilters = null) {
     return { effectiveMood, preset, explicitMood, vibeConstraints };
 }
 
+function buildMovieIdentityLookup(movies = []) {
+    const byTmdb = new Map();
+    const byImdb = new Map();
+    const byTitleYear = new Map();
+    for (const item of Array.isArray(movies) ? movies : []) {
+        if (!item || typeof item !== "object") continue;
+        const tmdbNum = Number(item.tmdbId || (typeof item.id === "number" ? item.id : 0));
+        if (Number.isFinite(tmdbNum) && tmdbNum > 0 && !byTmdb.has(tmdbNum)) {
+            byTmdb.set(tmdbNum, item);
+        }
+        const imdb = typeof item.imdbID === "string" ? item.imdbID.trim().toLowerCase() : "";
+        if (/^tt\d+$/.test(imdb) && !byImdb.has(imdb)) {
+            byImdb.set(imdb, item);
+        }
+        const tKey = normalizeTitleKey(item.title || item.Title || "");
+        const yKey = normalizeYearKey(item.year || item.Year || "");
+        if (tKey) {
+            const fullKey = `${tKey}::${yKey}`;
+            if (!byTitleYear.has(fullKey)) byTitleYear.set(fullKey, item);
+            if (!byTitleYear.has(`${tKey}::`)) byTitleYear.set(`${tKey}::`, item);
+        }
+    }
+    return (movie) => {
+        if (!movie || typeof movie !== "object") return null;
+        const tmdbNum = Number(movie.tmdbId || (typeof movie.id === "number" ? movie.id : 0));
+        if (Number.isFinite(tmdbNum) && tmdbNum > 0 && byTmdb.has(tmdbNum)) {
+            return byTmdb.get(tmdbNum);
+        }
+        const imdb = typeof movie.imdbID === "string" ? movie.imdbID.trim().toLowerCase() : "";
+        if (/^tt\d+$/.test(imdb) && byImdb.has(imdb)) {
+            return byImdb.get(imdb);
+        }
+        const tKey = normalizeTitleKey(movie.title || movie.Title || "");
+        const yKey = normalizeYearKey(movie.year || movie.Year || "");
+        if (tKey) {
+            return byTitleYear.get(`${tKey}::${yKey}`) || byTitleYear.get(`${tKey}::`) || null;
+        }
+        return null;
+    };
+}
+
+function parseSortDateMs(item) {
+    const ms = Date.parse(item?.dateWatched || item?.updatedAt || item?.ts || "");
+    return Number.isFinite(ms) ? ms : 0;
+}
+
+function selectMoodStratifiedAnchors(watched = [], profile = {}, preset = {}, moodFilters = null, maxAnchors = 10) {
+    const lookupWeighted = buildMovieIdentityLookup(profile?.weightedRatings || []);
+    const preferredGenreIds = new Set(
+        [...(preset?.preferredGenreIds || []), ...(moodFilters?.withGenreIds || [])]
+            .map(Number)
+            .filter((gid) => Number.isFinite(gid) && gid > 0)
+    );
+
+    const eligible = [];
+    for (const movie of Array.isArray(watched) ? watched : []) {
+        const rating = Number(movie?.userRating);
+        if (!Number.isFinite(rating) || rating < 8) continue;
+        if (eligible.some((e) => isSameMovie(e.movie, movie))) continue;
+
+        const weighted = lookupWeighted(movie);
+        const weight = Number.isFinite(Number(weighted?.finalWeight))
+            ? Number(weighted.finalWeight)
+            : rating;
+        const genreIds = extractGenreIdsFromCandidate(movie);
+        let matchesMood = false;
+        if (preferredGenreIds.size > 0 && genreIds) {
+            for (const gid of genreIds) {
+                if (preferredGenreIds.has(Number(gid))) {
+                    matchesMood = true;
+                    break;
+                }
+            }
+        }
+
+        eligible.push({
+            movie,
+            rating,
+            weight,
+            dateMs: parseSortDateMs(movie),
+            title: cleanStr(movie.title || movie.Title || ""),
+            matchesMood
+        });
+    }
+
+    const compareAnchors = (a, b) =>
+        b.weight - a.weight ||
+        b.rating - a.rating ||
+        b.dateMs - a.dateMs ||
+        a.title.localeCompare(b.title);
+
+    const moodMatched = eligible.filter((e) => e.matchesMood).sort(compareAnchors);
+    const overallFallback = eligible.filter((e) => !e.matchesMood).sort(compareAnchors);
+
+    return [...moodMatched, ...overallFallback].slice(0, maxAnchors).map((entry) => entry.movie);
+}
+
+function selectDislikedOrDismissedFilms(
+    watched = [],
+    profile = {},
+    feedbackLog = [],
+    excludedAnchors = [],
+    maxItems = 5
+) {
+    const lookupWeighted = buildMovieIdentityLookup(profile?.weightedRatings || []);
+    const isExcluded = (item) => excludedAnchors.some((anchor) => isSameMovie(anchor, item));
+
+    const dismissedList = (Array.isArray(feedbackLog) ? feedbackLog : [])
+        .map((entry, idx) => ({ entry, idx, dateMs: parseSortDateMs(entry) }))
+        .filter(({ entry }) => (
+            entry &&
+            entry.action === "dismissed" &&
+            !/already\s*seen/i.test(String(entry.reason || "")) &&
+            cleanStr(entry.title)
+        ))
+        .sort((a, b) => b.dateMs - a.dateMs || b.idx - a.idx)
+        .map(({ entry }) => {
+            const yr = entry.year || entry.Year || "N/A";
+            const reasonNote = cleanStr(entry.reason || "").slice(0, 40);
+            const tag = reasonNote ? `dismissed: ${reasonNote}` : "dismissed";
+            return {
+                ref: entry,
+                line: `- "${cleanStr(entry.title)}" (${yr}) [${tag}]`
+            };
+        });
+
+    const dislikedWatched = [];
+    for (const movie of Array.isArray(watched) ? watched : []) {
+        const rating = Number(movie?.userRating);
+        if (!Number.isFinite(rating) || rating <= 0) continue;
+        if (isExcluded(movie)) continue;
+        const weighted = lookupWeighted(movie);
+        const zScore = Number(weighted?.zScore);
+        const isLowRated = rating <= 4;
+        const isNegZScore = rating < 7 && Number.isFinite(zScore) && zScore < -0.4;
+        if (!isLowRated && !isNegZScore) continue;
+        dislikedWatched.push({
+            ref: movie,
+            rating,
+            zScore: Number.isFinite(zScore) ? zScore : rating - 7,
+            dateMs: parseSortDateMs(movie),
+            title: cleanStr(movie.title || movie.Title || ""),
+            line: `- "${cleanStr(movie.title || movie.Title || "")}" (${movie.year || movie.Year || "N/A"}) [${rating}/10]`
+        });
+    }
+
+    dislikedWatched.sort(
+        (a, b) =>
+            a.zScore - b.zScore ||
+            a.rating - b.rating ||
+            b.dateMs - a.dateMs ||
+            a.title.localeCompare(b.title)
+    );
+
+    const selected = [];
+    const addUnique = (candidate) => {
+        if (!candidate || selected.length >= maxItems) return;
+        if (isExcluded(candidate.ref)) return;
+        if (selected.some((s) => isSameMovie(s.ref, candidate.ref))) return;
+        selected.push(candidate);
+    };
+
+    // Prioritize up to 2 recent explicit dismissals + negative watched films, then backfill remaining slots
+    for (const d of dismissedList.slice(0, 2)) addUnique(d);
+    for (const w of dislikedWatched) addUnique(w);
+    for (const d of dismissedList.slice(2)) addUnique(d);
+
+    return selected.map((s) => s.line);
+}
+
+/**
+ * Selects 3-4 "Near Miss" films (rated 6-7★) closest to the viewer's 9-10★ favorites
+ * using 64-D collaborative embeddings when available (with genre/keyword overlap fallback),
+ * strictly excluding any film already listed in Disliked / Dismissed guardrails.
+ */
+function selectNearMissFilms(watched = [], profile = {}, embeddingIndex = null, dislikedLines = [], maxCount = 4) {
+    if (!Array.isArray(watched) || watched.length === 0) return [];
+
+    const dislikedTitleKeys = new Set();
+    const dislikedTitleYearKeys = new Set();
+    for (const line of Array.isArray(dislikedLines) ? dislikedLines : []) {
+        const m = String(line || "").match(/^-\s*"(.+?)"\s*\(([^)]+)\)/);
+        if (m) {
+            const normTitle = cleanStr(m[1]).toLowerCase();
+            const yr = String(m[2] || "").trim();
+            if (normTitle) {
+                dislikedTitleKeys.add(normTitle);
+                if (yr && yr !== "N/A") {
+                    dislikedTitleYearKeys.add(`${normTitle}::${yr}`);
+                }
+            }
+        }
+    }
+
+    const favorites = watched.filter((m) => m && Number(m.userRating) >= 9);
+    const anchorPool = favorites.length > 0 ? favorites : watched.filter((m) => m && Number(m.userRating) >= 8);
+
+    const candidates = watched.filter((m) => {
+        if (!m) return false;
+        const r = Number(m.userRating);
+        if (!Number.isFinite(r) || r < 6 || r > 7) return false;
+        const title = cleanStr(m.title || m.Title || "");
+        if (!title) return false;
+        const normTitle = title.toLowerCase();
+        const yr = String(m.year || m.Year || "").trim();
+        if (yr && dislikedTitleYearKeys.has(`${normTitle}::${yr}`)) return false;
+        if (dislikedTitleKeys.has(normTitle)) return false;
+        return true;
+    });
+    if (candidates.length === 0) return [];
+
+    // Build normalized 64-D favorite centroid when embeddingIndex is supplied
+    let centroid = null;
+    const dim = Number(embeddingIndex?.dim) || 0;
+    const idToIndex = embeddingIndex?.idToIndex;
+    const vectors = embeddingIndex?.vectors;
+    if (dim > 0 && idToIndex && vectors) {
+        const sum = new Float64Array(dim);
+        let hits = 0;
+        for (const fav of anchorPool) {
+            const tid = Number(fav?.tmdbId ?? fav?.id ?? 0);
+            const idx = tid ? idToIndex.get(tid) : undefined;
+            if (idx === undefined) continue;
+            const base = idx * dim;
+            for (let d = 0; d < dim; d += 1) {
+                sum[d] += vectors[base + d];
+            }
+            hits += 1;
+        }
+        if (hits > 0) {
+            let norm = 0;
+            for (let d = 0; d < dim; d += 1) norm += sum[d] * sum[d];
+            norm = Math.sqrt(norm);
+            if (norm > 0) {
+                for (let d = 0; d < dim; d += 1) sum[d] /= norm;
+                centroid = sum;
+            }
+        }
+    }
+
+    const favGenreNames = new Set((profile?.lovedGenreNames || []).map((g) => String(g).toLowerCase().trim()).filter(Boolean));
+    for (const fav of anchorPool) {
+        String(fav?.genre || fav?.Genre || "")
+            .split(",")
+            .map((g) => g.trim().toLowerCase())
+            .filter((g) => g && g !== "n/a")
+            .forEach((g) => favGenreNames.add(g));
+    }
+    const favGenreIds = new Set((profile?.lovedGenreIds || []).map(Number).filter(Boolean));
+
+    const scored = candidates.map((m) => {
+        let simScore = 0;
+        const tid = Number(m?.tmdbId ?? m?.id ?? 0);
+        const embIdx = centroid && tid ? idToIndex.get(tid) : undefined;
+        if (centroid && embIdx !== undefined) {
+            const base = embIdx * dim;
+            let dot = 0;
+            let mag = 0;
+            for (let d = 0; d < dim; d += 1) {
+                const v = vectors[base + d];
+                dot += centroid[d] * v;
+                mag += v * v;
+            }
+            const cosine = mag > 0 ? dot / Math.sqrt(mag) : 0;
+            simScore = 10 + cosine;
+        } else {
+            const mGenreNames = String(m?.genre || m?.Genre || "")
+                .split(",")
+                .map((g) => g.trim().toLowerCase())
+                .filter((g) => g && g !== "n/a");
+            const mGenreIds = extractGenreIdsFromCandidate(m);
+            let overlap = 0;
+            for (const g of mGenreNames) {
+                if (favGenreNames.has(g)) overlap += 1;
+            }
+            for (const gid of mGenreIds) {
+                if (favGenreIds.has(Number(gid))) overlap += 1;
+            }
+            const denom = Math.max(1, mGenreNames.length + mGenreIds.length);
+            simScore = overlap / denom;
+        }
+        return {
+            movie: m,
+            rating: Number(m.userRating),
+            simScore,
+            dateMs: parseSortDateMs(m),
+            title: cleanStr(m.title || m.Title || "")
+        };
+    });
+
+    scored.sort(
+        (a, b) =>
+            b.simScore - a.simScore ||
+            b.rating - a.rating ||
+            b.dateMs - a.dateMs ||
+            a.title.localeCompare(b.title)
+    );
+
+    return scored.slice(0, maxCount).map(({ movie, rating, title }) => {
+        const yr = movie.year || movie.Year || "N/A";
+        const rawGenre = cleanStr(movie.genre || movie.Genre || "");
+        const genreNote = rawGenre && rawGenre !== "N/A" ? ` • ${rawGenre.split(",").slice(0, 2).map(s => s.trim()).join(", ")}` : "";
+        return `- "${title}" (${yr}) [${rating}/10${genreNote}]`;
+    });
+}
+
 /**
  * Builds Gemini prompt for diversity selection and natural-language explanations over pre-ranked candidates.
  */
 export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], context = {}) {
     const watched = Array.isArray(context.watched) ? context.watched : [];
+    const feedbackLog = Array.isArray(context.feedbackLog) ? context.feedbackLog : [];
     const targetCount = Math.max(1, Number(context.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const { effectiveMood, preset, explicitMood, vibeConstraints } = buildMoodPromptSummary(mood, context.moodFilters);
+    const parsedMoodFilters = normalizeMoodFilters(context.moodFilters);
 
-    // 1. Top Anchor Films (rated >= 8★, up to 8 films)
-    const anchorFilms = watched
-        .filter(m => typeof m.userRating === "number" && m.userRating >= 8)
-        .sort((a, b) => b.userRating - a.userRating)
-        .slice(0, 8)
-        .map(m => {
-            const note = m.userNote || m.notes ? ` - "${cleanStr(m.userNote || m.notes).slice(0, 80)}"` : "";
-            return `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${note}`;
-        });
+    // 1. Top Anchor Films (rated >= 8★, up to 10 films, mood-stratified with deterministic overall backfill)
+    const anchorEntries = selectMoodStratifiedAnchors(watched, profile, preset, parsedMoodFilters, 10);
+    const anchorFilms = anchorEntries.map(m => {
+        const note = m.userNote || m.notes ? ` - "${cleanStr(m.userNote || m.notes).slice(0, 80)}"` : "";
+        return `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${note}`;
+    });
+
+    // 1b. Disliked / Dismissed Tonal Guardrails (up to 5 films rated <= 4★, negative z-score, or dismissed)
+    const dislikedFilms = selectDislikedOrDismissedFilms(watched, profile, feedbackLog, anchorEntries, 5);
 
     // 2. Recent Watch Streak (last 3 positively rated films with dates)
     const recentStreak = [...watched]
@@ -1039,6 +1384,9 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         .sort((a, b) => new Date(b.dateWatched) - new Date(a.dateWatched))
         .slice(0, 3)
         .map(m => `- "${cleanStr(m.title)}" (${m.year || "N/A"}) [${m.userRating}/10]`);
+
+    // 2b. Near Misses (6-7★ films closest to 9-10★ favorites, excluding disliked items)
+    const nearMisses = selectNearMissFilms(watched, profile, context.embeddingIndex || null, dislikedFilms, 4);
 
     // 3. Candidate Movies formatting with director, badges, vote count, matchScore, and plot snippet
     const candidatesStr = topCandidates.map(c => {
@@ -1048,7 +1396,10 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
             : "";
         const votesStr = c.vote_count ? ` (${c.vote_count} votes)` : "";
         const plotSnippet = cleanStr(c.overview || c.plot || "").slice(0, 140);
-        return `ID: ${c.id || c.tmdbId} | "${c.title}" (${c.year})${directorStr} | Calibrated Match: ${c.matchScore || 85}% | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10${votesStr}${badgesStr} | Overview: ${plotSnippet}`;
+        const matchDisplay = typeof c.matchScore === "number" && Number.isFinite(c.matchScore)
+            ? `${c.matchScore}%`
+            : "N/A";
+        return `ID: ${c.id || c.tmdbId} | "${c.title}" (${c.year})${directorStr} | Calibrated Match: ${matchDisplay} | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10${votesStr}${badgesStr} | Overview: ${plotSnippet}`;
     }).join("\n");
 
     return `
@@ -1062,7 +1413,9 @@ USER TASTE PROFILE:
 - Mood Directive: ${preset.promptDirective}
 ${vibeConstraints.length > 0 ? `- Custom Vibe Constraints: ${vibeConstraints.join(" | ")}` : ""}
 ${anchorFilms.length > 0 ? `\nUSER'S FAVORITE ANCHOR FILMS:\n${anchorFilms.join("\n")}` : ""}
+${dislikedFilms.length > 0 ? `\nUSER'S DISLIKED / DISMISSED FILMS (Avoid similar tone):\n${dislikedFilms.join("\n")}` : ""}
 ${recentStreak.length > 0 ? `\nRECENT WATCH STREAK:\n${recentStreak.join("\n")}` : ""}
+${nearMisses.length > 0 ? `\nNEAR MISSES (Good but not 9/10 for this user):\n${nearMisses.join("\n")}` : ""}
 
 PRE-RANKED CANDIDATE MOVIES (Top ${topCandidates.length}):
 ${candidatesStr}
@@ -1096,6 +1449,7 @@ function buildRecommendationEntry(candidate = {}, fallback = {}, profile = {}, e
         imdbID: candidate.imdbID || candidate.imdb_id || fallback.imdbID || null,
         title,
         year: candidate.year || fallback.year || "N/A",
+        ...(candidate.director || fallback.director ? { director: candidate.director || fallback.director } : {}),
         genre: candidate.genre || (profile?.lovedGenreNames?.[0] || "Cinema"),
         poster: candidate.poster || getFallbackPoster(title),
         backdrop: candidate.backdrop || null,
@@ -1117,9 +1471,66 @@ function buildRecommendationEntry(candidate = {}, fallback = {}, profile = {}, e
     };
 }
 
+function computeHydrationCoverage(candidates = []) {
+    const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
+    const total = list.length;
+    if (total === 0) return { hydrated: 0, total: 0, ratio: 0, percent: 0 };
+    const hydrated = list.filter((c) => (
+        c?.hydrated === true ||
+        c?.features?.hydrated === true ||
+        (Array.isArray(c?.tmdbKeywords) && Array.isArray(c?.castIds))
+    )).length;
+    const ratio = hydrated / total;
+    return {
+        hydrated,
+        total,
+        ratio,
+        percent: Math.round(ratio * 100)
+    };
+}
+
+function normalizeDirectorCapKey(entry, candidate = null) {
+    const rawDir = String(entry?.director || candidate?.director || "").trim();
+    const cleanDir = rawDir.toLowerCase();
+    if (rawDir && cleanDir !== "unknown" && cleanDir !== "n/a") {
+        return `dir:${cleanDir.replace(/\s+/g, " ")}`;
+    }
+    const crewId = Number(candidate?.crewPersonId ?? entry?.crewPersonId ?? 0);
+    if (Number.isSafeInteger(crewId) && crewId > 0) {
+        return `crew:${crewId}`;
+    }
+    return "";
+}
+
+function selectWithSoftDirectorCap(items = [], desiredTotal = DEFAULT_RECOMMENDATION_COUNT, maxPerDirector = 2) {
+    const selected = [];
+    const overflow = [];
+    const counts = new Map();
+
+    for (const item of items) {
+        if (selected.length >= desiredTotal) break;
+        const dirKey = item.dirKey || "";
+        const count = dirKey ? (counts.get(dirKey) || 0) : 0;
+        if (dirKey && count >= maxPerDirector) {
+            overflow.push(item);
+            continue;
+        }
+        selected.push(item);
+        if (dirKey) counts.set(dirKey, count + 1);
+    }
+
+    for (const item of overflow) {
+        if (selected.length >= desiredTotal) break;
+        selected.push(item);
+    }
+
+    return selected.map((x) => x.entry);
+}
+
 /**
  * Merges Gemini's diversity pass and explanations with deterministic calibrated ranker matchScores,
- * backfilling any remaining slots up to targetCount from top-ranked candidates.
+ * enforcing a soft max-2-per-director cap (relaxing only to prevent shortlist underflow) and backfilling
+ * any remaining slots up to targetCount from top-ranked candidates.
  */
 export function mergeGeminiExplanationsWithRanker(
     result,
@@ -1145,7 +1556,7 @@ export function mergeGeminiExplanationsWithRanker(
     };
 
     const usedIds = new Set();
-    const enriched = [];
+    const poolItems = [];
 
     for (const rec of result.recommendations) {
         const candidate = rankedCandidates.find(
@@ -1165,25 +1576,33 @@ export function mergeGeminiExplanationsWithRanker(
             .map((w) => w.imdbID || w.id || (w.tmdbId ? `tmdb_${w.tmdbId}` : null))
             .filter(Boolean);
 
-        enriched.push(buildRecommendationEntry(candidate, rec, profile, {
+        const entry = buildRecommendationEntry(candidate, rec, profile, {
             reason: cleanedReason,
             anchorTitles,
             anchorIds
-        }));
+        });
+        poolItems.push({
+            entry,
+            dirKey: normalizeDirectorCapKey(entry, candidate)
+        });
     }
 
-    const desiredTotal = Math.min(effectiveTarget, rankedCandidates.length > 0 ? rankedCandidates.length : effectiveTarget);
     for (const cand of rankedCandidates) {
-        if (enriched.length >= desiredTotal) break;
         const key = cand.tmdbId || cand.id || cand.title?.toLowerCase();
         if (key && usedIds.has(key)) continue;
         if (key) usedIds.add(key);
-        enriched.push(buildRecommendationEntry(cand, {}, profile, {
+        const entry = buildRecommendationEntry(cand, {}, profile, {
             reason: "Selected by your calibrated taste profile and current mood filter."
-        }));
+        });
+        poolItems.push({
+            entry,
+            dirKey: normalizeDirectorCapKey(entry, cand)
+        });
     }
 
-    enriched.sort((a, b) => b.matchScore - a.matchScore);
+    const desiredTotal = Math.min(effectiveTarget, poolItems.length > 0 ? poolItems.length : effectiveTarget);
+    const enriched = selectWithSoftDirectorCap(poolItems, desiredTotal, 2);
+    enriched.sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
 
     return {
         tasteProfile: result.tasteProfile || {
@@ -1241,19 +1660,28 @@ function buildRankerFallbackResponse(
     profile,
     modelInfo,
     reason = "Selected by the CinemaVault calibrated taste ranker.",
-    targetCount = DEFAULT_RECOMMENDATION_COUNT
+    targetCount = DEFAULT_RECOMMENDATION_COUNT,
+    moodShortfall = null
 ) {
     const limit = Math.max(1, Number(targetCount) || DEFAULT_RECOMMENDATION_COUNT);
+    const capped = selectWithSoftDirectorCap(
+        (topCandidates || []).map((cand) => {
+            const entry = buildRecommendationEntry(cand, {}, profile, { reason });
+            return { entry, dirKey: normalizeDirectorCapKey(entry, cand) };
+        }),
+        Math.min(limit, (topCandidates || []).length),
+        2
+    );
+    capped.sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
     return {
         tasteProfile: {
             favoriteGenres: (profile?.lovedGenreNames || []).slice(0, 3),
             preferredEra: "Mixed",
             ratingStyle: "Varied"
         },
-        recommendations: (topCandidates || []).slice(0, limit).map(cand =>
-            buildRecommendationEntry(cand, {}, profile, { reason })
-        ),
-        modelInfo
+        recommendations: capped,
+        modelInfo,
+        ...(moodShortfall ? { moodShortfall } : {})
     };
 }
 
@@ -1325,8 +1753,16 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         }
     }
 
+    const hydrationCoverage = options.hydrationCoverage || computeHydrationCoverage(candidates);
+    const moodShortfall = explicitMood && topCandidates.length < targetCount
+        ? { requested: targetCount, available: topCandidates.length }
+        : null;
+
     if (!ai) {
-        const rankerFallbackInfo = buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback");
+        const rankerFallbackInfo = {
+            ...buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback"),
+            hydrationCoverage
+        };
         lastCurationModelInfo = rankerFallbackInfo;
         options.onDiagnostics?.({
             mergedCandidates: candidates,
@@ -1334,14 +1770,18 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             reserve: reserveConfig,
             model: null,
             modelInfo: rankerFallbackInfo,
-            usageMetadata: null
+            usageMetadata: null,
+            hydrationCoverage,
+            moodShortfall
         });
-        return buildRankerFallbackResponse(topCandidates, profile, rankerFallbackInfo, undefined, targetCount);
+        return buildRankerFallbackResponse(topCandidates, profile, rankerFallbackInfo, undefined, targetCount, moodShortfall);
     }
 
     const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates, {
         watched: options.watched,
         watchlist: options.watchlist,
+        feedbackLog: options.feedbackLog,
+        embeddingIndex: options.embeddingIndex,
         moodFilters,
         targetCount
     });
@@ -1388,18 +1828,21 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         { cascadeType: "curation" }
     );
 
-    const activeRunModelInfo = response
-        ? buildCascadeModelInfo(
-            CURATION_MODEL_CASCADE,
-            lastCurationModelInfo?.seq > prevSeq ? lastCurationModelInfo.model : sessionCurationModel,
-            "curation",
-            "gemini-curation",
-            {
-                usageMetadata: response?.usageMetadata ?? null,
-                seq: lastCurationModelInfo?.seq || prevSeq
-            }
-        )
-        : buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback");
+    const activeRunModelInfo = {
+        ...(response
+            ? buildCascadeModelInfo(
+                CURATION_MODEL_CASCADE,
+                lastCurationModelInfo?.seq > prevSeq ? lastCurationModelInfo.model : sessionCurationModel,
+                "curation",
+                "gemini-curation",
+                {
+                    usageMetadata: response?.usageMetadata ?? null,
+                    seq: lastCurationModelInfo?.seq || prevSeq
+                }
+            )
+            : buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback")),
+        hydrationCoverage
+    };
     lastCurationModelInfo = activeRunModelInfo;
 
     options.onDiagnostics?.({
@@ -1408,12 +1851,14 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         reserve: reserveConfig,
         model: response ? activeRunModelInfo.model : null,
         modelInfo: activeRunModelInfo,
-        usageMetadata: response?.usageMetadata ?? null
+        usageMetadata: response?.usageMetadata ?? null,
+        hydrationCoverage,
+        moodShortfall
     });
 
     if (!response) {
         console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output.");
-        return buildRankerFallbackResponse(topCandidates, profile, activeRunModelInfo, undefined, targetCount);
+        return buildRankerFallbackResponse(topCandidates, profile, activeRunModelInfo, undefined, targetCount, moodShortfall);
     }
 
     try {
@@ -1430,22 +1875,26 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         }
         return {
             ...merged,
-            modelInfo: activeRunModelInfo
+            modelInfo: activeRunModelInfo,
+            ...(moodShortfall ? { moodShortfall } : {})
         };
     } catch (parseErr) {
         console.warn("Gemini JSON parse/merge failed, falling back to local calibrated ranker:", parseErr);
-        const fallbackInfo = buildCascadeModelInfo(
-            CURATION_MODEL_CASCADE,
-            null,
-            "curation",
-            "ranker-fallback",
-            {
-                usageMetadata: response?.usageMetadata ?? null,
-                seq: activeRunModelInfo?.seq || prevSeq
-            }
-        );
+        const fallbackInfo = {
+            ...buildCascadeModelInfo(
+                CURATION_MODEL_CASCADE,
+                null,
+                "curation",
+                "ranker-fallback",
+                {
+                    usageMetadata: response?.usageMetadata ?? null,
+                    seq: activeRunModelInfo?.seq || prevSeq
+                }
+            ),
+            hydrationCoverage
+        };
         lastCurationModelInfo = fallbackInfo;
-        return buildRankerFallbackResponse(topCandidates, profile, fallbackInfo, undefined, targetCount);
+        return buildRankerFallbackResponse(topCandidates, profile, fallbackInfo, undefined, targetCount, moodShortfall);
     }
 }
 
@@ -1671,14 +2120,20 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     mergedCandidates = await enrichCandidatePoolMetadata(mergedCandidates, {
                         userRegion,
                         detailFetcher: options.detailFetcher,
-                        maxEnrich: options.maxEnrich ?? 80,
+                        maxEnrich: options.maxEnrich ?? mergedCandidates.length,
                         concurrency: options.enrichConcurrency
                     });
                 }
+                const hydrationCoverage = computeHydrationCoverage(mergedCandidates);
 
                 const contentSimMap =
                     options.contentSimMap ||
-                    buildContentSimMap(profile.weightedRatings, contentIndex, mergedCandidates);
+                    buildContentSimMap(profile.weightedRatings, contentIndex, mergedCandidates, {
+                        collabIndex: embeddingIndex,
+                        collabSimMap,
+                        enableStructuredFallback: true,
+                        coldOnly: true
+                    });
                 const dnaSimMap =
                     options.dnaSimMap ||
                     buildDnaSimMap(profile.weightedRatings, dnaIndex);
@@ -1697,6 +2152,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     contentSimMap,
                     dnaSimMap,
                     repulsionMap,
+                    hydrationCoverage,
                     watched: watchedMovies,
                     watchlist
                 });

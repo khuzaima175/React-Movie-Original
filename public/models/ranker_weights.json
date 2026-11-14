@@ -1,14 +1,18 @@
 {
-  "_source": "hand-set-prior",
+  "_source": "v5.0-offline-328-cv",
+  "_metadataDampingFactor": 0.35,
+  "_displayTemperature": 1.45,
   "bias": -1.1,
-  "collabSim": 4.8,
+  "collabSim": 6.4,
   "contentSim": 1.4,
-  "genreOverlap": 1.1,
-  "keywordOverlap": 0.8,
+  "genreOverlap": 0.6,
+  "keywordOverlap": 0.45,
   "crewMatch": 0.7,
   "castMatch": 0.5,
-  "bayesianRatingNorm": 1.2,
-  "noveltyBonus": 0.35,
+  "bayesianRatingNorm": 1.8,
+  "noveltyBonus": 0.05,
   "negativeKeywordPenalty": -0.5,
-  "providerMatch": 0.25
+  "repulsion": -1.5,
+  "providerMatch": 0.25,
+  "dnaSim": 0
 }

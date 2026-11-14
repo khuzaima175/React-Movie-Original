@@ -126,3 +126,39 @@ test("mapLocalMovieToDbRow sanitizes invalid timestamps, fractional tmdbId, and 
   assert.equal(validDated.tmdb_id, 238);
   assert.equal(validDated.imdb_rating, 9.2);
 });
+
+
+test("vaultSyncService preserves recSource provenance in metadata JSONB and across cloud merges", () => {
+  const recSource = { shownAt: "2026-11-14T11:00:00.000Z", matchScore: 93, mood: "dark-thriller", rank: 2 };
+  const localWatched = [
+    {
+      imdbID: "tt0114369",
+      tmdbId: 807,
+      title: "Se7en",
+      year: "1995",
+      userRating: 9,
+      updatedAt: "2026-11-14T11:05:00.000Z",
+      recSource
+    }
+  ];
+
+  const dbRow = mapLocalMovieToDbRow(localWatched[0], "watched", "user-1", "2026-11-14T11:05:00.000Z");
+  assert.deepEqual(dbRow.metadata.recSource, recSource);
+  assert.deepEqual(mapDbRowToLocalMovie(dbRow).recSource, recSource);
+
+  // Even if cloud row is newer without recSource, local recSource is preserved during merge
+  const cloudWithoutRecSource = [
+    {
+      ...dbRow,
+      updated_at: "2026-11-14T12:00:00.000Z",
+      metadata: { ...dbRow.metadata, recSource: undefined }
+    }
+  ];
+  const merged = mergeLocalAndCloudVault({
+    localWatched,
+    localWatchlist: [],
+    cloudRows: cloudWithoutRecSource,
+    userId: "user-1"
+  });
+  assert.deepEqual(merged.mergedWatched[0].recSource, recSource);
+});
