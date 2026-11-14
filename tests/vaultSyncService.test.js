@@ -95,3 +95,34 @@ test("mergeLocalAndCloudVault does not let cloud row overwrite an untimestamped 
   assert.equal(dk.userRating, 9);
   assert.ok(merged.toUpsertCloud.some((row) => row.movie_key === "tt0468569" && row.user_rating === 9));
 });
+
+test("mapLocalMovieToDbRow sanitizes invalid timestamps, fractional tmdbId, and overflowing imdbRating", () => {
+  const dirtyMovie = {
+    imdbID: "tt0068646",
+    tmdbId: "238.5",
+    title: "The Godfather",
+    year: "1972",
+    imdbRating: "105.4",
+    userRating: 10,
+    dateWatched: "N/A",
+    updatedAt: "not-a-valid-iso-date"
+  };
+
+  const nowIso = "2026-11-14T03:20:00.000Z";
+  const row = mapLocalMovieToDbRow(dirtyMovie, "watched", "user-123", nowIso);
+
+  assert.equal(row.date_watched, null);
+  assert.equal(row.updated_at, nowIso);
+  assert.equal(row.tmdb_id, null);
+  assert.equal(row.imdb_rating, null);
+
+  const validDated = mapLocalMovieToDbRow(
+    { imdbID: "tt0068646", tmdbId: 238, title: "The Godfather", imdbRating: "9.24", dateWatched: "2026-11-01" },
+    "watched",
+    "user-123",
+    nowIso
+  );
+  assert.equal(validDated.date_watched, "2026-11-01T00:00:00.000Z");
+  assert.equal(validDated.tmdb_id, 238);
+  assert.equal(validDated.imdb_rating, 9.2);
+});

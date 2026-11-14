@@ -35,6 +35,20 @@ function parseTimestampMs(rawIso) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+function sanitizeIsoTimestamp(rawIso, fallback = null) {
+  if (!rawIso || typeof rawIso !== "string") return fallback;
+  const trimmed = rawIso.trim();
+  if (!trimmed) return fallback;
+  const ms = Date.parse(trimmed);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : fallback;
+}
+
+function sanitizePositiveInt(rawValue) {
+  if (rawValue === null || rawValue === undefined || rawValue === "") return null;
+  const num = Number(rawValue);
+  return Number.isInteger(num) && num > 0 ? num : null;
+}
+
 /**
  * Derives the deterministic cross-device key for a movie record.
  */
@@ -76,15 +90,20 @@ export function mapLocalMovieToDbRow(
     : (status === "watched" ? 0 : null);
 
   const parsedImdbRating = Number(movie.imdbRating);
-  const imdbRating = Number.isFinite(parsedImdbRating) && parsedImdbRating > 0
+  const imdbRating = Number.isFinite(parsedImdbRating) && parsedImdbRating > 0 && parsedImdbRating <= 99.9
     ? Number(parsedImdbRating.toFixed(1))
     : null;
+
+  const safeUpdatedAt = sanitizeIsoTimestamp(
+    movie.updatedAt,
+    sanitizeIsoTimestamp(nowIso, new Date().toISOString())
+  );
 
   return {
     ...(userId ? { user_id: userId } : {}),
     movie_key: movieKey,
     status: status === "watchlist" ? "watchlist" : "watched",
-    tmdb_id: Number(movie.tmdbId) || null,
+    tmdb_id: sanitizePositiveInt(movie.tmdbId),
     imdb_id: movie.imdbID || (/^tt\d+$/i.test(movieKey) ? movieKey : null),
     title: movie.title || movie.Title || "Untitled",
     year: String(movie.year || movie.Year || ""),
@@ -95,10 +114,10 @@ export function mapLocalMovieToDbRow(
     imdb_rating: imdbRating,
     user_rating: userRating,
     user_note: movie.userNote || null,
-    date_watched: movie.dateWatched || null,
+    date_watched: sanitizeIsoTimestamp(movie.dateWatched, null),
     is_bulk_imported: Boolean(movie.isBulkImported),
     metadata,
-    updated_at: movie.updatedAt || nowIso
+    updated_at: safeUpdatedAt
   };
 }
 

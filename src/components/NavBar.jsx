@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import {
   Film,
+  Flame,
   Search,
   Compass,
   Bookmark,
@@ -46,11 +47,15 @@ export default function NavBar({
         <div className="nav-container">
           <div className="nav-brand-group">
             <NavLink to="/" className="brand-logo" aria-label="CinemaVault Home">
-              <Film size={19} className="brand-icon" aria-hidden="true" />
+              <span className="brand-mark" aria-hidden="true">
+                <Film size={16} className="brand-icon" />
+              </span>
               <span className="brand-name">
                 Cinema<span className="brand-accent">Vault</span>
               </span>
             </NavLink>
+
+            <span className="nav-divider" aria-hidden="true" />
 
             <nav className="nav-links-desktop" role="navigation">
               <NavLink
@@ -58,6 +63,7 @@ export default function NavBar({
                 end
                 className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
               >
+                <Flame size={14} className="stream-nav-icon" aria-hidden="true" />
                 <span>Discover</span>
               </NavLink>
 
@@ -65,6 +71,7 @@ export default function NavBar({
                 to="/vault"
                 className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
               >
+                <Bookmark size={14} className="stream-nav-icon" aria-hidden="true" />
                 <span>Vault</span>
                 {vaultCountLabel && (
                   <span className="nav-count-inline" aria-label={`${watched.length} titles`}>
@@ -77,25 +84,30 @@ export default function NavBar({
                 to="/ai"
                 className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
               >
+                <Compass size={14} className="stream-nav-icon" aria-hidden="true" />
                 <span>Oracle</span>
               </NavLink>
             </nav>
           </div>
 
-          <div className="nav-actions-group">
+          <div className="nav-search-slot">
             <button
+              type="button"
               className="stream-search-btn"
               onClick={onOpenSearch}
               aria-label="Search films"
               title={`Search films (${shortcutLabel} or /)`}
             >
-              <Search size={14} className="search-icon" aria-hidden="true" />
-              <span className="search-placeholder">Search films...</span>
+              <Search size={15} className="search-icon" aria-hidden="true" />
+              <span className="search-placeholder">Search films, directors, genres...</span>
               <kbd className="search-shortcut">{shortcutLabel}</kbd>
             </button>
+          </div>
 
+          <div className="nav-actions-group">
             {onOpenTasteDeck && (
               <button
+                type="button"
                 className="nav-taste-cta"
                 onClick={onOpenTasteDeck}
                 aria-label="Quick Taste Calibration"
@@ -114,6 +126,7 @@ export default function NavBar({
                 title="Saved Watchlist"
               >
                 <Bookmark size={14} aria-hidden="true" />
+                <span className="watchlist-label">Watchlist</span>
                 <span className="watchlist-count">{watchlistCountLabel}</span>
               </NavLink>
             )}

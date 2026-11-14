@@ -1,5 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { normalizeFeedbackEvent, recordRatedMovieConversion } from "../services/feedbackService.js";
+import {
+  findMatchingMovie,
+  removeMovieEntries,
+  upsertMovieEntry
+} from "../services/movieIdentity.js";
 import { getSupabaseClient, hasSupabaseConfig } from "../services/supabaseClient.js";
 import {
   getCanonicalMovieKey,
@@ -331,7 +336,7 @@ export function AppProvider({ children }) {
       await flushCloudMutations();
       setCloudSyncStatus("syncing");
 
-      await supabase
+      const { error: profileError } = await supabase
         .from("profiles")
         .upsert(
           {
@@ -343,6 +348,7 @@ export function AppProvider({ children }) {
           },
           { onConflict: "id", ignoreDuplicates: true }
         );
+      if (profileError) throw profileError;
 
       const { data: cloudRows, error: fetchError } = await supabase
         .from("user_vault_items")
@@ -621,29 +627,40 @@ export function AppProvider({ children }) {
 
   function addWatched(movie) {
     if (!movie) return;
-    const movieId = movie.imdbID || movie.id || movie.tmdbId;
+    const movieId = movie.imdbID || movie.id || (movie.tmdbId ? `tmdb_${movie.tmdbId}` : "");
     if (!movieId) return;
     const updatedAt = movie.updatedAt || new Date().toISOString();
-    const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId, updatedAt };
-    const existingWatched = (watchedRef.current || []).find(
-      (m) => (m.imdbID || m.id || m.tmdbId) === movieId
-    );
+    const existingWatched = findMatchingMovie(watchedRef.current || [], movie);
+    // Preserve an existing real IMDb ID when a later update arrives from a TMDB-only card.
+    const resolvedImdbId =
+      (/^tt\d+$/i.test(String(movie.imdbID || "")) && movie.imdbID) ||
+      (/^tt\d+$/i.test(String(existingWatched?.imdbID || "")) && existingWatched.imdbID) ||
+      movie.imdbID ||
+      existingWatched?.imdbID ||
+      movieId;
+    const normalizedMovie = { ...movie, imdbID: resolvedImdbId, updatedAt };
     const mergedEntry = existingWatched ? { ...existingWatched, ...normalizedMovie } : normalizedMovie;
+    const { removed: removedWatchlist } = removeMovieEntries(watchlistRef.current || [], mergedEntry);
 
-    setWatched((prev) => {
-      const exists = (prev || []).some((m) => (m.imdbID || m.id || m.tmdbId) === movieId);
-      if (exists) {
-        return (prev || []).map((m) => ((m.imdbID || m.id || m.tmdbId) === movieId ? { ...m, ...normalizedMovie } : m));
-      }
-      return [...(prev || []), normalizedMovie];
-    });
-    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== movieId));
+    setWatched((prev) => upsertMovieEntry(prev, mergedEntry));
+    setWatchlist((prev) => removeMovieEntries(prev, mergedEntry).nextList);
     if (Number(movie.userRating) > 0) {
-      setAiFeedbackLog((prev) => recordRatedMovieConversion(movie, prev, aiRecommendations, 500));
+      setAiFeedbackLog((prev) => recordRatedMovieConversion(mergedEntry, prev, aiRecommendations, 500));
     }
     if (cloudUserRef.current?.id) {
       const movieKey = getCanonicalMovieKey(mergedEntry);
       if (movieKey) {
+        const staleKeys = new Set();
+        const oldWatchedKey = existingWatched ? getCanonicalMovieKey(existingWatched) : "";
+        if (oldWatchedKey && oldWatchedKey !== movieKey) staleKeys.add(oldWatchedKey);
+        for (const wlItem of removedWatchlist) {
+          const oldWlKey = getCanonicalMovieKey(wlItem);
+          if (oldWlKey && oldWlKey !== movieKey) staleKeys.add(oldWlKey);
+        }
+        for (const staleKey of staleKeys) {
+          pendingUpsertsRef.current.delete(staleKey);
+          pendingDeletesRef.current.add(staleKey);
+        }
         pendingDeletesRef.current.delete(movieKey);
         pendingUpsertsRef.current.set(movieKey, { movie: mergedEntry, status: "watched" });
         scheduleCloudFlush();
@@ -651,14 +668,21 @@ export function AppProvider({ children }) {
     }
   }
 
-  function deleteWatched(id) {
-    if (!id) return;
-    const removed = (watchedRef.current || []).filter((m) => (m.imdbID || m.id || m.tmdbId) === id);
-    setWatched((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== id));
+  /**
+   * Removes matching entries from either vault list and queues any cloud deletions.
+   */
+  function removeVaultItems(listRef, setList, idOrMovie) {
+    if (!idOrMovie) return;
+    const { removed } = removeMovieEntries(listRef.current || [], idOrMovie);
+    setList((prev) => removeMovieEntries(prev, idOrMovie).nextList);
     if (cloudUserRef.current?.id) {
       const keysToDelete = removed.length > 0
         ? removed.map((m) => getCanonicalMovieKey(m)).filter(Boolean)
-        : [getCanonicalMovieKey({ imdbID: id, id })].filter(Boolean);
+        : [
+            typeof idOrMovie === "object"
+              ? getCanonicalMovieKey(idOrMovie)
+              : getCanonicalMovieKey({ imdbID: idOrMovie, id: idOrMovie })
+          ].filter(Boolean);
       for (const key of keysToDelete) {
         pendingUpsertsRef.current.delete(key);
         pendingDeletesRef.current.add(key);
@@ -667,14 +691,18 @@ export function AppProvider({ children }) {
     }
   }
 
+  function deleteWatched(id) {
+    removeVaultItems(watchedRef, setWatched, id);
+  }
+
   function addToWatchlist(movie) {
     if (!movie) return;
-    const movieId = movie.imdbID || movie.id || movie.tmdbId;
+    const movieId = movie.imdbID || movie.id || (movie.tmdbId ? `tmdb_${movie.tmdbId}` : "");
     if (!movieId) return;
     const updatedAt = movie.updatedAt || new Date().toISOString();
     const normalizedMovie = { ...movie, imdbID: movie.imdbID || movieId, updatedAt };
-    if ((watchlistRef.current || []).some((m) => (m.imdbID || m.id || m.tmdbId) === movieId)) return;
-    setWatchlist((prev) => [...(prev || []), normalizedMovie]);
+    if (findMatchingMovie(watchlistRef.current, normalizedMovie)) return;
+    setWatchlist((prev) => (findMatchingMovie(prev, normalizedMovie) ? prev : [...(prev || []), normalizedMovie]));
     if (cloudUserRef.current?.id) {
       const movieKey = getCanonicalMovieKey(normalizedMovie);
       if (movieKey) {
@@ -686,19 +714,7 @@ export function AppProvider({ children }) {
   }
 
   function deleteWatchlist(id) {
-    if (!id) return;
-    const removed = (watchlistRef.current || []).filter((m) => (m.imdbID || m.id || m.tmdbId) === id);
-    setWatchlist((prev) => (prev || []).filter((m) => (m.imdbID || m.id || m.tmdbId) !== id));
-    if (cloudUserRef.current?.id) {
-      const keysToDelete = removed.length > 0
-        ? removed.map((m) => getCanonicalMovieKey(m)).filter(Boolean)
-        : [getCanonicalMovieKey({ imdbID: id, id })].filter(Boolean);
-      for (const key of keysToDelete) {
-        pendingUpsertsRef.current.delete(key);
-        pendingDeletesRef.current.add(key);
-      }
-      if (keysToDelete.length > 0) scheduleCloudFlush();
-    }
+    removeVaultItems(watchlistRef, setWatchlist, id);
   }
 
   function toggleWatchProvider(providerId) {

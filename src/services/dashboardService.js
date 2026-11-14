@@ -1,9 +1,17 @@
 import { fetchTmdbJson, hasTmdbBackend } from "./apiTransport.js";
 import {
+  buildMovieKeys,
+  extractTmdbNumericId,
+  findMatchingMovie,
+  isSameMovie
+} from "./movieIdentity.js";
+import {
   extractTasteProfile,
   getRecentReleaseDateFloor,
   TMDB_ID_TO_GENRE
 } from "./tmdbService.js";
+
+export { buildMovieKeys, extractTmdbNumericId, findMatchingMovie, isSameMovie };
 
 const HOME_FEEDS_CACHE_KEY = "cinemavault_home_feeds_v2";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -86,33 +94,6 @@ export const FALLBACK_ROWS = [
     ]
   }
 ];
-
-function normalizeTitleKey(value = "") {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeYearKey(value = "") {
-  const m = String(value || "").match(/\d{4}/);
-  return m ? m[0] : "";
-}
-
-function buildMovieKeys(movie = {}) {
-  const keys = [];
-  if (movie.imdbID) keys.push(`imdb:${String(movie.imdbID).toLowerCase()}`);
-  const tmdb = Number(movie.tmdbId ?? movie.id);
-  if (Number.isFinite(tmdb) && tmdb > 0) keys.push(`tmdb:${tmdb}`);
-  if (movie.id != null) keys.push(`rawid:${String(movie.id).toLowerCase()}`);
-  const titleKey = normalizeTitleKey(movie.title || movie.Title);
-  if (titleKey) {
-    const yearKey = normalizeYearKey(movie.year || movie.Year || movie.release_date);
-    keys.push(yearKey ? `ty:${titleKey}::${yearKey}` : `ty:${titleKey}`);
-  }
-  return keys;
-}
 
 function normalizeTmdbBackdropUrl(rawUrl) {
   if (!rawUrl || /unsplash\.com/i.test(rawUrl)) return null;

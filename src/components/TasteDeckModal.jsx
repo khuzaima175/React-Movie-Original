@@ -386,12 +386,12 @@ export default function TasteDeckModal({
 
                       <button
                         type="button"
-                        className={`taste-deck-nav-btn ${sessionWatchlistIds[currentCard.imdbID] || currentCard.inWatchlist ? "saved" : ""}`}
+                        className={`taste-deck-nav-btn ${sessionWatchlistIds[currentCard.imdbID || currentCard.id] || currentCard.inWatchlist ? "saved" : ""}`}
                         onClick={() => handleSaveWatchlist(currentCard, true)}
                       >
                         <Bookmark size={15} aria-hidden="true" />
                         <span>
-                          {sessionWatchlistIds[currentCard.imdbID] || currentCard.inWatchlist
+                          {sessionWatchlistIds[currentCard.imdbID || currentCard.id] || currentCard.inWatchlist
                             ? "Watchlisted (Next)"
                             : "Plan to Watch (W)"}
                         </span>

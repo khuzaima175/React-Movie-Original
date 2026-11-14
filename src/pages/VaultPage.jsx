@@ -12,10 +12,20 @@ import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
 import { Bookmark, Sparkles, Compass } from "lucide-react";
 
-export default function VaultPage({ onOpenBackup }) {
+export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { watched = [], watchlist = [], addWatched, deleteWatched, deleteWatchlist, addToWatchlist } = useApp();
+  const {
+    watched = [],
+    watchlist = [],
+    addWatched,
+    deleteWatched,
+    deleteWatchlist,
+    addToWatchlist,
+    hasCloudConfig,
+    cloudUser,
+    cloudSyncStatus
+  } = useApp();
 
   const [activeTab, setActiveTab] = useState(
     searchParams.get("tab") === "watchlist" ? "watchlist" : "watched"
@@ -214,6 +224,10 @@ export default function VaultPage({ onOpenBackup }) {
           setSelectedIds([]);
         }}
         onOpenBackup={() => (onOpenBackup ? onOpenBackup() : setIsBackupOpen(true))}
+        onOpenCloudSync={onOpenCloudSync}
+        hasCloudConfig={hasCloudConfig}
+        cloudUser={cloudUser}
+        cloudSyncStatus={cloudSyncStatus}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         selectedGenre={selectedGenre}

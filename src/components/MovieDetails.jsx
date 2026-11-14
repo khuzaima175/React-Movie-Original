@@ -6,6 +6,7 @@ import { useApp } from "../context/AppContext";
 import { findTmdbByImdbId, findTmdbByTitleAndYear, fetchTmdbMovieDetails, getFallbackPoster } from "../services/tmdbService";
 import { fetchOmdbJson } from "../services/apiTransport";
 import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
+import { findMatchingMovie } from "../services/movieIdentity";
 import {
   ArrowLeft,
   Star,
@@ -58,7 +59,7 @@ export default function MovieDetails({
   watched = [],
   watchlist = []
 }) {
-  const { userRegion, deleteWatchlist: contextDeleteWatchlist } = useApp();
+  const { userRegion, addToWatchlist: contextAddToWatchlist, deleteWatchlist: contextDeleteWatchlist } = useApp();
   const [movie, setMovie] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -68,18 +69,24 @@ export default function MovieDetails({
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Check watched & watchlist status
-  const isWatched = (watched || []).some(
-    (m) => (m.imdbID && m.imdbID === selectedId) || (m.id && String(m.id) === String(selectedId)) || (m.tmdbId && String(m.tmdbId) === String(selectedId))
+  // Match across tmdb_<id>, numeric tmdbId, imdbID, and title+year variants
+  const movieIdentity = useMemo(
+    () => (!isLoading && movie ? { ...movie, selectedId } : { selectedId }),
+    [isLoading, movie, selectedId]
   );
 
-  const watchedItem = (watched || []).find(
-    (m) => (m.imdbID && m.imdbID === selectedId) || (m.id && String(m.id) === String(selectedId)) || (m.tmdbId && String(m.tmdbId) === String(selectedId))
+  const watchedItem = useMemo(
+    () => findMatchingMovie(watched, movieIdentity),
+    [watched, movieIdentity]
   );
 
-  const isWatchlist = (watchlist || []).some(
-    (m) => (m.imdbID && m.imdbID === selectedId) || (m.id && String(m.id) === String(selectedId)) || (m.tmdbId && String(m.tmdbId) === String(selectedId))
+  const watchlistItem = useMemo(
+    () => findMatchingMovie(watchlist, movieIdentity),
+    [watchlist, movieIdentity]
   );
+
+  const isWatched = Boolean(watchedItem);
+  const isWatchlist = Boolean(watchlistItem);
 
   // Sync state when watched item changes or opens
   useEffect(() => {
@@ -109,6 +116,7 @@ export default function MovieDetails({
 
     async function loadEnrichedMovieDetails() {
       try {
+        setMovie(null);
         setIsLoading(true);
         setError("");
 
@@ -318,6 +326,7 @@ export default function MovieDetails({
 
   function handleAddToWatchlistClick() {
     if (!movie) return;
+    const rawImdb = Number(movie.imdbRating) || Number(movie.tmdbRating);
     const newWatchlistMovie = {
       imdbID: movie.imdbID || selectedId,
       tmdbId: movie.tmdbId || null,
@@ -325,20 +334,28 @@ export default function MovieDetails({
       year: movie.year,
       poster: movie.poster,
       backdrop: movie.backdrop,
-      imdbRating: Number(movie.imdbRating) || Number(movie.tmdbRating) || 8.0,
+      imdbRating: Number.isFinite(rawImdb) && rawImdb > 0 ? rawImdb : null,
       runtime: Number(movie.runtimeMinutes) || (typeof movie.runtime === "string" ? parseInt(movie.runtime) : 120) || 120,
       genre: Array.isArray(movie.genres) ? movie.genres.join(", ") : "Cinema",
       tmdbGenreIds: movie.tmdbGenreIds || [],
       trailerKey: movie.trailerKey || null,
-      streamProviders: movie.streamProviders || []
+      streamProviders: movie.streamProviders || [],
+      userRating: 0
     };
-    if (onAddToWatchlist) {
-      onAddToWatchlist(newWatchlistMovie);
+    const addFn = onAddToWatchlist || contextAddToWatchlist;
+    if (addFn) {
+      addFn(newWatchlistMovie);
     }
   }
 
   function handleRemoveWatchlistClick() {
-    const targetId = movie?.imdbID || movie?.tmdbId || selectedId;
+    const targetId =
+      watchlistItem?.imdbID ||
+      watchlistItem?.id ||
+      watchlistItem?.tmdbId ||
+      movie?.imdbID ||
+      movie?.tmdbId ||
+      selectedId;
     if (onRemoveWatchlist) {
       onRemoveWatchlist(targetId);
     } else if (contextDeleteWatchlist) {

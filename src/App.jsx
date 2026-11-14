@@ -172,7 +172,12 @@ function AppContent() {
           <Route path="/movie/:id" element={<MoviePage />} />
           <Route
             path="/vault"
-            element={<VaultPage onOpenBackup={() => handleOpenBackup("export")} />}
+            element={
+              <VaultPage
+                onOpenBackup={() => handleOpenBackup("export")}
+                onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+              />
+            }
           />
           <Route path="/ai" element={<AIPage onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

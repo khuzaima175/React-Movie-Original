@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Trophy,
   Filter,
+  Cloud,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { buildRatingHistogramBins } from "../services/vaultStats";
@@ -30,6 +31,10 @@ export default function VaultBanner({
   isManageMode = false,
   onToggleManageMode,
   onOpenBackup,
+  onOpenCloudSync,
+  hasCloudConfig = false,
+  cloudUser = null,
+  cloudSyncStatus = "idle",
   searchQuery = "",
   onSearchChange,
   selectedGenre = "All",
@@ -183,6 +188,35 @@ export default function VaultBanner({
             <ArrowUpDown size={15} aria-hidden="true" />
             <span className="desktop-only">Import / Export</span>
           </button>
+
+          {onOpenCloudSync && (
+            <button
+              className={`btn-executive ${cloudUser ? "btn-insights-glow active" : ""}`}
+              onClick={onOpenCloudSync}
+              title={
+                cloudUser
+                  ? `Connected as ${cloudUser.email || "your account"}`
+                  : hasCloudConfig
+                  ? "Sign in with Magic Link to sync your Vault to Supabase"
+                  : "Cloud Sync Status"
+              }
+            >
+              <Cloud
+                size={15}
+                className={cloudUser ? "text-emerald-400" : "text-accent"}
+                aria-hidden="true"
+              />
+              <span>
+                {cloudUser
+                  ? cloudSyncStatus === "syncing"
+                    ? "Syncing..."
+                    : cloudSyncStatus === "error"
+                    ? "Sync Error"
+                    : "Cloud Synced"
+                  : "Cloud Sync"}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
