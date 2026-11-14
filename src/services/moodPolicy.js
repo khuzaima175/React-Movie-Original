@@ -45,6 +45,7 @@ export const MOOD_OPTIONS = [
     label: "Any Vibe",
     desc: "Peak curated cinema",
     preferredGenreIds: [],
+    requiredAnyGenreIds: [],
     discouragedGenreIds: [],
     withoutGenreIds: [],
     sortBy: "vote_average.desc",
@@ -59,8 +60,9 @@ export const MOOD_OPTIONS = [
     label: "Mind-Bending",
     desc: "Plot twists & cerebral puzzles",
     preferredGenreIds: [9648, 878],
-    discouragedGenreIds: [10751, 35],
-    withoutGenreIds: [10751],
+    requiredAnyGenreIds: [9648, 878, 53],
+    discouragedGenreIds: [10751, 35, 10749, 10402, 12, 80, 36, 10752],
+    withoutGenreIds: [10751, 35, 10749],
     sortBy: "vote_average.desc",
     voteAverageGte: 7.5,
     voteCountGte: 250,
@@ -74,8 +76,9 @@ export const MOOD_OPTIONS = [
     label: "Dark Thriller",
     desc: "Gritty neo-noir & tension",
     preferredGenreIds: [80, 53, 9648],
-    discouragedGenreIds: [10751, 35, 10402, 10749],
-    withoutGenreIds: [10751],
+    requiredAnyGenreIds: [80, 53, 9648, 27],
+    discouragedGenreIds: [10751, 35, 16, 10402, 10749, 12, 878, 14],
+    withoutGenreIds: [10751, 35, 16, 10402, 12, 878, 14],
     sortBy: "popularity.desc",
     voteAverageGte: 6.8,
     voteCountGte: 120,
@@ -89,8 +92,9 @@ export const MOOD_OPTIONS = [
     label: "Fun Popcorn",
     desc: "High-energy crowd pleasers",
     preferredGenreIds: [28, 12, 35, 16],
-    discouragedGenreIds: [99],
-    withoutGenreIds: [],
+    requiredAnyGenreIds: [28, 12, 35, 16],
+    discouragedGenreIds: [99, 27, 10752, 36, 53, 80],
+    withoutGenreIds: [99, 27, 10752, 36],
     sortBy: "popularity.desc",
     voteAverageGte: 6.5,
     voteCountGte: 250,
@@ -104,8 +108,9 @@ export const MOOD_OPTIONS = [
     label: "Comfort Watch",
     desc: "Heartwarming & rewatchable",
     preferredGenreIds: [35, 10751, 10749, 16],
+    requiredAnyGenreIds: [35, 10751, 10749, 16],
     discouragedGenreIds: [27, 53, 80, 10752],
-    withoutGenreIds: [27, 10752],
+    withoutGenreIds: [27, 53, 80, 10752],
     sortBy: "vote_average.desc",
     voteAverageGte: 7.2,
     voteCountGte: 180,
@@ -119,15 +124,16 @@ export const MOOD_OPTIONS = [
     label: "Hidden Gem",
     desc: "Underrated masterworks",
     preferredGenreIds: [],
+    requiredAnyGenreIds: [],
     discouragedGenreIds: [],
     withoutGenreIds: [],
     sortBy: "vote_average.desc",
-    voteAverageGte: 7.3,
+    voteAverageGte: 7.0,
     voteCountGte: 50,
-    voteCountLte: 1500,
+    voteCountLte: 2000,
     relaxCastLock: true,
     promptDirective:
-      "Prioritize underseen, lesser-known, cult, international, or indie standouts (<1,500 TMDB votes where possible) over ubiquitous blockbusters."
+      "Prioritize underseen, lesser-known, cult, international, or indie standouts (<2,000 TMDB votes where possible) over ubiquitous blockbusters."
   }
 ];
 
@@ -214,9 +220,6 @@ export function normalizeMoodFilters(raw = null) {
     minYear !== null ||
     maxYear !== null;
 
-  if (!hasCustomConstraint && moodId === "any") {
-    return null;
-  }
   if (!hasCustomConstraint) {
     return null;
   }
@@ -230,6 +233,112 @@ export function normalizeMoodFilters(raw = null) {
     minYear,
     maxYear
   };
+}
+
+/**
+ * Extracts normalized numeric TMDB genre IDs from a candidate across TMDB/OMDb shapes.
+ */
+export function extractGenreIdsFromCandidate(candidate = {}) {
+  const ids = new Set();
+  for (const arr of [candidate.tmdbGenreIds, candidate.genre_ids, candidate.genres]) {
+    if (!Array.isArray(arr)) continue;
+    for (const g of arr) {
+      if (typeof g === "number" && Number.isFinite(g) && g > 0) {
+        ids.add(g);
+      } else if (g && typeof g === "object" && Number.isFinite(Number(g.id))) {
+        ids.add(Number(g.id));
+      } else if (typeof g === "string") {
+        const mapped = resolveGenreId(g);
+        if (mapped) ids.add(mapped);
+      }
+    }
+  }
+  for (const strField of [candidate.genre, candidate.Genre]) {
+    if (typeof strField === "string" && strField.trim() && strField !== "N/A") {
+      for (const token of strField.split(",")) {
+        const mapped = resolveGenreId(token);
+        if (mapped) ids.add(mapped);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Hard eligibility gate for candidates under an explicit mood or custom vibe filter.
+ * Always returns true in unconstrained "any" mode.
+ */
+export function matchesMoodCandidateGate(candidate = {}, mood = "any", moodFilters = null) {
+  const normalizedFilters = normalizeMoodFilters(moodFilters);
+  const rawMood = typeof mood === "string" ? mood.trim().toLowerCase() : "any";
+  const effectiveMood =
+    normalizedFilters?.moodId && normalizedFilters.moodId !== "any" && (!rawMood || rawMood === "any")
+      ? normalizedFilters.moodId
+      : rawMood;
+
+  if (!isExplicitMoodActive(effectiveMood, normalizedFilters)) {
+    return true;
+  }
+
+  const preset = getMoodPreset(effectiveMood);
+  const genreIds = extractGenreIdsFromCandidate(candidate);
+  const hasGenreMetadata = genreIds.size > 0;
+
+  if (hasGenreMetadata && Array.isArray(preset.withoutGenreIds) && preset.withoutGenreIds.length > 0) {
+    for (const forbidden of preset.withoutGenreIds) {
+      if (genreIds.has(Number(forbidden))) return false;
+    }
+  }
+
+  const requiredAny =
+    normalizedFilters?.withGenreIds?.length > 0
+      ? normalizedFilters.withGenreIds
+      : preset.requiredAnyGenreIds || preset.preferredGenreIds || [];
+  if (hasGenreMetadata && requiredAny.length > 0) {
+    const hitsRequired = requiredAny.some((id) => genreIds.has(Number(id)));
+    if (!hitsRequired) return false;
+  }
+
+  const voteCount = Number(candidate.vote_count ?? candidate.voteCount ?? NaN);
+  if (Number.isFinite(voteCount)) {
+    if (Number.isFinite(preset.voteCountLte) && preset.voteCountLte !== null && voteCount > preset.voteCountLte) {
+      return false;
+    }
+    if (Number.isFinite(preset.voteCountGte) && preset.voteCountGte !== null && voteCount > 0 && voteCount < preset.voteCountGte) {
+      return false;
+    }
+  }
+
+  const rating = Number(candidate.vote_average ?? candidate.imdbRating ?? NaN);
+  if (Number.isFinite(rating) && rating > 0 && Number.isFinite(preset.voteAverageGte)) {
+    if (rating < preset.voteAverageGte - 0.3) return false;
+  }
+
+  if (normalizedFilters) {
+    const yearMatch = String(candidate.release_date || candidate.year || candidate.Year || "").match(/\d{4}/);
+    const year = yearMatch ? Number(yearMatch[0]) : NaN;
+    if (Number.isFinite(year) && year > 1880) {
+      if (normalizedFilters.minYear && year < normalizedFilters.minYear) return false;
+      if (normalizedFilters.maxYear && year > normalizedFilters.maxYear) return false;
+    }
+    if (normalizedFilters.withoutKeywords?.length > 0) {
+      const haystack = [
+        candidate.title,
+        candidate.overview,
+        candidate.plot,
+        candidate.genre,
+        ...(Array.isArray(candidate.keywordNames) ? candidate.keywordNames : [])
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      for (const kw of normalizedFilters.withoutKeywords) {
+        if (kw && haystack.includes(kw)) return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 /**

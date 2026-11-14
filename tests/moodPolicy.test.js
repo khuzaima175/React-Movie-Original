@@ -8,8 +8,11 @@ import {
   normalizeMoodFilters,
   isExplicitMoodActive,
   parseFreeTextMoodFallback,
-  buildMoodFilterHashSegment
+  buildMoodFilterHashSegment,
+  extractGenreIdsFromCandidate,
+  matchesMoodCandidateGate
 } from "../src/services/moodPolicy.js";
+import { expandProviderIds, matchesWatchProviders } from "../src/services/tmdbService.js";
 
 test("constants and MOOD_OPTIONS define 10-pick defaults and distinct mood constraints", () => {
   assert.equal(DEFAULT_RECOMMENDATION_COUNT, 10);
@@ -24,7 +27,7 @@ test("constants and MOOD_OPTIONS define 10-pick defaults and distinct mood const
   ]);
 
   const hiddenGem = getMoodPreset("hidden-gem");
-  assert.equal(hiddenGem.voteCountLte, 1500);
+  assert.equal(hiddenGem.voteCountLte, 2000);
   assert.equal(hiddenGem.relaxCastLock, true);
 
   const comfort = getMoodPreset("comfort-watch");
@@ -79,4 +82,73 @@ test("parseFreeTextMoodFallback extracts mood, decade, genres, and exclusions of
   assert.ok(spaceScifi.withGenreIds.includes(878), "must recognize unhyphenated 'sci fi' offline");
   assert.ok(spaceScifi.withGenreIds.includes(35));
   assert.equal(spaceScifi.minYear, 1990);
+});
+
+test("matchesMoodCandidateGate strictly separates moods and rejects off-tone films", () => {
+  const vForVendetta = { title: "V for Vendetta", genre_ids: [28, 53, 878], vote_average: 7.9, vote_count: 14500 };
+  const wolfOfWallSt = { title: "The Wolf of Wall Street", genre_ids: [80, 18, 35], vote_average: 8.0, vote_count: 23000 };
+  const amelie = { title: "Amélie", genre_ids: [35, 10749], vote_average: 7.9, vote_count: 11500 };
+
+  assert.equal(matchesMoodCandidateGate(vForVendetta, "comfort-watch"), false);
+  assert.equal(matchesMoodCandidateGate(wolfOfWallSt, "comfort-watch"), false);
+  assert.equal(matchesMoodCandidateGate(amelie, "comfort-watch"), true);
+
+  const theMartian = { title: "The Martian", tmdbGenreIds: [18, 12, 878], vote_average: 8.0, vote_count: 18000 };
+  const edgeOfTomorrow = { title: "Edge of Tomorrow", tmdbGenreIds: [28, 878], vote_average: 7.9, vote_count: 15000 };
+  const exMachina = { title: "Ex Machina", tmdbGenreIds: [18, 878, 9648], vote_average: 7.7, vote_count: 12000 };
+  const prisoners = { title: "Prisoners", tmdbGenreIds: [80, 53, 18], vote_average: 8.1, vote_count: 11000 };
+
+  assert.equal(matchesMoodCandidateGate(theMartian, "fun-popcorn"), true);
+  assert.equal(matchesMoodCandidateGate(edgeOfTomorrow, "fun-popcorn"), true);
+  assert.equal(matchesMoodCandidateGate(theMartian, "dark-thriller"), false);
+  assert.equal(matchesMoodCandidateGate(edgeOfTomorrow, "dark-thriller"), false);
+
+  assert.equal(matchesMoodCandidateGate(exMachina, "mind-bending"), true);
+  assert.equal(matchesMoodCandidateGate(exMachina, "dark-thriller"), false);
+  assert.equal(matchesMoodCandidateGate(exMachina, "fun-popcorn"), false);
+
+  assert.equal(matchesMoodCandidateGate(prisoners, "dark-thriller"), true);
+  assert.equal(matchesMoodCandidateGate(prisoners, "fun-popcorn"), false);
+  assert.equal(matchesMoodCandidateGate(prisoners, "comfort-watch"), false);
+
+  const moon = { title: "Moon", tmdbGenreIds: [878, 18], vote_count: 6155, vote_average: 7.6 };
+  const coherence = { title: "Coherence", tmdbGenreIds: [53, 878], vote_count: 1450, vote_average: 7.4 };
+  assert.equal(matchesMoodCandidateGate(moon, "hidden-gem"), false);
+  assert.equal(matchesMoodCandidateGate(coherence, "hidden-gem"), true);
+  assert.equal(extractGenreIdsFromCandidate({ genre: "Sci-Fi, Mystery" }).has(878), true);
+});
+
+test("expandProviderIds and matchesWatchProviders enforce family-aware streaming checks", () => {
+  const expanded = expandProviderIds([8, 1899]);
+  for (const id of [8, 1796, 1899, 384, 1825]) {
+    assert.ok(expanded.includes(id), `Expected expanded provider IDs to include ${id}`);
+  }
+
+  const deadpool = {
+    title: "Deadpool",
+    streamProviders: [{ id: 337, name: "Disney Plus" }],
+    providersHydrated: true
+  };
+  const netflixAdTier = {
+    title: "Glass Onion",
+    streamProviders: [{ id: 1796, name: "Netflix Standard with Ads" }],
+    providersHydrated: true
+  };
+  const unhydratedQueryMatch = {
+    title: "Query Matched",
+    streamProviders: [],
+    providersHydrated: false,
+    providerMatchedByQuery: true
+  };
+  const unhydratedNoMatch = {
+    title: "Embedding Neighbor",
+    streamProviders: [],
+    providersHydrated: false,
+    providerMatchedByQuery: false
+  };
+
+  assert.equal(matchesWatchProviders(deadpool, [8, 1899]), false);
+  assert.equal(matchesWatchProviders(netflixAdTier, [8]), true);
+  assert.equal(matchesWatchProviders(unhydratedQueryMatch, [8, 1899]), true);
+  assert.equal(matchesWatchProviders(unhydratedNoMatch, [8, 1899]), false);
 });

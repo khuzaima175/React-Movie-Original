@@ -115,12 +115,109 @@ export const POPULAR_WATCH_PROVIDERS = [
   { id: 573, name: "Freevee (Free)", icon: "🎬" }
 ];
 
-export function buildProviderFilter(selectedProviders) {
+export const PROVIDER_FAMILY_MAP = {
+  8: [8, 1796, 175],               // Netflix, Netflix Standard with Ads, Netflix Kids
+  9: [9, 10, 119, 2100],           // Amazon Prime Video + regional Prime Video IDs
+  337: [337, 390],                 // Disney Plus
+  1899: [1899, 384, 1825, 29, 31], // Max, HBO Max, Max Amazon Channel, HBO Go/Now
+  350: [350, 2, 2243],             // Apple TV+, Apple TV Plus Amazon Channel
+  15: [15],                        // Hulu
+  531: [531, 1853, 2303, 2616, 582], // Paramount+, Paramount+ Amazon/Apple/Showtime/Roku channels
+  386: [386, 387],                 // Peacock, Peacock Premium Plus
+  258: [258],                      // Criterion Channel
+  73: [73],                        // Tubi TV
+  300: [300],                      // Pluto TV
+  573: [573, 613, 546],            // Amazon Freevee
+  613: [613, 546, 573]             // Amazon Freevee alias
+};
+
+const PROVIDER_NAME_TOKENS = {
+  8: ["netflix"],
+  9: ["amazon prime", "prime video"],
+  337: ["disney plus", "disney+"],
+  1899: ["max", "hbo max", "hbo"],
+  350: ["apple tv+", "apple tv plus"],
+  15: ["hulu"],
+  531: ["paramount+", "paramount plus", "paramount+ with showtime"],
+  386: ["peacock"],
+  258: ["criterion"],
+  73: ["tubi"],
+  300: ["pluto"],
+  573: ["freevee"],
+  613: ["freevee"]
+};
+
+export function expandProviderIds(selectedProviders = []) {
+  if (!Array.isArray(selectedProviders) || selectedProviders.length === 0) return [];
+  const expanded = new Set();
+  for (const raw of selectedProviders) {
+    const num = typeof raw === "string" && PROVIDER_MAP[raw] ? PROVIDER_MAP[raw] : Number(raw);
+    if (!Number.isFinite(num)) continue;
+    expanded.add(num);
+    for (const alias of PROVIDER_FAMILY_MAP[num] || []) {
+      expanded.add(alias);
+    }
+  }
+  return [...expanded];
+}
+
+export function buildProviderFilter(selectedProviders, options = {}) {
   if (!selectedProviders || selectedProviders.length === 0) return null;
-  const providerIds = selectedProviders
-    .map(p => typeof p === "number" ? p : PROVIDER_MAP[p])
-    .filter(Boolean);
+  const providerIds = options.expandAliases
+    ? expandProviderIds(selectedProviders)
+    : selectedProviders
+        .map(p => (typeof p === "number" ? p : PROVIDER_MAP[p]))
+        .filter(Boolean);
   return providerIds.length > 0 ? providerIds.join("|") : null;
+}
+
+/**
+ * Verifies whether a candidate matches any selected streaming provider, accounting for
+ * TMDB regional/ad-tier IDs, free-with-ads providers, and unhydrated discovery results.
+ */
+export function matchesWatchProviders(candidate = {}, selectedProviders = []) {
+  if (!Array.isArray(selectedProviders) || selectedProviders.length === 0) return true;
+  if (!candidate || typeof candidate !== "object") return false;
+
+  const expandedIds = new Set(expandProviderIds(selectedProviders));
+  const canonicalIds = selectedProviders
+    .map(raw => (typeof raw === "string" && PROVIDER_MAP[raw] ? PROVIDER_MAP[raw] : Number(raw)))
+    .filter(Number.isFinite);
+
+  const streamList = [
+    ...(Array.isArray(candidate.streamProviders) ? candidate.streamProviders : []),
+    ...(Array.isArray(candidate.freeProviders) ? candidate.freeProviders : [])
+  ];
+
+  if (streamList.length > 0) {
+    for (const p of streamList) {
+      const pid = Number(p?.provider_id ?? p?.id);
+      if (Number.isFinite(pid) && expandedIds.has(pid)) return true;
+      const pname = String(p?.provider_name ?? p?.name ?? "").toLowerCase();
+      if (pname) {
+        for (const cid of canonicalIds) {
+          const tokens = PROVIDER_NAME_TOKENS[cid] || [];
+          if (
+            tokens.some(tok => {
+              if (tok === "max") {
+                return pname === "max" || pname.startsWith("max ") || pname.includes("hbo max");
+              }
+              return pname.includes(tok);
+            })
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  if (candidate.providersHydrated === true) {
+    return false;
+  }
+
+  return Boolean(candidate.providerMatchedByQuery);
 }
 
 /**
