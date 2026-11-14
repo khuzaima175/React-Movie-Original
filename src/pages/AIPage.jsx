@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useApp } from "../context/AppContext";
 import MovieRecommendations from "../components/MovieRecommendations";
 import AIChat from "../components/AIChat";
-import { Compass, MessageSquare } from "lucide-react";
+import { Compass, Layers, MessageSquare } from "lucide-react";
 import { motion } from "framer-motion";
 
-export default function AIPage() {
+export default function AIPage({ onOpenTasteDeck }) {
   const {
     watched = [],
     watchlist = [],
@@ -37,8 +37,20 @@ export default function AIPage() {
             </p>
           </div>
 
-          {/* Sub-Tabs: AI Recommendations vs Cinema Companion Chat */}
-          <nav className="ai-tabs-cluster" role="tablist" aria-label="AI Oracle Modes">
+          <div className="flex items-center gap-3 flex-wrap">
+            {onOpenTasteDeck && (
+              <button
+                type="button"
+                className="taste-calibrate-inline-btn"
+                onClick={onOpenTasteDeck}
+              >
+                <Layers size={14} aria-hidden="true" />
+                <span>Calibrate Taste (30 Films)</span>
+              </button>
+            )}
+
+            {/* Sub-Tabs: AI Recommendations vs Cinema Companion Chat */}
+            <nav className="ai-tabs-cluster" role="tablist" aria-label="AI Oracle Modes">
             <button
               role="tab"
               aria-selected={aiSection === "recs"}
@@ -73,6 +85,7 @@ export default function AIPage() {
               <span>Film Companion</span>
             </button>
           </nav>
+          </div>
         </header>
 
         {/* ── Body (Recommendations or Chat) ── */}
@@ -86,6 +99,7 @@ export default function AIPage() {
               setRecommendations={setAiRecommendations}
               tasteProfile={aiTasteProfile}
               setTasteProfile={setAiTasteProfile}
+              onOpenTasteDeck={onOpenTasteDeck}
             />
           )}
 

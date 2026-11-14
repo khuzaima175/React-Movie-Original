@@ -11901,3 +11901,638 @@ body,
 .btn-quick-save:not(:disabled):hover {
   background: var(--btn-primary-hover);
 }
+
+/* ============================================================
+   Rapid Taste Deck Modal & Inline Calibrate Trigger
+   ============================================================ */
+.taste-calibrate-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.85rem 1.4rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(226, 177, 60, 0.36);
+  background: rgba(226, 177, 60, 0.1);
+  color: #e2b13c;
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.taste-calibrate-inline-btn:hover {
+  background: rgba(226, 177, 60, 0.2);
+  border-color: rgba(226, 177, 60, 0.65);
+}
+
+.taste-deck-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem 1.6rem;
+  padding-top: clamp(24px, 4vh, 52px);
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  overflow-y: auto;
+}
+
+.taste-deck-shell {
+  width: 100%;
+  max-width: 1080px;
+  background: #131316;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 1.8rem;
+  box-shadow: 0 32px 84px -16px rgba(0, 0, 0, 0.92), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.taste-deck-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.6rem;
+  padding: 1.8rem 2.4rem;
+  background: #1a1b1f;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.taste-deck-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.taste-deck-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.taste-deck-title {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #f4f4f2;
+  letter-spacing: -0.02em;
+}
+
+.taste-deck-counter {
+  padding: 0.3rem 0.95rem;
+  border-radius: 9999px;
+  background: rgba(226, 177, 60, 0.14);
+  border: 1px solid rgba(226, 177, 60, 0.35);
+  color: #e2b13c;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.taste-deck-subtitle {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #8a8a86;
+}
+
+.taste-deck-header-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.taste-deck-mode-tabs {
+  display: inline-flex;
+  padding: 0.35rem;
+  border-radius: 1rem;
+  background: #111114;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 0.35rem;
+}
+
+.taste-deck-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1.2rem;
+  border-radius: 0.75rem;
+  border: none;
+  background: transparent;
+  color: #9e9e99;
+  font-size: 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.taste-deck-mode-btn:hover {
+  color: #f4f4f2;
+}
+
+.taste-deck-mode-btn.active {
+  background: #e2b13c;
+  color: #111113;
+}
+
+.taste-deck-import-btn,
+.taste-deck-skip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #232428;
+  color: #d4d4d0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.taste-deck-import-btn:hover,
+.taste-deck-skip-btn:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+}
+
+.taste-deck-flash-body {
+  padding: 2.2rem 2.6rem 2.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.taste-deck-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.taste-deck-progress-bar {
+  width: 100%;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: #222327;
+  overflow: hidden;
+}
+
+.taste-deck-progress-fill {
+  height: 100%;
+  background: #e2b13c;
+  transition: width 0.25s ease;
+}
+
+.taste-deck-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 1.25rem;
+  color: #9e9e99;
+}
+
+.taste-deck-feedback-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.9rem;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #34d399;
+  font-weight: 600;
+}
+
+.taste-deck-card-stage {
+  display: grid;
+  grid-template-columns: 22rem minmax(0, 1fr);
+  gap: 2.6rem;
+  align-items: start;
+}
+
+.taste-deck-stage-poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: 1.2rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #1c1d20;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.55);
+}
+
+.taste-deck-stage-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.taste-deck-stage-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  min-width: 0;
+}
+
+.taste-deck-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.taste-deck-genre-badge {
+  padding: 0.3rem 0.9rem;
+  border-radius: 9999px;
+  background: rgba(226, 177, 60, 0.16);
+  border: 1px solid rgba(226, 177, 60, 0.4);
+  color: #e2b13c;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.taste-deck-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d4d4d0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.taste-deck-meta-chip.imdb {
+  color: #e2b13c;
+}
+
+.taste-deck-movie-title {
+  margin: 0;
+  font-size: clamp(2.2rem, 3vw, 3rem);
+  font-weight: 800;
+  color: #f4f4f2;
+  line-height: 1.15;
+}
+
+.taste-deck-director {
+  margin: 0;
+  font-size: 1.35rem;
+  color: #9e9e99;
+}
+
+.taste-deck-plot {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.55;
+  color: #cfcfca;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.taste-deck-rating-panel {
+  padding: 1.4rem 1.6rem;
+  border-radius: 1.2rem;
+  background: #1a1b1f;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.taste-deck-rating-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  font-size: 1.25rem;
+  color: #8a8a86;
+}
+
+.taste-deck-tier-label {
+  font-weight: 700;
+}
+
+.taste-deck-score-row {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.taste-deck-score-btn {
+  height: 4.2rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #232429;
+  color: #f4f4f2;
+  font-size: 1.5rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.taste-deck-score-btn:hover,
+.taste-deck-score-btn.selected {
+  background: var(--tier-accent, #e2b13c);
+  border-color: var(--tier-accent, #e2b13c);
+  color: #111113;
+  transform: translateY(-2px);
+}
+
+.taste-deck-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.taste-deck-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 1.4rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #1c1d21;
+  color: #e4e4e0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.taste-deck-nav-btn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: #25262b;
+}
+
+.taste-deck-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.taste-deck-nav-btn.saved {
+  border-color: rgba(226, 177, 60, 0.45);
+  color: #e2b13c;
+}
+
+.taste-deck-nav-btn.skip {
+  margin-left: auto;
+}
+
+.taste-deck-complete {
+  padding: 3.6rem 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.taste-deck-complete-badge {
+  width: 5.2rem;
+  height: 5.2rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+.taste-deck-complete h3 {
+  margin: 0;
+  font-size: 2.3rem;
+  font-weight: 800;
+  color: #f4f4f2;
+}
+
+.taste-deck-complete p {
+  margin: 0;
+  font-size: 1.45rem;
+  color: #b6b6b2;
+}
+
+.taste-deck-summary-genres {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.7rem;
+}
+
+.taste-deck-complete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+
+.taste-deck-primary-cta,
+.taste-deck-secondary-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 1rem 1.8rem;
+  border-radius: 1rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.16s ease;
+}
+
+.taste-deck-primary-cta {
+  background: #e2b13c;
+  color: #111113;
+}
+
+.taste-deck-primary-cta:hover {
+  background: #ecc255;
+}
+
+.taste-deck-secondary-cta {
+  background: #232428;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e4e4e0;
+}
+
+.taste-deck-secondary-cta:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.taste-deck-grid-body {
+  padding: 2rem 2.4rem 2.2rem;
+  max-height: 76vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.taste-deck-wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17.2rem, 1fr));
+  gap: 1.6rem;
+}
+
+.taste-deck-wall-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border-radius: 1.2rem;
+  background: #1a1b1f;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.taste-deck-wall-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.85rem;
+  overflow: hidden;
+  background: #111114;
+}
+
+.taste-deck-wall-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.taste-deck-wall-genre {
+  position: absolute;
+  top: 0.7rem;
+  left: 0.7rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  background: rgba(12, 12, 15, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #f4f4f2;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.taste-deck-wall-rated-badge {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  background: #e2b13c;
+  color: #111113;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.taste-deck-wall-bookmark {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(12, 12, 15, 0.82);
+  color: #e4e4e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.taste-deck-wall-bookmark.saved {
+  border-color: #e2b13c;
+  color: #e2b13c;
+}
+
+.taste-deck-wall-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.taste-deck-wall-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #f4f4f2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.taste-deck-wall-year {
+  font-size: 1.15rem;
+  color: #8a8a86;
+  flex-shrink: 0;
+}
+
+.taste-deck-wall-scores {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.taste-deck-wall-score-btn {
+  height: 2.5rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #232429;
+  color: #d4d4d0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.taste-deck-wall-score-btn:hover,
+.taste-deck-wall-score-btn.selected {
+  background: #e2b13c;
+  border-color: #e2b13c;
+  color: #111113;
+}
+
+.taste-deck-grid-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 768px) {
+  .taste-deck-card-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .taste-deck-stage-poster {
+    max-width: 18rem;
+    margin: 0 auto;
+  }
+
+  .taste-deck-score-row {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .taste-deck-nav-btn.skip {
+    margin-left: 0;
+  }
+
+  .taste-deck-wall-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+}

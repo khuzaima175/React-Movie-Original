@@ -108,7 +108,8 @@ export default function MovieRecommendations({
   recommendations,
   setRecommendations,
   tasteProfile,
-  setTasteProfile
+  setTasteProfile,
+  onOpenTasteDeck
 }) {
   const {
     userRegion,
@@ -712,6 +713,17 @@ export default function MovieRecommendations({
             <Sparkles size={20} className="btn-sparkle-icon" />
             <span>{isDrawer ? "Update Recommendations" : "Synthesize Recommendations"}</span>
           </button>
+
+          {!isDrawer && watched.length < 5 && onOpenTasteDeck && (
+            <button
+              type="button"
+              className="taste-calibrate-inline-btn"
+              onClick={onOpenTasteDeck}
+              style={{ minHeight: "5.4rem", padding: "0 2.2rem" }}
+            >
+              <span>Calibrate Taste (30 Films)</span>
+            </button>
+          )}
 
           {isDrawer && (
             <button

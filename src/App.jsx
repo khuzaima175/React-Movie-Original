@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -8,10 +8,15 @@ import SearchModal from "./components/SearchModal";
 import RandomPicker from "./components/RandomPicker";
 import BackupManagerModal from "./components/BackupManagerModal";
 import QuickRateModal from "./components/QuickRateModal";
+import TasteDeckModal from "./components/TasteDeckModal";
 import DashboardPage from "./pages/DashboardPage";
 import MoviePage from "./pages/MoviePage";
 import VaultPage from "./pages/VaultPage";
 import AIPage from "./pages/AIPage";
+import {
+  shouldAutoShowTasteOnboarding,
+  TASTE_ONBOARDING_DISMISSED_KEY
+} from "./services/tasteDeckService";
 import { Film } from "lucide-react";
 
 function AppContent() {
@@ -21,9 +26,25 @@ function AppContent() {
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [backupInitialTab, setBackupInitialTab] = useState("export");
   const [isTasteDeckOpen, setIsTasteDeckOpen] = useState(false);
+  const [tasteDeckInitialMode, setTasteDeckInitialMode] = useState("flashcards");
   const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
   const [quickRateTarget, setQuickRateTarget] = useState(null);
+  const didCheckOnboardingRef = useRef(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (didCheckOnboardingRef.current) return;
+    didCheckOnboardingRef.current = true;
+    try {
+      const dismissedFlag = localStorage.getItem(TASTE_ONBOARDING_DISMISSED_KEY);
+      if (shouldAutoShowTasteOnboarding({ watchedCount: watched.length, dismissedFlag })) {
+        setTasteDeckInitialMode("grid");
+        setIsTasteDeckOpen(true);
+      }
+    } catch {
+      // ignore storage availability errors
+    }
+  }, [watched.length]);
 
   useEffect(() => {
     function handleGlobalKey(e) {
@@ -62,6 +83,11 @@ function AppContent() {
     setIsBackupOpen(true);
   }
 
+  function handleOpenTasteDeck(mode = "flashcards") {
+    setTasteDeckInitialMode(mode);
+    setIsTasteDeckOpen(true);
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-bg text-text-1 selection:bg-accent/20 selection:text-accent">
       <AnimatedBackground />
@@ -69,7 +95,7 @@ function AppContent() {
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenRandomPicker={() => setIsRandomPickerOpen(true)}
         onOpenBackup={() => handleOpenBackup("export")}
-        onOpenTasteDeck={() => setIsTasteDeckOpen(true)}
+        onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")}
         onOpenCloudSync={() => setIsCloudSyncOpen(true)}
       />
 
@@ -101,6 +127,20 @@ function AppContent() {
         onAddToWatchlist={addToWatchlist}
       />
 
+      <TasteDeckModal
+        isOpen={isTasteDeckOpen}
+        initialMode={tasteDeckInitialMode}
+        onClose={() => setIsTasteDeckOpen(false)}
+        onDismissForever={() => {
+          try {
+            localStorage.setItem(TASTE_ONBOARDING_DISMISSED_KEY, "true");
+          } catch {
+            // ignore storage errors
+          }
+        }}
+        onOpenImport={() => handleOpenBackup("import")}
+      />
+
       <main className="flex-1 w-full">
         <Routes>
           <Route
@@ -108,7 +148,7 @@ function AppContent() {
             element={
               <DashboardPage
                 onOpenSearch={() => setIsSearchOpen(true)}
-                onOpenTasteDeck={() => setIsTasteDeckOpen(true)}
+                onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")}
               />
             }
           />
@@ -117,7 +157,7 @@ function AppContent() {
             path="/vault"
             element={<VaultPage onOpenBackup={() => handleOpenBackup("export")} />}
           />
-          <Route path="/ai" element={<AIPage onOpenTasteDeck={() => setIsTasteDeckOpen(true)} />} />
+          <Route path="/ai" element={<AIPage onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
