@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractTasteProfile, buildBucketAParams } from "../src/services/tmdbService.js";
 import {
+  DEFAULT_RECOMMENDATION_COUNT,
+  MIN_VALID_CACHE_COUNT,
   generateProfileHash,
+  getSmartCache,
+  setSmartCache,
   buildGeminiReRankPrompt,
   mergeGeminiExplanationsWithRanker,
   getMovieRecommendations,
@@ -152,7 +156,7 @@ test("getMovieRecommendations falls back to local calibrated ranker (never OMDb)
   resetSessionWorkingModels();
   resetModelInfoForTests();
 
-  const mockCandidates = Array.from({ length: 8 }, (_, i) => ({
+  const mockCandidates = Array.from({ length: 12 }, (_, i) => ({
     id: 500 + i,
     tmdbId: 500 + i,
     title: `Verified Film ${i}`,
@@ -200,7 +204,7 @@ test("getMovieRecommendations falls back to local calibrated ranker (never OMDb)
     );
     assert.equal(aiCalls, 1, "must NOT re-enter generateWithOmdbFallback after parse failure");
     assert.equal(omdbCalls.length, 0, "must NOT route to OMDb fallback on malformed Gemini JSON");
-    assert.equal(res.recommendations.length, 6);
+    assert.equal(res.recommendations.length, 10);
     assert.equal(res.recommendations[0].tmdbId, res.recommendations[0].id);
     assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
     assert.equal(res.modelInfo?.isFallback, true);
@@ -224,7 +228,7 @@ test("reRankCandidatesWithGemini attaches modelInfo even when executeCascade ret
   resetModelInfoForTests();
 
   const nullAi = { models: { generateContent: async () => { throw new Error("503 unavailable"); } } };
-  const mockCandidates = Array.from({ length: 6 }, (_, i) => ({
+  const mockCandidates = Array.from({ length: 12 }, (_, i) => ({
     id: 600 + i,
     tmdbId: 600 + i,
     title: `Fallback Film ${i}`,
@@ -243,7 +247,7 @@ test("reRankCandidatesWithGemini attaches modelInfo even when executeCascade ret
       null,
       { aiClient: nullAi, candidates: mockCandidates, embeddingIndex: null }
     );
-    assert.equal(res.recommendations.length, 6);
+    assert.equal(res.recommendations.length, 10);
     assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
     assert.equal(res.modelInfo?.model, null);
     assert.equal(res.modelInfo?.isFallback, true);
@@ -315,7 +319,7 @@ test("getMovieRecommendations completes via local ranker when VITE_GEMINI_KEY is
   resetModelInfoForTests();
 
   try {
-    const candidates = Array.from({ length: 6 }, (_, i) => ({
+    const candidates = Array.from({ length: 12 }, (_, i) => ({
       id: 700 + i,
       tmdbId: 700 + i,
       title: `Keyless Film ${i}`,
@@ -334,7 +338,7 @@ test("getMovieRecommendations completes via local ranker when VITE_GEMINI_KEY is
       null,
       { candidates, embeddingIndex: null }
     );
-    assert.equal(res.recommendations.length, 6);
+    assert.equal(res.recommendations.length, 10);
     assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
   } finally {
     if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
@@ -500,5 +504,158 @@ test("executeCascade enforces spendTracker.canUseArgon() and calls markArgonUnav
   );
   assert.deepEqual(callsAfterQuota, ["gemini-4-argon", "gemini-3.5-flash-lite", "gemini-3.5-flash-lite"]);
   resetSessionWorkingModels();
+});
+
+test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, and excludeIds refresh", async () => {
+  assert.equal(DEFAULT_RECOMMENDATION_COUNT, 10);
+  assert.equal(MIN_VALID_CACHE_COUNT, 7);
+
+  // 1. Smart cache rejects caches that shrink below 7 valid items
+  const prevStorage = globalThis.localStorage;
+  const mem = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v))
+  };
+
+  try {
+    const recs10 = Array.from({ length: 10 }, (_, i) => ({ tmdbId: 900 + i, title: `Pick ${i}`, matchScore: 88 }));
+    setSmartCache("test_hash_10", { recommendations: recs10 });
+    assert.equal(getSmartCache("test_hash_10", [{ tmdbId: 900 }, { tmdbId: 901 }], [])?.recommendations.length, 8);
+    assert.equal(
+      getSmartCache("test_hash_10", [{ tmdbId: 900 }, { tmdbId: 901 }, { tmdbId: 902 }, { tmdbId: 903 }], []),
+      null,
+      "cache must invalidate when fewer than 7 valid recommendations remain"
+    );
+  } finally {
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+  }
+
+  // 2. generateProfileHash preserves 4-arg equality while differentiating moodFilters
+  const prof = { lovedGenreIds: [18, 53], hatedKeywordIds: [], topCastIds: [10], anchorTmdbId: 1, topCrewMemberId: 2 };
+  const hLegacy = generateProfileHash(prof, [80], "any", []);
+  const hNullFilter = generateProfileHash(prof, [80], "any", [], null);
+  const hComfort = generateProfileHash(prof, [80], "any", [], { moodId: "comfort-watch", withGenres: ["Comedy"] });
+  const hThriller = generateProfileHash(prof, [80], "any", [], { moodId: "dark-thriller", withGenres: ["Thriller"] });
+  assert.equal(hNullFilter, hLegacy);
+  assert.notEqual(hComfort, hLegacy);
+  assert.notEqual(hComfort, hThriller);
+
+  // 3. Prompt demands 10 items + mood directive & merge backfills partial Gemini picks up to 10 without duplicates
+  const ranked15 = Array.from({ length: 15 }, (_, i) => ({
+    id: 800 + i,
+    tmdbId: 800 + i,
+    title: `Ranked Film ${i}`,
+    year: "2020",
+    vote_average: 8.1,
+    vote_count: 900,
+    genre: "Comedy",
+    matchScore: 95 - i,
+    matchReasons: ["🎭 Comfort Watch Fit"],
+    overview: `Warm overview ${i}`
+  }));
+
+  const prompt = buildGeminiReRankPrompt(prof, "comfort-watch", ranked15, {
+    moodFilters: { query: "light comedy", withGenres: ["Comedy"], withoutKeywords: ["gore"], maxYear: 2022 }
+  });
+  assert.match(prompt, /select 10 distinct/i);
+  assert.match(prompt, /Array of 10 items/i);
+  assert.match(prompt, /Comfort Watch|rewatchability|Mood Directive/i);
+  assert.match(prompt, /gore/i);
+
+  const partialGemini = {
+    tasteProfile: { favoriteGenres: ["Comedy"], preferredEra: "Mixed", ratingStyle: "Warm" },
+    recommendations: ranked15.slice(0, 6).map((c) => ({
+      tmdbId: c.tmdbId,
+      title: c.title,
+      year: c.year,
+      anchorTitles: [],
+      reason: `Critics' pick for ${c.title}.`
+    }))
+  };
+  const backfilled = mergeGeminiExplanationsWithRanker(partialGemini, ranked15, prof, {});
+  assert.equal(backfilled.recommendations.length, 10);
+  assert.equal(new Set(backfilled.recommendations.map((r) => r.tmdbId)).size, 10);
+
+  // 4. getMovieRecommendations excludes seen IDs and shortlists up to 30 to Gemini, falling back smoothly if exhausted
+  const prevGKey = process.env.VITE_GEMINI_KEY;
+  process.env.VITE_GEMINI_KEY = "TEST_KEY";
+  resetSessionWorkingModels();
+  resetModelInfoForTests();
+
+  let promptCandidateCount = 0;
+  const mockAi = {
+    models: {
+      generateContent: async ({ contents }) => {
+        const match = String(contents).match(/PRE-RANKED CANDIDATE MOVIES \(Top (\d+)\)/);
+        if (match) promptCandidateCount = Number(match[1]);
+        return {
+          text: JSON.stringify({
+            tasteProfile: { favoriteGenres: ["Comedy"], preferredEra: "2000s", ratingStyle: "Warm" },
+            recommendations: []
+          }),
+          usageMetadata: { totalTokenCount: 15 }
+        };
+      }
+    }
+  };
+
+  try {
+    const pool35 = Array.from({ length: 35 }, (_, i) => ({
+      id: 1200 + i,
+      tmdbId: 1200 + i,
+      title: `Pool Film ${i}`,
+      year: "2018",
+      release_date: "2018-04-01",
+      overview: `Warm heartwarming story ${i}`,
+      genre: "Comedy, Family",
+      tmdbGenreIds: [35, 10751],
+      genre_ids: [35, 10751],
+      vote_average: 7.9,
+      vote_count: 1100
+    }));
+
+    const seenFirst5 = [1200, 1201, 1202, 1203, 1204];
+    const refreshed = await getMovieRecommendations(
+      [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [35] }],
+      [],
+      null,
+      {
+        mood: "comfort-watch",
+        excludeIds: seenFirst5,
+        candidates: pool35,
+        embeddingIndex: null,
+        aiClient: mockAi
+      }
+    );
+
+    assert.equal(promptCandidateCount, 30, "shortlist to Gemini must pass up to 30 candidates");
+    assert.equal(refreshed.recommendations.length, 10);
+    assert.ok(
+      !refreshed.recommendations.some((r) => seenFirst5.includes(r.tmdbId)),
+      "excluded IDs must not reappear when 30 unseen candidates remain"
+    );
+
+    // Exhaustion safety: excluding 33 of 35 candidates still returns 10 picks instead of collapsing
+    delete process.env.VITE_GEMINI_KEY;
+    const nearExhausted = await getMovieRecommendations(
+      [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [35] }],
+      [],
+      null,
+      {
+        mood: "comfort-watch",
+        excludeIds: pool35.slice(0, 33).map((c) => c.tmdbId),
+        candidates: pool35,
+        embeddingIndex: null
+      }
+    );
+    assert.equal(nearExhausted.recommendations.length, 10);
+  } finally {
+    if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
+    else process.env.VITE_GEMINI_KEY = prevGKey;
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+  }
 });
 

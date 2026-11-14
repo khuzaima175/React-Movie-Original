@@ -18,6 +18,15 @@ import {
 import { DEFAULT_RANKER_WEIGHTS, rankCandidatePool } from "./rankerService.js";
 import { derivePersonalizedRankerWeights, sanitizeFeatureSnapshot } from "./onlineLearningService.js";
 import {
+    DEFAULT_RECOMMENDATION_COUNT,
+    MIN_VALID_CACHE_COUNT,
+    buildMoodFilterHashSegment,
+    getMoodPreset,
+    isExplicitMoodActive,
+    normalizeMoodFilters
+} from "./moodPolicy.js";
+export { DEFAULT_RECOMMENDATION_COUNT, MIN_VALID_CACHE_COUNT };
+import {
     loadDefaultEmbeddingIndex,
     buildCollabSimMapFromIndex,
     buildRepulsionMapFromIndex,
@@ -687,7 +696,7 @@ export function getSmartCache(hash, watched = [], watchlist = []) {
             return !recIds.some(id => currentIds.has(id));
         });
 
-        if (validRecs.length >= 4) {
+        if (validRecs.length >= MIN_VALID_CACHE_COUNT) {
             return { ...entry.data, recommendations: validRecs };
         }
     } catch (e) {
@@ -956,9 +965,9 @@ export const generateFallbackId = (title, year) => {
 };
 
 /**
- * Profile-Based Sliding Window Cache Hash (Non-Mutating, Includes Anchor/Crew/Cast)
+ * Profile-Based Sliding Window Cache Hash (Non-Mutating, Includes Anchor/Crew/Cast & Custom Vibe Filters)
  */
-export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = []) => {
+export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null) => {
     const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
     const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
     const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
@@ -967,7 +976,9 @@ export const generateProfileHash = (profile, watchlistGenres = [], mood = "any",
     const crewStr = String(profile?.topCrewMemberId || "none");
     const castStr = [...(profile?.topCastIds || [])].sort((a, b) => a - b).join("-");
     const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
-    return `v4_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${anchorStr}_${crewStr}_${castStr}_${cleanMood}`;
+    const base = `v4_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${anchorStr}_${crewStr}_${castStr}_${cleanMood}`;
+    const filterSegment = buildMoodFilterHashSegment(moodFilters);
+    return filterSegment ? `${base}_${filterSegment}` : base;
 };
 
 /**
@@ -982,11 +993,33 @@ export const generateInputHash = (watched = [], mood = "any") => {
     return `${watchedStr}#${cleanMood}`;
 };
 
+function buildMoodPromptSummary(mood = "any", rawFilters = null) {
+    const moodFilters = normalizeMoodFilters(rawFilters);
+    const effectiveMood =
+        moodFilters?.moodId && moodFilters.moodId !== "any" && (!mood || mood === "any")
+            ? moodFilters.moodId
+            : (mood || "any");
+    const preset = getMoodPreset(effectiveMood);
+    const explicitMood = isExplicitMoodActive(effectiveMood, moodFilters);
+
+    const vibeConstraints = [];
+    if (moodFilters?.query) vibeConstraints.push(`Vibe request: "${cleanStr(moodFilters.query)}"`);
+    if (moodFilters?.withGenres?.length > 0) vibeConstraints.push(`Requested genres: ${moodFilters.withGenres.join(", ")}`);
+    if (moodFilters?.withoutKeywords?.length > 0) vibeConstraints.push(`Avoid elements: ${moodFilters.withoutKeywords.join(", ")}`);
+    if (moodFilters?.minYear || moodFilters?.maxYear) {
+        vibeConstraints.push(`Release years: ${moodFilters.minYear || "any"}–${moodFilters.maxYear || "present"}`);
+    }
+
+    return { effectiveMood, preset, explicitMood, vibeConstraints };
+}
+
 /**
  * Builds Gemini prompt for diversity selection and natural-language explanations over pre-ranked candidates.
  */
 export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], context = {}) {
     const watched = Array.isArray(context.watched) ? context.watched : [];
+    const targetCount = Math.max(1, Number(context.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
+    const { effectiveMood, preset, explicitMood, vibeConstraints } = buildMoodPromptSummary(mood, context.moodFilters);
 
     // 1. Top Anchor Films (rated >= 8★, up to 8 films)
     const anchorFilms = watched
@@ -1005,24 +1038,27 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         .slice(0, 3)
         .map(m => `- "${cleanStr(m.title)}" (${m.year || "N/A"}) [${m.userRating}/10]`);
 
-    // 3. Candidate Movies formatting with director, badges, matchScore, and plot snippet
+    // 3. Candidate Movies formatting with director, badges, vote count, matchScore, and plot snippet
     const candidatesStr = topCandidates.map(c => {
         const directorStr = c.director && c.director !== "Unknown" ? ` | Director: ${cleanStr(c.director)}` : "";
         const badgesStr = Array.isArray(c.matchReasons) && c.matchReasons.length > 0
             ? ` | Badges: [${c.matchReasons.join(", ")}]`
             : "";
+        const votesStr = c.vote_count ? ` (${c.vote_count} votes)` : "";
         const plotSnippet = cleanStr(c.overview || c.plot || "").slice(0, 140);
-        return `ID: ${c.id || c.tmdbId} | "${c.title}" (${c.year})${directorStr} | Calibrated Match: ${c.matchScore || 85}% | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10${badgesStr} | Overview: ${plotSnippet}`;
+        return `ID: ${c.id || c.tmdbId} | "${c.title}" (${c.year})${directorStr} | Calibrated Match: ${c.matchScore || 85}% | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10${votesStr}${badgesStr} | Overview: ${plotSnippet}`;
     }).join("\n");
 
     return `
 You are an elite film critic and cinema intelligence engine.
-Select a diverse top 6 from these pre-ranked TMDB candidate movies and write compelling, personalized explanations.
+Select a diverse top ${targetCount} from these pre-ranked TMDB candidate movies and write compelling, personalized explanations.
 Do NOT invent scores—each candidate already has a calibrated ranker score.
 
 USER TASTE PROFILE:
 - Favorite Genres: ${(profile.lovedGenreNames || []).join(", ") || "Diverse / Open"}
-- Selected Mood / Vibe: "${cleanStr(mood)}"
+- Selected Mood / Vibe: "${cleanStr(effectiveMood)}" (${preset.label})
+- Mood Directive: ${preset.promptDirective}
+${vibeConstraints.length > 0 ? `- Custom Vibe Constraints: ${vibeConstraints.join(" | ")}` : ""}
 ${anchorFilms.length > 0 ? `\nUSER'S FAVORITE ANCHOR FILMS:\n${anchorFilms.join("\n")}` : ""}
 ${recentStreak.length > 0 ? `\nRECENT WATCH STREAK:\n${recentStreak.join("\n")}` : ""}
 
@@ -1030,15 +1066,16 @@ PRE-RANKED CANDIDATE MOVIES (Top ${topCandidates.length}):
 ${candidatesStr}
 
 TASK:
-Perform a diversity pass over these top candidates and select 6 distinct films.
-Pick the 6 strongest, most cohesive films from the candidates and write a bespoke 1-sentence upright editorial reason explaining why this film connects to their favorite anchor films, directors, themes, or pacing (never write a generic plot summary).
+Perform a diversity pass over these top candidates and select ${targetCount} distinct films.
+${explicitMood ? `CRITICAL MOOD RULE: Every pick MUST genuinely fit the "${preset.label}" mood and any custom vibe constraints above — prioritize true mood matches over off-tone vault staples.` : ""}
+Pick the ${targetCount} strongest, most cohesive films from the candidates and write a bespoke 1-sentence upright editorial reason explaining why this film connects to their requested vibe and favorite anchor films, directors, themes, or pacing (never write a generic plot summary).
 CRITICAL STYLE RULES FOR "reason" AND OUTPUT:
 - Write clean, human cinema prose (1 sentence, plain statement).
 - NEVER include internal system labels, scoring jargon, badges, percentages, or model names in the text (forbid phrases like "Taste-Twin Match", "Core Theme Match", "Genre Bullseye", "% Match", or "Gemini").
 - Include "anchorTitles": 1 to 3 exact titles copied verbatim from USER'S FAVORITE ANCHOR FILMS that this pick pairs best with.
 Output strict JSON with:
 1. tasteProfile: Object containing favoriteGenres (array of strings), preferredEra (string), and ratingStyle (string description).
-2. recommendations: Array of 6 items with:
+2. recommendations: Array of ${targetCount} items with:
    - tmdbId (number matching the candidate ID)
    - title (string)
    - year (string)
@@ -1047,14 +1084,50 @@ Output strict JSON with:
 `;
 }
 
+function buildRecommendationEntry(candidate = {}, fallback = {}, profile = {}, extras = {}) {
+    const tmdbId = candidate.id || candidate.tmdbId || fallback.tmdbId;
+    const title = candidate.title || fallback.title;
+    const rawReason = extras.reason || fallback.reason || "Selected for your taste profile and requested vibe.";
+    return {
+        id: tmdbId,
+        tmdbId,
+        title,
+        year: candidate.year || fallback.year || "N/A",
+        genre: candidate.genre || (profile?.lovedGenreNames?.[0] || "Cinema"),
+        poster: candidate.poster || getFallbackPoster(title),
+        backdrop: candidate.backdrop || null,
+        imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
+        matchScore: typeof candidate.matchScore === "number"
+            ? candidate.matchScore
+            : normalizeMatchScore(fallback.matchScore),
+        matchReasons: Array.isArray(candidate.matchReasons) ? candidate.matchReasons : [],
+        ...(extras.anchorTitles ? { anchorTitles: extras.anchorTitles } : {}),
+        ...(extras.anchorIds ? { anchorIds: extras.anchorIds } : {}),
+        rankerProbability: candidate.rankerProbability ?? null,
+        features: sanitizeFeatureSnapshot(candidate.features ?? fallback.features),
+        reason: rawReason,
+        plot: candidate.overview || rawReason,
+        sourceBucket: candidate.sourceBucket || "TMDB",
+        realData: true
+    };
+}
+
 /**
- * Merges Gemini's diversity pass and explanations with deterministic calibrated ranker matchScores.
+ * Merges Gemini's diversity pass and explanations with deterministic calibrated ranker matchScores,
+ * backfilling any remaining slots up to targetCount from top-ranked candidates.
  */
-export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [], profile = {}, context = {}) {
+export function mergeGeminiExplanationsWithRanker(
+    result,
+    rankedCandidates = [],
+    profile = {},
+    context = {},
+    targetCount = DEFAULT_RECOMMENDATION_COUNT
+) {
     if (!result?.recommendations || !Array.isArray(result.recommendations)) {
         throw new Error("Invalid recommendation schema returned by Gemini");
     }
 
+    const effectiveTarget = Math.max(1, Number(context?.targetCount ?? targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const watchedList = Array.isArray(context.watched) ? context.watched : [];
     const sanitizeReasonText = (raw) => {
         if (!raw || typeof raw !== "string") return "";
@@ -1066,13 +1139,17 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
             .trim();
     };
 
-    const enriched = result.recommendations.map(rec => {
+    const usedIds = new Set();
+    const enriched = [];
+
+    for (const rec of result.recommendations) {
         const candidate = rankedCandidates.find(
             c => c.id === rec.tmdbId || c.tmdbId === rec.tmdbId || c.title?.toLowerCase() === rec.title?.toLowerCase()
         ) || {};
-        const calibratedScore = typeof candidate.matchScore === "number"
-            ? candidate.matchScore
-            : normalizeMatchScore(rec.matchScore);
+        const key = candidate.tmdbId || candidate.id || rec.tmdbId || rec.title?.toLowerCase();
+        if (key && usedIds.has(key)) continue;
+        if (key) usedIds.add(key);
+
         const cleanedReason = sanitizeReasonText(rec.reason) || rec.reason || "Pairs closely with your top-rated films.";
         const anchorTitles = Array.isArray(rec.anchorTitles)
             ? rec.anchorTitles.filter((t) => typeof t === "string" && t.trim())
@@ -1083,27 +1160,23 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
             .map((w) => w.imdbID || w.id || (w.tmdbId ? `tmdb_${w.tmdbId}` : null))
             .filter(Boolean);
 
-        return {
-            id: candidate.id || rec.tmdbId,
-            tmdbId: candidate.id || rec.tmdbId,
-            title: candidate.title || rec.title,
-            year: candidate.year || rec.year,
-            genre: candidate.genre || (profile.lovedGenreNames?.[0] || "Cinema"),
-            poster: candidate.poster || getFallbackPoster(rec.title),
-            backdrop: candidate.backdrop || null,
-            imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
-            matchScore: calibratedScore,
-            matchReasons: Array.isArray(candidate.matchReasons) ? candidate.matchReasons : [],
-            anchorTitles,
-            anchorIds,
-            rankerProbability: candidate.rankerProbability ?? null,
-            features: sanitizeFeatureSnapshot(candidate.features ?? rec.features),
+        enriched.push(buildRecommendationEntry(candidate, rec, profile, {
             reason: cleanedReason,
-            plot: candidate.overview || cleanedReason,
-            sourceBucket: candidate.sourceBucket || "TMDB",
-            realData: true
-        };
-    });
+            anchorTitles,
+            anchorIds
+        }));
+    }
+
+    const desiredTotal = Math.min(effectiveTarget, rankedCandidates.length > 0 ? rankedCandidates.length : effectiveTarget);
+    for (const cand of rankedCandidates) {
+        if (enriched.length >= desiredTotal) break;
+        const key = cand.tmdbId || cand.id || cand.title?.toLowerCase();
+        if (key && usedIds.has(key)) continue;
+        if (key) usedIds.add(key);
+        enriched.push(buildRecommendationEntry(cand, {}, profile, {
+            reason: "Selected by your calibrated taste profile and current mood filter."
+        }));
+    }
 
     enriched.sort((a, b) => b.matchScore - a.matchScore);
 
@@ -1113,7 +1186,7 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
             preferredEra: "Contemporary",
             ratingStyle: "High cinematic affinity"
         },
-        recommendations: enriched
+        recommendations: enriched.slice(0, effectiveTarget)
     };
 }
 
@@ -1125,15 +1198,19 @@ export async function parseFreeTextMoodWithGemini(ai, rawQuery = "") {
     if (!cleaned || !ai?.models?.generateContent) {
         return { moodId: "any", withGenres: [], withoutKeywords: [], minYear: null, maxYear: null };
     }
-    const prompt = `Convert this movie request into structured TMDB filter JSON: "${cleaned}"`;
+    const prompt = `Convert this movie request into structured filter JSON: "${cleaned}"
+Choose moodId from: "any", "mind-bending", "dark-thriller", "fun-popcorn", "comfort-watch", "hidden-gem".
+Set withGenres to standard genre names (e.g. "Comedy", "Sci-Fi", "Thriller", "Drama", "Crime", "Mystery", "Action", "Animation", "Romance", "Horror").
+Set withoutKeywords to short lowercase themes/tropes to avoid (e.g. "gore", "jumpscares").
+Set minYear / maxYear as 4-digit numbers if a decade or era is requested (otherwise null).`;
     const config = {
         responseMimeType: "application/json",
         responseSchema: {
             type: Type.OBJECT,
             properties: {
                 moodId: { type: Type.STRING },
-                withGenres: { type: Type.ARRAY, items: { type: Type.NUMBER } },
-                withoutKeywords: { type: Type.ARRAY, items: { type: Type.NUMBER } },
+                withGenres: { type: Type.ARRAY, items: { type: Type.STRING } },
+                withoutKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
                 minYear: { type: Type.NUMBER },
                 maxYear: { type: Type.NUMBER }
             },
@@ -1158,32 +1235,19 @@ function buildRankerFallbackResponse(
     topCandidates,
     profile,
     modelInfo,
-    reason = "Selected by the CinemaVault calibrated taste ranker."
+    reason = "Selected by the CinemaVault calibrated taste ranker.",
+    targetCount = DEFAULT_RECOMMENDATION_COUNT
 ) {
+    const limit = Math.max(1, Number(targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     return {
         tasteProfile: {
             favoriteGenres: (profile?.lovedGenreNames || []).slice(0, 3),
             preferredEra: "Mixed",
             ratingStyle: "Varied"
         },
-        recommendations: (topCandidates || []).slice(0, 6).map(cand => ({
-            id: cand.id || cand.tmdbId,
-            tmdbId: cand.id || cand.tmdbId,
-            title: cand.title,
-            year: cand.year,
-            genre: cand.genre || (profile?.lovedGenreNames?.[0] || "Cinema"),
-            poster: cand.poster || getFallbackPoster(cand.title),
-            backdrop: cand.backdrop || null,
-            imdbRating: cand.vote_average ? String(cand.vote_average) : null,
-            matchScore: typeof cand.matchScore === "number" ? cand.matchScore : 85,
-            matchReasons: Array.isArray(cand.matchReasons) ? cand.matchReasons : [],
-            rankerProbability: cand.rankerProbability ?? null,
-            features: sanitizeFeatureSnapshot(cand.features),
-            reason,
-            plot: cand.overview || "",
-            sourceBucket: cand.sourceBucket || "TMDB",
-            realData: true
-        })),
+        recommendations: (topCandidates || []).slice(0, limit).map(cand =>
+            buildRecommendationEntry(cand, {}, profile, { reason })
+        ),
         modelInfo
     };
 }
@@ -1192,6 +1256,9 @@ function buildRankerFallbackResponse(
  * Executes Calibrated Ranker + Gemini Explanations & Diversity Pass
  */
 async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options = {}) {
+    const targetCount = Math.max(1, Number(options.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
+    const shortlistLimit = Math.max(targetCount, options.topK || 30);
+    const moodFilters = normalizeMoodFilters(options.moodFilters);
     const reserveConfig =
         options.reserve !== undefined
             ? options.reserve
@@ -1201,22 +1268,52 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
                 minProbabilityPercentile: RECENT_RELEASE_MIN_PROB_PERCENTILE
             };
 
-    const topCandidates = rankCandidatePool(
+    const rankerContext = {
+        profile,
+        mood,
+        moodFilters,
+        excludeIds: options.excludeIds,
+        collabSimMap: options.collabSimMap,
+        contentSimMap: options.contentSimMap,
+        repulsionMap: options.repulsionMap,
+        dnaSimMap: options.dnaSimMap,
+        anchorKeywords: options.anchorKeywords ?? profile?.lovedKeywordIds,
+        userProviders: options.userProviders
+    };
+
+    let topCandidates = rankCandidatePool(
         candidates,
-        {
-            profile,
-            collabSimMap: options.collabSimMap,
-            contentSimMap: options.contentSimMap,
-            repulsionMap: options.repulsionMap,
-            dnaSimMap: options.dnaSimMap,
-            anchorKeywords: options.anchorKeywords ?? profile?.lovedKeywordIds,
-            userProviders: options.userProviders
-        },
+        rankerContext,
         options.rankerWeights,
-        options.topK || 15,
+        shortlistLimit,
         options.rankerOptions,
         reserveConfig
     );
+
+    // Exhaustion guard: if session refresh exclusions shrunk the pool below targetCount,
+    // keep unseen items at the front and pad from the broader ranked pool.
+    if (
+        Array.isArray(options.excludeIds) &&
+        options.excludeIds.length > 0 &&
+        topCandidates.length < Math.min(targetCount, candidates.length)
+    ) {
+        const padded = rankCandidatePool(
+            candidates,
+            { ...rankerContext, excludeIds: [] },
+            options.rankerWeights,
+            shortlistLimit,
+            options.rankerOptions,
+            reserveConfig
+        );
+        const usedIds = new Set(topCandidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0)).filter(Boolean));
+        for (const cand of padded) {
+            const cid = Number(cand?.tmdbId ?? cand?.id ?? 0);
+            if (cid && usedIds.has(cid)) continue;
+            if (cid) usedIds.add(cid);
+            topCandidates.push(cand);
+            if (topCandidates.length >= shortlistLimit) break;
+        }
+    }
 
     if (!ai) {
         const rankerFallbackInfo = buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback");
@@ -1229,12 +1326,14 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             modelInfo: rankerFallbackInfo,
             usageMetadata: null
         });
-        return buildRankerFallbackResponse(topCandidates, profile, rankerFallbackInfo);
+        return buildRankerFallbackResponse(topCandidates, profile, rankerFallbackInfo, undefined, targetCount);
     }
 
     const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates, {
         watched: options.watched,
-        watchlist: options.watchlist
+        watchlist: options.watchlist,
+        moodFilters,
+        targetCount
     });
 
     const generationConfig = {
@@ -1304,7 +1403,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
 
     if (!response) {
         console.warn("All Gemini models failed to re-rank candidates, falling back to direct ranker output.");
-        return buildRankerFallbackResponse(topCandidates, profile, activeRunModelInfo);
+        return buildRankerFallbackResponse(topCandidates, profile, activeRunModelInfo, undefined, targetCount);
     }
 
     try {
@@ -1313,7 +1412,8 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             throw new Error("Gemini re-rank returned empty or missing recommendations array");
         }
         const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile, {
-            watched: options.watched
+            watched: options.watched,
+            targetCount
         });
         if (!Array.isArray(merged?.recommendations) || merged.recommendations.length === 0) {
             throw new Error("Merged recommendations empty");
@@ -1335,7 +1435,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             }
         );
         lastCurationModelInfo = fallbackInfo;
-        return buildRankerFallbackResponse(topCandidates, profile, fallbackInfo);
+        return buildRankerFallbackResponse(topCandidates, profile, fallbackInfo, undefined, targetCount);
     }
 }
 
@@ -1344,6 +1444,8 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
  */
 async function generateWithOmdbFallback(ai, watchedMovies, watchlist, onProgress, options = {}) {
     onProgress?.("Synthesizing recommendations from vault history...");
+    const targetCount = Math.max(1, Number(options.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
+    const { effectiveMood, preset, vibeConstraints } = buildMoodPromptSummary(options.mood || "any", options.moodFilters);
 
     const analytics = buildTasteAnalytics(watchedMovies);
     const header = "Title|Year|Director|Genre|Rating|UserNote";
@@ -1353,10 +1455,11 @@ async function generateWithOmdbFallback(ai, watchedMovies, watchlist, onProgress
     const historyData = `${header}\n${rows}`;
 
     const prompt = `
-You are an elite film critic. Select 6 distinct movie recommendations based on this viewing history:
+You are an elite film critic. Select ${targetCount} distinct movie recommendations based on this viewing history:
 ${historyData}
 
-Mood requested: "${cleanStr(options.mood || 'any')}"
+Mood requested: "${cleanStr(effectiveMood)}" (${preset.label}) — ${preset.promptDirective}
+${vibeConstraints.length > 0 ? `Custom Vibe Constraints: ${vibeConstraints.join(" | ")}` : ""}
 Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and recommendations (title, year, type, genre, matchScore, reason).
 `;
 
@@ -1523,6 +1626,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     const excludeIds = new Set([
                         ...(watchedMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
                         ...(watchlist || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
+                        ...(Array.isArray(options.excludeIds) ? options.excludeIds.map(id => Number(id || 0)) : []),
                         ...candidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0))
                     ]);
                     const neighbors = retrieveAlignedEmbeddingNeighbors(
