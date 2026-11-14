@@ -23,6 +23,7 @@ export const GENRE_NAME_TO_ID = {
   mystery: 9648,
   romance: 10749,
   "sci-fi": 878,
+  "sci fi": 878,
   "science fiction": 878,
   scifi: 878,
   "tv movie": 10770,

@@ -74,4 +74,9 @@ test("parseFreeTextMoodFallback extracts mood, decade, genres, and exclusions of
   assert.equal(modernScifi.moodId, "mind-bending");
   assert.equal(modernScifi.minYear, 2015);
   assert.ok(modernScifi.withGenreIds.includes(878));
+
+  const spaceScifi = parseFreeTextMoodFallback("90s sci fi comedy");
+  assert.ok(spaceScifi.withGenreIds.includes(878), "must recognize unhyphenated 'sci fi' offline");
+  assert.ok(spaceScifi.withGenreIds.includes(35));
+  assert.equal(spaceScifi.minYear, 1990);
 });

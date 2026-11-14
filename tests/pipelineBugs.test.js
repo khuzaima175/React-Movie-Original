@@ -651,6 +651,35 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
       }
     );
     assert.equal(nearExhausted.recommendations.length, 10);
+
+    // Exhaustion guard deduplication must also work cleanly for string/non-numeric candidate IDs
+    const stringPool = Array.from({ length: 12 }, (_, i) => ({
+      id: `tt990${String(i).padStart(2, "0")}`,
+      title: `String Film ${i}`,
+      year: "2019",
+      release_date: "2019-06-01",
+      overview: `Warm story ${i}`,
+      genre: "Comedy",
+      tmdbGenreIds: [35],
+      genre_ids: [35],
+      vote_average: 7.5 + i * 0.01,
+      vote_count: 900
+    }));
+    const dedupedExhausted = await getMovieRecommendations(
+      [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [35] }],
+      [],
+      null,
+      {
+        mood: "comfort-watch",
+        excludeIds: stringPool.slice(0, 10).map((c) => c.id),
+        candidates: stringPool,
+        embeddingIndex: null,
+        targetCount: 10
+      }
+    );
+    assert.equal(dedupedExhausted.recommendations.length, 10);
+    const seenStringTitles = new Set(dedupedExhausted.recommendations.map((r) => r.title));
+    assert.equal(seenStringTitles.size, 10, "exhaustion guard must not duplicate string-ID candidates");
   } finally {
     if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
     else process.env.VITE_GEMINI_KEY = prevGKey;

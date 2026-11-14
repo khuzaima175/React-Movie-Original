@@ -1305,9 +1305,11 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             options.rankerOptions,
             reserveConfig
         );
-        const usedIds = new Set(topCandidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0)).filter(Boolean));
+        const usedIds = new Set(
+            topCandidates.map(c => String(c?.tmdbId ?? c?.id ?? c?.imdbID ?? "").trim()).filter(Boolean)
+        );
         for (const cand of padded) {
-            const cid = Number(cand?.tmdbId ?? cand?.id ?? 0);
+            const cid = String(cand?.tmdbId ?? cand?.id ?? cand?.imdbID ?? "").trim();
             if (cid && usedIds.has(cid)) continue;
             if (cid) usedIds.add(cid);
             topCandidates.push(cand);
