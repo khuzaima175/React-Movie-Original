@@ -7,7 +7,8 @@ import {
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
-  nextRefreshExcludeState
+  nextRefreshExcludeState,
+  shouldAutoRefreshOnDrawerClose
 } from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
@@ -188,4 +189,13 @@ test("nextRefreshExcludeState accumulates shown IDs up to 120, cycles TMDB pages
   // Resets when forceRefresh is false
   const reset = nextRefreshExcludeState(capped, batch5, false);
   assert.deepEqual(reset, { seenIds: [], excludeIds: [], page: 1 });
+});
+
+test("shouldAutoRefreshOnDrawerClose refreshes only when closing drawer with stale hash while idle", () => {
+  assert.equal(shouldAutoRefreshOnDrawerClose(true, "hash_new", "hash_old", false), true);
+  assert.equal(shouldAutoRefreshOnDrawerClose(true, "hash_same", "hash_same", false), false);
+  assert.equal(shouldAutoRefreshOnDrawerClose(true, "hash_new", "", false), false);
+  assert.equal(shouldAutoRefreshOnDrawerClose(true, "", "hash_old", false), false);
+  assert.equal(shouldAutoRefreshOnDrawerClose(true, "hash_new", "hash_old", true), false);
+  assert.equal(shouldAutoRefreshOnDrawerClose(false, "hash_new", "hash_old", false), false);
 });

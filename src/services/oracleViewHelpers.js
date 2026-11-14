@@ -289,3 +289,13 @@ export function nextRefreshExcludeState(prevState = { seenIds: [], page: 1 }, cu
   };
 }
 
+/**
+ * Returns true when closing the filter drawer leaves the active recommendation hash
+ * out of sync with the currently selected mood/provider/region state.
+ */
+export function shouldAutoRefreshOnDrawerClose(isDrawer, currentHash, activeHash, isLoading = false) {
+  if (!isDrawer || isLoading) return false;
+  if (!currentHash || !activeHash) return false;
+  return currentHash !== activeHash;
+}
+

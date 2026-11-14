@@ -30,7 +30,8 @@ import {
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
-  nextRefreshExcludeState
+  nextRefreshExcludeState,
+  shouldAutoRefreshOnDrawerClose
 } from "../services/oracleViewHelpers";
 import {
   DEFAULT_RECOMMENDATION_COUNT,
@@ -132,7 +133,8 @@ export default function MovieRecommendations({
         tasteProfileData.watchlistGenreIds,
         selectedMood,
         userWatchProviders,
-        activeMoodFilters
+        activeMoodFilters,
+        userRegion
       )
     : "";
 
@@ -175,7 +177,7 @@ export default function MovieRecommendations({
   }, [isLoading, watched.length]);
 
   useEffect(() => {
-    if (!recommendations && currentHash && !isLoading) {
+    if ((!recommendations || aiRecommendationsHash !== currentHash) && currentHash && !isLoading) {
       const cached = getSmartCache(currentHash, watched, watchlist);
       if (cached && cached.recommendations?.length >= MIN_VALID_CACHE_COUNT) {
         const cachedModelInfo = cached.modelInfo
@@ -186,7 +188,15 @@ export default function MovieRecommendations({
         saveAiRecommendations(cached.recommendations, cached.tasteProfile, currentHash, cachedModelInfo);
       }
     }
-  }, [currentHash, isLoading]);
+  }, [currentHash, isLoading, aiRecommendationsHash]);
+
+  const handleCloseFilterDeck = () => {
+    setShowFilterDeck(false);
+    setIsStreamingOpen(false);
+    if (shouldAutoRefreshOnDrawerClose(true, currentHash, aiRecommendationsHash, isLoading)) {
+      handleGetRecommendations({ forceRefresh: false });
+    }
+  };
 
   const handleGetRecommendations = async (invokeOpts = {}) => {
     const requestId = ++activeRequestRef.current;
@@ -232,7 +242,8 @@ export default function MovieRecommendations({
         profile.watchlistGenreIds,
         effectiveMood,
         userWatchProviders,
-        effectiveFilters
+        effectiveFilters,
+        userRegion
       );
       const liveModelInfo = {
         ...resolveResultModelInfo(result, "curation"),
@@ -446,7 +457,7 @@ export default function MovieRecommendations({
           <button
             type="button"
             className="deck-close-btn"
-            onClick={() => setShowFilterDeck(false)}
+            onClick={handleCloseFilterDeck}
             aria-label="Close Mood & Streaming Filters"
           >
             <X size={18} aria-hidden="true" />
@@ -779,7 +790,7 @@ export default function MovieRecommendations({
                 variant="secondary"
                 size="sm"
                 className={`oracle-filter-btn ${showFilterDeck ? "is-open" : ""}`}
-                onClick={() => setShowFilterDeck((prev) => !prev)}
+                onClick={() => (showFilterDeck ? handleCloseFilterDeck() : setShowFilterDeck(true))}
               >
                 <SlidersHorizontal size={13} aria-hidden="true" />
                 <span>
@@ -930,11 +941,18 @@ export default function MovieRecommendations({
                       </div>
                     )}
 
-                    {rec.streamProviders && rec.streamProviders.length > 0 && (
-                      <span className="rec-stream-inline">
-                        Available on {rec.streamProviders.slice(0, 3).map((p) => p.name).join(", ")}
-                      </span>
-                    )}
+                    {(() => {
+                      const availableList = [
+                        ...(Array.isArray(rec.streamProviders) ? rec.streamProviders : []),
+                        ...(Array.isArray(rec.freeProviders) ? rec.freeProviders : [])
+                      ];
+                      if (availableList.length === 0) return null;
+                      return (
+                        <span className="rec-stream-inline">
+                          Available on {availableList.slice(0, 3).map((p) => p.name).join(", ")}
+                        </span>
+                      );
+                    })()}
 
                     <div className="rec-actions">
                       <Button

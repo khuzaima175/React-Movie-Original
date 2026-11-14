@@ -789,7 +789,9 @@ export default function MovieDetails({
                       <Tv size={16} className="text-[var(--text-3)]" aria-hidden="true" />
                       <span>Where to Stream</span>
                     </div>
-                    <span className="stream-region-tag">Region: {userRegion || "US"}</span>
+                    <span className="stream-region-tag">
+                      Region: {!userRegion || userRegion === "GLOBAL" ? "US (Global Default)" : userRegion}
+                    </span>
                   </div>
 
                   <div className="stream-sections-wrap">

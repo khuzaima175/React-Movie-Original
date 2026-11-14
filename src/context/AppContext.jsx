@@ -28,6 +28,7 @@ export const safeSetItem = (key, value) => {
       console.warn("⚠️ LocalStorage quota exceeded. Purging non-critical AI caches to protect user vault...");
       
       const purgeOrder = [
+        "cinemavault_smart_cache_v4",
         "cinemavault_smart_cache_v3",
         "cinemavault_explanations_v1",
         "cinemavault_recs_model_v1",
@@ -105,7 +106,8 @@ export function AppProvider({ children }) {
   const [aiRecommendations, setAiRecommendations] = useState(() => {
     try {
       const saved = localStorage.getItem("cinemavault_recs_v1");
-      return saved && saved !== "undefined" ? JSON.parse(saved) : null;
+      const parsed = saved && saved !== "undefined" ? JSON.parse(saved) : null;
+      return Array.isArray(parsed) && parsed.length >= 7 ? parsed : null;
     } catch (e) {
       console.warn("Error parsing cinemavault_recs_v1 from localStorage:", e);
       return null;
@@ -124,6 +126,11 @@ export function AppProvider({ children }) {
 
   const [aiRecommendationsHash, setAiRecommendationsHash] = useState(() => {
     try {
+      const savedRecs = localStorage.getItem("cinemavault_recs_v1");
+      const parsedRecs = savedRecs && savedRecs !== "undefined" ? JSON.parse(savedRecs) : null;
+      if (!Array.isArray(parsedRecs) || parsedRecs.length < 7) {
+        return "";
+      }
       return localStorage.getItem("cinemavault_recs_hash_v1") || "";
     } catch (e) {
       return "";
