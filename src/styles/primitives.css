@@ -29,6 +29,16 @@
   transition: color var(--dur-1) ease, border-color var(--dur-1) ease;
 }
 
+.cv-tab-item:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.cv-tab-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+}
+
 .cv-tab-item:hover {
   color: var(--text-2);
 }

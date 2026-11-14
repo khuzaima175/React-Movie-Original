@@ -51,8 +51,8 @@
 
   /* Shared Alignment Rail Across Nav, Hero, Rows, Vault, Oracle & Details */
   --nav-h: 6.4rem;
-  --page-max: 140rem;
-  --page-gutter: clamp(2rem, 4vw, 5.6rem);
+  --page-max: 174rem;
+  --page-gutter: clamp(1.6rem, 3vw, 4.4rem);
   --container: var(--page-max);
   --gutter: var(--page-gutter);
   --section-gap: 5.2rem;

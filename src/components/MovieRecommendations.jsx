@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   getMovieRecommendations,
   getFallbackPoster,
@@ -26,7 +27,8 @@ import {
 import {
   formatStreamingSummary,
   formatRecBadgeSummary,
-  resolveRecommendationAnchors
+  resolveRecommendationAnchors,
+  sanitizeOracleReason
 } from "../services/oracleViewHelpers";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
@@ -705,8 +707,9 @@ export default function MovieRecommendations({
 
             <div className="recs-actions-group">
               <Button
-                variant={showFilterDeck ? "primary" : "secondary"}
+                variant="secondary"
                 size="sm"
+                className={`oracle-filter-btn ${showFilterDeck ? "is-open" : ""}`}
                 onClick={() => setShowFilterDeck((prev) => !prev)}
               >
                 <SlidersHorizontal size={13} aria-hidden="true" />
@@ -749,7 +752,18 @@ export default function MovieRecommendations({
               const anchors = resolveRecommendationAnchors(rec, watched, 3);
 
               return (
-                <li key={rec.id || rec.tmdbId || index} className="recommendation-row">
+                <motion.li
+                  key={rec.id || rec.tmdbId || index}
+                  className="recommendation-row"
+                  initial={{ opacity: 0, y: 24 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.12 }}
+                  transition={{
+                    duration: 0.45,
+                    delay: Math.min(index * 0.04, 0.16),
+                    ease: [0.22, 1, 0.36, 1]
+                  }}
+                >
                   <div className="rec-rank-num" aria-hidden="true">
                     {rankLabel}
                   </div>
@@ -814,7 +828,7 @@ export default function MovieRecommendations({
                       ratingTone="neutral"
                     />
 
-                    <p className="rec-reason-prose">{rec.reason}</p>
+                    <p className="rec-reason-prose">{sanitizeOracleReason(rec.reason)}</p>
 
                     {anchors.length > 0 && (
                       <div className="rec-anchors-strip">
@@ -852,8 +866,9 @@ export default function MovieRecommendations({
 
                     <div className="rec-actions">
                       <Button
-                        variant={inWatchlist ? "secondary" : "primary"}
+                        variant="secondary"
                         size="sm"
+                        className={`btn-oracle-watchlist ${inWatchlist ? "is-saved" : ""}`}
                         onClick={() => handleAdd(rec)}
                         disabled={inWatchlist || isAdding}
                       >
@@ -912,7 +927,7 @@ export default function MovieRecommendations({
                       </div>
                     )}
                   </div>
-                </li>
+                </motion.li>
               );
             })}
           </ul>

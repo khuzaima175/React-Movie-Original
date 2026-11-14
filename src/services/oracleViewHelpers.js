@@ -190,3 +190,42 @@ export function resolveRecommendationAnchors(rec, watched = [], maxCount = 3) {
   return [...matched, ...fallbackPool].slice(0, maxCount);
 }
 
+/**
+ * Clean legacy AI-chrome buzzwords ("High Taste-Twin Match", "Core Theme Match",
+ * "Genre Bullseye", or "A 98% High Taste-Twin Match that ...") out of cached or
+ * model-generated recommendation reasons while keeping real film criticism intact.
+ */
+export function sanitizeOracleReason(reason) {
+  if (typeof reason !== "string") return "";
+  const trimmed = reason.trim();
+  if (!trimmed) return "";
+
+  let cleaned = trimmed
+    // Strip phrases like "A 98% High Taste-Twin Match that channels..."
+    .replace(
+      /^(?:a|an)\s+\d{1,3}%\s+(?:high|elite|prime|strong)?\s*taste-twin\s+match\s+(?:that|which)\s+/i,
+      ""
+    )
+    // Strip "... and earning a High Taste-Twin Match, Core Theme Match, and Genre Bullseye, "
+    .replace(
+      /,?\s*(?:and\s+)?earning\s+(?:a|an)?\s*(?:high|elite|prime|strong)?\s*taste-twin\s+match(?:,?\s*core\s+theme\s+match)?(?:,?\s*(?:and\s+)?genre\s+bullseye)?\s*,?\s*/gi,
+      ", "
+    )
+    // Strip standalone leakage terms
+    .replace(/\b(?:high|elite|prime|strong)?\s*taste-twin\s+match\b/gi, "")
+    .replace(/\bcore\s+theme\s+match\b/gi, "")
+    .replace(/\bgenre\s+bullseye\b/gi, "")
+    // Normalize leftover punctuation / spacing
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/^[,;\s]+/, "")
+    .replace(/,\s*,+/g, ",")
+    .trim();
+
+  if (cleaned) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+

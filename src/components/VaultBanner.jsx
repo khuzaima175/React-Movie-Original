@@ -13,7 +13,9 @@ import {
   Star,
   Filter,
   Cloud,
-  MoreHorizontal
+  MoreHorizontal,
+  BarChart3,
+  Compass
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button, Menu, StatCell, Tabs } from "./ui";
@@ -155,7 +157,10 @@ export default function VaultBanner({
       {/* ── Tier 1: Editorial Header & Typographic Stats ── */}
       <div className="studio-hero-tier">
         <div className="studio-hero-left">
-          <h1 className="vault-spacious-title display-title">My Vault</h1>
+          <div className="studio-title-stack">
+            <h1 className="vault-spacious-title display-title">My Vault</h1>
+            <p className="vault-subtitle">Your personal ledger of rated cinema and queued watches.</p>
+          </div>
 
           {totalMovies > 0 && (
             <div className="vault-stats-strip">
@@ -180,6 +185,9 @@ export default function VaultBanner({
                 }
               />
               <StatCell label="Top genre" value={topGenre} />
+              {topDirectorEntry && (
+                <StatCell label="Top auteur" value={topDirectorEntry[0]} />
+              )}
             </div>
           )}
         </div>
@@ -193,11 +201,13 @@ export default function VaultBanner({
 
           {activeTab === "watched" && totalMovies > 0 && (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
+              className="vault-control-btn"
               onClick={() => setIsInsightsOpen((prev) => !prev)}
               aria-expanded={isInsightsOpen}
             >
+              <BarChart3 size={14} aria-hidden="true" />
               <span>{isInsightsOpen ? "Hide Insights" : "Insights"}</span>
               {isInsightsOpen ? (
                 <ChevronUp size={14} aria-hidden="true" />
@@ -207,13 +217,14 @@ export default function VaultBanner({
             </Button>
           )}
 
-          <Link to="/ai" className="vault-action-link">
-            Taste Profile &rarr;
+          <Link to="/ai" className="vault-action-pill">
+            <Compass size={14} aria-hidden="true" />
+            <span>Taste Profile</span>
           </Link>
 
           <Menu>
             <Menu.Trigger
-              className="nav-utility-trigger"
+              className="vault-menu-trigger"
               aria-label="Vault actions menu"
               title="Manage, Import / Export, Cloud Sync"
             >

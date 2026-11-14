@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import MovieCard from "./MovieCard";
 import { Button } from "./ui";
 import { collectCatalogMosaic } from "../services/dashboardService";
+import { useScrollReveal } from "../hooks/useScrollReveal";
 
 export default function HomePosterGrid({
   rows = [],
@@ -13,6 +14,7 @@ export default function HomePosterGrid({
 }) {
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [visibleCount, setVisibleCount] = useState(24);
+  const [revealRef, isRevealed] = useScrollReveal();
 
   useEffect(() => {
     setVisibleCount(24);
@@ -36,7 +38,11 @@ export default function HomePosterGrid({
   }
 
   return (
-    <section className="home-mosaic-section page-rail" aria-label="Explore full film catalog">
+    <section
+      ref={revealRef}
+      className={`home-mosaic-section page-rail cv-reveal ${isRevealed ? "is-visible" : ""}`}
+      aria-label="Explore full film catalog"
+    >
       <div className="home-mosaic-header">
         <div className="home-mosaic-title-wrap">
           <h2 className="home-mosaic-heading">All Films</h2>
@@ -65,7 +71,7 @@ export default function HomePosterGrid({
       </div>
 
       <div className="home-poster-mosaic-grid">
-        {items.map((movie) => {
+        {items.map((movie, idx) => {
           const id = movie.imdbID || movie.id || `tmdb_${movie.tmdbId}`;
           const isWatched = (watched || []).some(
             (w) => w && (w.imdbID === id || w.id === id || (movie.tmdbId && w.tmdbId === movie.tmdbId))
@@ -75,6 +81,7 @@ export default function HomePosterGrid({
             <MovieCard
               key={id}
               movie={movie}
+              revealIndex={idx}
               onSelectMovie={onSelectMovie}
               onQuickAdd={onQuickAdd}
               onAddWatched={onAddWatched}

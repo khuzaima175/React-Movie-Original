@@ -60,9 +60,51 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  :focus {
+    outline: none;
+  }
+
   :focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+  }
+}
+
+/* ── Scroll-Down Editorial Reveal Animations (Netflix-Style Cascade) ──────── */
+.cv-reveal {
+  opacity: 0;
+  transform: translate3d(0, 2.8rem, 0) scale(0.988);
+  transition:
+    opacity 0.62s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.cv-reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+.cv-reveal-item {
+  opacity: 0;
+  transform: translate3d(0, 2.2rem, 0);
+  transition:
+    opacity 0.52s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--stagger-i, 0) * 38ms);
+}
+
+.cv-reveal-item.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-reveal,
+  .cv-reveal-item {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
   }
 }
 
@@ -6719,25 +6761,25 @@
 .taste-deck-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-modal);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 2rem 1.6rem;
-  padding-top: clamp(24px, 4vh, 52px);
-  background: rgba(0, 0, 0, 0.88);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  padding-top: clamp(20px, 4vh, 48px);
+  background: rgba(8, 9, 12, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   overflow-y: auto;
 }
 
 .taste-deck-shell {
   width: 100%;
-  max-width: 1080px;
-  background: #131316;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 1.8rem;
-  box-shadow: 0 32px 84px -16px rgba(0, 0, 0, 0.92), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  max-width: 108rem;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -6746,12 +6788,12 @@
 .taste-deck-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 1.6rem;
-  padding: 1.8rem 2.4rem;
-  background: #1a1b1f;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2rem 2.6rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .taste-deck-brand {
@@ -6763,33 +6805,30 @@
 .taste-deck-title-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 1rem;
+  align-items: baseline;
+  gap: 1.2rem;
 }
 
 .taste-deck-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 2.2rem;
+  font-size: 2.4rem;
   font-weight: 600;
-  color: #f4f4f2;
+  color: var(--text-1);
   letter-spacing: -0.02em;
 }
 
 .taste-deck-counter {
-  padding: 0.3rem 0.95rem;
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  color: var(--text-2);
-  font-size: 1.2rem;
+  color: var(--text-3);
+  font-size: 1.25rem;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .taste-deck-subtitle {
   margin: 0;
-  font-size: 1.3rem;
-  color: #8a8a86;
+  font-size: 1.35rem;
+  color: var(--text-2);
 }
 
 .taste-deck-header-controls {
@@ -6801,30 +6840,32 @@
 
 .taste-deck-mode-tabs {
   display: inline-flex;
-  padding: 0.35rem;
-  border-radius: 1rem;
-  background: #111114;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  gap: 0.35rem;
+  padding: 0.3rem;
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  gap: 0.25rem;
 }
 
 .taste-deck-mode-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
   padding: 0.65rem 1.2rem;
-  border-radius: 0.75rem;
+  border-radius: 4px;
   border: none;
   background: transparent;
-  color: #9e9e99;
+  color: var(--text-2);
+  font-family: var(--font-ui);
   font-size: 1.25rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: color 0.16s ease, background-color 0.16s ease;
 }
 
 .taste-deck-mode-btn:hover {
-  color: #f4f4f2;
+  color: var(--text-1);
 }
 
 .taste-deck-mode-btn.active {
@@ -6837,48 +6878,51 @@
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.75rem 1.25rem;
-  border-radius: 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #232428;
-  color: #d4d4d0;
+  height: 3.5rem;
+  padding: 0 1.25rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-family: var(--font-ui);
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
 .taste-deck-import-btn:hover,
 .taste-deck-skip-btn:hover {
-  border-color: rgba(255, 255, 255, 0.28);
-  color: #ffffff;
+  border-color: var(--hairline-strong);
+  background: var(--surface-3);
 }
 
 .taste-deck-flash-body {
-  padding: 2.2rem 2.6rem 2.6rem;
+  padding: 2.4rem 2.6rem 2.8rem;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 2.2rem;
 }
 
 .taste-deck-progress-wrap {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.7rem;
 }
 
 .taste-deck-progress-bar {
   width: 100%;
-  height: 0.5rem;
-  border-radius: 9999px;
-  background: #222327;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--surface-3);
   overflow: hidden;
 }
 
 .taste-deck-progress-fill {
   height: 100%;
-  background: var(--btn-primary-bg);
-  transition: width 0.25s ease;
+  background: var(--text-1);
+  transition: width 0.25s var(--ease-out);
 }
 
 .taste-deck-progress-meta {
@@ -6886,42 +6930,52 @@
   align-items: center;
   justify-content: space-between;
   font-size: 1.25rem;
-  color: #9e9e99;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .taste-deck-feedback-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.25rem 0.9rem;
-  border-radius: 9999px;
-  background: rgba(16, 185, 129, 0.16);
-  border: 1px solid rgba(16, 185, 129, 0.45);
-  color: #34d399;
+  color: var(--match);
   font-weight: 600;
 }
 
 .taste-deck-card-stage {
   display: grid;
   grid-template-columns: 22rem minmax(0, 1fr);
-  gap: 2.6rem;
+  gap: 2.8rem;
   align-items: start;
 }
 
 .taste-deck-stage-poster {
+  position: relative;
   width: 100%;
   aspect-ratio: 2 / 3;
-  border-radius: 1.2rem;
+  border-radius: var(--r-poster);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: #1c1d20;
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.55);
+  background: var(--surface-2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px var(--rim-poster),
+    var(--sh-3);
+}
+
+.taste-deck-stage-poster::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.16) 0%, transparent 48%);
+  pointer-events: none;
 }
 
 .taste-deck-stage-poster img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .taste-deck-stage-info {
@@ -6931,58 +6985,25 @@
   min-width: 0;
 }
 
-.taste-deck-card-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.7rem;
-}
-
-.taste-deck-genre-badge {
-  padding: 0.3rem 0.9rem;
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
-  color: var(--text-2);
-  font-size: 1.15rem;
-  font-weight: 600;
-}
-
-.taste-deck-meta-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.85rem;
-  border-radius: var(--r-sm);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-2);
-  font-size: 1.15rem;
-  font-weight: 600;
-}
-
-.taste-deck-meta-chip.imdb {
-  color: var(--text-2);
-}
-
 .taste-deck-movie-title {
   margin: 0;
-  font-size: clamp(2.2rem, 3vw, 3rem);
-  font-weight: 800;
-  color: #f4f4f2;
-  line-height: 1.15;
+  font-size: clamp(2.4rem, 3.2vw, 3.3rem);
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.1;
 }
 
 .taste-deck-director {
   margin: 0;
   font-size: 1.35rem;
-  color: #9e9e99;
+  color: var(--text-3);
 }
 
 .taste-deck-plot {
   margin: 0;
-  font-size: 1.45rem;
-  line-height: 1.55;
-  color: #cfcfca;
+  font-size: 1.5rem;
+  line-height: 1.58;
+  color: var(--text-2);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -6990,10 +7011,10 @@
 }
 
 .taste-deck-rating-panel {
-  padding: 1.4rem 1.6rem;
-  border-radius: 1.2rem;
-  background: #1a1b1f;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1.6rem 1.8rem;
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
@@ -7006,11 +7027,11 @@
   justify-content: space-between;
   gap: 0.8rem;
   font-size: 1.25rem;
-  color: #8a8a86;
+  color: var(--text-3);
 }
 
 .taste-deck-tier-label {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .taste-deck-score-row {
@@ -7021,21 +7042,23 @@
 
 .taste-deck-score-btn {
   height: 4.2rem;
-  border-radius: 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #232429;
-  color: #f4f4f2;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-family: var(--font-ui);
   font-size: 1.5rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+  transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .taste-deck-score-btn:hover,
 .taste-deck-score-btn.selected {
-  background: var(--tier-accent, #e5b84b);
-  border-color: var(--tier-accent, #e5b84b);
-  color: #0d0e11;
+  background: var(--tier-accent, var(--accent));
+  border-color: var(--tier-accent, var(--accent));
+  color: var(--bg);
   transform: translateY(-2px);
 }
 
@@ -7049,21 +7072,25 @@
 .taste-deck-nav-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 0.85rem 1.4rem;
-  border-radius: 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #1c1d21;
-  color: #e4e4e0;
+  gap: 0.6rem;
+  height: 3.8rem;
+  padding: 0 1.4rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--font-ui);
   font-size: 1.3rem;
-  font-weight: 600;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
 .taste-deck-nav-btn:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.28);
-  background: #25262b;
+  border-color: var(--hairline-strong);
+  background: var(--surface-3);
+  color: var(--text-1);
 }
 
 .taste-deck-nav-btn:disabled {
@@ -7072,8 +7099,8 @@
 }
 
 .taste-deck-nav-btn.saved {
-  border-color: rgba(243, 241, 235, 0.42);
-  color: #f3f1eb;
+  border-color: rgba(243, 241, 235, 0.36);
+  color: var(--text-1);
 }
 
 .taste-deck-nav-btn.skip {
@@ -7182,60 +7209,63 @@
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.9rem;
-  border-radius: 1.2rem;
-  background: #1a1b1f;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
 }
 
 .taste-deck-wall-poster {
   position: relative;
   aspect-ratio: 2 / 3;
-  border-radius: 0.85rem;
+  border-radius: var(--r-poster);
   overflow: hidden;
-  background: #111114;
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 0 0 1px var(--rim-poster);
 }
 
 .taste-deck-wall-poster img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .taste-deck-wall-genre {
   position: absolute;
-  top: 0.7rem;
-  left: 0.7rem;
-  padding: 0.2rem 0.65rem;
-  border-radius: 9999px;
-  background: rgba(12, 12, 15, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: #f4f4f2;
+  top: 0.6rem;
+  left: 0.6rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  background: rgba(13, 14, 17, 0.84);
+  color: var(--text-1);
   font-size: 1.05rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .taste-deck-wall-rated-badge {
   position: absolute;
-  top: 0.7rem;
-  right: 0.7rem;
-  padding: 0.2rem 0.65rem;
-  border-radius: var(--r-sm);
-  background: var(--accent);
-  color: #0d0e11;
-  font-size: 1.1rem;
+  bottom: 0.6rem;
+  right: 0.6rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  background: rgba(13, 14, 17, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--accent);
+  font-size: 1.15rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .taste-deck-wall-bookmark {
   position: absolute;
-  top: 0.65rem;
-  right: 0.65rem;
+  top: 0.6rem;
+  right: 0.6rem;
   width: 2.8rem;
   height: 2.8rem;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(12, 12, 15, 0.82);
-  color: #e4e4e0;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(13, 14, 17, 0.84);
+  color: var(--text-1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -7243,8 +7273,8 @@
 }
 
 .taste-deck-wall-bookmark.saved {
-  border-color: #f3f1eb;
-  color: #f3f1eb;
+  border-color: var(--text-1);
+  color: var(--text-1);
 }
 
 .taste-deck-wall-meta {
@@ -7257,8 +7287,8 @@
 .taste-deck-wall-title {
   margin: 0;
   font-size: 1.3rem;
-  font-weight: 700;
-  color: #f4f4f2;
+  font-weight: 600;
+  color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7266,7 +7296,8 @@
 
 .taste-deck-wall-year {
   font-size: 1.15rem;
-  color: #8a8a86;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
@@ -7277,22 +7308,23 @@
 }
 
 .taste-deck-wall-score-btn {
-  height: 2.5rem;
-  border-radius: 0.55rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: #232429;
-  color: #d4d4d0;
+  height: 2.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--text-2);
   font-size: 1.15rem;
-  font-weight: 700;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .taste-deck-wall-score-btn:hover,
 .taste-deck-wall-score-btn.selected {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0d0e11;
+  color: var(--bg);
 }
 
 .taste-deck-grid-footer {
@@ -7301,17 +7333,31 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--hairline);
 }
 
 @media (max-width: 768px) {
+  .taste-deck-backdrop {
+    padding: 0.8rem;
+  }
+
+  .taste-deck-header {
+    padding: 1.4rem 1.6rem;
+  }
+
+  .taste-deck-flash-body,
+  .taste-deck-grid-body {
+    padding: 1.6rem;
+  }
+
   .taste-deck-card-stage {
     grid-template-columns: minmax(0, 1fr);
+    gap: 1.8rem;
   }
 
   .taste-deck-stage-poster {
-    max-width: 18rem;
+    max-width: 17rem;
     margin: 0 auto;
   }
 

@@ -246,7 +246,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
         {filtered.length > 0 ? (
           viewMode === "grid" ? (
             <div className="vault-grid">
-              {filtered.map((movie) => {
+              {filtered.map((movie, idx) => {
                 const id = movie.imdbID || movie.id;
                 const isSelected = selectedIds.includes(id);
 
@@ -254,6 +254,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
                   <MovieCard
                     key={id}
                     movie={movie}
+                    revealIndex={idx}
                     onSelectMovie={handleSelectMovie}
                     onDeleteMovie={handleDeleteSingle}
                     onQuickAdd={activeTab === "watchlist" ? setQuickAddMovie : null}

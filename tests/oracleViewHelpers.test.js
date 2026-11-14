@@ -4,7 +4,8 @@ import { AVAILABLE_REGIONS, POPULAR_WATCH_PROVIDERS } from "../src/services/tmdb
 import {
   formatStreamingSummary,
   formatRecBadgeSummary,
-  resolveRecommendationAnchors
+  resolveRecommendationAnchors,
+  sanitizeOracleReason
 } from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
@@ -116,4 +117,25 @@ test("resolveRecommendationAnchors prioritizes explicit IDs/titles, prose mentio
 test("resolveRecommendationAnchors returns empty array when inputs are empty", () => {
   assert.deepEqual(resolveRecommendationAnchors(null, []), []);
   assert.deepEqual(resolveRecommendationAnchors({ title: "Dune" }, []), []);
+});
+
+test("sanitizeOracleReason strips legacy taste-twin and bullseye buzzwords cleanly", () => {
+  assert.equal(
+    sanitizeOracleReason(
+      "Written and produced by the Wachowskis and earning a High Taste-Twin Match, Core Theme Match, and Genre Bullseye, this dystopian thriller fuses rebellion with masked grit."
+    ),
+    "Written and produced by the Wachowskis, this dystopian thriller fuses rebellion with masked grit."
+  );
+
+  assert.equal(
+    sanitizeOracleReason(
+      "A 98% High Taste-Twin Match that channels the razor-sharp dialogue of Fight Club into a visceral quest."
+    ),
+    "Channels the razor-sharp dialogue of Fight Club into a visceral quest."
+  );
+
+  assert.equal(
+    sanitizeOracleReason("Taut sci-fi neo-noir with kinetic chase choreography."),
+    "Taut sci-fi neo-noir with kinetic chase choreography."
+  );
 });

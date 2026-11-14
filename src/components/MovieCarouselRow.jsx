@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
 import { shouldShowCarouselArrows } from "../services/dashboardService";
+import { useScrollReveal } from "../hooks/useScrollReveal";
 
 export default function MovieCarouselRow({
   title,
@@ -15,6 +16,7 @@ export default function MovieCarouselRow({
 }) {
   const scrollRef = useRef(null);
   const [canScroll, setCanScroll] = useState(false);
+  const [revealRef, isRevealed] = useScrollReveal();
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -47,7 +49,11 @@ export default function MovieCarouselRow({
   if (!movies || !Array.isArray(movies) || movies.length === 0) return null;
 
   return (
-    <section className="carousel-section" aria-label={title}>
+    <section
+      ref={revealRef}
+      className={`carousel-section cv-reveal ${isRevealed ? "is-visible" : ""}`}
+      aria-label={title}
+    >
       <div className="carousel-header page-rail">
         <h2 className="carousel-title">{title}</h2>
         <div className="carousel-header-right">

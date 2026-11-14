@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
+import { MetaLine } from "./ui";
 import {
   getRatingTier,
   prepareQuickRatePayload,
@@ -319,19 +320,13 @@ export default function TasteDeckModal({
                   </div>
 
                   <div className="taste-deck-stage-info">
-                    <div className="taste-deck-card-badges">
-                      <span className="taste-deck-genre-badge">{currentCard.primaryGenre}</span>
-                      {currentCard.year && <span className="taste-deck-meta-chip">{currentCard.year}</span>}
-                      {currentCard.runtime && <span className="taste-deck-meta-chip">{currentCard.runtime}</span>}
-                      {currentCard.imdbRating && (
-                        <span className="taste-deck-meta-chip imdb">
-                          <Star size={12} fill="currentColor" aria-hidden="true" />
-                          {currentCard.imdbRating}
-                        </span>
-                      )}
-                    </div>
+                    <MetaLine
+                      items={[currentCard.primaryGenre, currentCard.year, currentCard.runtime]}
+                      rating={currentCard.imdbRating}
+                      ratingTone="neutral"
+                    />
 
-                    <h3 className="taste-deck-movie-title">{currentCard.title}</h3>
+                    <h3 className="taste-deck-movie-title display-title">{currentCard.title}</h3>
                     {currentCard.director && (
                       <p className="taste-deck-director">Directed by {currentCard.director}</p>
                     )}

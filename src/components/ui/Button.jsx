@@ -28,7 +28,7 @@ export function Button({
   ...props
 }) {
   const baseClasses =
-    "inline-flex items-center justify-center border-0 transition-colors duration-150 select-none cursor-pointer active:scale-[0.99] disabled:opacity-45 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+    "inline-flex items-center justify-center border-0 whitespace-nowrap [&_svg]:shrink-0 transition-colors duration-150 select-none cursor-pointer active:scale-[0.99] disabled:opacity-45 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent";
   const variantStyle = variantClasses[variant] || variantClasses.primary;
   const sizeStyle = sizeClasses[size] || sizeClasses.md;
 
@@ -49,7 +49,11 @@ export function Button({
           <Icon size={size === "sm" ? 14 : size === "lg" ? 17 : 15} aria-hidden="true" />
         )
       )}
-      <span>{children}</span>
+      {typeof children === "string" || typeof children === "number" ? (
+        <span>{children}</span>
+      ) : (
+        children
+      )}
       {!loading && Icon && iconPosition === "right" && (
         <Icon size={size === "sm" ? 14 : size === "lg" ? 17 : 15} aria-hidden="true" />
       )}

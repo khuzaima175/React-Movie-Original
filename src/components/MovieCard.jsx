@@ -14,6 +14,7 @@ export default function MovieCard({
   isSelected = false,
   onToggleSelect,
   showCaption = false,
+  revealIndex = 0,
   className = ""
 }) {
   if (!movie) return null;
@@ -54,11 +55,16 @@ export default function MovieCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 22 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.08, margin: "0px 80px -20px 80px" }}
       exit={{ opacity: 0, scale: 0.96 }}
-      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      whileHover={{ y: -2, transition: { duration: 0.16 } }}
+      transition={{
+        duration: 0.44,
+        delay: Math.min((revealIndex % 7) * 0.032, 0.2),
+        ease: [0.22, 1, 0.36, 1]
+      }}
+      whileHover={{ y: -3, transition: { duration: 0.16 } }}
       className={`unified-movie-card ${isManageMode ? "manage-mode" : ""} ${
         isSelected ? "selected" : ""
       } ${className}`}

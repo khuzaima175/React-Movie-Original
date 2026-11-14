@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import PosterImage from "./PosterImage";
 import { Star, Clock, X, CheckSquare, Square, Film } from "lucide-react";
 
@@ -22,7 +23,7 @@ export default function WatchedMoviesList({
       </div>
 
       <ul className="list list-watched-v2">
-        {watched.map((movie) => {
+        {watched.map((movie, idx) => {
           const id = movie.imdbID || movie.id;
           const isSelected = selectedIds.includes(id);
 
@@ -30,6 +31,7 @@ export default function WatchedMoviesList({
             <WatchedMovieRow
               key={id}
               movie={movie}
+              revealIndex={idx}
               onDeleteWatched={onDeleteWatched}
               onSelectMovie={onSelectMovie}
               isManageMode={isManageMode}
@@ -45,6 +47,7 @@ export default function WatchedMoviesList({
 
 function WatchedMovieRow({
   movie,
+  revealIndex = 0,
   onDeleteWatched,
   onSelectMovie,
   isManageMode,
@@ -70,7 +73,15 @@ function WatchedMovieRow({
   }
 
   return (
-    <li
+    <motion.li
+      initial={{ opacity: 0, y: 18 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.1 }}
+      transition={{
+        duration: 0.36,
+        delay: Math.min((revealIndex % 8) * 0.025, 0.15),
+        ease: [0.22, 1, 0.36, 1]
+      }}
       className={`vault-list-row ${isManageMode ? "manage-mode" : ""} ${isSelected ? "selected" : ""}`}
       onClick={handleRowClick}
       tabIndex={0}
@@ -140,6 +151,6 @@ function WatchedMovieRow({
           </button>
         )}
       </div>
-    </li>
+    </motion.li>
   );
 }

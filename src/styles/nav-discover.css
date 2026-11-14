@@ -252,6 +252,7 @@
   }
 
   .mobile-tab {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -266,12 +267,28 @@
     font-weight: 500;
     text-decoration: none;
     cursor: pointer;
-    transition: color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s ease, transform 0.15s ease;
+  }
+
+  .mobile-tab:active {
+    transform: scale(0.95);
   }
 
   .mobile-tab.active {
     color: var(--text-1);
     font-weight: 600;
+  }
+
+  .mobile-tab.active::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 28%;
+    right: 28%;
+    height: 2px;
+    background: var(--text-1);
+    border-radius: 0 0 2px 2px;
   }
 }
 
@@ -298,8 +315,8 @@
 .hero-billboard {
   position: relative;
   width: 100%;
-  height: clamp(46rem, 64vh, 64rem);
-  min-height: 44rem;
+  height: clamp(50rem, 66vh, 66rem);
+  min-height: 46rem;
   overflow: hidden;
   background: var(--bg);
 }
@@ -308,7 +325,8 @@
   position: absolute;
   inset: 0;
   background-size: cover;
-  background-position: center 22%;
+  background-position: 50% 8%;
+  background-repeat: no-repeat;
   user-select: none;
   pointer-events: none;
 }
@@ -317,7 +335,7 @@
   position: absolute;
   inset: -4rem;
   background-size: cover;
-  background-position: center;
+  background-position: center 15%;
   filter: blur(38px) saturate(1.15) brightness(0.45);
   pointer-events: none;
 }
@@ -327,10 +345,11 @@
   inset: 0;
   background: linear-gradient(
     90deg,
-    rgba(13, 14, 17, 0.96) 0%,
-    rgba(13, 14, 17, 0.86) 34%,
-    rgba(13, 14, 17, 0.38) 64%,
-    rgba(13, 14, 17, 0.08) 100%
+    rgba(13, 14, 17, 0.94) 0%,
+    rgba(13, 14, 17, 0.72) 26%,
+    rgba(13, 14, 17, 0.24) 52%,
+    rgba(13, 14, 17, 0.04) 84%,
+    rgba(13, 14, 17, 0.42) 100%
   );
   pointer-events: none;
 }
@@ -340,9 +359,10 @@
   inset: 0;
   background: linear-gradient(
     180deg,
-    rgba(13, 14, 17, 0.14) 0%,
-    rgba(13, 14, 17, 0) 38%,
-    rgba(13, 14, 17, 0.7) 80%,
+    rgba(13, 14, 17, 0.5) 0%,
+    rgba(13, 14, 17, 0.06) 20%,
+    rgba(13, 14, 17, 0) 44%,
+    rgba(13, 14, 17, 0.72) 82%,
     var(--bg) 100%
   );
   pointer-events: none;
@@ -381,11 +401,12 @@
   font-family: var(--font-display);
   font-optical-sizing: auto;
   font-variation-settings: "SOFT" 40, "WONK" 0;
-  font-size: clamp(3.4rem, 4.6vw, 5.4rem);
+  font-size: clamp(3rem, 3.8vw, 4.9rem);
   font-weight: 600;
-  line-height: 1.04;
+  line-height: 1.05;
   letter-spacing: -0.025em;
   text-wrap: balance;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
 }
 
 .hero-plot {
@@ -623,10 +644,17 @@
   gap: 1.8rem;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
   scroll-snap-type: x proximity;
   padding-top: 0.4rem;
   padding-bottom: 0.8rem;
   scrollbar-width: none;
+}
+
+@media (min-width: 1600px) {
+  .carousel-track {
+    grid-auto-columns: calc((100% - 6 * 1.8rem) / 7);
+  }
 }
 
 .carousel-track::-webkit-scrollbar {
@@ -657,8 +685,13 @@
 
 @media (max-width: 680px) {
   .carousel-track {
-    grid-auto-columns: 42%;
-    gap: 1.2rem;
+    grid-auto-columns: calc(30.8vw - 4px);
+    gap: 0.9rem;
+    scroll-snap-type: x mandatory;
+  }
+
+  .carousel-arrows {
+    display: none;
   }
 }
 
@@ -754,6 +787,12 @@
   gap: 1.8rem;
 }
 
+@media (min-width: 1600px) {
+  .home-poster-mosaic-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1280px) {
   .home-poster-mosaic-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -798,14 +837,53 @@
   border-radius: var(--r-poster);
   overflow: hidden;
   background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--rim-poster);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 10px 24px rgba(0, 0, 0, 0.45);
   transition: transform 0.24s var(--ease-out), box-shadow 0.24s ease;
+}
+
+/* Glossy Poster Optical Sheen & Specular Rim */
+.unified-card-poster::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    140deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.04) 24%,
+    transparent 52%
+  );
+  pointer-events: none;
+}
+
+.unified-card-poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.14) 48%,
+    transparent 72%
+  );
+  transform: translateX(-115%);
+  transition: transform 0.65s var(--ease-out);
+  pointer-events: none;
+}
+
+.unified-movie-card:hover .unified-card-poster::after {
+  transform: translateX(115%);
 }
 
 .unified-movie-card:hover .unified-card-poster,
 .unified-movie-card:focus-within .unified-card-poster {
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
     var(--sh-hover);
 }
 
@@ -817,8 +895,10 @@
   transition: transform 0.35s var(--ease-out);
 }
 
-.unified-movie-card:hover .unified-card-poster img {
-  transform: scale(1.03);
+@media (hover: hover) {
+  .unified-movie-card:hover .unified-card-poster img {
+    transform: scale(1.03);
+  }
 }
 
 /* Manage selection indicator */
@@ -1029,19 +1109,47 @@
 @media (max-width: 768px) {
   .hero-billboard {
     height: auto;
-    min-height: 44rem;
+    min-height: 42rem;
+  }
+
+  .hero-backdrop {
+    background-position: 50% 10%;
   }
 
   .hero-content {
-    padding-top: 12rem;
-    padding-bottom: 6.4rem;
+    padding-top: 14rem;
+    padding-bottom: 5.6rem;
+  }
+
+  .hero-actions {
+    width: 100%;
+  }
+
+  .btn-hero-primary,
+  .btn-hero-secondary {
+    flex: 1 1 13rem;
+    min-height: 4.4rem;
   }
 
   .hero-controls {
-    bottom: 2.2rem;
+    bottom: 2rem;
+  }
+
+  .btn-hero-arrow {
+    display: none;
+  }
+
+  .home-rows-container {
+    gap: 3rem;
+    margin-top: 1.6rem;
+  }
+
+  .carousel-title,
+  .home-mosaic-heading {
+    font-size: 1.65rem;
   }
 
   .home-content-first {
-    padding-bottom: 8.4rem;
+    padding-bottom: 8.8rem;
   }
 }

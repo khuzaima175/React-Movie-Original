@@ -115,10 +115,10 @@ export default function HeroBillboard({
             key={`bd-${slideId || safeIndex}`}
             className="hero-backdrop"
             style={{ backgroundImage: `url(${slide.backdrop})` }}
-            initial={{ opacity: 0, scale: 1.03 }}
-            animate={{ opacity: 1, scale: 1 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.45 }}
           />
         ) : (
           <motion.div
@@ -128,7 +128,7 @@ export default function HeroBillboard({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.45 }}
           />
         )}
       </AnimatePresence>
@@ -140,10 +140,10 @@ export default function HeroBillboard({
         <AnimatePresence mode="wait">
           <motion.div
             key={`txt-${slideId || safeIndex}`}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.3 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
             className="hero-text-block"
           >
             <span className="hero-kicker">Spotlight</span>
