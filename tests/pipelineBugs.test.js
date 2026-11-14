@@ -680,6 +680,75 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
     assert.equal(dedupedExhausted.recommendations.length, 10);
     const seenStringTitles = new Set(dedupedExhausted.recommendations.map((r) => r.title));
     assert.equal(seenStringTitles.size, 10, "exhaustion guard must not duplicate string-ID candidates");
+
+    // 5. Phase 2: region-scoped generateProfileHash, provider/imdbID preservation, and explicit mood disabling recent reserve
+    const hUS = generateProfileHash(prof, [80], "any", [8], null, "US");
+    const hPK = generateProfileHash(prof, [80], "any", [8], null, "PK");
+    const hDefaultReg = generateProfileHash(prof, [80], "any", [], null, "");
+    assert.equal(hDefaultReg, hLegacy);
+    assert.notEqual(hUS, hPK, "generateProfileHash must differentiate streaming regions");
+
+    const nowYear = new Date().getUTCFullYear();
+    const mixedMoodAndRecentPool = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        id: 2100 + i,
+        tmdbId: 2100 + i,
+        imdbID: `tt21000${i}`,
+        title: `Cozy Watch ${i}`,
+        year: "2016",
+        release_date: "2016-06-01",
+        overview: `Heartwarming comedy story ${i}`,
+        genre: "Comedy, Romance",
+        tmdbGenreIds: [35, 10749],
+        genre_ids: [35, 10749],
+        vote_average: 7.5,
+        vote_count: 900,
+        streamProviders: [{ id: 8, name: "Netflix" }],
+        freeProviders: [{ id: 73, name: "Tubi TV" }],
+        providersHydrated: true,
+        providerMatchedByQuery: true
+      })),
+      ...Array.from({ length: 4 }, (_, i) => ({
+        id: 2200 + i,
+        tmdbId: 2200 + i,
+        imdbID: `tt22000${i}`,
+        title: `Recent Grim Crime ${i}`,
+        year: String(nowYear),
+        release_date: `${nowYear}-03-01`,
+        overview: `Gritty serial thriller ${i}`,
+        genre: "Crime, Thriller, Horror",
+        tmdbGenreIds: [80, 53, 27],
+        genre_ids: [80, 53, 27],
+        vote_average: 8.4,
+        vote_count: 5000,
+        streamProviders: [{ id: 8, name: "Netflix" }],
+        freeProviders: [],
+        providersHydrated: true,
+        providerMatchedByQuery: true
+      }))
+    ];
+
+    const comfortResult = await getMovieRecommendations(
+      [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [80, 53] }],
+      [],
+      null,
+      {
+        mood: "comfort-watch",
+        userProviders: [8],
+        candidates: mixedMoodAndRecentPool,
+        embeddingIndex: null,
+        targetCount: 10
+      }
+    );
+    assert.equal(comfortResult.recommendations.length, 10);
+    assert.equal(
+      comfortResult.recommendations.some((r) => r.title.startsWith("Recent Grim Crime")),
+      false,
+      "explicit comfort-watch must not hijack slots with recent Crime/Thriller/Horror releases"
+    );
+    assert.equal(comfortResult.recommendations[0].streamProviders?.[0]?.id, 8);
+    assert.equal(comfortResult.recommendations[0].freeProviders?.[0]?.id, 73);
+    assert.match(comfortResult.recommendations[0].imdbID || "", /^tt21000/);
   } finally {
     if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
     else process.env.VITE_GEMINI_KEY = prevGKey;

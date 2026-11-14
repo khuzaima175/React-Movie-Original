@@ -80,7 +80,7 @@ let lastCurationModelInfo = null;
 let lastFastModelInfo = null;
 
 export const MODELS = CURATION_MODEL_CASCADE;
-const SMART_CACHE_KEY = 'cinemavault_smart_cache_v3';
+const SMART_CACHE_KEY = 'cinemavault_smart_cache_v4';
 const MAX_CACHE_BYTES = 500 * 1024; // 500KB Hard Cap
 
 /**
@@ -967,7 +967,7 @@ export const generateFallbackId = (title, year) => {
 /**
  * Profile-Based Sliding Window Cache Hash (Non-Mutating, Includes Anchor/Crew/Cast & Custom Vibe Filters)
  */
-export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null) => {
+export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "") => {
     const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
     const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
     const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
@@ -978,7 +978,9 @@ export const generateProfileHash = (profile, watchlistGenres = [], mood = "any",
     const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
     const base = `v4_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${anchorStr}_${crewStr}_${castStr}_${cleanMood}`;
     const filterSegment = buildMoodFilterHashSegment(moodFilters);
-    return filterSegment ? `${base}_${filterSegment}` : base;
+    const withFilter = filterSegment ? `${base}_${filterSegment}` : base;
+    const cleanRegion = typeof userRegion === "string" ? userRegion.trim().toUpperCase() : "";
+    return cleanRegion ? `${withFilter}_reg_${cleanRegion}` : withFilter;
 };
 
 /**
@@ -1091,12 +1093,15 @@ function buildRecommendationEntry(candidate = {}, fallback = {}, profile = {}, e
     return {
         id: tmdbId,
         tmdbId,
+        imdbID: candidate.imdbID || candidate.imdb_id || fallback.imdbID || null,
         title,
         year: candidate.year || fallback.year || "N/A",
         genre: candidate.genre || (profile?.lovedGenreNames?.[0] || "Cinema"),
         poster: candidate.poster || getFallbackPoster(title),
         backdrop: candidate.backdrop || null,
         imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
+        streamProviders: Array.isArray(candidate.streamProviders) ? candidate.streamProviders : [],
+        freeProviders: Array.isArray(candidate.freeProviders) ? candidate.freeProviders : [],
         matchScore: typeof candidate.matchScore === "number"
             ? candidate.matchScore
             : normalizeMatchScore(fallback.matchScore),
@@ -1259,14 +1264,17 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
     const targetCount = Math.max(1, Number(options.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const shortlistLimit = Math.max(targetCount, options.topK || 30);
     const moodFilters = normalizeMoodFilters(options.moodFilters);
+    const explicitMood = isExplicitMoodActive(mood, moodFilters);
     const reserveConfig =
         options.reserve !== undefined
             ? options.reserve
-            : {
-                count: RECENT_RELEASE_RESERVE_COUNT,
-                minReleaseDate: getRecentReleaseDateFloor(RECENT_RELEASE_RESERVE_MONTHS, options.now),
-                minProbabilityPercentile: RECENT_RELEASE_MIN_PROB_PERCENTILE
-            };
+            : explicitMood
+                ? null
+                : {
+                    count: RECENT_RELEASE_RESERVE_COUNT,
+                    minReleaseDate: getRecentReleaseDateFloor(RECENT_RELEASE_RESERVE_MONTHS, options.now),
+                    minProbabilityPercentile: RECENT_RELEASE_MIN_PROB_PERCENTILE
+                };
 
     const rankerContext = {
         profile,
@@ -1635,14 +1643,20 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                         profile.weightedRatings,
                         embeddingIndex,
                         excludeIds,
-                        { collabSimMap, repulsionMap, topK: 40 }
+                        { collabSimMap, repulsionMap, topK: 80 }
                     );
                     const injected = await fetchEmbeddingCandidates(
                         neighbors,
                         watchedMovies,
                         watchlist,
                         candidates,
-                        { userRegion, maxNeighbors: 30 }
+                        {
+                            userRegion,
+                            userProviders,
+                            mood,
+                            moodFilters: options.moodFilters,
+                            maxNeighbors: isExplicitMoodActive(mood, options.moodFilters) ? 15 : 30
+                        }
                     );
                     if (injected.length > 0) {
                         mergedCandidates = [...candidates, ...injected];
@@ -1657,7 +1671,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     mergedCandidates = await enrichCandidatePoolMetadata(mergedCandidates, {
                         userRegion,
                         detailFetcher: options.detailFetcher,
-                        maxEnrich: options.maxEnrich,
+                        maxEnrich: options.maxEnrich ?? 80,
                         concurrency: options.enrichConcurrency
                     });
                 }
