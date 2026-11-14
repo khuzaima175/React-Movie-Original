@@ -87,12 +87,12 @@ export default function TrailerModal({ isOpen, onClose, trailerKey, title = "Tra
                   width: "3.2rem",
                   height: "3.2rem",
                   borderRadius: "0.8rem",
-                  background: "rgba(226, 177, 60, 0.15)",
-                  border: "1px solid rgba(226, 177, 60, 0.3)",
+                  background: "rgba(255, 255, 255, 0.06)",
+                  border: "1px solid rgba(255, 255, 255, 0.12)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#e2b13c"
+                  color: "#f3f1eb"
                 }}
               >
                 <Film size={16} />
@@ -124,8 +124,8 @@ export default function TrailerModal({ isOpen, onClose, trailerKey, title = "Tra
                   gap: "0.6rem",
                   padding: "0.6rem 1.2rem",
                   borderRadius: "0.8rem",
-                  background: "#e2b13c",
-                  color: "#141416",
+                  background: "#f3f1eb",
+                  color: "#0d0e11",
                   fontSize: "1.25rem",
                   fontWeight: 700,
                   textDecoration: "none",
@@ -153,7 +153,7 @@ export default function TrailerModal({ isOpen, onClose, trailerKey, title = "Tra
                   cursor: "pointer",
                   transition: "all 0.2s ease"
                 }}
-                className="hover:text-[#f4f4f2] hover:border-[#e2b13c]/40 hover:bg-[#2c2d32]"
+                className="hover:text-[#f4f4f2] hover:border-white/25 hover:bg-[#2c2d32]"
                 aria-label="Close trailer modal"
               >
                 <X size={18} />

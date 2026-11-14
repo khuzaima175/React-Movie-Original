@@ -185,18 +185,17 @@ function AppContent() {
       </main>
 
       {/* Slim Editorial Footer */}
-      <footer className="w-full border-t border-hairline bg-surface-1/40 py-6 mt-16 backdrop-blur-sm">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 md:px-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-text-3">
-          <div className="flex items-center gap-2">
-            <Film size={14} className="text-accent" aria-hidden="true" />
-            <span className="font-semibold text-text-2 tracking-wide">CINEMAVAULT</span>
-            <span className="text-hairline-strong">•</span>
+      <footer className="w-full border-t border-hairline bg-surface-1/30 py-8 mt-16">
+        <div className="page-rail flex flex-col sm:flex-row items-center justify-between gap-4 text-[1.25rem] text-text-3">
+          <div className="flex items-center gap-2.5">
+            <span className="font-semibold text-text-2 tracking-tight">CinemaVault</span>
+            <span aria-hidden="true">·</span>
             <span>Personal Film Log &amp; Recommendations</span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <span>Data powered by <strong className="font-medium text-text-2">TMDB, OMDb API</strong> &amp; <strong className="font-medium text-text-2">Gemini AI</strong></span>
-            <span className="hidden sm:inline text-hairline-strong">•</span>
+          <div className="flex items-center gap-3">
+            <span>Data from TMDB, OMDb &amp; Gemini</span>
+            <span className="hidden sm:inline" aria-hidden="true">·</span>
             <span className="text-text-2 font-medium">Built by Khuzaima</span>
           </div>
         </div>

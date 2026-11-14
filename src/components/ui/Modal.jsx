@@ -84,15 +84,16 @@ export function Modal({ isOpen, onClose, children, title, size = 'md' }) {
               justifyContent: "space-between",
               borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
               padding: "2rem 2.8rem",
-              background: "#1c1d20"
+              background: "var(--surface-2)"
             }}
           >
             <h2
               id="modal-title"
               style={{
-                fontSize: "1.9rem",
-                fontWeight: 700,
-                color: "#f4f4f2",
+                fontFamily: "var(--font-display)",
+                fontSize: "2.1rem",
+                fontWeight: 600,
+                color: "var(--text-1)",
                 letterSpacing: "-0.02em",
                 margin: 0
               }}
@@ -102,22 +103,22 @@ export function Modal({ isOpen, onClose, children, title, size = 'md' }) {
             <button
               onClick={onClose}
               style={{
-                width: "3.6rem",
-                height: "3.6rem",
-                borderRadius: "0.8rem",
-                background: "#242528",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                color: "#8a8a86",
+                width: "3.4rem",
+                height: "3.4rem",
+                borderRadius: "6px",
+                background: "var(--surface-3)",
+                border: "none",
+                color: "var(--text-2)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
-                transition: "all 0.2s ease"
+                transition: "all 0.16s ease"
               }}
-              className="hover:text-[#f4f4f2] hover:border-[#e2b13c]/40 hover:bg-[#2c2d32]"
+              className="hover:text-[#f3f1eb] hover:bg-white/[0.12]"
               aria-label="Close modal"
             >
-              <X size={18} />
+              <X size={17} />
             </button>
           </div>
 

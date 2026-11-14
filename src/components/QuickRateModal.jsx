@@ -95,7 +95,7 @@ export default function QuickRateModal({
         <div className="quick-rate-picker">
           <div className="quick-rate-picker-head">
             <span className="quick-rate-picker-label">
-              <Flame size={15} className="text-[#e2b13c]" aria-hidden="true" />
+              <Flame size={15} className="text-[var(--text-3)]" aria-hidden="true" />
               Your Rating (1–10)
             </span>
             <span
@@ -166,7 +166,7 @@ export default function QuickRateModal({
               onClick={handlePlanToWatch}
             >
               <Bookmark size={15} aria-hidden="true" />
-              <span>Plan to Watch</span>
+              <span>Add to Watchlist</span>
             </button>
           )}
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Star, Plus, Check, Info, Layers, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Check, Info, SlidersHorizontal, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { MetaLine } from "./ui";
 import { buildSeenCollisionSet } from "../services/dashboardService";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
 import { prepareWatchlistPayload } from "../services/ratingTiers";
@@ -43,21 +44,21 @@ export default function HeroBillboard({
       <div className="hero-billboard" aria-label="Featured Film Billboard">
         <div className="hero-scrim-left" />
         <div className="hero-scrim-bottom" />
-        <div className="hero-content">
+        <div className="hero-content page-rail">
           <div className="hero-text-block">
-            <div className="hero-meta-badges">
-              <span className="hero-badge-featured">Personal Cinema Vault</span>
-            </div>
+            <span className="hero-kicker">Spotlight</span>
             <h1 className="hero-title">Discover Your Next Film</h1>
-            <p className="hero-plot">
+            <p className="hero-overview">
               Curated unwatched spotlights and recommendations calibrated to your vault ratings.
             </p>
             <div className="hero-actions">
               <button
+                type="button"
                 className="btn-hero-primary"
                 onClick={() => (onOpenTasteDeck ? onOpenTasteDeck() : navigate("/ai"))}
               >
-                <Layers size={18} aria-hidden="true" /> Quick Taste (30)
+                <SlidersHorizontal size={16} aria-hidden="true" />
+                Taste Calibration (30)
               </button>
             </div>
           </div>
@@ -94,7 +95,7 @@ export default function HeroBillboard({
   const primaryLabel = isWatched
     ? "In Vault"
     : onAddToWatchlist
-      ? (isWatchlisted ? "In Watchlist" : "Plan to Watch")
+      ? (isWatchlisted ? "In Watchlist" : "Add to Watchlist")
       : "Add to Vault";
 
   const hasBackdrop = Boolean(slide.backdrop && !/unsplash\.com/i.test(slide.backdrop));
@@ -135,46 +136,40 @@ export default function HeroBillboard({
       <div className="hero-scrim-left" />
       <div className="hero-scrim-bottom" />
 
-      <div className="hero-content">
+      <div className="hero-content page-rail">
         <AnimatePresence mode="wait">
           <motion.div
             key={`txt-${slideId || safeIndex}`}
-            initial={{ opacity: 0, y: 14 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -14 }}
-            transition={{ duration: 0.35 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.3 }}
             className="hero-text-block"
           >
-            <div className="hero-meta-badges">
-              <span className="hero-badge-featured">Spotlight Pick</span>
-              {slide.imdbRating && (
-                <span className="hero-rating">
-                  <Star size={14} className="icon-star-gold" aria-hidden="true" />
-                  {slide.imdbRating}
-                </span>
-              )}
-              {slide.year && slide.year !== "N/A" && <span className="hero-meta-item">{slide.year}</span>}
-              {slide.runtime && <span className="hero-meta-item">{slide.runtime}</span>}
-            </div>
-
+            <span className="hero-kicker">Spotlight</span>
             <h1 className="hero-title">{slide.title}</h1>
-            {slide.genre && <p className="hero-genre">{slide.genre}</p>}
-            {slide.plot && <p className="hero-plot">{slide.plot}</p>}
+            <MetaLine
+              items={[slide.year, slide.genre, slide.runtime]}
+              rating={slide.imdbRating}
+              ratingTone="neutral"
+            />
+            {slide.plot && <p className="hero-overview">{slide.plot}</p>}
 
             <div className="hero-actions">
               {(onAddToWatchlist || onAddWatched) && (
                 <button
+                  type="button"
                   className={`btn-hero-primary ${primaryAdded ? "added" : ""}`}
                   onClick={handlePrimaryAction}
                   aria-label={`${primaryLabel}: ${slide.title}`}
                 >
                   {primaryAdded ? (
                     <>
-                      <Check size={18} aria-hidden="true" /> {primaryLabel}
+                      <Check size={17} aria-hidden="true" /> {primaryLabel}
                     </>
                   ) : (
                     <>
-                      <Plus size={18} aria-hidden="true" /> {primaryLabel}
+                      <Plus size={17} aria-hidden="true" /> {primaryLabel}
                     </>
                   )}
                 </button>
@@ -182,21 +177,14 @@ export default function HeroBillboard({
 
               {slideId && (
                 <button
+                  type="button"
                   className="btn-hero-secondary"
                   onClick={() => navigate(`/movie/${slideId}`)}
                   aria-label={`View details for ${slide.title}`}
                 >
-                  <Info size={18} aria-hidden="true" /> Details
+                  <Info size={17} aria-hidden="true" /> Details
                 </button>
               )}
-
-              <button
-                className="btn-hero-secondary"
-                onClick={() => (onOpenTasteDeck ? onOpenTasteDeck() : navigate("/ai"))}
-                aria-label="Open rapid taste builder for 30 films"
-              >
-                <Layers size={17} className="text-accent" aria-hidden="true" /> Quick Taste (30)
-              </button>
             </div>
           </motion.div>
         </AnimatePresence>
@@ -205,16 +193,18 @@ export default function HeroBillboard({
       {activeSlides.length > 1 && (
         <div className="hero-controls">
           <button
+            type="button"
             className="btn-hero-arrow"
             onClick={() => setCurrentIndex((prev) => (prev === 0 ? activeSlides.length - 1 : prev - 1))}
             aria-label="Previous featured movie"
           >
-            <ChevronLeft size={20} aria-hidden="true" />
+            <ChevronLeft size={18} aria-hidden="true" />
           </button>
 
           <div className="hero-indicators">
             {activeSlides.map((s, idx) => (
               <button
+                type="button"
                 key={s.imdbID || s.id || idx}
                 className={`hero-dot ${idx === safeIndex ? "active" : ""}`}
                 onClick={() => setCurrentIndex(idx)}
@@ -224,11 +214,12 @@ export default function HeroBillboard({
           </div>
 
           <button
+            type="button"
             className="btn-hero-arrow"
             onClick={() => setCurrentIndex((prev) => (prev + 1) % activeSlides.length)}
             aria-label="Next featured movie"
           >
-            <ChevronRight size={20} aria-hidden="true" />
+            <ChevronRight size={18} aria-hidden="true" />
           </button>
         </div>
       )}

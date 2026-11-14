@@ -1031,24 +1031,40 @@ ${candidatesStr}
 
 TASK:
 Perform a diversity pass over these top candidates and select 6 distinct films.
-Pick the 6 strongest, most cohesive films from the candidates and write a bespoke 1-sentence reason that explicitly connects each pick to the user's anchor films, favorite directors, or collaborative badges (never write a generic plot summary).
+Pick the 6 strongest, most cohesive films from the candidates and write a bespoke 1-sentence upright editorial reason explaining why this film connects to their favorite anchor films, directors, themes, or pacing (never write a generic plot summary).
+CRITICAL STYLE RULES FOR "reason" AND OUTPUT:
+- Write clean, human cinema prose (1 sentence, plain statement).
+- NEVER include internal system labels, scoring jargon, badges, percentages, or model names in the text (forbid phrases like "Taste-Twin Match", "Core Theme Match", "Genre Bullseye", "% Match", or "Gemini").
+- Include "anchorTitles": 1 to 3 exact titles copied verbatim from USER'S FAVORITE ANCHOR FILMS that this pick pairs best with.
 Output strict JSON with:
 1. tasteProfile: Object containing favoriteGenres (array of strings), preferredEra (string), and ratingStyle (string description).
 2. recommendations: Array of 6 items with:
    - tmdbId (number matching the candidate ID)
    - title (string)
    - year (string)
-   - reason (string: 1-2 sentence compelling cinematic explanation of WHY this film connects to their taste profile)
+   - anchorTitles (array of 1-3 exact titles from user's favorite anchor films)
+   - reason (string: crisp 1-sentence editorial connection free of internal jargon)
 `;
 }
 
 /**
  * Merges Gemini's diversity pass and explanations with deterministic calibrated ranker matchScores.
  */
-export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [], profile = {}) {
+export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [], profile = {}, context = {}) {
     if (!result?.recommendations || !Array.isArray(result.recommendations)) {
         throw new Error("Invalid recommendation schema returned by Gemini");
     }
+
+    const watchedList = Array.isArray(context.watched) ? context.watched : [];
+    const sanitizeReasonText = (raw) => {
+        if (!raw || typeof raw !== "string") return "";
+        return raw
+            .replace(/\b\d{2,3}%\s*(High\s*)?Taste-?Twin\s*Match\b/gi, "")
+            .replace(/\b(High\s*)?(Taste-?Twin Match|Core Theme Match|Genre Bullseye|Cult Classic Overlap)\b/gi, "")
+            .replace(/\s{2,}/g, " ")
+            .replace(/^[\s,.:;-]+/, "")
+            .trim();
+    };
 
     const enriched = result.recommendations.map(rec => {
         const candidate = rankedCandidates.find(
@@ -1057,6 +1073,15 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
         const calibratedScore = typeof candidate.matchScore === "number"
             ? candidate.matchScore
             : normalizeMatchScore(rec.matchScore);
+        const cleanedReason = sanitizeReasonText(rec.reason) || rec.reason || "Pairs closely with your top-rated films.";
+        const anchorTitles = Array.isArray(rec.anchorTitles)
+            ? rec.anchorTitles.filter((t) => typeof t === "string" && t.trim())
+            : [];
+        const anchorIds = anchorTitles
+            .map((t) => watchedList.find((w) => (w.title || w.Title || "").toLowerCase() === t.toLowerCase()))
+            .filter(Boolean)
+            .map((w) => w.imdbID || w.id || (w.tmdbId ? `tmdb_${w.tmdbId}` : null))
+            .filter(Boolean);
 
         return {
             id: candidate.id || rec.tmdbId,
@@ -1069,10 +1094,12 @@ export function mergeGeminiExplanationsWithRanker(result, rankedCandidates = [],
             imdbRating: candidate.vote_average ? String(candidate.vote_average) : null,
             matchScore: calibratedScore,
             matchReasons: Array.isArray(candidate.matchReasons) ? candidate.matchReasons : [],
+            anchorTitles,
+            anchorIds,
             rankerProbability: candidate.rankerProbability ?? null,
             features: sanitizeFeatureSnapshot(candidate.features ?? rec.features),
-            reason: rec.reason || "Matches your cinematic taste profile.",
-            plot: candidate.overview || rec.reason,
+            reason: cleanedReason,
+            plot: candidate.overview || cleanedReason,
             sourceBucket: candidate.sourceBucket || "TMDB",
             realData: true
         };
@@ -1233,6 +1260,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
                             title: { type: Type.STRING },
                             year: { type: Type.STRING },
                             matchScore: { type: Type.NUMBER },
+                            anchorTitles: { type: Type.ARRAY, items: { type: Type.STRING } },
                             reason: { type: Type.STRING }
                         },
                         required: ["tmdbId", "title", "year", "reason"]
@@ -1284,7 +1312,9 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         if (!Array.isArray(result?.recommendations) || result.recommendations.length === 0) {
             throw new Error("Gemini re-rank returned empty or missing recommendations array");
         }
-        const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile);
+        const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile, {
+            watched: options.watched
+        });
         if (!Array.isArray(merged?.recommendations) || merged.recommendations.length === 0) {
             throw new Error("Merged recommendations empty");
         }
@@ -1454,7 +1484,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
     const userProviders = options.userProviders || [];
 
     // 1. Synthesize statistical taste profile with mathematical weighting
-    onProgress?.("Analyzing taste DNA and mathematical affinities...");
+    onProgress?.("Analyzing your ratings and preferences...");
     const profile = await extractTasteProfile(watchedMovies, watchlist);
 
     // 2. Primary Engine: Dynamic Waterfall TMDB Retrieval + Gemini Re-Ranking
@@ -1536,7 +1566,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     options.rankerWeights ||
                     derivePersonalizedRankerWeights(options.feedbackLog, watchedMovies, DEFAULT_RANKER_WEIGHTS);
 
-                onProgress?.("AI Oracle re-ranking candidates against taste DNA...");
+                onProgress?.("AI Oracle re-ranking candidates against your taste profile...");
                 const result = await reRankCandidatesWithGemini(ai, profile, mood, mergedCandidates, {
                     ...options,
                     rankerWeights,

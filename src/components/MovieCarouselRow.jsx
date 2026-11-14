@@ -48,7 +48,7 @@ export default function MovieCarouselRow({
 
   return (
     <section className="carousel-section" aria-label={title}>
-      <div className="carousel-header">
+      <div className="carousel-header page-rail">
         <h2 className="carousel-title">{title}</h2>
         <div className="carousel-header-right">
           {seeAllLink && (
@@ -59,6 +59,7 @@ export default function MovieCarouselRow({
           {canScroll && (
             <div className="carousel-arrows">
               <button
+                type="button"
                 className="btn-carousel-arrow"
                 onClick={() => scroll("left")}
                 aria-label={`Scroll ${title} left`}
@@ -66,6 +67,7 @@ export default function MovieCarouselRow({
                 <ChevronLeft size={18} aria-hidden="true" />
               </button>
               <button
+                type="button"
                 className="btn-carousel-arrow"
                 onClick={() => scroll("right")}
                 aria-label={`Scroll ${title} right`}
@@ -77,7 +79,8 @@ export default function MovieCarouselRow({
         </div>
       </div>
 
-      <div className="carousel-track" ref={scrollRef}>
+      <div className="page-rail">
+        <div className="carousel-track" ref={scrollRef}>
         {movies.map((movie) => {
           if (!movie) return null;
           const id = movie.imdbID || movie.id;
@@ -96,6 +99,7 @@ export default function MovieCarouselRow({
             />
           );
         })}
+        </div>
       </div>
     </section>
   );

@@ -10,7 +10,7 @@ import BackupManagerModal from "../components/BackupManagerModal";
 import ToastNotification from "../components/ToastNotification";
 import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
-import { Bookmark, Sparkles, Compass } from "lucide-react";
+import { Bookmark, Film, Compass } from "lucide-react";
 
 export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -200,7 +200,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
 
     setToast({
       message: `Moved ${count} ${count === 1 ? "item" : "items"} to ${
-        activeTab === "watched" ? "Plan to Watch" : "Watched"
+        activeTab === "watched" ? "Watchlist" : "Watched"
       }`,
       item: null,
       tab: activeTab,
@@ -211,7 +211,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   }
 
   return (
-    <div className="vault-page-container">
+    <div className="vault-page-container page-rail">
       {/* ── 1. Unified Cinematic Studio Hub (Header, Metrics, Insights Drawer, Tabs & Controls) ── */}
       <VaultBanner
         watched={watched}
@@ -262,6 +262,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
                     isManageMode={isManageMode}
                     isSelected={isSelected}
                     onToggleSelect={handleToggleSelect}
+                    showCaption={true}
                   />
                 );
               })}
@@ -282,23 +283,19 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
             {currentList.length === 0 ? (
               activeTab === "watchlist" ? (
                 <div className="watchlist-empty-card">
-                  <div className="empty-glow-ring">
-                    <Bookmark size={32} className="cyan-icon" aria-hidden="true" />
-                  </div>
-                  <h3>Nothing Queued Yet</h3>
-                  <p>Build your upcoming cinema watchlist — bookmark films from home or search.</p>
-                  <button className="btn-empty-cta" onClick={() => navigate("/")}>
+                  <Bookmark size={32} className="empty-icon-quiet" aria-hidden="true" />
+                  <h3>Your Watchlist is Empty</h3>
+                  <p>Bookmark upcoming films from Discover or Search to queue them here.</p>
+                  <button type="button" className="btn-empty-cta" onClick={() => navigate("/")}>
                     <Compass size={16} aria-hidden="true" /> Discover Films
                   </button>
                 </div>
               ) : (
                 <div className="watched-empty-card">
-                  <div className="empty-glow-ring">
-                    <Sparkles size={32} className="cyan-icon" aria-hidden="true" />
-                  </div>
+                  <Film size={32} className="empty-icon-quiet" aria-hidden="true" />
                   <h3>Your Vault is Empty</h3>
-                  <p>Start rating movies and logging screen time to generate custom analytics & trivia.</p>
-                  <button className="btn-empty-cta" onClick={() => navigate("/")}>
+                  <p>Rate films you have watched to unlock taste insights and recommendations.</p>
+                  <button type="button" className="btn-empty-cta" onClick={() => navigate("/")}>
                     <Compass size={16} aria-hidden="true" /> Explore Movies
                   </button>
                 </div>

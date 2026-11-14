@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useApp } from "../context/AppContext";
 import MovieRecommendations from "../components/MovieRecommendations";
 import AIChat from "../components/AIChat";
-import { Compass, Layers, MessageSquare } from "lucide-react";
-import { motion } from "framer-motion";
+import { Button, Tabs } from "../components/ui";
+import { SlidersHorizontal } from "lucide-react";
 
 export default function AIPage({ onOpenTasteDeck }) {
   const {
@@ -13,82 +13,41 @@ export default function AIPage({ onOpenTasteDeck }) {
     aiRecommendations,
     setAiRecommendations,
     aiTasteProfile,
-    setAiTasteProfile,
+    setAiTasteProfile
   } = useApp();
 
-  const [aiSection, setAiSection] = useState("recs"); // 'recs' | 'chat'
+  const [aiSection, setAiSection] = useState("recs"); // "recs" | "chat"
 
   return (
     <div className={`ai-page-wrapper ${aiSection === "chat" ? "chat-mode" : ""}`}>
-      <div className="ai-page-container">
-        {/* ── Sleek Cinema Studio Header ── */}
+      <div className="ai-page-container page-rail">
         <header className="ai-studio-header">
           <div className="ai-studio-brand">
-            <div className="ai-brand-headline">
-              <h1 className="ai-studio-title">Film Oracle</h1>
-              <span className="ai-sync-pill">
-                {watched.length > 0
-                  ? `${watched.length} films logged`
-                  : "No films logged yet"}
-              </span>
-            </div>
+            <h1 className="ai-studio-title display-title">Film Oracle</h1>
             <p className="ai-studio-desc">
               Personalized picks tuned to your rated films.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="ai-header-actions">
             {onOpenTasteDeck && (
-              <button
-                type="button"
-                className="taste-calibrate-inline-btn"
-                onClick={onOpenTasteDeck}
-              >
-                <Layers size={14} aria-hidden="true" />
-                <span>Calibrate Taste (30 Films)</span>
-              </button>
+              <Button variant="ghost" size="sm" onClick={onOpenTasteDeck}>
+                <SlidersHorizontal size={14} aria-hidden="true" />
+                <span>Taste Calibration</span>
+              </Button>
             )}
 
-            {/* Sub-Tabs: AI Recommendations vs Cinema Companion Chat */}
-            <nav className="ai-tabs-cluster" role="tablist" aria-label="AI Oracle Modes">
-            <button
-              role="tab"
-              aria-selected={aiSection === "recs"}
-              className={`ai-spacious-tab-pill ${aiSection === "recs" ? "active" : ""}`}
-              onClick={() => setAiSection("recs")}
-            >
-              {aiSection === "recs" && (
-                <motion.div
-                  layoutId="aiTabHighlight"
-                  className="ai-tab-highlight"
-                  transition={{ type: "spring", stiffness: 450, damping: 32 }}
-                />
-              )}
-              <Compass size={14} className="tab-icon" aria-hidden="true" />
-              <span>AI Picks</span>
-            </button>
-
-            <button
-              role="tab"
-              aria-selected={aiSection === "chat"}
-              className={`ai-spacious-tab-pill ${aiSection === "chat" ? "active" : ""}`}
-              onClick={() => setAiSection("chat")}
-            >
-              {aiSection === "chat" && (
-                <motion.div
-                  layoutId="aiTabHighlight"
-                  className="ai-tab-highlight"
-                  transition={{ type: "spring", stiffness: 450, damping: 32 }}
-                />
-              )}
-              <MessageSquare size={14} className="tab-icon" aria-hidden="true" />
-              <span>Film Companion</span>
-            </button>
-          </nav>
+            <Tabs
+              tabs={[
+                { id: "recs", label: "Picks" },
+                { id: "chat", label: "Film Companion" }
+              ]}
+              activeTab={aiSection}
+              onChange={setAiSection}
+            />
           </div>
         </header>
 
-        {/* ── Body (Recommendations or Chat) ── */}
         <main className="ai-page-body">
           {aiSection === "recs" && (
             <MovieRecommendations
@@ -109,4 +68,3 @@ export default function AIPage({ onOpenTasteDeck }) {
     </div>
   );
 }
-

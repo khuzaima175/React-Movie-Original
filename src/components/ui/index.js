@@ -6,4 +6,5 @@ export { Tabs } from './Tabs';
 export { Accordion } from './Accordion';
 export { Skeleton } from './Skeleton';
 export { SectionHeader } from './SectionHeader';
-export { StatCell } from './StatCell';
+export { StatCell, StatCell as Stat } from './StatCell';
+export { MetaLine } from './MetaLine';

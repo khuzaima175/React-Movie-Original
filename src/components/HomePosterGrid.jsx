@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Film, Grid2x2Plus } from "lucide-react";
 import MovieCard from "./MovieCard";
+import { Button } from "./ui";
 import { collectCatalogMosaic } from "../services/dashboardService";
 
 export default function HomePosterGrid({
@@ -36,15 +36,12 @@ export default function HomePosterGrid({
   }
 
   return (
-    <section className="home-mosaic-section" aria-label="Explore full film catalog">
+    <section className="home-mosaic-section page-rail" aria-label="Explore full film catalog">
       <div className="home-mosaic-header">
         <div className="home-mosaic-title-wrap">
-          <h2 className="home-mosaic-heading">
-            <Film size={20} className="text-accent" aria-hidden="true" />
-            Explore Full Catalog
-          </h2>
+          <h2 className="home-mosaic-heading">All Films</h2>
           <p className="home-mosaic-subtitle">
-            Showing {items.length} of {totalCount} curated {totalCount === 1 ? "film" : "films"}
+            Showing {items.length} of {totalCount} {totalCount === 1 ? "film" : "films"}
           </p>
         </div>
 
@@ -89,16 +86,12 @@ export default function HomePosterGrid({
 
       {items.length < totalCount && (
         <div className="home-mosaic-footer">
-          <button
-            type="button"
-            className="home-mosaic-more-btn"
+          <Button
+            variant="secondary"
             onClick={() => setVisibleCount((prev) => prev + 24)}
           >
-            <Grid2x2Plus size={16} aria-hidden="true" />
-            <span>
-              Show 24 More Posters ({totalCount - items.length} remaining)
-            </span>
-          </button>
+            Show 24 more ({totalCount - items.length} remaining)
+          </Button>
         </div>
       )}
     </section>

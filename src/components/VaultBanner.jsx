@@ -1,11 +1,8 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
-  Film,
-  Bookmark,
   CheckSquare,
-  XSquare,
   ArrowUpDown,
-  BarChart3,
   Search,
   X,
   SlidersHorizontal,
@@ -13,14 +10,13 @@ import {
   List,
   ChevronDown,
   ChevronUp,
-  Clock,
   Star,
-  TrendingUp,
-  Trophy,
   Filter,
   Cloud,
+  MoreHorizontal
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Button, Menu, StatCell, Tabs } from "./ui";
 import { buildRatingHistogramBins } from "../services/vaultStats";
 
 export default function VaultBanner({
@@ -45,7 +41,7 @@ export default function VaultBanner({
   viewMode = "grid",
   onViewModeChange,
   filteredCount = 0,
-  totalCount = 0,
+  totalCount = 0
 }) {
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
 
@@ -60,13 +56,27 @@ export default function VaultBanner({
   const mins = totalMinutes % 60;
   let timeString = "";
   if (days > 0) timeString += `${days}d `;
-  timeString += `${hours}h ${mins}m`;
+  timeString += `${hours}h`;
+  if (days === 0) timeString += ` ${mins}m`;
 
-  const userRatings = watched.map((m) => Number(m.userRating)).filter((r) => Number.isFinite(r) && r > 0);
-  const imdbRatings = watched.map((m) => Number(m.imdbRating)).filter((r) => Number.isFinite(r) && r > 0);
-  const avgUser = userRatings.length > 0 ? (userRatings.reduce((a, b) => a + b, 0) / userRatings.length).toFixed(1) : "—";
-  const avgImdb = imdbRatings.length > 0 ? (imdbRatings.reduce((a, b) => a + b, 0) / imdbRatings.length).toFixed(1) : null;
-  const ratingDelta = userRatings.length > 0 && avgImdb !== null ? (Number(avgUser) - Number(avgImdb)).toFixed(1) : null;
+  const userRatings = watched
+    .map((m) => Number(m.userRating))
+    .filter((r) => Number.isFinite(r) && r > 0);
+  const imdbRatings = watched
+    .map((m) => Number(m.imdbRating))
+    .filter((r) => Number.isFinite(r) && r > 0);
+  const avgUser =
+    userRatings.length > 0
+      ? (userRatings.reduce((a, b) => a + b, 0) / userRatings.length).toFixed(1)
+      : "—";
+  const avgImdb =
+    imdbRatings.length > 0
+      ? (imdbRatings.reduce((a, b) => a + b, 0) / imdbRatings.length).toFixed(1)
+      : null;
+  const ratingDelta =
+    userRatings.length > 0 && avgImdb !== null
+      ? (Number(avgUser) - Number(avgImdb)).toFixed(1)
+      : null;
   const isHigherThanImdb = Number(ratingDelta) >= 0;
 
   // Top Genres & Distribution
@@ -77,8 +87,10 @@ export default function VaultBanner({
       genreCounts[g] = (genreCounts[g] || 0) + 1;
     });
   });
-  const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
-  const topGenre = sortedGenres[0] ? sortedGenres[0][0] : "Cinema";
+  const sortedGenres = Object.entries(genreCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+  const topGenre = sortedGenres[0] ? sortedGenres[0][0] : "—";
   const totalGenreHits = sortedGenres.reduce((acc, [, count]) => acc + count, 0) || 1;
 
   // Rating Histogram (1★ - 10★)
@@ -95,7 +107,9 @@ export default function VaultBanner({
     }
   });
   const topDirectorEntry = Object.entries(directorCounts).sort((a, b) => b[1] - a[1])[0];
-  const topDirector = topDirectorEntry ? `${topDirectorEntry[0]} (${topDirectorEntry[1]} films)` : "Diverse Directors";
+  const topDirector = topDirectorEntry
+    ? `${topDirectorEntry[0]} (${topDirectorEntry[1]})`
+    : "Diverse Directors";
 
   const actorCounts = {};
   watched.forEach((m) => {
@@ -107,150 +121,156 @@ export default function VaultBanner({
     }
   });
   const topActorEntry = Object.entries(actorCounts).sort((a, b) => b[1] - a[1])[0];
-  const topActor = topActorEntry ? `${topActorEntry[0]} (${topActorEntry[1]} films)` : "Ensemble Casts";
+  const topActor = topActorEntry
+    ? `${topActorEntry[0]} (${topActorEntry[1]})`
+    : "Ensemble Casts";
 
-  const longestFilm = [...watched].sort((a, b) => (parseInt(b.runtime) || 0) - (parseInt(a.runtime) || 0))[0];
-  const longestFilmStr = longestFilm ? `${longestFilm.title || longestFilm.Title} (${parseInt(longestFilm.runtime) || 120}m)` : "N/A";
+  const longestFilm = [...watched].sort(
+    (a, b) => (parseInt(b.runtime, 10) || 0) - (parseInt(a.runtime, 10) || 0)
+  )[0];
+  const longestFilmStr = longestFilm
+    ? `${longestFilm.title || longestFilm.Title} (${parseInt(longestFilm.runtime, 10) || 120}m)`
+    : "N/A";
 
   const topRatedFilm = [...watched]
     .filter((m) => Number(m.userRating) > 0)
     .sort((a, b) => Number(b.userRating) - Number(a.userRating))[0];
-  const topRatedFilmStr = topRatedFilm ? `${topRatedFilm.title || topRatedFilm.Title} (★ ${topRatedFilm.userRating})` : "N/A";
+  const topRatedFilmStr = topRatedFilm
+    ? `${topRatedFilm.title || topRatedFilm.Title} (★ ${topRatedFilm.userRating})`
+    : "N/A";
+
+  const isFiltered = searchQuery.trim() !== "" || selectedGenre !== "All";
+  const cloudMenuLabel = cloudUser
+    ? cloudSyncStatus === "syncing"
+      ? "Syncing to Cloud..."
+      : cloudSyncStatus === "error"
+        ? "Cloud Sync Error"
+        : `Cloud Synced (${cloudUser.email || "connected"})`
+    : hasCloudConfig
+      ? "Cloud Sync (Sign in)"
+      : "Cloud Sync Status";
 
   return (
     <div className="vault-studio-header-spacious" aria-label="Vault Control Center">
-      {/* ── Tier 1: Spacious Title & Executive Actions ── */}
+      {/* ── Tier 1: Editorial Header & Typographic Stats ── */}
       <div className="studio-hero-tier">
         <div className="studio-hero-left">
-          <div className="hero-title-line">
-            <h1 className="vault-spacious-title">My Vault</h1>
-            <span className="vault-count-pill">{totalMovies} titles</span>
-          </div>
+          <h1 className="vault-spacious-title display-title">My Vault</h1>
 
-          <p className="vault-spacious-meta">
-            <span>{timeString} screen time</span>
-            {totalMovies > 0 && (
-              <>
-                <span className="meta-sep">•</span>
-                <span className="meta-star-stat">
-                  <Star size={13} className="text-accent fill-current" aria-hidden="true" />
-                  <strong>{avgUser}</strong> avg{ratingDelta !== null ? ` (${isHigherThanImdb ? `+${ratingDelta}` : ratingDelta} vs IMDb)` : ""}
-                </span>
-                {topGenre && (
+          {totalMovies > 0 && (
+            <div className="vault-stats-strip">
+              <StatCell label="Screen time" value={timeString} />
+              <StatCell
+                label="Your avg"
+                subtext={
+                  ratingDelta !== null
+                    ? `${isHigherThanImdb ? "+" : ""}${ratingDelta} vs IMDb`
+                    : null
+                }
+                value={
                   <>
-                    <span className="meta-sep">•</span>
-                    <span className="meta-genre-tag">Top: <strong>{topGenre}</strong></span>
+                    <Star
+                      size={16}
+                      className="vault-stat-star"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    />
+                    <span>{avgUser}</span>
                   </>
-                )}
-              </>
-            )}
-          </p>
+                }
+              />
+              <StatCell label="Top genre" value={topGenre} />
+            </div>
+          )}
         </div>
 
-        {/* Executive Action Buttons */}
         <div className="studio-hero-actions">
+          {isManageMode && (
+            <Button variant="primary" size="sm" onClick={onToggleManageMode}>
+              Done
+            </Button>
+          )}
+
           {activeTab === "watched" && totalMovies > 0 && (
-            <button
-              className={`btn-executive btn-insights-glow ${isInsightsOpen ? "active" : ""}`}
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setIsInsightsOpen((prev) => !prev)}
               aria-expanded={isInsightsOpen}
-              title="Toggle Detailed Histogram and Taste Breakdown"
             >
-              <BarChart3 size={15} className="text-accent" aria-hidden="true" />
-              <span>{isInsightsOpen ? "Close DNA" : "Taste DNA"}</span>
-              {isInsightsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
+              <span>{isInsightsOpen ? "Hide Insights" : "Insights"}</span>
+              {isInsightsOpen ? (
+                <ChevronUp size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+            </Button>
           )}
 
-          <button
-            className={`btn-executive ${isManageMode ? "manage-active" : ""}`}
-            onClick={onToggleManageMode}
-            title={isManageMode ? "Exit Selection Mode" : "Manage Vault (Bulk Move & Delete)"}
-          >
-            {isManageMode ? (
-              <>
-                <XSquare size={15} aria-hidden="true" />
-                <span>Done</span>
-              </>
-            ) : (
-              <>
-                <CheckSquare size={15} aria-hidden="true" />
-                <span>Manage</span>
-              </>
-            )}
-          </button>
+          <Link to="/ai" className="vault-action-link">
+            Taste Profile &rarr;
+          </Link>
 
-          <button
-            className="btn-executive ghost"
-            onClick={onOpenBackup}
-            title="Import or Export Ratings & Backups"
-          >
-            <ArrowUpDown size={15} aria-hidden="true" />
-            <span className="desktop-only">Import / Export</span>
-          </button>
-
-          {onOpenCloudSync && (
-            <button
-              className={`btn-executive ${cloudUser ? "btn-insights-glow active" : ""}`}
-              onClick={onOpenCloudSync}
-              title={
-                cloudUser
-                  ? `Connected as ${cloudUser.email || "your account"}`
-                  : hasCloudConfig
-                  ? "Sign in with Magic Link to sync your Vault to Supabase"
-                  : "Cloud Sync Status"
-              }
+          <Menu>
+            <Menu.Trigger
+              className="nav-utility-trigger"
+              aria-label="Vault actions menu"
+              title="Manage, Import / Export, Cloud Sync"
             >
-              <Cloud
-                size={15}
-                className={cloudUser ? "text-emerald-400" : "text-accent"}
-                aria-hidden="true"
-              />
-              <span>
-                {cloudUser
-                  ? cloudSyncStatus === "syncing"
-                    ? "Syncing..."
-                    : cloudSyncStatus === "error"
-                    ? "Sync Error"
-                    : "Cloud Synced"
-                  : "Cloud Sync"}
-              </span>
-            </button>
-          )}
+              <MoreHorizontal size={16} aria-hidden="true" />
+            </Menu.Trigger>
+            <Menu.Panel align="right">
+              <Menu.Label>Vault Actions</Menu.Label>
+              <Menu.Item icon={CheckSquare} onClick={onToggleManageMode}>
+                {isManageMode ? "Done Managing" : "Manage Selection"}
+              </Menu.Item>
+              <Menu.Item icon={ArrowUpDown} onClick={onOpenBackup}>
+                Import / Export Vault
+              </Menu.Item>
+              {onOpenCloudSync && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Item icon={Cloud} onClick={onOpenCloudSync}>
+                    {cloudMenuLabel}
+                  </Menu.Item>
+                </>
+              )}
+            </Menu.Panel>
+          </Menu>
         </div>
       </div>
 
-      {/* ── Collapsible Glass Insights Drawer ── */}
+      {/* ── Collapsible Insights Drawer ── */}
       <AnimatePresence>
         {isInsightsOpen && activeTab === "watched" && (
           <motion.div
-            initial={{ opacity: 0, height: 0, y: -10 }}
+            initial={{ opacity: 0, height: 0, y: -8 }}
             animate={{ opacity: 1, height: "auto", y: 0 }}
-            exit={{ opacity: 0, height: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            exit={{ opacity: 0, height: 0, y: -8 }}
+            transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
             className="studio-insights-drawer-wrapper"
           >
             <div className="studio-insights-glass-card">
               <div className="insights-three-col-grid">
-                {/* Column 1: Rating Histogram */}
                 <div className="insight-panel-card">
                   <div className="panel-title-bar">
-                    <div className="panel-title-text">
-                      <Trophy size={15} className="text-accent" aria-hidden="true" />
-                      <h4>Score Distribution</h4>
-                    </div>
-                    <span className="panel-sub-label">1★ → 10★ frequency</span>
+                    <h4>Score Distribution</h4>
+                    <span className="panel-sub-label">1★ → 10★</span>
                   </div>
 
                   <div className="histogram-bars-spacious">
                     {histogramBins.map(({ score, label, count, heightPct }) => (
-                      <div key={score} className="hist-column-item" title={`${label}: ${count} films`}>
+                      <div
+                        key={score}
+                        className="hist-column-item"
+                        title={`${label}: ${count} films`}
+                      >
                         <span className="hist-count-num">{count > 0 ? count : ""}</span>
                         <div className="hist-track-housing">
                           <motion.div
                             initial={{ height: 0 }}
-                            animate={{ height: count > 0 ? `${Math.max(16, heightPct)}%` : "4px" }}
-                            transition={{ duration: 0.45, delay: (10 - score) * 0.04 }}
+                            animate={{ height: count > 0 ? `${Math.max(14, heightPct)}%` : "3px" }}
+                            transition={{ duration: 0.4, delay: (10 - score) * 0.03 }}
                             className={`hist-bar-fill ${score === 10 ? "gold" : ""}`}
                           />
                         </div>
@@ -260,14 +280,10 @@ export default function VaultBanner({
                   </div>
                 </div>
 
-                {/* Column 2: Genre Affinities */}
                 <div className="insight-panel-card">
                   <div className="panel-title-bar">
-                    <div className="panel-title-text">
-                      <TrendingUp size={15} className="text-accent" aria-hidden="true" />
-                      <h4>Genre Affinities</h4>
-                    </div>
-                    <span className="panel-sub-label">Dominant affinities</span>
+                    <h4>Genre Affinities</h4>
+                    <span className="panel-sub-label">Share of watched</span>
                   </div>
 
                   <div className="genre-progress-group">
@@ -283,7 +299,7 @@ export default function VaultBanner({
                             <motion.div
                               initial={{ width: 0 }}
                               animate={{ width: `${pct}%` }}
-                              transition={{ duration: 0.5, ease: "easeOut" }}
+                              transition={{ duration: 0.45, ease: "easeOut" }}
                               className="genre-progress-fill"
                             />
                           </div>
@@ -293,32 +309,36 @@ export default function VaultBanner({
                   </div>
                 </div>
 
-                {/* Column 3: Taste DNA Trivia */}
                 <div className="insight-panel-card">
                   <div className="panel-title-bar">
-                    <div className="panel-title-text">
-                      <BarChart3 size={15} className="text-accent" aria-hidden="true" />
-                      <h4>Taste DNA</h4>
-                    </div>
-                    <span className="panel-sub-label">Collection milestones</span>
+                    <h4>Collection Milestones</h4>
+                    <span className="panel-sub-label">Across {totalMovies} films</span>
                   </div>
 
                   <div className="dna-metrics-grid">
                     <div className="dna-metric-card">
                       <span className="dna-label">Top Director</span>
-                      <span className="dna-value" title={topDirector}>{topDirector}</span>
+                      <span className="dna-value" title={topDirector}>
+                        {topDirector}
+                      </span>
                     </div>
                     <div className="dna-metric-card">
                       <span className="dna-label">Top Lead</span>
-                      <span className="dna-value" title={topActor}>{topActor}</span>
+                      <span className="dna-value" title={topActor}>
+                        {topActor}
+                      </span>
                     </div>
                     <div className="dna-metric-card">
-                      <span className="dna-label">Longest Runtime</span>
-                      <span className="dna-value" title={longestFilmStr}>{longestFilmStr}</span>
+                      <span className="dna-label">Longest Film</span>
+                      <span className="dna-value" title={longestFilmStr}>
+                        {longestFilmStr}
+                      </span>
                     </div>
                     <div className="dna-metric-card">
                       <span className="dna-label">Highest Rated</span>
-                      <span className="dna-value text-accent font-semibold" title={topRatedFilmStr}>{topRatedFilmStr}</span>
+                      <span className="dna-value is-gold" title={topRatedFilmStr}>
+                        {topRatedFilmStr}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -328,55 +348,23 @@ export default function VaultBanner({
         )}
       </AnimatePresence>
 
-      {/* ── Tier 2: Spacious Navigation & Filter Toolbar ── */}
+      {/* ── Tier 2: Underline Tabs & Clean Filters ── */}
       <div className="studio-toolbar-tier">
-        {/* Left: Clean Sliding Pill Tabs */}
-        <div className="studio-tabs-cluster" role="tablist">
-          <button
-            role="tab"
-            aria-selected={activeTab === "watched"}
-            className={`spacious-tab-pill ${activeTab === "watched" ? "active" : ""}`}
-            onClick={() => onTabChange("watched")}
-          >
-            {activeTab === "watched" && (
-              <motion.div
-                layoutId="vaultSpaciousTabHighlight"
-                className="spacious-tab-highlight"
-                transition={{ type: "spring", stiffness: 450, damping: 32 }}
-              />
-            )}
-            <Film size={15} className="tab-icon" aria-hidden="true" />
-            <span className="tab-title">Watched</span>
-            <span className="tab-badge">{watched.length}</span>
-          </button>
+        <Tabs
+          tabs={[
+            { id: "watched", label: "Watched", count: watched.length },
+            { id: "watchlist", label: "Watchlist", count: watchlist.length }
+          ]}
+          activeTab={activeTab}
+          onChange={onTabChange}
+        />
 
-          <button
-            role="tab"
-            aria-selected={activeTab === "watchlist"}
-            className={`spacious-tab-pill ${activeTab === "watchlist" ? "active" : ""}`}
-            onClick={() => onTabChange("watchlist")}
-          >
-            {activeTab === "watchlist" && (
-              <motion.div
-                layoutId="vaultSpaciousTabHighlight"
-                className="spacious-tab-highlight"
-                transition={{ type: "spring", stiffness: 450, damping: 32 }}
-              />
-            )}
-            <Bookmark size={15} className="tab-icon" aria-hidden="true" />
-            <span className="tab-title">Plan to Watch</span>
-            <span className="tab-badge">{watchlist.length}</span>
-          </button>
-        </div>
-
-        {/* Right: Clean, Uncluttered Search & Filters */}
         <div className="studio-controls-cluster">
-          {/* Quick Search Input */}
           <div className="spacious-search-box">
             <Search size={14} className="search-icon-muted" aria-hidden="true" />
             <input
               type="text"
-              placeholder={`Search ${activeTab === "watched" ? "watched films" : "watchlist"}...`}
+              placeholder={`Search ${activeTab === "watched" ? "watched" : "watchlist"}...`}
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               className="spacious-search-input"
@@ -384,6 +372,7 @@ export default function VaultBanner({
             />
             {searchQuery && (
               <button
+                type="button"
                 className="btn-clear-spacious-search"
                 onClick={() => onSearchChange("")}
                 aria-label="Clear search"
@@ -393,7 +382,6 @@ export default function VaultBanner({
             )}
           </div>
 
-          {/* Genre Dropdown Select */}
           <div className="spacious-filter-select-wrap">
             <Filter size={13} className="select-icon-muted" aria-hidden="true" />
             <select
@@ -410,7 +398,6 @@ export default function VaultBanner({
             </select>
           </div>
 
-          {/* Sort Dropdown */}
           <div className="spacious-filter-select-wrap">
             <SlidersHorizontal size={13} className="select-icon-muted" aria-hidden="true" />
             <select
@@ -427,9 +414,9 @@ export default function VaultBanner({
             </select>
           </div>
 
-          {/* View Mode Toggle */}
           <div className="spacious-view-toggle">
             <button
+              type="button"
               className={`btn-view-choice ${viewMode === "grid" ? "active" : ""}`}
               onClick={() => onViewModeChange("grid")}
               title="Poster Grid View"
@@ -438,6 +425,7 @@ export default function VaultBanner({
               <LayoutGrid size={15} aria-hidden="true" />
             </button>
             <button
+              type="button"
               className={`btn-view-choice ${viewMode === "list" ? "active" : ""}`}
               onClick={() => onViewModeChange("list")}
               title="Table List View"
@@ -447,9 +435,11 @@ export default function VaultBanner({
             </button>
           </div>
 
-          <span className="spacious-count-indicator desktop-only">
-            <strong>{filteredCount}</strong>/{totalCount}
-          </span>
+          {isFiltered && (
+            <span className="spacious-count-indicator desktop-only">
+              <strong>{filteredCount}</strong>/{totalCount}
+            </span>
+          )}
         </div>
       </div>
     </div>

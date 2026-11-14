@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   getMovieRecommendations,
   getFallbackPoster,
@@ -16,14 +17,22 @@ import {
   parseFreeTextMoodWithGemini
 } from "../services/geminiService";
 import { resolveGeminiKey } from "../services/apiTransport";
-import { getRecommendationExplanation } from "../services/geminiExplanationService";
-import { bridgeTmdbToOmdb, extractTasteProfile, POPULAR_WATCH_PROVIDERS, AVAILABLE_REGIONS } from "../services/tmdbService";
-import { formatStreamingSummary, formatRecBadgeSummary } from "../services/oracleViewHelpers";
+import {
+  bridgeTmdbToOmdb,
+  extractTasteProfile,
+  POPULAR_WATCH_PROVIDERS,
+  AVAILABLE_REGIONS
+} from "../services/tmdbService";
+import {
+  formatStreamingSummary,
+  formatRecBadgeSummary,
+  resolveRecommendationAnchors
+} from "../services/oracleViewHelpers";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
+import { Button, MetaLine } from "./ui";
 import {
   Sparkles,
-  Target,
   Loader2,
   RefreshCw,
   Plus,
@@ -31,29 +40,22 @@ import {
   ChevronDown,
   ChevronUp,
   Star,
-  Film,
   SlidersHorizontal,
   AlertCircle,
-  ThumbsDown,
   X,
-  Compass,
-  Layers,
-  LayoutGrid,
-  List,
   Play,
-  Tv,
   Globe,
   RotateCcw,
-  Cpu
+  Info
 } from "lucide-react";
 
 const MOOD_OPTIONS = [
-  { id: "any", label: "Any Vibe", icon: "✨", desc: "Peak curated cinema" },
-  { id: "mind-bending", label: "Mind-Bending", icon: "🧠", desc: "Plot twists & cerebral puzzles" },
-  { id: "dark-thriller", label: "Dark Thriller", icon: "🌑", desc: "Gritty neo-noir & tension" },
-  { id: "fun-popcorn", label: "Fun Popcorn", icon: "🍿", desc: "High-energy crowd pleasers" },
-  { id: "comfort-watch", label: "Comfort Watch", icon: "🛋️", desc: "Heartwarming & rewatchable" },
-  { id: "hidden-gem", label: "Hidden Gem", icon: "💎", desc: "Underrated masterworks" }
+  { id: "any", label: "Any Vibe", desc: "Peak curated cinema" },
+  { id: "mind-bending", label: "Mind-Bending", desc: "Plot twists & cerebral puzzles" },
+  { id: "dark-thriller", label: "Dark Thriller", desc: "Gritty neo-noir & tension" },
+  { id: "fun-popcorn", label: "Fun Popcorn", desc: "High-energy crowd pleasers" },
+  { id: "comfort-watch", label: "Comfort Watch", desc: "Heartwarming & rewatchable" },
+  { id: "hidden-gem", label: "Hidden Gem", desc: "Underrated masterworks" }
 ];
 
 const DISMISS_REASONS = [
@@ -62,44 +64,6 @@ const DISMISS_REASONS = [
   "Not my genre",
   "Predictable"
 ];
-
-function TasteMatchBadge({ score }) {
-  const normalizedScore = normalizeMatchScore(score);
-
-  let tier = "emerald";
-  if (normalizedScore < 88 && normalizedScore >= 78) {
-    tier = "cyan";
-  } else if (normalizedScore < 78) {
-    tier = "indigo";
-  }
-
-  return (
-    <div className={`taste-match-pill tier-${tier}`} title={`${normalizedScore}% Taste Match`}>
-      <Sparkles size={12} className="match-pill-icon" />
-      <span className="match-score-num">{normalizedScore}%</span>
-      <span className="match-score-label">MATCH</span>
-    </div>
-  );
-}
-
-function ModelUsageBadge({ modelInfo, isCacheValid, queuedModel }) {
-  const { modelLabel, tooltip } = formatRecBadgeSummary(modelInfo, isCacheValid, queuedModel);
-  const tierClass = !modelInfo?.model
-    ? "offline"
-    : modelInfo.isFallback
-      ? "fallback"
-      : "primary";
-
-  return (
-    <span
-      className={`model-status-badge ${tierClass}`}
-      title={tooltip}
-    >
-      <Cpu size={12} />
-      <span>{modelLabel}</span>
-    </span>
-  );
-}
 
 export default function MovieRecommendations({
   watched = [],
@@ -111,6 +75,7 @@ export default function MovieRecommendations({
   setTasteProfile,
   onOpenTasteDeck
 }) {
+  const navigate = useNavigate();
   const {
     userRegion,
     setUserRegion,
@@ -129,19 +94,16 @@ export default function MovieRecommendations({
   const [progress, setProgress] = useState("");
   const [activeStep, setActiveStep] = useState(0);
 
-  const [expandedRec, setExpandedRec] = useState(null);
   const [isAddingMovie, setIsAddingMovie] = useState(null);
-  const [sortBy, setSortBy] = useState("match"); // "match" | "imdb" | "year"
+  const [sortBy, setSortBy] = useState("match");
   const [selectedMood, setSelectedMood] = useState("any");
   const [dismissingTitle, setDismissingTitle] = useState(null);
   const [showDnaDetails, setShowDnaDetails] = useState(false);
   const [showFilterDeck, setShowFilterDeck] = useState(false);
-  const [viewMode, setViewMode] = useState("grid"); // "grid" | "compact"
+  const [showAboutPicks, setShowAboutPicks] = useState(false);
   const [customMoodQuery, setCustomMoodQuery] = useState("");
   const [isParsingMood, setIsParsingMood] = useState(false);
   const [moodParseNote, setMoodParseNote] = useState("");
-  const [deepExplanations, setDeepExplanations] = useState({});
-  const [loadingExplanationKey, setLoadingExplanationKey] = useState(null);
   const [isStreamingOpen, setIsStreamingOpen] = useState(false);
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
@@ -154,7 +116,9 @@ export default function MovieRecommendations({
       if (isSubscribed) setTasteProfileData(data);
     }
     loadTaste();
-    return () => { isSubscribed = false; };
+    return () => {
+      isSubscribed = false;
+    };
   }, [watched, watchlist]);
 
   const currentHash = tasteProfileData
@@ -178,13 +142,14 @@ export default function MovieRecommendations({
   );
 
   const loadingSteps = [
-    watched.length >= 3 ? `Analyzing ${watched.length} rated films with mathematical weights...` : "Initializing cold-start vibe calibration...",
-    "Querying TMDB 3-Bucket waterfall engine...",
-    "Synthesizing taste DNA & time-decay affinities...",
-    `Calibrating precision match scores via ${queuedModel ? formatModelDisplayName(queuedModel) : "Calibrated Ranker"}...`
+    watched.length >= 3
+      ? `Analyzing ${watched.length} rated films with time-weighted affinities...`
+      : "Preparing initial taste calibration...",
+    "Querying TMDB discovery candidates...",
+    "Ranking films against your vault history...",
+    `Curating final picks via ${queuedModel ? formatModelDisplayName(queuedModel) : "Local Ranker"}...`
   ];
 
-  // Advance loading steps smoothly
   useEffect(() => {
     let timer;
     if (isLoading) {
@@ -198,7 +163,6 @@ export default function MovieRecommendations({
     return () => clearInterval(timer);
   }, [isLoading, watched.length]);
 
-  // Real-time cache verification with Master ID collision filter on mount or hash change (guarded against in-flight requests)
   useEffect(() => {
     if (!recommendations && currentHash && !isLoading) {
       const cached = getSmartCache(currentHash, watched, watchlist);
@@ -216,9 +180,8 @@ export default function MovieRecommendations({
   const handleGetRecommendations = async () => {
     const requestId = ++activeRequestRef.current;
     setIsLoading(true);
-    setRecommendations(null); // Clear out previous recommendations immediately to prevent ghost cards during loading
+    setRecommendations(null);
     setError("");
-    setExpandedRec(null);
     setDismissingTitle(null);
 
     try {
@@ -269,14 +232,6 @@ export default function MovieRecommendations({
     setShowFilterDeck(false);
   };
 
-  const handleToggleExplanation = (rec) => {
-    if (expandedRec === rec.title) {
-      setExpandedRec(null);
-    } else {
-      setExpandedRec(rec.title);
-    }
-  };
-
   const handleApplyFreeTextMood = async () => {
     const query = customMoodQuery.trim();
     if (!query || isParsingMood) return;
@@ -285,43 +240,24 @@ export default function MovieRecommendations({
     try {
       const aiClient = createGeminiClient(resolveGeminiKey());
       if (!aiClient) {
-        setMoodParseNote("AI mood parser offline; using selected preset mood.");
+        setMoodParseNote("Offline parser unavailable; using selected mood.");
         return;
       }
       const parsed = await parseFreeTextMoodWithGemini(aiClient, query);
       const matched = MOOD_OPTIONS.find((m) => m.id === parsed?.moodId);
       if (matched) {
         setSelectedMood(matched.id);
-        setMoodParseNote(`Matched preset vibe: ${matched.label}`);
+        setMoodParseNote(`Selected: ${matched.label}`);
       } else {
-        setMoodParseNote("Applied current preset mood.");
+        setMoodParseNote("Kept your current mood selection.");
       }
     } catch {
-      setMoodParseNote("Could not parse custom mood; using preset selection.");
+      setMoodParseNote("Could not match custom mood; using preset selection.");
     } finally {
       setIsParsingMood(false);
     }
   };
 
-  const handleRequestDeepExplanation = async (rec) => {
-    const expKey = rec.tmdbId || rec.imdbID || rec.title;
-    if (!expKey || deepExplanations[expKey] || loadingExplanationKey === expKey) return;
-    setLoadingExplanationKey(expKey);
-    try {
-      const deepText = await getRecommendationExplanation(rec.title, tasteProfile, watched);
-      setDeepExplanations((prev) => ({ ...prev, [expKey]: deepText }));
-    } catch {
-      const genreHint = rec.genre || tasteProfile?.favoriteGenres?.[0] || "this genre";
-      setDeepExplanations((prev) => ({
-        ...prev,
-        [expKey]: `"${rec.title}" aligns with your taste profile in ${genreHint} cinema.`
-      }));
-    } finally {
-      setLoadingExplanationKey((prev) => (prev === expKey ? null : prev));
-    }
-  };
-
-  // Master Composite Collision Set
   const currentIds = new Set([
     ...(watched || []).flatMap((m) => [
       m.imdbID ? String(m.imdbID).toLowerCase() : null,
@@ -392,7 +328,7 @@ export default function MovieRecommendations({
       sourceBucket: rec.sourceBucket ?? null,
       features: rec.features ?? null,
       action: "dismissed",
-      reason: reason
+      reason
     });
 
     const updated = (recommendations || []).filter((r) => r.title !== rec.title);
@@ -406,52 +342,58 @@ export default function MovieRecommendations({
       const id = rec.imdbID?.toLowerCase();
       const tmdbId = rec.tmdbId ? String(rec.tmdbId).toLowerCase() : null;
       const compKey = `${(rec.title || "").toLowerCase().trim()}::${String(rec.year || "").match(/\d{4}/)?.[0] || "0000"}`;
-      
-      const isWatched = (watched || []).some(m => {
-        return (m.imdbID && m.imdbID.toLowerCase() === id) ||
-               (m.tmdbId && String(m.tmdbId).toLowerCase() === tmdbId) ||
-               (m.title && `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` === compKey);
-      });
+
+      const isWatched = (watched || []).some((m) =>
+        (m.imdbID && m.imdbID.toLowerCase() === id) ||
+        (m.tmdbId && String(m.tmdbId).toLowerCase() === tmdbId) ||
+        (m.title && `${m.title.toLowerCase().trim()}::${String(m.year || "").match(/\d{4}/)?.[0] || "0000"}` === compKey)
+      );
 
       return !isWatched;
     })
     .sort((a, b) => {
       if (sortBy === "match") return (b.matchScore || 0) - (a.matchScore || 0);
       if (sortBy === "imdb") return (parseFloat(b.imdbRating) || 0) - (parseFloat(a.imdbRating) || 0);
-      if (sortBy === "year") return (parseInt(b.year) || 0) - (parseInt(a.year) || 0);
+      if (sortBy === "year") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
       return 0;
     });
 
+  // Only show numeric match scores when they carry information (spread >= 4 pts and > 1 distinct value)
+  const scoreValues = sortedRecommendations.map((r) => normalizeMatchScore(r.matchScore));
+  const hasMeaningfulScoreSpread =
+    scoreValues.length > 1 &&
+    new Set(scoreValues).size > 1 &&
+    Math.max(...scoreValues) - Math.min(...scoreValues) >= 4;
+
   const activeMoodObj = MOOD_OPTIONS.find((m) => m.id === selectedMood) || MOOD_OPTIONS[0];
 
+  const effectiveModelInfo =
+    displayedModelInfo &&
+    isCacheValid &&
+    !getLastModelInfo("curation") &&
+    !displayedModelInfo.fromCache
+      ? { ...displayedModelInfo, fromCache: true }
+      : displayedModelInfo;
+  const badgeSummary = formatRecBadgeSummary(effectiveModelInfo, isCacheValid, queuedModel);
+
   const renderStudioDeck = (isDrawer = false) => (
-    <div className={`ai-studio-deck ${isDrawer ? "drawer-mode" : ""}`} style={isDrawer ? { marginBottom: "2.4rem", border: "1px solid rgba(226, 177, 60, 0.35)", boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)" } : {}}>
+    <div className={`ai-studio-deck ${isDrawer ? "drawer-mode" : ""}`}>
       {isDrawer && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.6rem", paddingBottom: "1.2rem", borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-            <SlidersHorizontal size={16} className="text-accent" />
-            <h3 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>Refine Mood & Streaming Preferences</h3>
-          </div>
+        <div className="deck-drawer-header">
+          <h3 className="deck-drawer-title">Mood &amp; Streaming</h3>
           <button
             type="button"
+            className="deck-close-btn"
             onClick={() => setShowFilterDeck(false)}
-            style={{ background: "transparent", border: "none", color: "#8a8a86", cursor: "pointer", padding: "0.4rem" }}
-            aria-label="Close Filter Drawer"
+            aria-label="Close Mood & Streaming Filters"
           >
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
       )}
 
-      {/* Vibe Selection Strip */}
       <div className="vibe-selection-block">
-        <div className="vibe-header-row">
-          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-            <Compass size={16} className="text-accent" aria-hidden="true" />
-            <span className="vibe-label">1. Select Cinematic Mood</span>
-          </div>
-        </div>
-
+        <span className="vibe-label">Mood</span>
         <div className="vibe-chips-grid">
           {MOOD_OPTIONS.map((mood) => {
             const isSelected = selectedMood === mood.id;
@@ -462,7 +404,6 @@ export default function MovieRecommendations({
                 className={`vibe-chip-card ${isSelected ? "active" : ""}`}
                 onClick={() => setSelectedMood(mood.id)}
               >
-                <span className="vibe-icon">{mood.icon}</span>
                 <div className="vibe-meta">
                   <strong className="vibe-title">{mood.label}</strong>
                   <span className="vibe-sub">{mood.desc}</span>
@@ -473,59 +414,37 @@ export default function MovieRecommendations({
         </div>
 
         <form
+          className="mood-query-form"
           onSubmit={(e) => {
             e.preventDefault();
             handleApplyFreeTextMood();
           }}
-          style={{ display: "flex", alignItems: "center", gap: "0.8rem", marginTop: "1.2rem", flexWrap: "wrap" }}
         >
           <input
             type="text"
+            className="mood-query-input"
             value={customMoodQuery}
             onChange={(e) => setCustomMoodQuery(e.target.value)}
-            placeholder='Describe a mood (e.g., "like Drive but funnier")'
-            aria-label="Custom AI Mood Query"
-            style={{
-              flex: "1 1 24rem",
-              background: "#141416",
-              border: "1px solid rgba(255, 255, 255, 0.12)",
-              borderRadius: "0.8rem",
-              padding: "0.85rem 1.2rem",
-              fontSize: "1.3rem",
-              color: "#f4f4f2",
-              outline: "none"
-            }}
+            placeholder='Describe a vibe (e.g., "like Drive but quieter")'
+            aria-label="Custom Mood Query"
           />
-          <button
+          <Button
             type="submit"
+            variant="secondary"
+            size="md"
             disabled={isParsingMood || !customMoodQuery.trim()}
-            style={{
-              padding: "0.85rem 1.5rem",
-              borderRadius: "0.8rem",
-              background: "rgba(226, 177, 60, 0.16)",
-              border: "1px solid rgba(226, 177, 60, 0.4)",
-              color: "#e2b13c",
-              fontSize: "1.25rem",
-              fontWeight: 700,
-              cursor: isParsingMood || !customMoodQuery.trim() ? "not-allowed" : "pointer",
-              opacity: isParsingMood || !customMoodQuery.trim() ? 0.6 : 1
-            }}
           >
-            {isParsingMood ? "Matching Vibe..." : "Match AI Vibe"}
-          </button>
-          {moodParseNote && (
-            <span style={{ fontSize: "1.2rem", color: "#b6b6b2" }}>{moodParseNote}</span>
-          )}
+            {isParsingMood ? "Matching..." : "Match Vibe"}
+          </Button>
+          {moodParseNote && <span className="mood-parse-note">{moodParseNote}</span>}
         </form>
       </div>
 
-      {/* Watch Providers & Global Cinema Filter Strip */}
-      <div className="vibe-selection-block" style={{ marginTop: "1.6rem" }}>
+      <div className="vibe-selection-block">
         <div className={`streaming-summary-bar ${hasStreamingFilter ? "is-custom" : ""}`}>
           <div className="streaming-summary-info">
-            <Tv size={16} className="text-accent" aria-hidden="true" />
-            <span className="vibe-label">2. Streaming</span>
-            <span style={{ color: "rgba(255, 255, 255, 0.22)" }} aria-hidden="true">|</span>
+            <span className="vibe-label">Where to watch</span>
+            <span aria-hidden="true">·</span>
             <span className="streaming-summary-value">{streamingSummary}</span>
           </div>
 
@@ -535,114 +454,65 @@ export default function MovieRecommendations({
             onClick={() => setIsStreamingOpen((prev) => !prev)}
             aria-expanded={isStreamingOpen}
           >
+            <span>{isStreamingOpen ? "Done" : "Edit services"}</span>
             {isStreamingOpen ? (
-              <>
-                <span>Done</span>
-                <ChevronUp size={14} aria-hidden="true" />
-              </>
+              <ChevronUp size={14} aria-hidden="true" />
             ) : (
-              <>
-                <span>Customize</span>
-                <ChevronDown size={14} aria-hidden="true" />
-              </>
+              <ChevronDown size={14} aria-hidden="true" />
             )}
           </button>
         </div>
 
         {isStreamingOpen && (
           <div className="streaming-drawer-body">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: "#1c1d20", border: "1px solid rgba(255, 255, 255, 0.12)", borderRadius: "0.8rem", padding: "0.4rem 1rem" }}>
-                <Globe size={14} style={{ color: "#e2b13c" }} />
+            <div className="streaming-toolbar-row">
+              <div className="streaming-region-select">
+                <Globe size={14} aria-hidden="true" />
                 <select
                   value={userRegion}
                   onChange={(e) => setUserRegion(e.target.value)}
-                  style={{
-                    background: "transparent",
-                    color: "#f4f4f2",
-                    border: "none",
-                    fontSize: "1.25rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    outline: "none"
-                  }}
                   aria-label="Select Streaming Region"
                 >
                   {AVAILABLE_REGIONS.map((reg) => (
-                    <option key={reg.code} value={reg.code} style={{ background: "#141416", color: "#f4f4f2" }}>
+                    <option key={reg.code} value={reg.code}>
                       {reg.flag} {reg.name}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+              <div className="streaming-quick-links">
                 <button
                   type="button"
-                  onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map(p => p.id))}
-                  style={{
-                    fontSize: "1.2rem",
-                    fontWeight: 600,
-                    color: "#8a8a86",
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                    padding: "0.2rem 0.4rem"
-                  }}
-                  className="hover:text-accent"
+                  className="streaming-link-btn"
+                  onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map((p) => p.id))}
                 >
-                  Select All
+                  Select all
                 </button>
-                <span style={{ color: "rgba(255, 255, 255, 0.2)" }}>•</span>
+                <span aria-hidden="true">·</span>
                 <button
                   type="button"
+                  className="streaming-link-btn"
                   onClick={() => setUserWatchProviders([])}
-                  style={{
-                    fontSize: "1.2rem",
-                    fontWeight: 600,
-                    color: "#8a8a86",
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                    padding: "0.2rem 0.4rem"
-                  }}
-                  className="hover:text-accent"
                 >
-                  Reset (All Platforms)
+                  Reset
                 </button>
               </div>
             </div>
 
             {userRegion === "GLOBAL" && userWatchProviders.length > 0 && (
-              <p style={{ fontSize: "1.15rem", color: "#e2b13c", margin: "0.8rem 0 0" }}>
-                Select a specific country above for local licensing.
+              <p className="mood-parse-note">
+                Choose a specific country above for accurate local streaming availability.
               </p>
             )}
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.9rem", marginTop: "1.2rem" }}>
-              {/* All Platforms Universal Pill */}
+            <div className="streaming-providers-grid">
               <button
                 type="button"
+                className={`streaming-provider-btn ${userWatchProviders.length === 0 ? "active" : ""}`}
                 onClick={() => setUserWatchProviders([])}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.8rem",
-                  padding: "0.9rem 1.6rem",
-                  borderRadius: "0.9rem",
-                  fontSize: "1.3rem",
-                  fontWeight: 700,
-                  background: userWatchProviders.length === 0 ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
-                  color: userWatchProviders.length === 0 ? "#e2b13c" : "#b6b6b2",
-                  border: userWatchProviders.length === 0 ? "1px solid rgba(226, 177, 60, 0.5)" : "1px solid rgba(255, 255, 255, 0.08)",
-                  boxShadow: userWatchProviders.length === 0 ? "0 0 16px rgba(226, 177, 60, 0.2)" : "none",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease"
-                }}
               >
-                <Globe size={15} />
+                <Globe size={14} aria-hidden="true" />
                 <span>All Platforms</span>
               </button>
 
@@ -652,25 +522,9 @@ export default function MovieRecommendations({
                   <button
                     key={provider.id}
                     type="button"
+                    className={`streaming-provider-btn ${isSelected ? "active" : ""}`}
                     onClick={() => toggleWatchProvider(provider.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.7rem",
-                      padding: "0.9rem 1.4rem",
-                      borderRadius: "0.9rem",
-                      fontSize: "1.3rem",
-                      fontWeight: 600,
-                      background: isSelected ? "rgba(226, 177, 60, 0.15)" : "#1c1d20",
-                      color: isSelected ? "#e2b13c" : "#b6b6b2",
-                      border: isSelected ? "1px solid rgba(226, 177, 60, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
-                      boxShadow: isSelected ? "0 0 12px rgba(226, 177, 60, 0.15)" : "none",
-                      cursor: "pointer",
-                      transition: "all 0.2s ease"
-                    }}
-                    className="hover:border-white/20 hover:bg-[#242528]"
                   >
-                    <span style={{ fontSize: "1.4rem" }}>{provider.icon}</span>
                     <span>{provider.name}</span>
                   </button>
                 );
@@ -680,103 +534,58 @@ export default function MovieRecommendations({
         )}
       </div>
 
-      {/* Launch CTA */}
-      <div className="synthesis-action-bar" style={{ marginTop: "2.8rem", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: "1.2rem" }}>
+      <div className="synthesis-action-bar">
         {error && (
-          <div className="ai-error-banner" style={{ width: "100%", maxWidth: "600px", marginBottom: "1rem" }}>
-            <AlertCircle size={16} />
+          <div className="ai-error-banner">
+            <AlertCircle size={16} aria-hidden="true" />
             <span>{error}</span>
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: "1.2rem", flexWrap: "wrap", justifyContent: "center" }}>
-          <button
-            type="button"
-            className="btn-synthesize-cinema"
+        <div className="recs-actions-group">
+          <Button
+            variant="primary"
+            size="lg"
             onClick={handleGetRecommendations}
             disabled={isLoading}
-            style={{
-              minHeight: "5.4rem",
-              padding: "1.5rem 4.4rem",
-              fontSize: "1.55rem",
-              fontWeight: 800,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              borderRadius: "1.2rem",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "1.2rem",
-              boxShadow: "0 8px 32px -4px rgba(226, 177, 60, 0.45)"
-            }}
           >
-            <Sparkles size={20} className="btn-sparkle-icon" />
-            <span>{isDrawer ? "Update Recommendations" : "Synthesize Recommendations"}</span>
-          </button>
+            <span>{isDrawer ? "Update Picks" : "Find Picks"}</span>
+          </Button>
 
           {!isDrawer && watched.length < 5 && onOpenTasteDeck && (
-            <button
-              type="button"
-              className="taste-calibrate-inline-btn"
-              onClick={onOpenTasteDeck}
-              style={{ minHeight: "5.4rem", padding: "0 2.2rem" }}
-            >
-              <span>Calibrate Taste (30 Films)</span>
-            </button>
+            <Button variant="secondary" size="lg" onClick={onOpenTasteDeck}>
+              <span>Taste Calibration (30)</span>
+            </Button>
           )}
 
           {isDrawer && (
-            <button
-              type="button"
-              onClick={handleResetSearch}
-              style={{
-                minHeight: "5.4rem",
-                padding: "1.5rem 2.4rem",
-                fontSize: "1.4rem",
-                fontWeight: 600,
-                borderRadius: "1.2rem",
-                background: "transparent",
-                color: "#8a8a86",
-                border: "1px solid rgba(255, 255, 255, 0.12)",
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.8rem"
-              }}
-            >
-              <RotateCcw size={15} />
-              <span>Start Over</span>
-            </button>
+            <Button variant="ghost" size="lg" onClick={handleResetSearch}>
+              <RotateCcw size={15} aria-hidden="true" />
+              <span>Start over</span>
+            </Button>
           )}
         </div>
       </div>
     </div>
   );
 
+  const navigateToRec = (rec) => {
+    const id = rec.imdbID || (rec.tmdbId ? `tmdb_${rec.tmdbId}` : rec.id);
+    if (id) navigate(`/movie/${id}`);
+  };
+
   return (
     <div className="ai-recommendations">
-      {/* ── Pre-run Discovery Stage ── */}
       {!recommendations && !isLoading && (
-        <div className="ai-discovery-stage">
-          {renderStudioDeck(false)}
-        </div>
+        <div className="ai-discovery-stage">{renderStudioDeck(false)}</div>
       )}
 
-      {/* ── Loading Theater ── */}
       {isLoading && (
         <div className="ai-loading-theater">
-          <div className="theater-radar-box">
-            <div className="radar-glow-ring" />
-            <div className="radar-orbit-ring" />
-            <Sparkles size={38} className="theater-main-spinner text-accent" />
-          </div>
-
-          <div className="theater-header">
-            <h3 className="theater-title">Calibrating TMDB 3-Bucket Engine</h3>
-            <div className="theater-status-badge">
-              <Loader2 size={13} className="spin-icon" />
-              <span>{progress || "Synthesizing recommendations..."}</span>
-            </div>
+          <h3 className="theater-title display-title">Curating your next watch</h3>
+          <div className="theater-status-badge">
+            <Loader2 size={15} className="spin-icon" aria-hidden="true" />
+            <span>{progress || "Ranking candidates against your vault..."}</span>
           </div>
 
           <div className="theater-checklist">
@@ -784,17 +593,20 @@ export default function MovieRecommendations({
               const isDone = activeStep > idx;
               const isCurrent = activeStep === idx;
               return (
-                <div key={idx} className={`theater-step ${isDone ? "done" : isCurrent ? "active" : ""}`}>
-                  <div className="step-icon">
+                <div
+                  key={idx}
+                  className={`theater-step ${isDone ? "done" : isCurrent ? "active" : ""}`}
+                >
+                  <div>
                     {isDone ? (
-                      <Check size={16} className="check-done" />
+                      <Check size={15} aria-hidden="true" />
                     ) : isCurrent ? (
-                      <Loader2 size={16} className="spin-icon text-accent" />
+                      <Loader2 size={15} className="spin-icon" aria-hidden="true" />
                     ) : (
                       <div className="step-bullet" />
                     )}
                   </div>
-                  <span className="step-text">{stepText}</span>
+                  <span>{stepText}</span>
                 </div>
               );
             })}
@@ -802,56 +614,40 @@ export default function MovieRecommendations({
         </div>
       )}
 
-      {/* ── Results State ── */}
       {!isLoading && recommendations && recommendations.length > 0 && (
         <div className="ai-results-stage">
-          {/* Collapsible/Expandable Studio Deck for Mood & Streaming Refinements */}
-          {showFilterDeck && (
-            <div className="ai-discovery-stage in-results" style={{ marginBottom: "2.4rem" }}>
-              {renderStudioDeck(true)}
-            </div>
-          )}
+          {showFilterDeck && renderStudioDeck(true)}
 
-          {/* Compact Taste Genome Bar */}
+          {/* Single-Sentence Taste Summary + Link to Breakdown */}
           {tasteProfile && (
-            <div className="taste-genome-bar">
-              <div className="genome-summary-row">
-                <div className="genome-left">
-                  <div className="genome-badge-pill">
-                    <Target size={13} className="text-accent" />
-                    <span>Synthesized Taste DNA</span>
-                  </div>
-                  <div className="genome-tags">
-                    {tasteProfile.favoriteGenres?.slice(0, 3).map((genre, i) => (
-                      <span key={i} className="genome-tag">{genre}</span>
-                    ))}
-                    {tasteProfile.preferredEra && (
-                      <span className="genome-tag era">
-                        <Film size={12} className="text-accent" /> {tasteProfile.preferredEra}
-                      </span>
-                    )}
-                  </div>
-                </div>
+            <div className="taste-summary-block">
+              <div className="taste-summary-line">
+                <p className="taste-summary-sentence">
+                  {watched.length > 0 ? `Based on ${watched.length} films. ` : ""}
+                  You lean{" "}
+                  <strong>
+                    {(tasteProfile.favoriteGenres || []).slice(0, 3).join(", ") || "eclectic cinema"}
+                  </strong>
+                  {tasteProfile.preferredEra ? `, ${tasteProfile.preferredEra}` : ""}.
+                </p>
 
                 <button
                   type="button"
-                  className="btn-genome-toggle"
-                  onClick={() => setShowDnaDetails(!showDnaDetails)}
+                  className="btn-breakdown-link"
+                  onClick={() => setShowDnaDetails((prev) => !prev)}
                   aria-expanded={showDnaDetails}
                 >
-                  <span>{showDnaDetails ? "Hide DNA Breakdown" : "View DNA Breakdown"}</span>
-                  {showDnaDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {showDnaDetails ? "Hide breakdown" : "View breakdown"}
                 </button>
               </div>
 
-              {/* Collapsible Detailed Breakdown */}
               {showDnaDetails && (
                 <div className="taste-grid-expanded">
                   <div className="taste-section">
-                    <span className="taste-label">Top Genre Affinities</span>
+                    <span className="taste-label">Genre Affinities</span>
                     <div className="taste-tags">
-                      {tasteProfile.favoriteGenres?.map((genre, i) => (
-                        <div key={i} className="taste-tag-bar">
+                      {(tasteProfile.favoriteGenres || []).map((genre, i) => (
+                        <div key={genre} className="taste-tag-bar">
                           <span className="taste-tag-name">{genre}</span>
                           <div className="taste-bar-outer">
                             <div
@@ -865,9 +661,12 @@ export default function MovieRecommendations({
                   </div>
 
                   <div className="taste-section">
-                    <span className="taste-label">Director & Narrative Aesthetic</span>
+                    <span className="taste-label">Aesthetic Note</span>
                     <div className="taste-aesthetic-box">
-                      <p>{tasteProfile.ratingStyle || "High cinematic affinity with preference for strong pacing and visual identity."}</p>
+                      <p>
+                        {tasteProfile.ratingStyle ||
+                          "Preference for deliberate pacing, visual atmosphere, and strong dramatic stakes."}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -875,272 +674,227 @@ export default function MovieRecommendations({
             </div>
           )}
 
-          {/* Results Toolbar */}
+          {/* Toolbar: Combined Mood/Streaming Control + Subtle Attribution Info */}
           <div className="recs-toolbar">
             <div className="recs-count-group">
-              <Sparkles size={16} className="text-accent" />
-              <h2 className="recs-title">Curated Picks</h2>
-              <span className="recs-badge">{sortedRecommendations.length} Films</span>
-              {(() => {
-                const effectiveModelInfo =
-                  displayedModelInfo &&
-                  isCacheValid &&
-                  !getLastModelInfo("curation") &&
-                  !displayedModelInfo.fromCache
-                    ? { ...displayedModelInfo, fromCache: true }
-                    : displayedModelInfo;
-                const badgeSummary = formatRecBadgeSummary(effectiveModelInfo, isCacheValid, queuedModel);
-                return (
-                  <>
-                    <span
-                      className={`cache-status-badge ${badgeSummary.freshnessTone}`}
-                      title={badgeSummary.tooltip}
-                    >
-                      {isCacheValid ? <Check size={11} /> : <AlertCircle size={11} />} {badgeSummary.freshnessLabel}
-                    </span>
-                    <ModelUsageBadge
-                      modelInfo={effectiveModelInfo}
-                      isCacheValid={isCacheValid}
-                      queuedModel={queuedModel}
-                    />
-                  </>
-                );
-              })()}
+              <h2 className="recs-title">Recommended for You</h2>
+
+              <button
+                type="button"
+                className="about-picks-trigger"
+                title={badgeSummary.tooltip}
+                onClick={() => setShowAboutPicks((prev) => !prev)}
+                aria-expanded={showAboutPicks}
+              >
+                <Info size={13} aria-hidden="true" />
+                <span>About these picks</span>
+              </button>
+
+              {showAboutPicks && (
+                <div className="about-picks-popover" role="status">
+                  <div>
+                    <strong>Status:</strong> {badgeSummary.freshnessLabel}
+                  </div>
+                  <div>
+                    <strong>Curated by:</strong> {badgeSummary.modelLabel}
+                  </div>
+                  <div>{badgeSummary.tooltip}</div>
+                </div>
+              )}
             </div>
 
             <div className="recs-actions-group">
-              {/* Refine / Change Mood & Filters toggle */}
-              <button
-                type="button"
-                className={`btn-refine-filters-toggle ${showFilterDeck ? "active" : ""}`}
-                onClick={() => setShowFilterDeck(!showFilterDeck)}
-                title="Change Cinematic Mood & Streaming Platforms"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.7rem",
-                  padding: "0.6rem 1.2rem",
-                  borderRadius: "0.8rem",
-                  fontSize: "1.25rem",
-                  fontWeight: 700,
-                  background: showFilterDeck ? "rgba(226, 177, 60, 0.18)" : "#1c1d20",
-                  color: showFilterDeck ? "#e2b13c" : "#f4f4f2",
-                  border: showFilterDeck ? "1px solid rgba(226, 177, 60, 0.45)" : "1px solid rgba(255, 255, 255, 0.1)",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease"
-                }}
+              <Button
+                variant={showFilterDeck ? "primary" : "secondary"}
+                size="sm"
+                onClick={() => setShowFilterDeck((prev) => !prev)}
               >
-                <SlidersHorizontal size={13} className="text-accent" />
-                <span>{showFilterDeck ? "Hide Filters" : "Change Mood / Filters"}</span>
-                <span style={{
-                  fontSize: "1.1rem",
-                  padding: "0.15rem 0.5rem",
-                  borderRadius: "0.4rem",
-                  background: "rgba(0, 0, 0, 0.35)",
-                  color: "#e2b13c",
-                  border: "1px solid rgba(226, 177, 60, 0.25)"
-                }}>
-                  {activeMoodObj.icon} {activeMoodObj.label}
+                <SlidersHorizontal size={13} aria-hidden="true" />
+                <span>
+                  {activeMoodObj.label}
+                  {hasStreamingFilter ? " · Streaming filtered" : ""}
                 </span>
-                {showFilterDeck ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </button>
-              {/* View mode toggle */}
-              <div className="view-mode-toggle" role="group" aria-label="View Mode">
-                <button
-                  type="button"
-                  className={`btn-view-toggle ${viewMode === "grid" ? "active" : ""}`}
-                  onClick={() => setViewMode("grid")}
-                  title="Grid View"
-                >
-                  <LayoutGrid size={15} />
-                </button>
-                <button
-                  type="button"
-                  className={`btn-view-toggle ${viewMode === "compact" ? "active" : ""}`}
-                  onClick={() => setViewMode("compact")}
-                  title="Compact List View"
-                >
-                  <List size={15} />
-                </button>
-              </div>
+                {showFilterDeck ? (
+                  <ChevronUp size={13} aria-hidden="true" />
+                ) : (
+                  <ChevronDown size={13} aria-hidden="true" />
+                )}
+              </Button>
 
-              {/* Sort controls */}
               <div className="recs-sort-controls">
-                <SlidersHorizontal size={13} className="sort-icon" />
                 <select
                   className="recs-sort-select"
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
                   aria-label="Sort recommendations"
                 >
-                  <option value="match">Match Score (%)</option>
-                  <option value="imdb">IMDb Score</option>
-                  <option value="year">Release Year</option>
+                  <option value="match">Sort: Best Match</option>
+                  <option value="imdb">Sort: IMDb Score</option>
+                  <option value="year">Sort: Release Year</option>
                 </select>
               </div>
             </div>
           </div>
 
-          {/* ── Cinema Recommendations Grid / List ── */}
-          <ul className={`recommendation-container ${viewMode === "grid" ? "recommendation-grid-2col" : "recommendation-list"}`}>
+          {/* Single-Column Editorial Curated List */}
+          <ul className="recommendation-list-editorial">
             {sortedRecommendations.map((rec, index) => {
-              const rankNum = index + 1;
+              const rankLabel = String(index + 1).padStart(2, "0");
               const inWatchlist = isAlreadyInWatchlist(rec.title, rec.year, rec.imdbID, rec.tmdbId);
               const isAdding = isAddingMovie === rec.title;
-              const isExpanded = expandedRec === rec.title;
               const isDismissing = dismissingTitle === rec.title;
+              const imdbVal = rec.imdbRating && rec.imdbRating !== "N/A"
+                ? parseFloat(rec.imdbRating).toFixed(1)
+                : null;
+              const anchors = resolveRecommendationAnchors(rec, watched, 3);
 
               return (
-                <li key={rec.id || index} className="recommendation-card">
-                  {/* Rank Numeral */}
-                  <div className="rec-rank-num">#{rankNum}</div>
+                <li key={rec.id || rec.tmdbId || index} className="recommendation-row">
+                  <div className="rec-rank-num" aria-hidden="true">
+                    {rankLabel}
+                  </div>
 
-                    {/* Poster Image with Direct YouTube Trailer Link */}
-                    <div className="rec-poster-wrapper" style={{ position: "relative" }}>
-                      <PosterImage
-                        src={rec.poster}
-                        title={rec.title}
-                        className="rec-poster-img"
-                      />
-                      {(rec.trailerKey || rec.title) && (
-                        <a
-                          href={
-                            rec.trailerKey
-                              ? `https://www.youtube.com/watch?v=${rec.trailerKey}`
-                              : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${rec.title} ${rec.year || ""} official trailer`)}`
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            position: "absolute",
-                            bottom: "0.8rem",
-                            right: "0.8rem",
-                            width: "3.2rem",
-                            height: "3.2rem",
-                            borderRadius: "50%",
-                            background: "rgba(0, 0, 0, 0.8)",
-                            border: "1px solid rgba(226, 177, 60, 0.45)",
-                            color: "#e2b13c",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            cursor: "pointer",
-                            transition: "all 0.2s ease",
-                            zIndex: 5
-                          }}
-                          className="hover:scale-110 hover:bg-[#e2b13c] hover:text-[#141416]"
-                          title="Watch Official Trailer on YouTube"
-                          aria-label={`Watch official trailer for ${rec.title} on YouTube (opens in new tab)`}
-                        >
-                          <Play size={13} fill="currentColor" />
-                        </a>
-                      )}
-                    </div>
+                  <div
+                    className="rec-poster-wrapper"
+                    onClick={() => navigateToRec(rec)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Inspect ${rec.title}`}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigateToRec(rec);
+                      }
+                    }}
+                  >
+                    <PosterImage
+                      src={rec.poster}
+                      title={rec.title}
+                      className="rec-poster-img"
+                    />
+                    {(rec.trailerKey || rec.title) && (
+                      <a
+                        href={
+                          rec.trailerKey
+                            ? `https://www.youtube.com/watch?v=${rec.trailerKey}`
+                            : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${rec.title} ${rec.year || ""} official trailer`)}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rec-trailer-btn"
+                        onClick={(e) => e.stopPropagation()}
+                        title="Watch Official Trailer"
+                        aria-label={`Watch trailer for ${rec.title}`}
+                      >
+                        <Play size={12} fill="currentColor" aria-hidden="true" />
+                      </a>
+                    )}
+                  </div>
 
                   <div className="rec-content">
                     <div className="rec-header">
-                      <div className="rec-title-section">
-                        <h3 className="rec-movie-title">{rec.title}</h3>
-                        <span className="rec-meta">
-                          {rec.year} • {rec.genre}
+                      <button
+                        type="button"
+                        className="rec-title-btn"
+                        onClick={() => navigateToRec(rec)}
+                      >
+                        <h3 className="rec-movie-title display-title">{rec.title}</h3>
+                      </button>
+
+                      {hasMeaningfulScoreSpread && rec.matchScore && (
+                        <span className="rec-score-muted" title="Estimated affinity score">
+                          {normalizeMatchScore(rec.matchScore)}% match
                         </span>
-                      </div>
-
-                      <div className="rec-ratings-group">
-                        {rec.imdbRating && (
-                          <div className="imdb-rating-badge" title="Verified IMDb Rating">
-                            <Star size={12} className="star-gold" />
-                            <span className="imdb-val">
-                              {parseFloat(rec.imdbRating).toFixed(1)}
-                            </span>
-                            <span className="imdb-lbl">IMDb</span>
-                          </div>
-                        )}
-                        <TasteMatchBadge score={rec.matchScore} />
-                      </div>
+                      )}
                     </div>
 
-                    {/* Styled Critique Box */}
-                    <div className="rec-reason-box">
-                      <p className="rec-reason">
-                        <span className="reason-quote-mark">“</span>
-                        {rec.reason}
-                        <span className="reason-quote-mark">”</span>
-                      </p>
-                    </div>
+                    <MetaLine
+                      items={[rec.year, rec.genre]}
+                      rating={imdbVal ? `${imdbVal} IMDb` : null}
+                      ratingTone="neutral"
+                    />
 
-                    {/* Streaming Provider Badges */}
-                    {rec.streamProviders && rec.streamProviders.length > 0 && (
-                      <div className="rec-stream-row">
-                        <span className="rec-stream-label">Stream on:</span>
-                        {rec.streamProviders.slice(0, 2).map((p, pIdx) => (
-                          <span key={pIdx} className="rec-stream-pill">
-                            {p.name}
-                          </span>
-                        ))}
+                    <p className="rec-reason-prose">{rec.reason}</p>
+
+                    {anchors.length > 0 && (
+                      <div className="rec-anchors-strip">
+                        <span className="rec-anchors-label">Because you rated</span>
+                        <div className="rec-anchors-list">
+                          {anchors.map((anchor) => (
+                            <button
+                              key={anchor.id}
+                              type="button"
+                              className="rec-anchor-chip"
+                              onClick={() => navigate(`/movie/${anchor.id}`)}
+                              title={`${anchor.title} (${anchor.year || ""})`}
+                            >
+                              <span className="rec-anchor-thumb">
+                                <PosterImage src={anchor.poster} title={anchor.title} alt="" />
+                              </span>
+                              <span>{anchor.title}</span>
+                              {anchor.userRating > 0 && (
+                                <span className="rec-anchor-rating">
+                                  <Star size={11} fill="currentColor" aria-hidden="true" />
+                                  {anchor.userRating}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
 
-                    {/* Action Bar */}
+                    {rec.streamProviders && rec.streamProviders.length > 0 && (
+                      <span className="rec-stream-inline">
+                        Available on {rec.streamProviders.slice(0, 3).map((p) => p.name).join(", ")}
+                      </span>
+                    )}
+
                     <div className="rec-actions">
-                      <button
-                        type="button"
-                        className={`btn-add-watchlist ${inWatchlist ? "added" : ""}`}
+                      <Button
+                        variant={inWatchlist ? "secondary" : "primary"}
+                        size="sm"
                         onClick={() => handleAdd(rec)}
                         disabled={inWatchlist || isAdding}
                       >
                         {isAdding ? (
                           <>
-                            <Loader2 size={14} className="spin-icon" />
+                            <Loader2 size={14} className="spin-icon" aria-hidden="true" />
                             <span>Saving...</span>
                           </>
                         ) : inWatchlist ? (
                           <>
-                            <Check size={14} />
+                            <Check size={14} aria-hidden="true" />
                             <span>In Watchlist</span>
                           </>
                         ) : (
                           <>
-                            <Plus size={14} />
-                            <span>Plan to Watch</span>
+                            <Plus size={14} aria-hidden="true" />
+                            <span>Add to Watchlist</span>
                           </>
                         )}
-                      </button>
+                      </Button>
 
-                      <button
-                        type="button"
-                        className={`btn-explain ${isExpanded ? "active" : ""}`}
-                        onClick={() => handleToggleExplanation(rec)}
-                      >
-                        <Sparkles size={13} className="btn-explain-icon" />
-                        <span>{isExpanded ? "Hide Details" : "Why It Fits"}</span>
-                        {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn-dismiss-rec"
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setDismissingTitle(isDismissing ? null : rec.title)}
-                        title="Dismiss recommendation"
-                        aria-label="Dismiss recommendation"
                       >
-                        <ThumbsDown size={13} />
-                        <span>Not for me</span>
-                      </button>
+                        Not for me
+                      </Button>
                     </div>
 
-                    {/* Dismiss Popover */}
                     {isDismissing && (
                       <div className="dismiss-reasons-popover">
                         <div className="popover-header">
-                          <span>Why isn't this a match?</span>
+                          <span>Why skip this film?</span>
                           <button
                             type="button"
                             className="btn-close-popover"
                             onClick={() => setDismissingTitle(null)}
                             aria-label="Close"
                           >
-                            <X size={14} />
+                            <X size={14} aria-hidden="true" />
                           </button>
                         </div>
                         <div className="reason-chips">
@@ -1157,132 +911,38 @@ export default function MovieRecommendations({
                         </div>
                       </div>
                     )}
-
-                    {/* Match Breakdown Drawer */}
-                    {isExpanded && (() => {
-                      const expKey = rec.tmdbId || rec.imdbID || rec.title;
-                      const deepText = expKey ? deepExplanations[expKey] : null;
-                      const isDeepLoading = Boolean(expKey && loadingExplanationKey === expKey);
-                      return (
-                        <div className="rec-explanation-drawer">
-                          <div className="drawer-content">
-                            {Array.isArray(rec.matchReasons) && rec.matchReasons.length > 0 && (
-                              <div className="rec-match-reasons-drawer">
-                                {rec.matchReasons.slice(0, 3).map((badge, bIdx) => (
-                                  <span key={bIdx} className="rec-match-reason-pill">
-                                    {badge}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            <p>
-                              <strong>Thematic Connection:</strong> {rec.reason}
-                            </p>
-                            <p className="rec-detail-text">
-                              Harvested via <strong>{rec.sourceBucket || "TMDB 3-Bucket Engine"}</strong> with strong stylistic overlap with your taste profile for{" "}
-                              <strong>{rec.genre || tasteProfile?.favoriteGenres?.[0] || "cinematic storytelling"}</strong>.
-                            </p>
-                            <div style={{ marginTop: "0.8rem" }}>
-                              {!deepText ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRequestDeepExplanation(rec)}
-                                  disabled={isDeepLoading}
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: "0.5rem",
-                                    padding: "0.55rem 1.1rem",
-                                    borderRadius: "0.6rem",
-                                    background: "rgba(226, 177, 60, 0.14)",
-                                    border: "1px solid rgba(226, 177, 60, 0.35)",
-                                    color: "#e2b13c",
-                                    fontSize: "1.2rem",
-                                    fontWeight: 600,
-                                    cursor: isDeepLoading ? "wait" : "pointer"
-                                  }}
-                                >
-                                  <Sparkles size={12} />
-                                  <span>{isDeepLoading ? "Generating Deep Critic Why..." : "Deep Critic Why"}</span>
-                                </button>
-                              ) : (
-                                <p style={{ marginTop: "0.6rem", padding: "0.8rem 1rem", borderRadius: "0.6rem", background: "rgba(255, 255, 255, 0.04)", borderLeft: "2px solid #e2b13c" }}>
-                                  <strong>Deep Critic Analysis:</strong> {deepText}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
                 </li>
               );
             })}
           </ul>
 
-          {/* Refresh Action Toolbar */}
-          <div className="recs-footer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1.2rem", flexWrap: "wrap", marginTop: "3rem" }}>
-            <button
-              type="button"
-              className="btn-refresh-recs"
+          <div className="recs-footer">
+            <Button
+              variant="primary"
+              size="md"
               onClick={handleGetRecommendations}
               disabled={isLoading}
             >
-              <RefreshCw size={15} className={isLoading ? "spin-icon" : ""} />
-              <span>Synthesize Fresh Picks</span>
-            </button>
+              <RefreshCw size={14} className={isLoading ? "spin-icon" : ""} aria-hidden="true" />
+              <span>Refresh picks</span>
+            </Button>
 
-            <button
-              type="button"
-              className="btn-change-vibe"
+            <Button
+              variant="secondary"
+              size="md"
               onClick={() => {
                 setShowFilterDeck(true);
-                window.scrollTo({ top: 120, behavior: "smooth" });
+                window.scrollTo({ top: 100, behavior: "smooth" });
               }}
               disabled={isLoading}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.8rem",
-                padding: "1.2rem 2.2rem",
-                borderRadius: "0.8rem",
-                background: "#1c1d20",
-                color: "#f4f4f2",
-                border: "1px solid rgba(255, 255, 255, 0.12)",
-                fontSize: "1.35rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "all 0.2s ease"
-              }}
             >
-              <SlidersHorizontal size={14} className="text-accent" />
-              <span>Change Mood & Filters</span>
-            </button>
+              <span>Change mood &amp; streaming</span>
+            </Button>
 
-            <button
-              type="button"
-              className="btn-reset-search"
-              onClick={handleResetSearch}
-              disabled={isLoading}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.8rem",
-                padding: "1.2rem 2.2rem",
-                borderRadius: "0.8rem",
-                background: "transparent",
-                color: "#8a8a86",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
-                fontSize: "1.35rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "all 0.2s ease"
-              }}
-            >
-              <RotateCcw size={14} />
-              <span>Start New Search</span>
-            </button>
+            <Button variant="ghost" size="md" onClick={handleResetSearch} disabled={isLoading}>
+              <span>Start over</span>
+            </Button>
           </div>
         </div>
       )}

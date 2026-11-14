@@ -1,35 +1,21 @@
-import React from 'react';
+import React from "react";
 
+/**
+ * Typographic Stat primitive — large tabular numeral with quiet small label.
+ * Avoids heavy boxed stat cards so posters and content own focus.
+ */
 export function StatCell({
   label,
   value,
-  delta,
-  icon: Icon,
   subtext,
-  className = ''
+  className = ""
 }) {
   return (
-    <div
-      className={`flex flex-col justify-between rounded-card border border-hairline bg-surface-1 p-4 transition-colors hover:border-hairline-strong ${className}`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-text-3">
-          {label}
-        </span>
-        {Icon && <Icon size={16} className="text-text-3" aria-hidden="true" />}
-      </div>
-
-      <div className="mt-2">
-        <div className="text-2xl font-bold tracking-tight text-text-1 tabular-nums font-mono">
-          {value}
-        </div>
-
-        {(delta || subtext) && (
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-text-3">
-            {delta && <span className="text-accent font-medium">{delta}</span>}
-            {subtext && <span>{subtext}</span>}
-          </div>
-        )}
+    <div className={`cv-stat-item ${className}`}>
+      <div className="cv-stat-value tabular-num">{value}</div>
+      <div className="cv-stat-label">
+        <span>{label}</span>
+        {subtext && <span className="cv-stat-sub">{subtext}</span>}
       </div>
     </div>
   );

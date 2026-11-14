@@ -111,7 +111,7 @@ function InlineMovieCard({ title, year }) {
         </span>
         {movieData?.imdbRating && movieData.imdbRating !== "N/A" && (
           <div className="inline-rating">
-            <Star size={12} className="star-gold" />
+            <Star size={12} fill="currentColor" />
             <span>{movieData.imdbRating}</span>
           </div>
         )}

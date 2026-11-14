@@ -74,7 +74,7 @@ Menu.Panel = function MenuPanel({ children, align = 'right' }) {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: -6 }}
           transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-          className={`absolute ${alignClass} z-[200] mt-[1rem] min-w-[26.5rem] w-max max-w-[32rem] rounded-[1.2rem] bg-[#18191d]/98 backdrop-blur-xl border border-white/14 shadow-[0_18px_42px_rgba(0,0,0,0.78)] focus:outline-none p-[0.75rem]`}
+          className={`absolute ${alignClass} z-[200] mt-[0.8rem] min-w-[26rem] w-max max-w-[32rem] rounded-[12px] bg-[#14161b]/98 backdrop-blur-xl border border-white/10 shadow-[0_18px_42px_rgba(0,0,0,0.78)] focus:outline-none p-[0.65rem]`}
           role="menu"
         >
           {children}
@@ -84,19 +84,23 @@ Menu.Panel = function MenuPanel({ children, align = 'right' }) {
   );
 };
 
-Menu.Item = function MenuItem({ children, onClick, icon: Icon }) {
+Menu.Item = function MenuItem({ children, onClick, icon: Icon, danger = false }) {
   const { close } = useContext(MenuContext);
   return (
     <button
       type="button"
-      className="group flex w-full items-center gap-[1.1rem] rounded-[0.8rem] px-[1.3rem] py-[1.05rem] text-[1.45rem] font-medium text-[#d4d4d0] hover:bg-white/[0.07] hover:text-[#f4f4f2] transition-colors focus:outline-none focus:bg-white/[0.07] focus:text-[#f4f4f2] text-left cursor-pointer whitespace-nowrap"
+      className={`group flex w-full items-center gap-[1.1rem] rounded-[6px] px-[1.2rem] py-[1rem] text-[1.4rem] font-medium transition-colors focus:outline-none text-left cursor-pointer whitespace-nowrap ${
+        danger
+          ? "text-[#e5484d] hover:bg-[#e5484d]/10 focus:bg-[#e5484d]/10"
+          : "text-[#c8c7c1] hover:bg-white/[0.06] hover:text-[#f3f1eb] focus:bg-white/[0.06] focus:text-[#f3f1eb]"
+      }`}
       role="menuitem"
       onClick={(e) => { onClick?.(e); close(); }}
     >
       {Icon && (
         <Icon
-          size={17}
-          className="text-[#8a8a86] group-hover:text-[#e2b13c] transition-colors shrink-0"
+          size={16}
+          className={`${danger ? "text-[#e5484d]" : "text-[#6e6d68] group-hover:text-[#f3f1eb]"} transition-colors shrink-0`}
           aria-hidden="true"
         />
       )}
@@ -109,13 +113,13 @@ Menu.CheckboxItem = function MenuCheckboxItem({ children, checked, onChange }) {
   return (
     <button
       type="button"
-      className="flex w-full items-center justify-between gap-[1.1rem] rounded-[0.8rem] px-[1.3rem] py-[1.05rem] text-[1.45rem] font-medium text-[#d4d4d0] hover:bg-white/[0.07] hover:text-[#f4f4f2] transition-colors focus:outline-none focus:bg-white/[0.07] cursor-pointer whitespace-nowrap"
+      className="flex w-full items-center justify-between gap-[1.1rem] rounded-[6px] px-[1.2rem] py-[1rem] text-[1.4rem] font-medium text-[#c8c7c1] hover:bg-white/[0.06] hover:text-[#f3f1eb] transition-colors focus:outline-none focus:bg-white/[0.06] cursor-pointer whitespace-nowrap"
       role="menuitemcheckbox"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
     >
       <span>{children}</span>
-      {checked && <Check size={17} className="text-[#e2b13c] shrink-0" aria-hidden="true" />}
+      {checked && <Check size={16} className="text-[#f3f1eb] shrink-0" aria-hidden="true" />}
     </button>
   );
 };

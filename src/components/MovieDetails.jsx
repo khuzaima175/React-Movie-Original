@@ -428,7 +428,7 @@ export default function MovieDetails({
             {/* Hero Title & Tagline Overlay */}
             <div className="movie-hero-title-group">
               {movie.tagline && <p className="movie-hero-tagline">“{movie.tagline}”</p>}
-              <h1 className="movie-hero-title">{movie.title}</h1>
+              <h1 className="movie-hero-title display-title">{movie.title}</h1>
               <div className="movie-hero-chips">
                 <span className="hero-chip"><Calendar size={13} aria-hidden="true" /> {movie.released || movie.year}</span>
                 {movie.runtime && movie.runtime !== "N/A" && (
@@ -462,7 +462,7 @@ export default function MovieDetails({
                       </div>
                       <div>
                         <h4 className="vault-saved-title">In Your Cinema Vault</h4>
-                        <span className="vault-saved-subtitle">Taste Model Synchronized</span>
+                        <span className="vault-saved-subtitle">Saved in your Vault</span>
                       </div>
                     </div>
 
@@ -509,7 +509,7 @@ export default function MovieDetails({
                   <div className="interactive-rating-module">
                     <div className="rating-module-header">
                       <div className="rating-module-title-wrap">
-                        <Flame size={16} className="text-[#e2b13c]" aria-hidden="true" />
+                        <Flame size={16} className="text-[var(--text-3)]" aria-hidden="true" />
                         <h4 className="rating-module-title">{isWatched ? "Update Vault Entry" : "Rate & Save to Vault"}</h4>
                       </div>
                       <span className="rating-score-badge-preview" style={{ color: currentTier.color, borderColor: currentTier.border, background: currentTier.bg }}>
@@ -676,10 +676,10 @@ export default function MovieDetails({
                               type="button"
                               className="btn-vault-secondary"
                               onClick={handleAddToWatchlistClick}
-                              aria-label="Add to Plan to Watch queue"
+                              aria-label="Add to Watchlist"
                             >
                               <Bookmark size={16} aria-hidden="true" />
-                              <span>Plan to Watch</span>
+                              <span>Add to Watchlist</span>
                             </button>
                           ) : (
                             <div className="watchlist-active-bar">
@@ -714,7 +714,7 @@ export default function MovieDetails({
                 {movie.imdbRating && (
                   <div className="score-matrix-card imdb-card">
                     <div className="score-card-header">
-                      <Star size={16} className="text-[#f5c518]" fill="#f5c518" aria-hidden="true" />
+                      <Star size={16} className="text-[var(--text-3)]" fill="currentColor" aria-hidden="true" />
                       <span className="score-source-name">IMDb</span>
                     </div>
                     <div className="score-card-value">
@@ -733,7 +733,7 @@ export default function MovieDetails({
                       <span className="score-source-name">Rotten Tomatoes</span>
                     </div>
                     <div className="score-card-value">
-                      <span className="score-main-num text-[#ff4d4d]">{movie.rottenTomatoes}</span>
+                      <span className="score-main-num">{movie.rottenTomatoes}</span>
                     </div>
                     <span className="score-meta-text">Tomatometer Critic Score</span>
                   </div>
@@ -758,11 +758,11 @@ export default function MovieDetails({
                 {movie.tmdbRating && (
                   <div className="score-matrix-card tmdb-card">
                     <div className="score-card-header">
-                      <Sparkles size={16} className="text-[#01b4e4]" aria-hidden="true" />
+                      <Sparkles size={16} className="text-[var(--text-3)]" aria-hidden="true" />
                       <span className="score-source-name">TMDB Community</span>
                     </div>
                     <div className="score-card-value">
-                      <span className="score-main-num text-[#01b4e4]">{movie.tmdbRating}</span>
+                      <span className="score-main-num">{movie.tmdbRating}</span>
                       <span className="score-sub-num">★</span>
                     </div>
                     {movie.tmdbVotes && <span className="score-meta-text">{movie.tmdbVotes} cinephiles</span>}
@@ -786,7 +786,7 @@ export default function MovieDetails({
                 <div className="streaming-providers-card">
                   <div className="stream-header-row">
                     <div className="stream-header-title">
-                      <Tv size={16} className="text-[#e2b13c]" aria-hidden="true" />
+                      <Tv size={16} className="text-[var(--text-3)]" aria-hidden="true" />
                       <span>Where to Stream</span>
                     </div>
                     <span className="stream-region-tag">Region: {userRegion || "US"}</span>
@@ -882,7 +882,7 @@ export default function MovieDetails({
                 {movie.director && movie.director !== "N/A" && (
                   <div className="credit-item">
                     <span className="credit-label">
-                      <Clapperboard size={14} className="text-[#e2b13c]" aria-hidden="true" /> Director
+                      <Clapperboard size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Director
                     </span>
                     <span className="credit-value">{movie.director}</span>
                   </div>
@@ -891,7 +891,7 @@ export default function MovieDetails({
                 {movie.writers && movie.writers !== "N/A" && (
                   <div className="credit-item">
                     <span className="credit-label">
-                      <Film size={14} className="text-[#01b4e4]" aria-hidden="true" /> Screenplay & Writers
+                      <Film size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Screenplay & Writers
                     </span>
                     <span className="credit-value">{movie.writers}</span>
                   </div>
@@ -900,7 +900,7 @@ export default function MovieDetails({
                 {movie.cinematographer && (
                   <div className="credit-item">
                     <span className="credit-label">
-                      <Camera size={14} className="text-[#10b981]" aria-hidden="true" /> Cinematography (DoP)
+                      <Camera size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Cinematography (DoP)
                     </span>
                     <span className="credit-value">{movie.cinematographer}</span>
                   </div>
@@ -909,7 +909,7 @@ export default function MovieDetails({
                 {movie.composer && (
                   <div className="credit-item">
                     <span className="credit-label">
-                      <Music size={14} className="text-[#f59e0b]" aria-hidden="true" /> Original Score
+                      <Music size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Original Score
                     </span>
                     <span className="credit-value">{movie.composer}</span>
                   </div>
@@ -922,7 +922,7 @@ export default function MovieDetails({
                   {(movie.revenue || movie.boxOffice) && (
                     <div className="intel-stat-item">
                       <span className="intel-stat-label">Worldwide Box Office</span>
-                      <span className="intel-stat-value text-[#10b981]">{movie.revenue || movie.boxOffice}</span>
+                      <span className="intel-stat-value">{movie.revenue || movie.boxOffice}</span>
                     </div>
                   )}
 

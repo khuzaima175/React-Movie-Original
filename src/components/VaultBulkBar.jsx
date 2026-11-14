@@ -37,7 +37,7 @@ export default function VaultBulkBar({
             className="btn-bulk-action secondary"
             disabled={selectedCount === 0}
             onClick={onBulkMove}
-            title="Move selected items to Plan to Watch"
+            title="Move selected items to Watchlist"
           >
             <BookmarkCheck size={15} aria-hidden="true" />
             Move to Watchlist

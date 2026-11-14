@@ -100,11 +100,7 @@ function WatchedMovieRow({
 
       <div className="list-col-genres">
         <div className="row-genre-chips">
-          {genreList.map((g) => (
-            <span key={g} className="row-genre-chip">
-              {g}
-            </span>
-          ))}
+          {genreList.join(" · ")}
         </div>
       </div>
 
@@ -123,7 +119,7 @@ function WatchedMovieRow({
           )}
           {imdbRating && (
             <span className="row-imdb-badge" title="IMDb Rating">
-              <Star size={11} className="icon-star-gold" aria-hidden="true" /> {imdbRating}
+              <Star size={11} aria-hidden="true" /> {imdbRating}
             </span>
           )}
         </div>

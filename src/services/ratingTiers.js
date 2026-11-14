@@ -5,10 +5,10 @@ export const RATING_TIERS = {
     label: "Masterpiece (Anchor Film)",
     icon: "🏆",
     desc: "Cinematic zenith • Sets top AI taste anchor",
-    color: "#e2b13c",
-    bg: "rgba(226, 177, 60, 0.16)",
-    border: "rgba(226, 177, 60, 0.45)",
-    glow: "0 0 24px rgba(226, 177, 60, 0.45)"
+    color: "#e5b84b",
+    bg: "rgba(229, 184, 75, 0.15)",
+    border: "rgba(229, 184, 75, 0.42)",
+    glow: "0 0 24px rgba(229, 184, 75, 0.35)"
   },
   9: {
     label: "Exceptional Cinema",

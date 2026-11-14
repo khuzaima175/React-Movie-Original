@@ -17,7 +17,7 @@ export default function ToastNotification({ toast, onUndo, onClose }) {
       >
         <div className="cinema-toast-pill">
           <div className="cinema-toast-icon">
-            <Check size={16} className="text-[#e2b13c]" strokeWidth={2.5} aria-hidden="true" />
+            <Check size={16} className="text-[#f3f1eb]" strokeWidth={2.5} aria-hidden="true" />
           </div>
 
           <span className="cinema-toast-text">

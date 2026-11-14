@@ -471,19 +471,19 @@ export default function BackupManagerModal({
                     key={option.id}
                     className={`flex flex-col justify-between gap-[2rem] p-[2rem] rounded-[1.2rem] border transition-colors ${
                       option.isPrimary
-                        ? "bg-gradient-to-b from-[#201f1b] to-[#1c1d20] border-[#e2b13c]/30 hover:border-[#e2b13c]/50"
+                        ? "bg-[#1c1e25] border-white/20 hover:border-white/35"
                         : "bg-[#1c1d20] border-white/10 hover:border-white/22"
                     }`}
                   >
                     <div className="flex flex-col">
                       <div className="flex items-center justify-between gap-[1rem]">
-                        <div className="w-[3.8rem] h-[3.8rem] rounded-[0.9rem] bg-[#e2b13c]/10 border border-[#e2b13c]/25 flex items-center justify-center text-[#e2b13c] shrink-0">
+                        <div className="w-[3.8rem] h-[3.8rem] rounded-[0.9rem] bg-white/[0.06] border border-white/15 flex items-center justify-center text-[#f3f1eb] shrink-0">
                           <Icon size={19} aria-hidden="true" />
                         </div>
                         <span
                           className={`text-[1.1rem] font-semibold px-[0.8rem] py-[0.3rem] rounded-[0.5rem] border ${
                             option.isPrimary
-                              ? "bg-[#e2b13c]/12 text-[#e2b13c] border-[#e2b13c]/25"
+                              ? "bg-white/[0.08] text-[#f3f1eb] border-white/20"
                               : "bg-white/[0.04] text-[#9e9e99] border-white/10"
                           }`}
                         >
@@ -529,7 +529,7 @@ export default function BackupManagerModal({
                       onClick={() => setImportMode(modeOption.id)}
                       className={`flex flex-col items-start text-left p-[1.5rem] rounded-[1.1rem] border transition-all cursor-pointer ${
                         isActive
-                          ? "bg-[#e2b13c]/12 border-[#e2b13c]/55 text-[#f4f4f2] shadow-[0_0_0_1px_rgba(226,177,60,0.18)]"
+                          ? "bg-white/[0.07] border-[#f3f1eb]/50 text-[#f3f1eb]"
                           : "bg-[#1c1d20] border-white/10 text-[#b6b6b2] hover:border-white/25 hover:bg-[#212226]"
                       }`}
                     >
@@ -537,13 +537,13 @@ export default function BackupManagerModal({
                         <div className="flex items-center gap-[0.7rem] text-[1.4rem] font-bold">
                           <Layers
                             size={15}
-                            className={isActive ? "text-[#e2b13c]" : "text-[#8a8a86]"}
+                            className={isActive ? "text-[#f3f1eb]" : "text-[#8a8a86]"}
                             aria-hidden="true"
                           />
                           <span>{modeOption.label}</span>
                         </div>
                         {isActive && (
-                          <CheckCircle2 size={15} className="text-[#e2b13c] shrink-0" aria-hidden="true" />
+                          <CheckCircle2 size={15} className="text-[#f3f1eb] shrink-0" aria-hidden="true" />
                         )}
                       </div>
                       <p
@@ -586,8 +586,8 @@ export default function BackupManagerModal({
                 }}
                 className={`flex flex-col items-center justify-center gap-[1.2rem] px-[2.4rem] py-[3.4rem] rounded-[1.4rem] border-2 border-dashed transition-colors cursor-pointer text-center ${
                   isDragging
-                    ? "border-[#e2b13c] bg-[#e2b13c]/[0.06]"
-                    : "border-white/15 bg-[#191a1d] hover:border-[#e2b13c]/50 hover:bg-[#1c1d21]"
+                    ? "border-[#f3f1eb] bg-white/[0.06]"
+                    : "border-white/15 bg-[#191a1d] hover:border-white/35 hover:bg-[#1c1d21]"
                 }`}
               >
                 <input
@@ -597,7 +597,7 @@ export default function BackupManagerModal({
                   onChange={handleFileSelect}
                   className="hidden"
                 />
-                <div className="w-[5rem] h-[5rem] rounded-[1.2rem] bg-[#e2b13c]/10 border border-[#e2b13c]/25 flex items-center justify-center text-[#e2b13c]">
+                <div className="w-[5rem] h-[5rem] rounded-[1.2rem] bg-white/[0.06] border border-white/15 flex items-center justify-center text-[#f3f1eb]">
                   <FileUp size={24} aria-hidden="true" />
                 </div>
                 <div className="text-[1.6rem] font-bold text-[#f4f4f2]">
@@ -624,7 +624,7 @@ export default function BackupManagerModal({
               <div className="p-[2rem] rounded-[1.2rem] bg-[#1c1d20] border border-white/10 flex flex-col gap-[1.4rem]">
                 <div className="flex items-center justify-between gap-[1.2rem] text-[1.4rem] text-[#f4f4f2]">
                   <span className="inline-flex items-center gap-[0.9rem] font-semibold">
-                    <Loader2 size={17} className="animate-spin text-[#e2b13c]" aria-hidden="true" />
+                    <Loader2 size={17} className="animate-spin text-[#f3f1eb]" aria-hidden="true" />
                     Resolving metadata ({progress.current}/{progress.total})
                   </span>
                   <Button
@@ -639,7 +639,7 @@ export default function BackupManagerModal({
                 </div>
                 <div className="w-full h-[0.65rem] rounded-full bg-white/[0.06] overflow-hidden">
                   <div
-                    className="h-full bg-[#e2b13c] transition-all duration-150"
+                    className="h-full bg-[#f3f1eb] transition-all duration-150"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
@@ -649,7 +649,7 @@ export default function BackupManagerModal({
 
             {/* Pre-Commit Diff Preview */}
             {pendingImport && diffPreview && !isProcessing && (
-              <div className="p-[2rem] rounded-[1.2rem] bg-[#1c1d20] border border-[#e2b13c]/35 flex flex-col gap-[1.8rem]">
+              <div className="p-[2rem] rounded-[1.2rem] bg-[#1c1d20] border border-white/20 flex flex-col gap-[1.8rem]">
                 <div className="flex items-center justify-between gap-[1.2rem] flex-wrap">
                   <div className="flex flex-col gap-[0.3rem]">
                     <div className="text-[1.5rem] font-bold text-[#f4f4f2]">
@@ -676,7 +676,7 @@ export default function BackupManagerModal({
                     {
                       label: "New Watched",
                       value: diffPreview.newWatchedCount,
-                      tone: "text-[#e2b13c]"
+                      tone: "text-[#f3f1eb]"
                     },
                     {
                       label: "Scores Updated",

@@ -353,7 +353,7 @@ export default function TasteDeckModal({
 
                       <div className="taste-deck-score-row">
                         {QUICK_SCORE_VALUES.map((num) => {
-                          const tierColor = RATING_TIERS[num]?.color || "#e2b13c";
+                          const tierColor = RATING_TIERS[num]?.color || "#e5b84b";
                           const isSelected = currentExistingScore === num;
                           return (
                             <button
@@ -393,7 +393,7 @@ export default function TasteDeckModal({
                         <span>
                           {sessionWatchlistIds[currentCard.imdbID || currentCard.id] || currentCard.inWatchlist
                             ? "Watchlisted (Next)"
-                            : "Plan to Watch (W)"}
+                            : "Watchlist (W)"}
                         </span>
                       </button>
 

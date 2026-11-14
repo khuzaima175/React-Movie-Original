@@ -13,7 +13,8 @@ export default function MovieCard({
   isManageMode = false,
   isSelected = false,
   onToggleSelect,
-  className = "",
+  showCaption = false,
+  className = ""
 }) {
   if (!movie) return null;
 
@@ -25,9 +26,6 @@ export default function MovieCard({
   const userRating = movie.userRating;
   const numericUserRating = Number(userRating);
   const hasUserRating = Number.isFinite(numericUserRating) && numericUserRating > 0;
-
-  // Perfect 10 badge check
-  const isPerfectTen = numericUserRating === 10 || Number(imdbRating) === 10;
 
   function handleQuickAdd(e) {
     e.stopPropagation();
@@ -56,11 +54,11 @@ export default function MovieCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 14 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-      whileHover={{ y: -5, transition: { duration: 0.18 } }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      whileHover={{ y: -2, transition: { duration: 0.16 } }}
       className={`unified-movie-card ${isManageMode ? "manage-mode" : ""} ${
         isSelected ? "selected" : ""
       } ${className}`}
@@ -68,49 +66,42 @@ export default function MovieCard({
       tabIndex={0}
       role="button"
       aria-label={`View details for ${title}`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick(e);
+        }
+      }}
     >
       <div className="unified-card-poster">
         <PosterImage src={poster} title={title} alt={`${title} poster`} />
 
-        {/* Manage Selection Checkbox Pill */}
         {isManageMode && (
           <div className="card-manage-checkbox">
             {isSelected ? (
-              <CheckSquare size={20} className="checkbox-icon checked" aria-hidden="true" />
+              <CheckSquare size={18} aria-hidden="true" />
             ) : (
-              <Square size={20} className="checkbox-icon" aria-hidden="true" />
+              <Square size={18} aria-hidden="true" />
             )}
           </div>
         )}
 
-        {/* Badges: Curated Rating Badge (Gold for 10s, Glass for rated) */}
-        {!isManageMode && (hasUserRating || isPerfectTen) && (
-          <div
-            className={`card-corner-badge ${isPerfectTen ? "badge-gold" : "badge-glass"}`}
-            title={hasUserRating ? `Your Rating: ${numericUserRating}/10` : "Masterpiece 10"}
-          >
-            <Star size={11} className={isPerfectTen ? "icon-star-dark" : "icon-star-accent"} aria-hidden="true" />
-            <span>{hasUserRating ? numericUserRating : "10"}</span>
-          </div>
-        )}
-
-        {/* Hover Overlay Scrim */}
         <div className="unified-card-overlay">
           <div className="unified-overlay-top">
             <div className="overlay-ratings-group">
-              {imdbRating && (
-                <span className="unified-overlay-rating" title="IMDb Rating">
-                  <Star size={11} className="icon-star-gold" aria-hidden="true" />
-                  {imdbRating}
-                </span>
-              )}
               {hasUserRating && (
                 <span className="unified-overlay-user-rating" title="Your Rating">
-                  ★ {numericUserRating}
+                  <Star size={11} fill="currentColor" aria-hidden="true" />
+                  <span>{numericUserRating}</span>
+                </span>
+              )}
+              {imdbRating && imdbRating !== "N/A" && (
+                <span className="unified-overlay-rating" title="IMDb Rating">
+                  <span>{imdbRating}</span>
                 </span>
               )}
             </div>
-            {year && <span className="unified-overlay-year">{year}</span>}
+            {year && year !== "N/A" && <span className="unified-overlay-year">{year}</span>}
           </div>
 
           <div className="unified-overlay-bottom">
@@ -119,6 +110,7 @@ export default function MovieCard({
             <div className="unified-overlay-actions">
               {!isManageMode && (onQuickAdd || onAddWatched) && (
                 <button
+                  type="button"
                   className={`btn-card-action ${isWatched ? "added" : ""}`}
                   onClick={handleQuickAdd}
                   title={isWatched ? "In Vault" : "Rate or Save"}
@@ -130,9 +122,10 @@ export default function MovieCard({
 
               {!isManageMode && onDeleteMovie && (
                 <button
+                  type="button"
                   className="btn-card-action danger"
                   onClick={handleDeleteClick}
-                  title="Remove from vault"
+                  title="Remove"
                   aria-label={`Remove ${title}`}
                 >
                   <Trash2 size={14} aria-hidden="true" />
@@ -141,6 +134,7 @@ export default function MovieCard({
 
               {!isManageMode && (
                 <button
+                  type="button"
                   className="btn-card-action ghost"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -156,6 +150,26 @@ export default function MovieCard({
           </div>
         </div>
       </div>
+
+      {showCaption && (
+        <div className="poster-caption">
+          <h4 className="poster-caption-title">{title}</h4>
+          <div className="poster-caption-meta">
+            <span>{year && year !== "N/A" ? year : "—"}</span>
+            {hasUserRating ? (
+              <span className="poster-caption-rating" title="Your Rating">
+                <Star size={11} fill="currentColor" aria-hidden="true" />
+                <span>{numericUserRating}</span>
+              </span>
+            ) : imdbRating && imdbRating !== "N/A" ? (
+              <span className="poster-caption-imdb" title="IMDb Rating">
+                <Star size={11} fill="currentColor" aria-hidden="true" />
+                <span>{imdbRating}</span>
+              </span>
+            ) : null}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

@@ -99,3 +99,94 @@ export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedMod
     tooltip: parts.join(" | ")
   };
 }
+
+/**
+ * Resolves 2-3 anchor films from the user's watched vault to show as
+ * "Because you rated ..." evidence beside a recommendation.
+ */
+export function resolveRecommendationAnchors(rec, watched = [], maxCount = 3) {
+  if (!rec || !Array.isArray(watched) || watched.length === 0) {
+    return [];
+  }
+
+  const normalizeTitle = (str) =>
+    String(str || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .trim();
+
+  const candidateScoreMap = new Map();
+  const ratedWatched = watched
+    .filter((m) => m && (m.title || m.Title))
+    .map((m) => ({
+      id: m.imdbID || m.id || (m.tmdbId ? `tmdb_${m.tmdbId}` : ""),
+      tmdbId: m.tmdbId ?? null,
+      title: m.title || m.Title,
+      year: m.year || m.Year || "",
+      poster: m.poster || m.Poster || null,
+      genre: m.genre || "",
+      userRating: Number(m.userRating) || 0
+    }))
+    .filter((m) => m.id);
+
+  // 1. Explicit anchorTitles / anchorIds returned by Gemini
+  const explicitTitles = Array.isArray(rec.anchorTitles) ? rec.anchorTitles : [];
+  const explicitIds = Array.isArray(rec.anchorIds) ? rec.anchorIds.map(String) : [];
+
+  for (const m of ratedWatched) {
+    let score = 0;
+    const norm = normalizeTitle(m.title);
+
+    if (explicitIds.includes(String(m.id)) || (m.tmdbId && explicitIds.includes(String(m.tmdbId)))) {
+      score += 100;
+    }
+    if (explicitTitles.some((t) => normalizeTitle(t) === norm)) {
+      score += 90;
+    }
+
+    // 2. Direct title mention inside the recommendation's reason prose
+    const reasonText = normalizeTitle(rec.reason);
+    if (norm.length >= 4 && reasonText.includes(norm)) {
+      score += 75;
+    }
+
+    if (score > 0) {
+      candidateScoreMap.set(m.id, { film: m, matchStrength: score + m.userRating });
+    }
+  }
+
+  const matched = Array.from(candidateScoreMap.values())
+    .sort((a, b) => b.matchStrength - a.matchStrength)
+    .map((entry) => entry.film);
+
+  if (matched.length >= maxCount) {
+    return matched.slice(0, maxCount);
+  }
+
+  // 3. Deterministic fallback to high-rated genre-aligned vault films
+  const recGenres = new Set(
+    String(rec.genre || "")
+      .toLowerCase()
+      .split(",")
+      .map((g) => g.trim())
+      .filter(Boolean)
+  );
+
+  const usedIds = new Set(matched.map((m) => m.id));
+  const fallbackPool = ratedWatched
+    .filter((m) => !usedIds.has(m.id) && m.userRating >= 7)
+    .map((m) => {
+      const filmGenres = String(m.genre || "")
+        .toLowerCase()
+        .split(",")
+        .map((g) => g.trim())
+        .filter(Boolean);
+      const shared = filmGenres.filter((g) => recGenres.has(g)).length;
+      return { film: m, rankScore: shared * 20 + m.userRating };
+    })
+    .sort((a, b) => b.rankScore - a.rankScore)
+    .map((entry) => entry.film);
+
+  return [...matched, ...fallbackPool].slice(0, maxCount);
+}
+

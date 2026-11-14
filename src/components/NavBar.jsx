@@ -2,7 +2,6 @@ import { NavLink } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import {
   Film,
-  Flame,
   Search,
   Compass,
   Bookmark,
@@ -33,7 +32,6 @@ export default function NavBar({
   const shortcutLabel = getSearchShortcutHint(
     typeof navigator !== "undefined" ? navigator.platform : ""
   );
-  const vaultCountLabel = formatVaultNavCount(watched.length);
   const watchlistCountLabel = formatVaultNavCount(watchlist.length);
   const cloudLabel = getCloudSyncBadgeLabel({
     configured: Boolean(hasCloudConfig),
@@ -44,48 +42,33 @@ export default function NavBar({
   return (
     <>
       <header className="nav-bar-stream" aria-label="Main Navigation">
-        <div className="nav-container">
+        <div className="nav-container page-rail">
           <div className="nav-brand-group">
             <NavLink to="/" className="brand-logo" aria-label="CinemaVault Home">
-              <span className="brand-mark" aria-hidden="true">
-                <Film size={16} className="brand-icon" />
-              </span>
-              <span className="brand-name">
-                Cinema<span className="brand-accent">Vault</span>
-              </span>
+              <span>CinemaVault</span>
             </NavLink>
 
-            <span className="nav-divider" aria-hidden="true" />
-
-            <nav className="nav-links-desktop" role="navigation">
+            <nav className="nav-links-desktop" role="navigation" aria-label="Primary sections">
               <NavLink
                 to="/"
                 end
                 className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
               >
-                <Flame size={14} className="stream-nav-icon" aria-hidden="true" />
-                <span>Discover</span>
+                Discover
               </NavLink>
 
               <NavLink
                 to="/vault"
                 className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
               >
-                <Bookmark size={14} className="stream-nav-icon" aria-hidden="true" />
-                <span>Vault</span>
-                {vaultCountLabel && (
-                  <span className="nav-count-inline" aria-label={`${watched.length} titles`}>
-                    {vaultCountLabel}
-                  </span>
-                )}
+                Vault
               </NavLink>
 
               <NavLink
                 to="/ai"
                 className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
               >
-                <Compass size={14} className="stream-nav-icon" aria-hidden="true" />
-                <span>Oracle</span>
+                Oracle
               </NavLink>
             </nav>
           </div>
@@ -98,58 +81,46 @@ export default function NavBar({
               aria-label="Search films"
               title={`Search films (${shortcutLabel} or /)`}
             >
-              <Search size={15} className="search-icon" aria-hidden="true" />
-              <span className="search-placeholder">Search films, directors, genres...</span>
+              <span className="stream-search-left">
+                <Search size={15} aria-hidden="true" />
+                <span className="search-placeholder">Search films...</span>
+              </span>
               <kbd className="search-shortcut">{shortcutLabel}</kbd>
             </button>
           </div>
 
           <div className="nav-actions-group">
-            {onOpenTasteDeck && (
-              <button
-                type="button"
-                className="nav-taste-cta"
-                onClick={onOpenTasteDeck}
-                aria-label="Quick Taste Calibration"
-                title="Rate 20-30 films fast to sharpen recommendations"
-              >
-                <SlidersHorizontal size={14} aria-hidden="true" />
-                <span>Quick Taste</span>
-              </button>
-            )}
+            <NavLink
+              to="/vault?tab=watchlist"
+              className="stream-watchlist-btn"
+              aria-label={`Watchlist (${watchlist.length} saved)`}
+              title="Watchlist"
+            >
+              <Bookmark size={16} aria-hidden="true" />
+              {watchlistCountLabel && (
+                <span className="watchlist-count tabular-num">{watchlistCountLabel}</span>
+              )}
+            </NavLink>
 
-            {watchlistCountLabel && (
-              <NavLink
-                to="/vault?tab=watchlist"
-                className="stream-watchlist-btn"
-                aria-label={`Watchlist (${watchlist.length} saved)`}
-                title="Saved Watchlist"
-              >
-                <Bookmark size={14} aria-hidden="true" />
-                <span className="watchlist-label">Watchlist</span>
-                <span className="watchlist-count">{watchlistCountLabel}</span>
-              </NavLink>
-            )}
-
-            {(onOpenBackup || onOpenRandomPicker || onOpenCloudSync) && (
+            {(onOpenBackup || onOpenTasteDeck || onOpenRandomPicker || onOpenCloudSync) && (
               <Menu>
                 <Menu.Trigger
                   className="nav-utility-trigger"
-                  aria-label="Library tools and import export"
-                  title="Import / Export & Sync"
+                  aria-label="Library tools and preferences"
+                  title="More tools"
                 >
                   <MoreHorizontal size={16} aria-hidden="true" />
                 </Menu.Trigger>
                 <Menu.Panel align="right">
                   <Menu.Label>Library Tools</Menu.Label>
+                  {onOpenTasteDeck && (
+                    <Menu.Item icon={SlidersHorizontal} onClick={onOpenTasteDeck}>
+                      Taste Calibration (30)
+                    </Menu.Item>
+                  )}
                   {onOpenBackup && (
                     <Menu.Item icon={ArrowUpDown} onClick={onOpenBackup}>
                       Import / Export Ratings
-                    </Menu.Item>
-                  )}
-                  {onOpenTasteDeck && (
-                    <Menu.Item icon={SlidersHorizontal} onClick={onOpenTasteDeck}>
-                      Rapid Taste Deck (30)
                     </Menu.Item>
                   )}
                   {(watchlist.length > 0 || watched.length > 0) && onOpenRandomPicker && (
@@ -186,25 +157,9 @@ export default function NavBar({
           to="/vault"
           className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
         >
-          <div className="mobile-icon-wrap">
-            <Bookmark size={18} aria-hidden="true" />
-            {watched.length > 0 && (
-              <span className="mobile-badge">{watched.length}</span>
-            )}
-          </div>
+          <Bookmark size={18} aria-hidden="true" />
           <span>Vault</span>
         </NavLink>
-
-        {onOpenTasteDeck && (
-          <button
-            className="mobile-tab"
-            onClick={onOpenTasteDeck}
-            aria-label="Quick Taste"
-          >
-            <SlidersHorizontal size={18} aria-hidden="true" />
-            <span>Taste</span>
-          </button>
-        )}
 
         <NavLink
           to="/ai"
@@ -215,6 +170,7 @@ export default function NavBar({
         </NavLink>
 
         <button
+          type="button"
           className="mobile-tab"
           onClick={onOpenSearch}
           aria-label="Search"

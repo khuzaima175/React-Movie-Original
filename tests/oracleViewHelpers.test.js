@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AVAILABLE_REGIONS, POPULAR_WATCH_PROVIDERS } from "../src/services/tmdbService.js";
-import { formatStreamingSummary, formatRecBadgeSummary } from "../src/services/oracleViewHelpers.js";
+import {
+  formatStreamingSummary,
+  formatRecBadgeSummary,
+  resolveRecommendationAnchors
+} from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
   const result = formatStreamingSummary("GLOBAL", [], AVAILABLE_REGIONS, POPULAR_WATCH_PROVIDERS);
@@ -81,4 +85,35 @@ test("formatRecBadgeSummary prefixes fallback models cleanly", () => {
   );
   assert.equal(summary.modelLabel, "Fallback: Gemini 3.5 Flash-Lite");
   assert.equal(summary.freshnessLabel, "Fresh Picks");
+});
+
+test("resolveRecommendationAnchors prioritizes explicit IDs/titles, prose mentions, then genre-aligned fallback", () => {
+  const watched = [
+    { imdbID: "tt0133093", title: "The Matrix", year: "1999", genre: "Action, Sci-Fi", userRating: 10, poster: "/m.jpg" },
+    { imdbID: "tt0468569", title: "The Dark Knight", year: "2008", genre: "Action, Crime, Drama", userRating: 9, poster: "/dk.jpg" },
+    { imdbID: "tt1375666", title: "Inception", year: "2010", genre: "Action, Sci-Fi, Thriller", userRating: 9, poster: "/inc.jpg" },
+    { imdbID: "tt0110912", title: "Pulp Fiction", year: "1994", genre: "Crime, Drama", userRating: 6, poster: "/pf.jpg" }
+  ];
+
+  const anchors = resolveRecommendationAnchors(
+    {
+      genre: "Sci-Fi, Action",
+      anchorIds: ["tt0133093"],
+      anchorTitles: ["The Matrix"],
+      reason: "Shares the grounded kinetic stakes you enjoyed in The Dark Knight."
+    },
+    watched,
+    3
+  );
+
+  assert.deepEqual(
+    anchors.map((a) => a.title),
+    ["The Matrix", "The Dark Knight", "Inception"]
+  );
+  assert.equal(anchors.some((a) => a.title === "Pulp Fiction"), false);
+});
+
+test("resolveRecommendationAnchors returns empty array when inputs are empty", () => {
+  assert.deepEqual(resolveRecommendationAnchors(null, []), []);
+  assert.deepEqual(resolveRecommendationAnchors({ title: "Dune" }, []), []);
 });

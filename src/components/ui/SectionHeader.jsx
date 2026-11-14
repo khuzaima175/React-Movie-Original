@@ -36,7 +36,7 @@ export function SectionHeader({
           actionHref ? (
             <a
               href={actionHref}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-text-3 group-hover:text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-control px-1.5 py-1"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-text-3 hover:text-text-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[6px] px-1.5 py-1"
             >
               <span>{actionLabel}</span>
               {ActionIcon && <ActionIcon size={14} className="transition-transform group-hover:translate-x-0.5" />}
@@ -45,7 +45,7 @@ export function SectionHeader({
             <button
               onClick={onAction}
               type="button"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-text-3 group-hover:text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-control px-1.5 py-1"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-text-3 hover:text-text-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[6px] px-1.5 py-1"
             >
               <span>{actionLabel}</span>
               {ActionIcon && <ActionIcon size={14} className="transition-transform group-hover:translate-x-0.5" />}

@@ -75,9 +75,9 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
                 fontSize: "1.25rem",
                 fontWeight: source === "watchlist" ? 600 : 500,
                 borderRadius: "0.8rem",
-                border: source === "watchlist" ? "1px solid #e2b13c" : "1px solid rgba(255, 255, 255, 0.1)",
-                background: source === "watchlist" ? "rgba(226, 177, 60, 0.14)" : "#1c1d20",
-                color: source === "watchlist" ? "#e2b13c" : "#b6b6b2",
+                border: source === "watchlist" ? "1px solid rgba(243, 241, 235, 0.45)" : "1px solid rgba(255, 255, 255, 0.1)",
+                background: source === "watchlist" ? "rgba(243, 241, 235, 0.09)" : "#1c1d20",
+                color: source === "watchlist" ? "#f3f1eb" : "#b6b6b2",
                 cursor: watchlist.length === 0 ? "not-allowed" : "pointer",
                 opacity: watchlist.length === 0 ? 0.4 : 1,
                 transition: "all 0.2s ease"
@@ -101,9 +101,9 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
                 fontSize: "1.25rem",
                 fontWeight: source === "watched" ? 600 : 500,
                 borderRadius: "0.8rem",
-                border: source === "watched" ? "1px solid #e2b13c" : "1px solid rgba(255, 255, 255, 0.1)",
-                background: source === "watched" ? "rgba(226, 177, 60, 0.14)" : "#1c1d20",
-                color: source === "watched" ? "#e2b13c" : "#b6b6b2",
+                border: source === "watched" ? "1px solid rgba(243, 241, 235, 0.45)" : "1px solid rgba(255, 255, 255, 0.1)",
+                background: source === "watched" ? "rgba(243, 241, 235, 0.09)" : "#1c1d20",
+                color: source === "watched" ? "#f3f1eb" : "#b6b6b2",
                 cursor: watched.length === 0 ? "not-allowed" : "pointer",
                 opacity: watched.length === 0 ? 0.4 : 1,
                 transition: "all 0.2s ease"
@@ -134,18 +134,22 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.2rem", color: "#e2b13c", fontWeight: 600 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.2rem", color: "#9a9ea9", fontWeight: 600 }}>
                   <Film size={14} aria-hidden="true" />
                   <span>Tonight's Pick</span>
                 </div>
                 <h3 style={{ fontSize: "1.7rem", fontWeight: 700, color: "#f4f4f2", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {pickedMovie.title || pickedMovie.Title}
                 </h3>
-                <div style={{ display: "flex", alignItems: "center", gap: "1.2rem", fontSize: "1.25rem", color: "#8a8a86", fontFamily: "monospace" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "1.2rem", fontSize: "1.25rem", color: "#8a8a86", fontVariantNumeric: "tabular-nums" }}>
                   <span>{pickedMovie.year || pickedMovie.Year}</span>
                   {(pickedMovie.imdbRating || pickedMovie.userRating) && (
                     <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "#f4f4f2" }}>
-                      <Star size={13} style={{ color: "#e2b13c", fill: "currentColor" }} aria-hidden="true" />
+                      <Star
+                        size={13}
+                        style={{ color: pickedMovie.userRating ? "#e5b84b" : "#686d7a", fill: "currentColor" }}
+                        aria-hidden="true"
+                      />
                       {pickedMovie.userRating || pickedMovie.imdbRating}
                     </span>
                   )}
@@ -158,7 +162,7 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
                       onSelectMovie?.(pickedMovie.imdbID || pickedMovie.id);
                       onClose();
                     }}
-                    style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem", fontSize: "1.3rem", fontWeight: 600, color: "#e2b13c", background: "none", border: "none", cursor: "pointer", padding: "0.4rem 0", textDecoration: "underline" }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem", fontSize: "1.3rem", fontWeight: 600, color: "#f3f1eb", background: "none", border: "none", cursor: "pointer", padding: "0.4rem 0", textDecoration: "underline" }}
                   >
                     <span>View Movie Details</span>
                     <ArrowRight size={14} aria-hidden="true" />
@@ -173,7 +177,7 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem", alignItems: "center" }}>
-              <div style={{ width: "4.8rem", height: "4.8rem", borderRadius: "50%", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c" }}>
+              <div style={{ width: "4.8rem", height: "4.8rem", borderRadius: "50%", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#f3f1eb" }}>
                 <Dices size={24} aria-hidden="true" />
               </div>
               <p style={{ fontSize: "1.5rem", color: "#f4f4f2", fontWeight: 600 }}>Can't decide what to watch tonight?</p>

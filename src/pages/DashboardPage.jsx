@@ -52,7 +52,7 @@ export default function DashboardPage({ onOpenTasteDeck }) {
       <div className="home-rows-container">
         {watchlist && watchlist.length > 0 && (
           <MovieCarouselRow
-            title="Saved Watchlist"
+            title="Watchlist"
             movies={watchlist}
             onSelectMovie={handleSelectMovie}
             onQuickAdd={setQuickAddMovie}

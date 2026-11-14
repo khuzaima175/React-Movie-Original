@@ -1,0 +1,128 @@
+/* ============================================================
+   CINEMAVAULT — Editorial Cinema Design Tokens
+   ============================================================ */
+
+:root {
+  /* Surfaces — Three Tonal Steps (Posters carry the color) */
+  --bg: #0d0e11;
+  --surface-1: #14161b;
+  --surface-2: #1c1e25;
+  --surface-3: #252831;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --rim-poster: rgba(255, 255, 255, 0.08);
+
+  /* Typography Hierarchy — Three Clean Levels */
+  --text-1: #f3f1eb;
+  --text-2: #a8a7a1;
+  --text-3: #6e6d68;
+
+  /* Accent Discipline:
+     Gold (--accent) is strictly reserved for user rating stars,
+     rating scores, and keyboard focus rings. */
+  --accent: #e5b84b;
+  --accent-dim: rgba(229, 184, 75, 0.12);
+  --focus-ring: rgba(229, 184, 75, 0.65);
+  --match: #46d369;
+  --danger: #e5484d;
+  --danger-dim: rgba(229, 72, 77, 0.12);
+
+  /* Actions — Warm Ivory Primary, Neutral Slate Secondary */
+  --btn-primary-bg: #f3f1eb;
+  --btn-primary-fg: #0d0e11;
+  --btn-primary-hover: #ffffff;
+  --btn-secondary-bg: rgba(255, 255, 255, 0.1);
+  --btn-secondary-hover: rgba(255, 255, 255, 0.16);
+
+  /* Strict Two-Scale Radii (6px controls/posters, 12px panels/modals) */
+  --r-sm: 6px;
+  --r-lg: 12px;
+  --r-poster: var(--r-sm);
+  --r-control: var(--r-sm);
+  --r-card: var(--r-lg);
+  --r-menu: var(--r-lg);
+  --r-modal: var(--r-lg);
+
+  /* Atmospheric Depth Shadows (Zero Neon Colored Glows) */
+  --sh-1: 0 2px 8px rgba(0, 0, 0, 0.36);
+  --sh-2: 0 8px 24px rgba(0, 0, 0, 0.48);
+  --sh-3: 0 18px 48px rgba(0, 0, 0, 0.68);
+  --sh-hover: 0 16px 40px rgba(0, 0, 0, 0.66);
+
+  /* Shared Alignment Rail Across Nav, Hero, Rows, Vault, Oracle & Details */
+  --nav-h: 6.4rem;
+  --page-max: 140rem;
+  --page-gutter: clamp(2rem, 4vw, 5.6rem);
+  --container: var(--page-max);
+  --gutter: var(--page-gutter);
+  --section-gap: 5.2rem;
+  --row-gap: 2.2rem;
+
+  /* Z-Index Hierarchy */
+  --z-nav: 40;
+  --z-hover: 50;
+  --z-menu: 60;
+  --z-bulk: 65;
+  --z-modal: 80;
+  --z-toast: 90;
+
+  /* Motion & Timing */
+  --hero-slide: 9s;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-1: 0.14s;
+  --dur-2: 0.22s;
+  --dur-3: 0.32s;
+  --dur-4: 0.56s;
+
+  /* Typography */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-ui: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: var(--font-ui);
+
+  /* Compatibility Aliases for Subviews Transitioning to New Tokens */
+  --surface-base: var(--bg);
+  --surface-card: var(--surface-1);
+  --surface-elevated: var(--surface-2);
+  --ink: var(--bg);
+  --ink-2: var(--surface-1);
+  --panel: var(--surface-1);
+  --panel-2: var(--surface-2);
+  --panel-3: var(--surface-3);
+  --brand-accent: var(--accent);
+  --brand-accent-glow: var(--accent);
+  --star-gold: var(--accent);
+  --gold: var(--accent);
+  --gold-light: var(--accent);
+  --gold-dim: var(--focus-ring);
+  --border: var(--hairline);
+  --border-hover: var(--hairline-strong);
+  --text: var(--text-1);
+  --text-mid: var(--text-2);
+  --text-dim: var(--text-3);
+  --shadow-card: var(--sh-2);
+  --shadow-deep: var(--sh-3);
+  --radius: var(--r-lg);
+  --radius-sm: var(--r-sm);
+  --radius-pill: var(--r-sm);
+}
+
+/* Shared Horizontal Rail */
+.page-rail {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-gutter);
+  padding-right: var(--page-gutter);
+}
+
+.display-title {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: "SOFT" 40, "WONK" 0;
+  letter-spacing: -0.025em;
+}
+
+.tabular-num {
+  font-variant-numeric: tabular-nums;
+}

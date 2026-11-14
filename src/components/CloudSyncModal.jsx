@@ -102,9 +102,9 @@ export default function CloudSyncModal({ isOpen, onClose }) {
                 Enable Optional Supabase Cloud Sync
               </p>
               <p className="m-0">
-                Add <code className="text-[#e2b13c]">VITE_SUPABASE_URL</code> and{" "}
-                <code className="text-[#e2b13c]">VITE_SUPABASE_PUBLISHABLE_KEY</code> to your{" "}
-                <code className="text-[#e2b13c]">.env.local</code> file and apply the schema migration to unlock multi-device sync.
+                Add <code className="text-[#f3f1eb]">VITE_SUPABASE_URL</code> and{" "}
+                <code className="text-[#f3f1eb]">VITE_SUPABASE_PUBLISHABLE_KEY</code> to your{" "}
+                <code className="text-[#f3f1eb]">.env.local</code> file and apply the schema migration to unlock multi-device sync.
               </p>
             </div>
 
@@ -141,7 +141,7 @@ export default function CloudSyncModal({ isOpen, onClose }) {
                   cloudSyncStatus === "synced"
                     ? "bg-emerald-500/12 border-emerald-500/30 text-emerald-300"
                     : cloudSyncStatus === "syncing"
-                    ? "bg-[#e2b13c]/12 border-[#e2b13c]/30 text-[#e2b13c]"
+                    ? "bg-white/[0.06] border-white/20 text-[#f3f1eb]"
                     : cloudSyncStatus === "error"
                     ? "bg-red-500/12 border-red-500/30 text-red-300"
                     : "bg-white/5 border-white/10 text-[#b6b6b2]"
@@ -168,7 +168,7 @@ export default function CloudSyncModal({ isOpen, onClose }) {
               </div>
               <div className="p-[1.4rem] rounded-[1rem] bg-[#1c1d20] border border-white/8">
                 <span className="text-[1.1rem] uppercase tracking-wider text-[#9e9e99] block">
-                  Saved Watchlist
+                  Watchlist
                 </span>
                 <strong className="text-[1.9rem] font-extrabold text-[#f4f4f2]">
                   {watchlist.length} films
@@ -211,7 +211,7 @@ export default function CloudSyncModal({ isOpen, onClose }) {
         ) : (
           <>
             <div className="flex items-start gap-[1.2rem] p-[1.6rem] rounded-[1rem] bg-[#1c1d20] border border-white/10">
-              <ShieldCheck size={20} className="text-[#e2b13c] shrink-0 mt-[0.2rem]" aria-hidden="true" />
+              <ShieldCheck size={20} className="text-[#f3f1eb] shrink-0 mt-[0.2rem]" aria-hidden="true" />
               <div className="flex flex-col gap-[0.45rem]">
                 <h3 className="text-[1.45rem] font-bold text-[#f4f4f2] m-0">
                   Back Up &amp; Sync Across Devices
@@ -256,7 +256,7 @@ export default function CloudSyncModal({ isOpen, onClose }) {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     autoComplete="email"
-                    className="w-full pl-[3.9rem] pr-[1.4rem] py-[1rem] rounded-[0.9rem] bg-[#16171a] border border-white/15 text-[1.35rem] text-[#f4f4f2] placeholder:text-[#6f6f6a] focus:outline-none focus:border-[#e2b13c]/60"
+                    className="w-full pl-[3.9rem] pr-[1.4rem] py-[1rem] rounded-[0.9rem] bg-[#16171a] border border-white/15 text-[1.35rem] text-[#f4f4f2] placeholder:text-[#6f6f6a] focus:outline-none focus:border-white/35"
                   />
                 </div>
                 <Button
