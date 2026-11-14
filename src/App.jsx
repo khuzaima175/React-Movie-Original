@@ -9,6 +9,7 @@ import RandomPicker from "./components/RandomPicker";
 import BackupManagerModal from "./components/BackupManagerModal";
 import QuickRateModal from "./components/QuickRateModal";
 import TasteDeckModal from "./components/TasteDeckModal";
+import CloudSyncModal from "./components/CloudSyncModal";
 import DashboardPage from "./pages/DashboardPage";
 import MoviePage from "./pages/MoviePage";
 import VaultPage from "./pages/VaultPage";
@@ -20,7 +21,15 @@ import {
 import { Film } from "lucide-react";
 
 function AppContent() {
-  const { watched = [], watchlist = [], addWatched, addToWatchlist } = useApp();
+  const {
+    watched = [],
+    watchlist = [],
+    addWatched,
+    addToWatchlist,
+    hasCloudConfig,
+    cloudUser,
+    cloudSyncStatus
+  } = useApp();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRandomPickerOpen, setIsRandomPickerOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
@@ -97,6 +106,9 @@ function AppContent() {
         onOpenBackup={() => handleOpenBackup("export")}
         onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")}
         onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+        cloudUser={cloudUser}
+        hasCloudConfig={hasCloudConfig}
+        cloudSyncStatus={cloudSyncStatus}
       />
 
       <SearchModal
@@ -139,6 +151,11 @@ function AppContent() {
           }
         }}
         onOpenImport={() => handleOpenBackup("import")}
+      />
+
+      <CloudSyncModal
+        isOpen={isCloudSyncOpen}
+        onClose={() => setIsCloudSyncOpen(false)}
       />
 
       <main className="flex-1 w-full">
