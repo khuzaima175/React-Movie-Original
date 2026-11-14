@@ -143,6 +143,7 @@ export default function BackupManagerModal({
     watchlist = [],
     setWatched,
     setWatchlist,
+    applyVaultImportSnapshot,
     userRegion,
     setUserRegion,
     userWatchProviders,
@@ -216,8 +217,16 @@ export default function BackupManagerModal({
   function handleApplyPendingImport() {
     if (!pendingImport || !diffPreview) return;
 
-    setWatched(diffPreview.mergedWatched);
-    setWatchlist(diffPreview.mergedWatchlist);
+    if (applyVaultImportSnapshot) {
+      applyVaultImportSnapshot({
+        mergedWatched: diffPreview.mergedWatched,
+        mergedWatchlist: diffPreview.mergedWatchlist,
+        replaceMode: importMode === "replace"
+      });
+    } else {
+      setWatched(diffPreview.mergedWatched);
+      setWatchlist(diffPreview.mergedWatchlist);
+    }
 
     if (pendingImport.preferences) {
       if (pendingImport.preferences.userRegion && setUserRegion) {

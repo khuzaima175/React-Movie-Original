@@ -182,7 +182,7 @@ export default function NavBar({
           <span>Vault</span>
         </NavLink>
 
-        {onOpenTasteDeck ? (
+        {onOpenTasteDeck && (
           <button
             className="mobile-tab"
             onClick={onOpenTasteDeck}
@@ -191,14 +191,6 @@ export default function NavBar({
             <SlidersHorizontal size={18} aria-hidden="true" />
             <span>Taste</span>
           </button>
-        ) : (
-          <NavLink
-            to="/ai"
-            className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
-          >
-            <Compass size={18} aria-hidden="true" />
-            <span>Oracle</span>
-          </NavLink>
         )}
 
         <NavLink

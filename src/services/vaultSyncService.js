@@ -171,14 +171,22 @@ export function mergeLocalAndCloudVault({
 
     const localMs = parseTimestampMs(localMovie.updatedAt || localMovie.dateWatched);
     const cloudMs = parseTimestampMs(cloudRow.updated_at);
-    const localHasNewerRating = localMs > cloudMs;
+    const localRating = Number(localMovie.userRating) || 0;
+    const cloudRating = Number(cloudRow.user_rating) || 0;
+    const localHasNewerRating =
+      localMs > cloudMs ||
+      (localMs === 0 && localRating > 0 && (cloudRating === 0 || localRating !== cloudRating));
 
     if (localHasNewerRating) {
       const enrichedLocal = { ...mapDbRowToLocalMovie(cloudRow), ...localMovie };
       resolvedWatchedMap.set(key, enrichedLocal);
       toUpsertMap.set(key, mapLocalMovieToDbRow(enrichedLocal, "watched", userId, nowIso));
     } else {
-      resolvedWatchedMap.set(key, mapDbRowToLocalMovie(cloudRow));
+      const cloudLocal = mapDbRowToLocalMovie(cloudRow);
+      if (localMovie.userNote && !cloudLocal.userNote) {
+        cloudLocal.userNote = localMovie.userNote;
+      }
+      resolvedWatchedMap.set(key, cloudLocal);
     }
   }
 

@@ -8,7 +8,7 @@ security invoker
 set search_path = ''
 as $$
 begin
-  new.updated_at := timezone('utc', now());
+  new.updated_at := now();
   return new;
 end;
 $$;
@@ -18,7 +18,7 @@ create table if not exists public.profiles (
   display_name text,
   user_region text not null default 'GLOBAL',
   preferred_providers integer[] not null default '{}'::integer[],
-  updated_at timestamptz not null default timezone('utc', now())
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.user_vault_items (
@@ -40,7 +40,7 @@ create table if not exists public.user_vault_items (
   date_watched timestamptz,
   is_bulk_imported boolean not null default false,
   metadata jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default now(),
   unique (user_id, movie_key)
 );
 

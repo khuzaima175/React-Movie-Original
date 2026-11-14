@@ -67,3 +67,31 @@ test("getCanonicalMovieKey falls back predictably across imdbID, tmdbId, and id"
   assert.equal(getCanonicalMovieKey({ tmdbId: 278 }), "tmdb_278");
   assert.equal(getCanonicalMovieKey({ id: "custom_1" }), "custom_1");
 });
+
+test("mergeLocalAndCloudVault does not let cloud row overwrite an untimestamped local rating", () => {
+  const localWatched = [
+    { imdbID: "tt0468569", title: "The Dark Knight", userRating: 9 }
+  ];
+  const cloudRows = [
+    {
+      movie_key: "tt0468569",
+      imdb_id: "tt0468569",
+      status: "watched",
+      title: "The Dark Knight",
+      user_rating: 6,
+      metadata: {},
+      updated_at: "2026-11-10T00:00:00.000Z"
+    }
+  ];
+
+  const merged = mergeLocalAndCloudVault({
+    localWatched,
+    localWatchlist: [],
+    cloudRows,
+    userId: "user-1"
+  });
+
+  const dk = merged.mergedWatched.find((m) => m.imdbID === "tt0468569");
+  assert.equal(dk.userRating, 9);
+  assert.ok(merged.toUpsertCloud.some((row) => row.movie_key === "tt0468569" && row.user_rating === 9));
+});

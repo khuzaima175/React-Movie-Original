@@ -157,6 +157,7 @@ export function AppProvider({ children }) {
   const watchedRef = useRef(watched);
   const watchlistRef = useRef(watchlist);
   const userRegionRef = useRef(userRegion);
+  const userWatchProvidersRef = useRef(userWatchProviders);
   const cloudUserRef = useRef(null);
   const pendingUpsertsRef = useRef(new Map());
   const pendingDeletesRef = useRef(new Set());
@@ -182,6 +183,7 @@ export function AppProvider({ children }) {
   }, [userRegion]);
 
   useEffect(() => {
+    userWatchProvidersRef.current = Array.isArray(userWatchProviders) ? userWatchProviders : [];
     safeSetItem("cinemavault_user_providers", userWatchProviders || []);
   }, [userWatchProviders]);
 
@@ -334,7 +336,10 @@ export function AppProvider({ children }) {
         .upsert(
           {
             id: userObj.id,
-            preferred_region: userRegionRef.current || "GLOBAL"
+            user_region: userRegionRef.current || "GLOBAL",
+            preferred_providers: Array.isArray(userWatchProvidersRef.current)
+              ? userWatchProvidersRef.current
+              : []
           },
           { onConflict: "id", ignoreDuplicates: true }
         );
@@ -517,6 +522,103 @@ export function AppProvider({ children }) {
     return syncVaultWithCloud(cloudUserRef.current);
   }
 
+  async function applyVaultImportSnapshot({
+    mergedWatched = [],
+    mergedWatchlist = [],
+    replaceMode = false
+  } = {}) {
+    const nowIso = new Date().toISOString();
+    const prevWatchedByKey = new Map(
+      (watchedRef.current || []).map((m) => [getCanonicalMovieKey(m), m])
+    );
+    const prevWatchlistByKey = new Map(
+      (watchlistRef.current || []).map((m) => [getCanonicalMovieKey(m), m])
+    );
+
+    const stampedWatched = (mergedWatched || []).map((item) => {
+      const key = getCanonicalMovieKey(item);
+      const prev = key ? prevWatchedByKey.get(key) : null;
+      const changed =
+        replaceMode ||
+        !prev ||
+        Number(prev.userRating || 0) !== Number(item.userRating || 0) ||
+        String(prev.userNote || "") !== String(item.userNote || "");
+      return changed ? { ...item, updatedAt: nowIso } : item;
+    });
+
+    const stampedWatchlist = (mergedWatchlist || []).map((item) => {
+      const key = getCanonicalMovieKey(item);
+      const prev = key ? prevWatchlistByKey.get(key) : null;
+      const changed = replaceMode || !prev;
+      return changed ? { ...item, updatedAt: nowIso } : item;
+    });
+
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
+    pendingUpsertsRef.current.clear();
+    pendingDeletesRef.current.clear();
+
+    watchedRef.current = stampedWatched;
+    watchlistRef.current = stampedWatchlist;
+    setWatched(stampedWatched);
+    setWatchlist(stampedWatchlist);
+
+    const activeUser = cloudUserRef.current;
+    const supabase = getSupabaseClient();
+    if (!supabase || !activeUser?.id) return;
+
+    setCloudSyncStatus("syncing");
+    setCloudError(null);
+    try {
+      const rows = [
+        ...stampedWatched.map((m) =>
+          mapLocalMovieToDbRow(m, "watched", activeUser.id, m.updatedAt || nowIso)
+        ),
+        ...stampedWatchlist.map((m) =>
+          mapLocalMovieToDbRow(m, "watchlist", activeUser.id, m.updatedAt || nowIso)
+        )
+      ].filter((r) => r.movie_key);
+
+      for (let i = 0; i < rows.length; i += 100) {
+        const chunk = rows.slice(i, i + 100);
+        const { error: upsertErr } = await supabase
+          .from("user_vault_items")
+          .upsert(chunk, { onConflict: "user_id,movie_key" });
+        if (upsertErr) throw upsertErr;
+      }
+
+      if (replaceMode) {
+        const keepKeys = new Set(rows.map((r) => r.movie_key));
+        const { data: existingRows, error: fetchErr } = await supabase
+          .from("user_vault_items")
+          .select("movie_key")
+          .eq("user_id", activeUser.id);
+        if (fetchErr) throw fetchErr;
+        const staleKeys = (existingRows || [])
+          .map((r) => r.movie_key)
+          .filter((k) => k && !keepKeys.has(k));
+        for (let i = 0; i < staleKeys.length; i += 100) {
+          const chunk = staleKeys.slice(i, i + 100);
+          const { error: delErr } = await supabase
+            .from("user_vault_items")
+            .delete()
+            .eq("user_id", activeUser.id)
+            .in("movie_key", chunk);
+          if (delErr) throw delErr;
+        }
+        setCloudSyncStatus("synced");
+        setLastSyncedAt(new Date().toISOString());
+      } else {
+        await syncVaultWithCloud(activeUser);
+      }
+    } catch (err) {
+      setCloudSyncStatus("error");
+      setCloudError(err?.message || "Failed to sync imported vault to cloud.");
+    }
+  }
+
   function addWatched(movie) {
     if (!movie) return;
     const movieId = movie.imdbID || movie.id || movie.tmdbId;
@@ -632,6 +734,7 @@ export function AppProvider({ children }) {
         signInWithEmailOtp,
         signOutCloud,
         syncCloudNow,
+        applyVaultImportSnapshot,
         aiRecommendations,
         setAiRecommendations,
         aiTasteProfile,

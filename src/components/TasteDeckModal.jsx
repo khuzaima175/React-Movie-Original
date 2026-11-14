@@ -170,7 +170,7 @@ export default function TasteDeckModal({
 
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose?.();
+        handleDismissAll();
         return;
       }
 
@@ -217,7 +217,7 @@ export default function TasteDeckModal({
       aria-modal="true"
       aria-label="Taste calibration deck"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose?.();
+        if (e.target === e.currentTarget) handleDismissAll();
       }}
     >
       <div className="taste-deck-shell" onClick={(e) => e.stopPropagation()}>
