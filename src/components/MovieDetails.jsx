@@ -378,7 +378,7 @@ export default function MovieDetails({
   return (
     <div className="netflix-detail-modal" aria-label={`Movie details for ${movie?.title || "Film"}`}>
       {isLoading ? (
-        <MovieDetailsSkeleton />
+        <MovieDetailsSkeleton onCloseMovie={onCloseMovie} />
       ) : error ? (
         <ErrorMessage message={error} />
       ) : movie ? (

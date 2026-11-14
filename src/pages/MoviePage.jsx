@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import MovieDetails from "../components/MovieDetails";
@@ -6,6 +7,10 @@ export default function MoviePage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { watched, watchlist, addWatched, addToWatchlist, deleteWatchlist } = useApp();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [id]);
 
   function handleAddWatched(movie) {
     addWatched(movie);

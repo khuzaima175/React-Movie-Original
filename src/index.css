@@ -993,18 +993,103 @@
 }
 
 /* Movie details skeleton */
+.skeleton,
+.skeleton-text {
+  border-radius: 0.4rem;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.035) 25%, rgba(255, 255, 255, 0.075) 50%, rgba(255, 255, 255, 0.035) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
 
-
-
-
-
+.skeleton-text {
+  height: 1.2rem;
+}
 
 .skeleton-line {
   height: 1.2rem;
-  border-radius: 0.3rem;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.07) 50%, rgba(255, 255, 255, 0.04) 75%);
+  border-radius: 0.4rem;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.035) 25%, rgba(255, 255, 255, 0.075) 50%, rgba(255, 255, 255, 0.035) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.035) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: skeletonSweep 1.8s ease-in-out infinite;
+}
+
+@keyframes skeletonSweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-pill {
+  height: 2.8rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.skeleton-hero-tagline {
+  width: 16rem;
+  height: 1.3rem;
+  margin-bottom: 1rem;
+}
+
+.skeleton-hero-heading {
+  width: min(44rem, 78%);
+  height: 3.8rem;
+  border-radius: 0.6rem;
+  margin-bottom: 1.4rem;
+}
+
+.movie-skeleton-deck {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.movie-skeleton-score-card {
+  min-height: 9.2rem;
+  justify-content: space-between;
+}
+
+.movie-skeleton-block {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 1rem;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.movie-skeleton-cast-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.2rem;
+}
+
+.movie-skeleton-cast-tile {
+  height: 6.4rem;
+  border-radius: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .movie-skeleton-cast-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ── Error ───────────────────────────────────────────────── */
