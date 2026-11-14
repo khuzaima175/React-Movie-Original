@@ -185,7 +185,7 @@ function AppContent() {
       </main>
 
       {/* Slim Editorial Footer */}
-      <footer className="w-full border-t border-hairline bg-surface-1/30 py-8 mt-16">
+      <footer className="w-full border-t border-hairline bg-surface-1/30 pt-8 pb-28 md:pb-8 mt-16">
         <div className="page-rail flex flex-col sm:flex-row items-center justify-between gap-4 text-[1.25rem] text-text-3">
           <div className="flex items-center gap-2.5">
             <span className="font-semibold text-text-2 tracking-tight">CinemaVault</span>

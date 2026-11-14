@@ -755,12 +755,11 @@ export default function MovieRecommendations({
                 <motion.li
                   key={rec.id || rec.tmdbId || index}
                   className="recommendation-row"
-                  initial={{ opacity: 0, y: 24 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, amount: 0.12 }}
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{
-                    duration: 0.45,
-                    delay: Math.min(index * 0.04, 0.16),
+                    duration: 0.38,
+                    delay: Math.min(index * 0.035, 0.14),
                     ease: [0.22, 1, 0.36, 1]
                   }}
                 >

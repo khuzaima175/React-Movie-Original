@@ -128,6 +128,21 @@ function InlineMovieCard({ title, year }) {
   );
 }
 
+// Convert basic **bold** and *italic* markers cleanly without HTML injection
+function renderFormattedChatText(text) {
+  if (!text) return null;
+  const parts = String(text).split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      return <strong key={idx}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return <em key={idx}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
+}
+
 // Extract movie recommendations like **Movie Title** (Year) or "Movie Title" (Year)
 function parseMovieCardsFromText(text) {
   if (!text) return [];
@@ -271,7 +286,7 @@ export default function AIChat({ watched }) {
                 )}
 
                 <div className={`chat-bubble ${msg.role} ${msg.isError ? "error" : ""}`}>
-                  <p className="bubble-text">{msg.text}</p>
+                  <p className="bubble-text">{renderFormattedChatText(msg.text)}</p>
 
                   {/* Render inline movie cards if Oracle recommended movies */}
                   {detectedMovies.length > 0 && (
