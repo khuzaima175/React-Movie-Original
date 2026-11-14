@@ -1,4 +1,10 @@
 import { computeBayesianScore } from "./scoringUtils.js";
+import {
+  getMoodPreset,
+  normalizeMoodFilters,
+  isExplicitMoodActive,
+  GENRE_NAME_TO_ID
+} from "./moodPolicy.js";
 
 /**
  * Calibrated Logistic Ranker Weights
@@ -316,42 +322,175 @@ function selectWithReserve(scoredDesc, topK, reserve, context = {}, weights = DE
 }
 
 /**
+ * Extracts numeric TMDB genre IDs from a candidate's array fields or genre string.
+ */
+function extractCandidateGenreIds(candidate = {}) {
+  const ids = new Set();
+  for (const g of [...(candidate.tmdbGenreIds || []), ...(candidate.genre_ids || [])]) {
+    const num = Number(g);
+    if (Number.isFinite(num) && num > 0) ids.add(num);
+  }
+  if (ids.size === 0 && typeof candidate.genre === "string" && candidate.genre.trim()) {
+    for (const part of candidate.genre.split(",")) {
+      const id = GENRE_NAME_TO_ID[part.trim().toLowerCase()];
+      if (id) ids.add(id);
+    }
+  }
+  return Array.from(ids);
+}
+
+/**
+ * Computes an additive mood/filter logit adjustment. Strictly returns 0 in unconstrained
+ * "any" mode so offline baseline benchmarks remain identical.
+ */
+export function computeMoodScoreAdjustment(candidate = {}, mood = "any", moodFilters = null) {
+  const normalizedFilters = normalizeMoodFilters(moodFilters);
+  const rawMood = typeof mood === "string" ? mood.trim().toLowerCase() : "any";
+  const effectiveMood =
+    normalizedFilters?.moodId && normalizedFilters.moodId !== "any" && rawMood === "any"
+      ? normalizedFilters.moodId
+      : rawMood;
+
+  if (!isExplicitMoodActive(effectiveMood, normalizedFilters)) {
+    return 0;
+  }
+
+  const preset = getMoodPreset(effectiveMood);
+  const candGenres = extractCandidateGenreIds(candidate);
+  const candGenreSet = new Set(candGenres);
+  let delta = 0;
+
+  const preferredIds =
+    normalizedFilters?.withGenreIds?.length > 0
+      ? normalizedFilters.withGenreIds
+      : preset.preferredGenreIds || [];
+
+  if (preferredIds.length > 0 && candGenres.length > 0) {
+    const hits = preferredIds.filter(id => candGenreSet.has(id)).length;
+    delta += hits > 0 ? Math.min(2.4, 1.6 + 0.5 * (hits - 1)) : -1.4;
+  }
+
+  if (preset.discouragedGenreIds?.length > 0 && candGenres.length > 0) {
+    let penalty = 0;
+    for (const badId of preset.discouragedGenreIds) {
+      if (!candGenreSet.has(badId)) continue;
+      penalty += badId === 27 ? 2.2 : 1.1;
+    }
+    delta -= Math.min(2.6, penalty);
+  }
+
+  if (preset.id === "hidden-gem") {
+    const votes = Number(candidate.vote_count ?? candidate.voteCount ?? 0);
+    if (votes >= 50 && votes <= 1500) {
+      delta += 2.2;
+    } else if (votes > 1500 && votes <= 4000) {
+      delta += 0.6;
+    } else if (votes > 15000) {
+      delta -= 2.6;
+    }
+  }
+
+  if (normalizedFilters) {
+    const yearMatch = String(candidate.release_date || candidate.year || "").match(/\d{4}/);
+    const yr = yearMatch ? Number(yearMatch[0]) : null;
+    if (yr !== null) {
+      if (normalizedFilters.minYear && yr < normalizedFilters.minYear) delta -= 3.0;
+      if (normalizedFilters.maxYear && yr > normalizedFilters.maxYear) delta -= 3.0;
+    }
+    if (normalizedFilters.withoutKeywords?.length > 0) {
+      const haystack = [
+        candidate.title,
+        candidate.overview,
+        candidate.genre,
+        ...(Array.isArray(candidate.genre_names) ? candidate.genre_names : [])
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      for (const kw of normalizedFilters.withoutKeywords) {
+        if (haystack.includes(kw)) {
+          delta -= 2.5;
+        }
+      }
+    }
+  }
+
+  return delta;
+}
+
+/**
  * Ranks a large candidate pool (200-500 items) down to topK (default 30) with calibrated matchScores.
  * Dynamically scales positive collabSim relative to pool maximum so shrunk embeddings span [0, 1].
  */
 export function rankCandidatePool(candidates = [], context = {}, weights = DEFAULT_RANKER_WEIGHTS, topK = 30, options = {}, reserve = undefined) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
+  const rawExcludes = context?.excludeIds ?? options?.excludeIds;
+  const excludeSet = Array.isArray(rawExcludes) && rawExcludes.length > 0
+    ? new Set(rawExcludes.map(id => String(id).trim()).filter(Boolean))
+    : null;
+
+  const pool = excludeSet
+    ? candidates.filter(c => {
+        const ids = [c?.tmdbId, c?.id, c?.imdbID].filter(v => v !== undefined && v !== null && v !== "");
+        return !ids.some(v => excludeSet.has(String(v)));
+      })
+    : candidates;
+
+  if (pool.length === 0) return [];
+
+  const rawMood = context?.mood ?? options?.mood ?? "any";
+  const normalizedFilters = normalizeMoodFilters(context?.moodFilters ?? options?.moodFilters ?? null);
+  const explicitMood = isExplicitMoodActive(rawMood, normalizedFilters);
+  const effectiveMood =
+    normalizedFilters?.moodId && normalizedFilters.moodId !== "any" && (!rawMood || rawMood === "any")
+      ? normalizedFilters.moodId
+      : rawMood;
+
   const collabSimMap = context?.collabSimMap;
   let maxPoolCollab = 0;
   if (collabSimMap && typeof collabSimMap.get === "function") {
-    for (const c of candidates) {
+    for (const c of pool) {
       const cid = Number(c?.tmdbId ?? c?.id ?? 0);
       const val = Number(collabSimMap.get(cid) ?? c?.collabSim ?? 0);
       if (val > maxPoolCollab) maxPoolCollab = val;
     }
   } else {
-    for (const c of candidates) {
+    for (const c of pool) {
       const val = Number(c?.collabSim ?? 0);
       if (val > maxPoolCollab) maxPoolCollab = val;
     }
   }
   const collabScale = maxPoolCollab > 0.05 ? maxPoolCollab : 1.0;
 
-  const scored = candidates.map(cand => {
+  const scored = pool.map(cand => {
     const features = extractCandidateFeatures(cand, context);
     features.rawCollabSim = features.collabSim;
     if (features.collabSim > 0 && maxPoolCollab > 0.05) {
       features.collabSim = Math.min(1.0, features.collabSim / collabScale);
     }
-    const { logit, probability, matchScore } = scoreCandidate(features, weights, options);
+    const base = scoreCandidate(features, weights, options);
+    const moodAdj = explicitMood ? computeMoodScoreAdjustment(cand, effectiveMood, normalizedFilters) : 0;
+    const logit = explicitMood ? base.logit + moodAdj : base.logit;
+    const probability = explicitMood ? 1 / (1 + Math.exp(-logit)) : base.probability;
+    const matchScore = explicitMood ? Math.min(99, Math.max(50, Math.round(50 + 49 * probability))) : base.matchScore;
+
+    const reasons = generateMatchReasons(features);
+    if (explicitMood && moodAdj >= 1.2 && effectiveMood && effectiveMood !== "any") {
+      const preset = getMoodPreset(effectiveMood);
+      if (preset?.label && reasons.length < 3) {
+        reasons.unshift(`🎭 ${preset.label} Fit`);
+      }
+    }
+
     return {
       ...cand,
       features,
       rankerLogit: logit,
       rankerProbability: probability,
+      moodAdjustment: moodAdj,
       matchScore,
-      matchReasons: generateMatchReasons(features)
+      matchReasons: reasons.slice(0, 3)
     };
   });
 

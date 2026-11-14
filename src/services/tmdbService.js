@@ -15,6 +15,11 @@
 
 import { computeZScoredWeights, computeUserRatingStats } from "./scoringUtils.js";
 import {
+  getMoodPreset,
+  normalizeMoodFilters,
+  isExplicitMoodActive
+} from "./moodPolicy.js";
+import {
   resolveTmdbKey,
   resolveOmdbKey,
   hasTmdbBackend,
@@ -295,17 +300,44 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   };
 }
 
+function resolveEffectiveTmdbKey(options = {}) {
+  if (typeof options.apiKey === "string" && options.apiKey.trim()) {
+    return options.apiKey.trim();
+  }
+  return getTmdbKey();
+}
+
+function shouldSkipTmdbCandidate(m, collisionSets = {}) {
+  if (!m || !m.title || !m.overview) return true;
+  const { watchedIdSet, watchedTitleSet, watchlistTitleSet, excludeIdSet } = collisionSets;
+  const idStr = String(m.id ?? "");
+  if (watchedIdSet?.has(idStr) || excludeIdSet?.has(idStr)) return true;
+
+  const titleClean = m.title.toLowerCase().trim();
+  const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
+  const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
+  if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) return true;
+  if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) return true;
+  return false;
+}
+
 /**
  * Fetch keywords and creative crew for an anchor film
  */
-export async function fetchMovieKeywordsAndCrew(tmdbId) {
-  if (!hasTmdbBackend() || !tmdbId) return { keywords: [], crewPersonIds: [] };
+export async function fetchMovieKeywordsAndCrew(tmdbId, options = {}) {
+  if (!hasTmdbBackend(options) || !tmdbId) return { keywords: [], crewPersonIds: [] };
 
   try {
-    const data = await fetchTmdbJson(`/3/movie/${tmdbId}`, {
-      append_to_response: "keywords,credits",
-      language: "en-US"
-    });
+    const key = resolveEffectiveTmdbKey(options);
+    const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
+    const data = await fetchTmdbJson(
+      `/3/movie/${tmdbId}`,
+      {
+        append_to_response: "keywords,credits",
+        language: "en-US"
+      },
+      { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+    );
     if (!data) return { keywords: [], crewPersonIds: [] };
 
     const keywords = (data.keywords?.keywords || []).slice(0, 5).map(k => k.id);
@@ -328,55 +360,37 @@ export async function fetchMovieKeywordsAndCrew(tmdbId) {
  */
 export function buildBucketAParams(profile = {}, mood = "any", options = {}, apiKey = "") {
   const { userRegion = "US", userProviders = [] } = options;
-  const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim();
+  const rawMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim();
+  const moodFilters = normalizeMoodFilters(options.moodFilters);
+  const effectiveMood =
+    moodFilters?.moodId && moodFilters.moodId !== "any" && rawMood === "any"
+      ? moodFilters.moodId
+      : rawMood;
+  const explicitMood = isExplicitMoodActive(effectiveMood, moodFilters);
+  const preset = getMoodPreset(effectiveMood);
 
-  let sortParam = "popularity.desc";
-  let voteCountGte = "150";
-  let voteAverageGte = "6.8";
-  let moodBoostGenreIds = [];
+  const sortParam = explicitMood ? preset.sortBy : "popularity.desc";
+  const voteCountGte = explicitMood ? String(preset.voteCountGte) : "150";
+  const voteAverageGte = explicitMood ? String(preset.voteAverageGte) : "6.8";
 
-  switch (cleanMood) {
-    case "mind-bending":
-      sortParam = "vote_average.desc";
-      voteCountGte = "250";
-      voteAverageGte = "7.5";
-      moodBoostGenreIds = [9648, 878];
-      break;
-    case "dark-thriller":
-      sortParam = "popularity.desc";
-      voteCountGte = "120";
-      voteAverageGte = "6.8";
-      moodBoostGenreIds = [80, 53];
-      break;
-    case "hidden-gem":
-      sortParam = "vote_average.desc";
-      voteCountGte = "50";
-      voteAverageGte = "7.3";
-      break;
-    case "comfort-watch":
-      sortParam = "vote_average.desc";
-      voteCountGte = "180";
-      voteAverageGte = "7.2";
-      moodBoostGenreIds = [35, 18, 10751];
-      break;
-    case "fun-popcorn":
-      sortParam = "popularity.desc";
-      voteCountGte = "250";
-      voteAverageGte = "6.5";
-      moodBoostGenreIds = [28, 12];
-      break;
-    default:
-      sortParam = "popularity.desc";
-      voteCountGte = "150";
-      voteAverageGte = "6.8";
-      break;
+  let combinedLoved;
+  if (!explicitMood) {
+    combinedLoved = Array.from(new Set([
+      ...(profile.lovedGenreIds || []).slice(0, 4),
+      ...(profile.watchlistGenreIds || []).slice(0, 3)
+    ]));
+  } else if (moodFilters?.withGenreIds?.length > 0) {
+    combinedLoved = [...moodFilters.withGenreIds];
+  } else if (preset.preferredGenreIds.length > 0) {
+    const preferredSet = new Set(preset.preferredGenreIds);
+    const alignedLoved = (profile.lovedGenreIds || []).filter(id => preferredSet.has(id));
+    combinedLoved = Array.from(new Set([...alignedLoved, ...preset.preferredGenreIds]));
+  } else {
+    combinedLoved = Array.from(new Set([
+      ...(profile.lovedGenreIds || []).slice(0, 4),
+      ...(profile.watchlistGenreIds || []).slice(0, 3)
+    ]));
   }
-
-  const combinedLoved = Array.from(new Set([
-    ...(profile.lovedGenreIds || []).slice(0, 4),
-    ...(profile.watchlistGenreIds || []).slice(0, 3),
-    ...moodBoostGenreIds
-  ]));
 
   const params = new URLSearchParams({
     api_key: apiKey,
@@ -388,16 +402,36 @@ export function buildBucketAParams(profile = {}, mood = "any", options = {}, api
     "vote_average.gte": voteAverageGte
   });
 
+  if (explicitMood && preset.voteCountLte) {
+    params.set("vote_count.lte", String(preset.voteCountLte));
+  }
+
   if (combinedLoved.length > 0) {
     params.set("with_genres", combinedLoved.join("|"));
+  }
+
+  if (explicitMood && preset.withoutGenreIds?.length > 0) {
+    params.set("without_genres", preset.withoutGenreIds.join(","));
+  }
+
+  if (moodFilters?.minYear) {
+    params.set("primary_release_date.gte", `${moodFilters.minYear}-01-01`);
+  }
+  if (moodFilters?.maxYear) {
+    params.set("primary_release_date.lte", `${moodFilters.maxYear}-12-31`);
+  }
+
+  const startPage = Math.floor(Number(options.page) || 1);
+  if (startPage > 1) {
+    params.set("page", String(startPage));
   }
 
   if (profile.hatedKeywordIds && profile.hatedKeywordIds.length > 0) {
     params.set("without_keywords", profile.hatedKeywordIds.join("|"));
   }
 
-  // STAR POWER INJECTION: Pipe-separated for TMDB people OR logic
-  if (profile.topCastIds && profile.topCastIds.length > 0) {
+  // Only restrict by top actors when in unconstrained "any" mode so mood searches stay wide
+  if (!(explicitMood || preset.relaxCastLock) && profile.topCastIds && profile.topCastIds.length > 0) {
     params.set("with_cast", profile.topCastIds.join("|"));
   }
 
@@ -418,17 +452,17 @@ export function buildBucketAParams(profile = {}, mood = "any", options = {}, api
 export async function fetchBucketA(profile, mood = "any", options = {}, collisionSets = {}, targetCount = 8) {
   if (!hasTmdbBackend(options)) return [];
 
-  const key = getTmdbKey();
+  const key = resolveEffectiveTmdbKey(options);
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
-  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
   const params = buildBucketAParams(profile, mood, options, key);
   const sortParam = params.get("sort_by") || "popularity.desc";
   const hasProviderFilter = Boolean(params.get("with_watch_providers"));
+  const startPage = Math.max(1, Math.floor(Number(options.page) || 1));
 
   let candidates = [];
-  let page = 1;
+  let page = startPage;
 
-  while (candidates.length < targetCount && page <= 5) {
+  while (candidates.length < targetCount && page < startPage + 5) {
     try {
       const data = await fetchTmdbJson(
         "/3/discover/movie",
@@ -438,14 +472,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
       if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
-        if (!m || !m.title || !m.overview) continue;
-        const titleClean = m.title.toLowerCase().trim();
-        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
-        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
-
-        if (watchedIdSet?.has(String(m.id))) continue;
-        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
-        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+        if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
         if (candidates.some(c => c.id === m.id)) continue;
 
         candidates.push(normalizeTmdbItem(m, "Bucket A: Semantic", hasProviderFilter));
@@ -461,9 +488,9 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
   if (candidates.length < Math.min(targetCount, 5) && sortParam === "popularity.desc") {
     params.set("sort_by", "vote_average.desc");
     params.set("vote_count.gte", "500");
-    page = 1;
+    page = startPage;
 
-    while (candidates.length < targetCount && page <= 5) {
+    while (candidates.length < targetCount && page < startPage + 5) {
       try {
         const data = await fetchTmdbJson(
           "/3/discover/movie",
@@ -473,14 +500,7 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
         if (!data?.results || data.results.length === 0) break;
 
         for (const m of data.results) {
-          if (!m || !m.title || !m.overview) continue;
-          const titleClean = m.title.toLowerCase().trim();
-          const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
-          const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
-
-          if (watchedIdSet?.has(String(m.id))) continue;
-          if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
-          if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+          if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
           if (candidates.some(c => c.id === m.id)) continue;
 
           candidates.push(normalizeTmdbItem(m, "Bucket A: Cinephile Critical", hasProviderFilter));
@@ -502,12 +522,11 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
 export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {}, targetCount = 8) {
   if (!hasTmdbBackend(options) || !anchorTmdbId) return [];
 
-  const key = getTmdbKey();
+  const key = resolveEffectiveTmdbKey(options);
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
   const { userRegion = "US", userProviders = [] } = options;
-  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
 
-  const { keywords } = await fetchMovieKeywordsAndCrew(anchorTmdbId);
+  const { keywords } = await fetchMovieKeywordsAndCrew(anchorTmdbId, options);
   if (!keywords || keywords.length === 0) return [];
 
   const params = new URLSearchParams({
@@ -540,14 +559,7 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
       if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
-        if (!m || !m.title || !m.overview) continue;
-        const titleClean = m.title.toLowerCase().trim();
-        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
-        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
-
-        if (watchedIdSet?.has(String(m.id))) continue;
-        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
-        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+        if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
         if (candidates.some(c => c.id === m.id)) continue;
 
         candidates.push(normalizeTmdbItem(m, "Bucket B: Spiritual Successor", Boolean(providerFilter)));
@@ -568,13 +580,12 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
 export async function fetchBucketC(profile, options = {}, collisionSets = {}, targetCount = 4) {
   if (!hasTmdbBackend(options)) return [];
 
-  const key = getTmdbKey();
+  const key = resolveEffectiveTmdbKey(options);
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
   const { topCrewMemberId } = profile;
   if (!topCrewMemberId) return [];
 
   const { userRegion = "US", userProviders = [] } = options;
-  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
 
   const params = new URLSearchParams({
     api_key: key,
@@ -605,14 +616,7 @@ export async function fetchBucketC(profile, options = {}, collisionSets = {}, ta
       if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
-        if (!m || !m.title || !m.overview) continue;
-        const titleClean = m.title.toLowerCase().trim();
-        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
-        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
-
-        if (watchedIdSet?.has(String(m.id))) continue;
-        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
-        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
+        if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
         if (candidates.some(c => c.id === m.id)) continue;
 
         candidates.push(normalizeTmdbItem(m, "Bucket C: Auteur Crew", Boolean(providerFilter)));
@@ -685,17 +689,17 @@ export function buildBucketDParams(profile = {}, options = {}, apiKey = "") {
 export async function fetchBucketD(profile = {}, options = {}, collisionSets = {}, existingIdSet = new Set()) {
   if (!hasTmdbBackend(options)) return [];
 
-  const key = getTmdbKey();
+  const key = resolveEffectiveTmdbKey(options);
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
-  const { watchedIdSet, watchedTitleSet, watchlistTitleSet } = collisionSets;
   const params = buildBucketDParams(profile, options, key);
   const hasProviderFilter = Boolean(params.get("with_watch_providers"));
   const maxResults = 12;
+  const startPage = Math.max(1, Math.floor(Number(options.page) || 1));
 
   const candidates = [];
   const seenLocal = new Set();
 
-  for (let page = 1; page <= 2 && candidates.length < maxResults; page++) {
+  for (let page = startPage; page <= startPage + 1 && candidates.length < maxResults; page++) {
     try {
       const data = await fetchTmdbJson(
         "/3/discover/movie",
@@ -705,15 +709,8 @@ export async function fetchBucketD(profile = {}, options = {}, collisionSets = {
       if (!data?.results || data.results.length === 0) break;
 
       for (const m of data.results) {
-        if (!m || !m.title || !m.overview) continue;
+        if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
         const idNum = Number(m.id);
-        const titleClean = m.title.toLowerCase().trim();
-        const yearClean = m.release_date ? m.release_date.slice(0, 4) : "";
-        const titleYearKey = yearClean ? `${titleClean}::${yearClean}` : titleClean;
-
-        if (watchedIdSet?.has(String(m.id))) continue;
-        if (watchedTitleSet?.has(titleYearKey) || watchedTitleSet?.has(titleClean)) continue;
-        if (watchlistTitleSet?.has(titleYearKey) || watchlistTitleSet?.has(titleClean)) continue;
         if (existingIdSet?.has(idNum) || seenLocal.has(idNum)) continue;
 
         seenLocal.add(idNum);
@@ -739,6 +736,11 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   const watchedIdSet = new Set(
     (watchedMovies || []).map(m => String(m.id || m.imdbID || m.tmdbId || "")).filter(Boolean)
   );
+  const excludeIdSet = new Set(
+    (Array.isArray(options.excludeIds) ? options.excludeIds : [])
+      .map(id => String(id).trim())
+      .filter(Boolean)
+  );
 
   const watchedTitleSet = new Set(
     (watchedMovies || []).map(m => {
@@ -756,19 +758,27 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
     }).filter(Boolean)
   );
 
-  const collisionSets = { watchedIdSet, watchedTitleSet, watchlistTitleSet };
+  const collisionSets = { watchedIdSet, watchedTitleSet, watchlistTitleSet, excludeIdSet };
+  const moodFilters = normalizeMoodFilters(options.moodFilters);
+  const explicitMood = isExplicitMoodActive(mood, moodFilters);
+  const currentYear = new Date().getUTCFullYear();
+  const skipRecentLane = Boolean(moodFilters?.maxYear && moodFilters.maxYear < currentYear - 2);
 
   // COLD-START BYPASS: If user has < 3 ratings, route entirely to expanded Bucket A + Bucket D
   const targetPoolSize = Math.max(20, Math.min(500, Number(options.poolSize) || 60));
   if ((watchedMovies || []).length < 3) {
     const coldPool = await fetchBucketA(profile, mood, options, collisionSets, targetPoolSize);
     const existingIds = new Set(coldPool.map(item => Number(item?.id ?? item?.tmdbId ?? 0)));
-    const bucketD = await fetchBucketD(profile, options, collisionSets, existingIds);
+    const bucketD = skipRecentLane ? [] : await fetchBucketD(profile, options, collisionSets, existingIds);
     return bucketD.length > 0 ? [...coldPool, ...bucketD] : coldPool;
   }
 
-  const bucketBTarget = Math.min(40, Math.max(8, Math.floor(targetPoolSize * 0.35)));
-  const bucketCTarget = Math.min(20, Math.max(4, Math.floor(targetPoolSize * 0.2)));
+  const bucketBTarget = explicitMood
+    ? Math.min(12, Math.max(2, Math.floor(targetPoolSize * 0.2)))
+    : Math.min(40, Math.max(8, Math.floor(targetPoolSize * 0.35)));
+  const bucketCTarget = explicitMood
+    ? Math.min(8, Math.max(2, Math.floor(targetPoolSize * 0.12)))
+    : Math.min(20, Math.max(4, Math.floor(targetPoolSize * 0.2)));
 
   // 1. Concurrently fetch specific Keyword and Auteur/Cast buckets
   const [bucketB, bucketC] = await Promise.all([
@@ -803,9 +813,9 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
     }
   }
 
-  // Final top-up if needed
+  // Final top-up if needed (preserving mood filter rather than silently resetting to "any" when explicit mood active)
   if (combined.length < targetPoolSize) {
-    const topUp = await fetchBucketA(profile, "any", options, collisionSets, targetPoolSize - combined.length);
+    const topUp = await fetchBucketA(profile, mood, options, collisionSets, targetPoolSize - combined.length);
     for (const item of topUp) {
       if (!seenIds.has(item.id)) {
         seenIds.add(item.id);
@@ -816,7 +826,7 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
 
   const basePool = combined.slice(0, targetPoolSize);
   const existingIds = new Set(basePool.map(item => Number(item?.id ?? item?.tmdbId ?? 0)));
-  const bucketD = await fetchBucketD(profile, options, collisionSets, existingIds);
+  const bucketD = skipRecentLane ? [] : await fetchBucketD(profile, options, collisionSets, existingIds);
   return bucketD.length > 0 ? [...basePool, ...bucketD] : basePool;
 }
 
