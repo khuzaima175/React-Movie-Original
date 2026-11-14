@@ -5,7 +5,9 @@ import {
   formatStreamingSummary,
   formatRecBadgeSummary,
   resolveRecommendationAnchors,
-  sanitizeOracleReason
+  sanitizeOracleReason,
+  formatActiveVibeNote,
+  nextRefreshExcludeState
 } from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
@@ -138,4 +140,52 @@ test("sanitizeOracleReason strips legacy taste-twin and bullseye buzzwords clean
     sanitizeOracleReason("Taut sci-fi neo-noir with kinetic chase choreography."),
     "Taut sci-fi neo-noir with kinetic chase choreography."
   );
+});
+
+test("formatActiveVibeNote summarizes mood preset, genres, era bounds, and excluded elements", () => {
+  assert.equal(formatActiveVibeNote(null), "");
+
+  const note = formatActiveVibeNote({
+    moodId: "comfort-watch",
+    withGenres: ["Comedy", "Animation"],
+    withoutKeywords: ["horror", "gore"],
+    maxYear: 2000
+  });
+  assert.match(note, /Comfort Watch/);
+  assert.match(note, /Comedy, Animation/);
+  assert.match(note, /Through 2000|Before 2000|<= 2000|–2000/i);
+  assert.match(note, /Avoiding: horror, gore/i);
+
+  const rangeNote = formatActiveVibeNote({
+    moodId: "any",
+    withGenres: ["Sci-Fi"],
+    minYear: 1990,
+    maxYear: 1999
+  });
+  assert.match(rangeNote, /Sci-Fi/);
+  assert.match(rangeNote, /1990–1999/);
+});
+
+test("nextRefreshExcludeState accumulates shown IDs up to 120, cycles TMDB pages 1..5, and resets cleanly", () => {
+  const recBatch1 = [{ tmdbId: 10 }, { id: 20 }, { imdbID: "tt0030" }];
+  const s1 = nextRefreshExcludeState({ seenIds: [], page: 1 }, recBatch1, true);
+  assert.deepEqual(s1.seenIds, ["10", "20", "tt0030"]);
+  assert.deepEqual(s1.excludeIds, ["10", "20", "tt0030"]);
+  assert.equal(s1.page, 2);
+
+  // Cycles pages 2 -> 3 -> 4 -> 5 -> 1
+  const s5 = nextRefreshExcludeState({ seenIds: ["10"], page: 5 }, [{ tmdbId: 99 }], true);
+  assert.equal(s5.page, 1);
+  assert.deepEqual(s5.seenIds, ["10", "99"]);
+
+  // Caps accumulation at 120 unique IDs
+  const existing118 = Array.from({ length: 118 }, (_, i) => `old_${i}`);
+  const batch5 = Array.from({ length: 5 }, (_, i) => ({ tmdbId: `new_${i}` }));
+  const capped = nextRefreshExcludeState({ seenIds: existing118, page: 1 }, batch5, true);
+  assert.equal(capped.seenIds.length, 120);
+  assert.ok(capped.seenIds.includes("new_4"));
+
+  // Resets when forceRefresh is false
+  const reset = nextRefreshExcludeState(capped, batch5, false);
+  assert.deepEqual(reset, { seenIds: [], excludeIds: [], page: 1 });
 });

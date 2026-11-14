@@ -28,8 +28,18 @@ import {
   formatStreamingSummary,
   formatRecBadgeSummary,
   resolveRecommendationAnchors,
-  sanitizeOracleReason
+  sanitizeOracleReason,
+  formatActiveVibeNote,
+  nextRefreshExcludeState
 } from "../services/oracleViewHelpers";
+import {
+  DEFAULT_RECOMMENDATION_COUNT,
+  MIN_VALID_CACHE_COUNT,
+  MOOD_OPTIONS,
+  buildMoodFilterHashSegment,
+  normalizeMoodFilters,
+  parseFreeTextMoodFallback
+} from "../services/moodPolicy";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import { Button, MetaLine } from "./ui";
@@ -50,15 +60,6 @@ import {
   RotateCcw,
   Info
 } from "lucide-react";
-
-const MOOD_OPTIONS = [
-  { id: "any", label: "Any Vibe", desc: "Peak curated cinema" },
-  { id: "mind-bending", label: "Mind-Bending", desc: "Plot twists & cerebral puzzles" },
-  { id: "dark-thriller", label: "Dark Thriller", desc: "Gritty neo-noir & tension" },
-  { id: "fun-popcorn", label: "Fun Popcorn", desc: "High-energy crowd pleasers" },
-  { id: "comfort-watch", label: "Comfort Watch", desc: "Heartwarming & rewatchable" },
-  { id: "hidden-gem", label: "Hidden Gem", desc: "Underrated masterworks" }
-];
 
 const DISMISS_REASONS = [
   "Already seen",
@@ -104,12 +105,14 @@ export default function MovieRecommendations({
   const [showFilterDeck, setShowFilterDeck] = useState(false);
   const [showAboutPicks, setShowAboutPicks] = useState(false);
   const [customMoodQuery, setCustomMoodQuery] = useState("");
+  const [activeMoodFilters, setActiveMoodFilters] = useState(null);
   const [isParsingMood, setIsParsingMood] = useState(false);
   const [moodParseNote, setMoodParseNote] = useState("");
   const [isStreamingOpen, setIsStreamingOpen] = useState(false);
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
   const activeRequestRef = useRef(0);
+  const refreshStateRef = useRef({ key: "", seenIds: [], page: 1 });
 
   useEffect(() => {
     let isSubscribed = true;
@@ -124,7 +127,13 @@ export default function MovieRecommendations({
   }, [watched, watchlist]);
 
   const currentHash = tasteProfileData
-    ? generateProfileHash(tasteProfileData, tasteProfileData.watchlistGenreIds, selectedMood, userWatchProviders)
+    ? generateProfileHash(
+        tasteProfileData,
+        tasteProfileData.watchlistGenreIds,
+        selectedMood,
+        userWatchProviders,
+        activeMoodFilters
+      )
     : "";
 
   const isCacheValid = Boolean(
@@ -168,7 +177,7 @@ export default function MovieRecommendations({
   useEffect(() => {
     if (!recommendations && currentHash && !isLoading) {
       const cached = getSmartCache(currentHash, watched, watchlist);
-      if (cached && cached.recommendations?.length >= 4) {
+      if (cached && cached.recommendations?.length >= MIN_VALID_CACHE_COUNT) {
         const cachedModelInfo = cached.modelInfo
           ? { ...cached.modelInfo, fromCache: true }
           : null;
@@ -179,8 +188,25 @@ export default function MovieRecommendations({
     }
   }, [currentHash, isLoading]);
 
-  const handleGetRecommendations = async () => {
+  const handleGetRecommendations = async (invokeOpts = {}) => {
     const requestId = ++activeRequestRef.current;
+    const isForcedRefresh = invokeOpts?.forceRefresh === true;
+    const effectiveMood = invokeOpts?.moodOverride ?? selectedMood;
+    const effectiveFilters =
+      invokeOpts?.moodFiltersOverride !== undefined ? invokeOpts.moodFiltersOverride : activeMoodFilters;
+    const vibeKey = `${effectiveMood}::${buildMoodFilterHashSegment(effectiveFilters)}`;
+
+    let excludeIds = [];
+    let page = 1;
+    if (isForcedRefresh && refreshStateRef.current.key === vibeKey) {
+      const nextRefresh = nextRefreshExcludeState(refreshStateRef.current, recommendations, true);
+      refreshStateRef.current = { key: vibeKey, seenIds: nextRefresh.seenIds, page: nextRefresh.page };
+      excludeIds = nextRefresh.excludeIds;
+      page = nextRefresh.page;
+    } else {
+      refreshStateRef.current = { key: vibeKey, seenIds: [], page: 1 };
+    }
+
     setIsLoading(true);
     setRecommendations(null);
     setError("");
@@ -188,7 +214,11 @@ export default function MovieRecommendations({
 
     try {
       const result = await getMovieRecommendations(watched, watchlist, setProgress, {
-        mood: selectedMood,
+        mood: effectiveMood,
+        moodFilters: effectiveFilters,
+        excludeIds,
+        page,
+        targetCount: DEFAULT_RECOMMENDATION_COUNT,
         userRegion,
         userProviders: userWatchProviders,
         feedbackLog: aiFeedbackLog
@@ -197,7 +227,13 @@ export default function MovieRecommendations({
       if (activeRequestRef.current !== requestId) return;
 
       const profile = await extractTasteProfile(watched, watchlist);
-      const newHash = generateProfileHash(profile, profile.watchlistGenreIds, selectedMood, userWatchProviders);
+      const newHash = generateProfileHash(
+        profile,
+        profile.watchlistGenreIds,
+        effectiveMood,
+        userWatchProviders,
+        effectiveFilters
+      );
       const liveModelInfo = {
         ...resolveResultModelInfo(result, "curation"),
         fromCache: false
@@ -225,9 +261,14 @@ export default function MovieRecommendations({
 
   const handleResetSearch = () => {
     activeRequestRef.current++;
+    refreshStateRef.current = { key: "", seenIds: [], page: 1 };
     setIsLoading(false);
     setProgress("");
     setError("");
+    setSelectedMood("any");
+    setActiveMoodFilters(null);
+    setCustomMoodQuery("");
+    setMoodParseNote("");
     setRecommendations(null);
     setTasteProfile(null);
     saveAiRecommendations(null, null, "");
@@ -240,21 +281,40 @@ export default function MovieRecommendations({
     setIsParsingMood(true);
     setMoodParseNote("");
     try {
-      const aiClient = createGeminiClient(resolveGeminiKey());
-      if (!aiClient) {
-        setMoodParseNote("Offline parser unavailable; using selected mood.");
-        return;
+      let parsed = null;
+      try {
+        const aiClient = createGeminiClient(resolveGeminiKey());
+        parsed = aiClient ? await parseFreeTextMoodWithGemini(aiClient, query) : null;
+      } catch {
+        parsed = null;
       }
-      const parsed = await parseFreeTextMoodWithGemini(aiClient, query);
-      const matched = MOOD_OPTIONS.find((m) => m.id === parsed?.moodId);
-      if (matched) {
-        setSelectedMood(matched.id);
-        setMoodParseNote(`Selected: ${matched.label}`);
-      } else {
-        setMoodParseNote("Kept your current mood selection.");
-      }
-    } catch {
-      setMoodParseNote("Could not match custom mood; using preset selection.");
+
+      const hasAiSignal = Boolean(
+        (parsed?.moodId && parsed.moodId !== "any") ||
+          parsed?.withGenres?.length > 0 ||
+          parsed?.withoutKeywords?.length > 0 ||
+          parsed?.minYear ||
+          parsed?.maxYear
+      );
+      const fallback = parseFreeTextMoodFallback(query);
+      const normalized = normalizeMoodFilters({
+        ...(hasAiSignal ? parsed : fallback || {}),
+        query
+      });
+      const matched = MOOD_OPTIONS.find((m) => m.id === normalized?.moodId);
+      const nextMood = matched && matched.id !== "any" ? matched.id : selectedMood;
+
+      refreshStateRef.current = { key: "", seenIds: [], page: 1 };
+      setSelectedMood(nextMood);
+      setActiveMoodFilters(normalized);
+      setMoodParseNote(formatActiveVibeNote(normalized, MOOD_OPTIONS) || `Applied vibe: "${query}"`);
+
+      setIsParsingMood(false);
+      await handleGetRecommendations({
+        forceRefresh: false,
+        moodOverride: nextMood,
+        moodFiltersOverride: normalized
+      });
     } finally {
       setIsParsingMood(false);
     }
@@ -404,7 +464,12 @@ export default function MovieRecommendations({
                 key={mood.id}
                 type="button"
                 className={`vibe-chip-card ${isSelected ? "active" : ""}`}
-                onClick={() => setSelectedMood(mood.id)}
+                onClick={() => {
+                  setSelectedMood(mood.id);
+                  setActiveMoodFilters(null);
+                  setMoodParseNote("");
+                  refreshStateRef.current = { key: "", seenIds: [], page: 1 };
+                }}
               >
                 <div className="vibe-meta">
                   <strong className="vibe-title">{mood.label}</strong>
@@ -548,7 +613,11 @@ export default function MovieRecommendations({
           <Button
             variant="primary"
             size="lg"
-            onClick={handleGetRecommendations}
+            onClick={() =>
+              handleGetRecommendations({
+                forceRefresh: Boolean(recommendations && recommendations.length > 0 && aiRecommendationsHash === currentHash)
+              })
+            }
             disabled={isLoading}
           >
             <span>{isDrawer ? "Update Picks" : "Find Picks"}</span>
@@ -714,7 +783,11 @@ export default function MovieRecommendations({
               >
                 <SlidersHorizontal size={13} aria-hidden="true" />
                 <span>
-                  {activeMoodObj.label}
+                  {activeMoodFilters
+                    ? selectedMood !== "any"
+                      ? `${activeMoodObj.label} (Custom)`
+                      : "Custom Vibe"
+                    : activeMoodObj.label}
                   {hasStreamingFilter ? " · Streaming filtered" : ""}
                 </span>
                 {showFilterDeck ? (
@@ -935,7 +1008,7 @@ export default function MovieRecommendations({
             <Button
               variant="primary"
               size="md"
-              onClick={handleGetRecommendations}
+              onClick={() => handleGetRecommendations({ forceRefresh: true })}
               disabled={isLoading}
             >
               <RefreshCw size={14} className={isLoading ? "spin-icon" : ""} aria-hidden="true" />

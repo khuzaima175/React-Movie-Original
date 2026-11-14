@@ -1,4 +1,5 @@
 import { formatModelDisplayName } from "./geminiService.js";
+import { MOOD_OPTIONS } from "./moodPolicy.js";
 
 /**
  * Formatting helpers that keep the AI Oracle UI compact without changing
@@ -228,4 +229,63 @@ export function sanitizeOracleReason(reason) {
   return cleaned;
 }
 
+/**
+ * Formats a concise UI summary line for active mood + free-text vibe filters.
+ */
+export function formatActiveVibeNote(filters, moodOptions = MOOD_OPTIONS) {
+  if (!filters || typeof filters !== "object") return "";
+
+  const parts = [];
+  if (filters.moodId && filters.moodId !== "any") {
+    const preset = (moodOptions || MOOD_OPTIONS).find((m) => m.id === filters.moodId);
+    parts.push(preset ? preset.label : filters.moodId);
+  }
+  if (Array.isArray(filters.withGenres) && filters.withGenres.length > 0) {
+    parts.push(filters.withGenres.join(", "));
+  }
+  if (filters.minYear && filters.maxYear) {
+    parts.push(`${filters.minYear}–${filters.maxYear}`);
+  } else if (filters.minYear) {
+    parts.push(`${filters.minYear}+`);
+  } else if (filters.maxYear) {
+    parts.push(`Through ${filters.maxYear}`);
+  }
+  if (Array.isArray(filters.withoutKeywords) && filters.withoutKeywords.length > 0) {
+    parts.push(`Avoiding: ${filters.withoutKeywords.join(", ")}`);
+  }
+
+  return parts.length > 0 ? `Active vibe: ${parts.join(" • ")}` : "";
+}
+
+/**
+ * Tracks session seen recommendation IDs (bounded at 120) and rotates TMDB discovery
+ * pages cyclically (1..5) when explicitly refreshing picks.
+ */
+export function nextRefreshExcludeState(prevState = { seenIds: [], page: 1 }, currentRecs = [], forceRefresh = false) {
+  if (!forceRefresh) {
+    return { seenIds: [], excludeIds: [], page: 1 };
+  }
+
+  const maxHistory = 120;
+  const existing = Array.isArray(prevState?.seenIds) ? prevState.seenIds.map(String).filter(Boolean) : [];
+  const nextSet = new Set(existing);
+
+  for (const rec of Array.isArray(currentRecs) ? currentRecs : []) {
+    const primary = rec?.tmdbId ?? rec?.id ?? rec?.imdbID;
+    if (primary !== undefined && primary !== null && String(primary).trim()) {
+      nextSet.add(String(primary).trim());
+    }
+  }
+
+  const allSeen = Array.from(nextSet);
+  const boundedSeen = allSeen.length > maxHistory ? allSeen.slice(allSeen.length - maxHistory) : allSeen;
+  const currentPage = Math.max(1, Math.floor(Number(prevState?.page) || 1));
+  const nextPage = currentPage >= 5 ? 1 : currentPage + 1;
+
+  return {
+    seenIds: boundedSeen,
+    excludeIds: boundedSeen,
+    page: nextPage
+  };
+}
 
