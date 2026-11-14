@@ -41,29 +41,31 @@ export default function HeroBillboard({
 
   if (activeSlides.length === 0) {
     return (
-      <div className="hero-billboard" aria-label="Featured Film Billboard">
-        <div className="hero-scrim-left" />
-        <div className="hero-scrim-bottom" />
-        <div className="hero-content page-rail">
-          <div className="hero-text-block">
-            <span className="hero-kicker">Spotlight</span>
-            <h1 className="hero-title">Discover Your Next Film</h1>
-            <p className="hero-overview">
-              Curated unwatched spotlights and recommendations calibrated to your vault ratings.
-            </p>
-            <div className="hero-actions">
-              <button
-                type="button"
-                className="btn-hero-primary"
-                onClick={() => (onOpenTasteDeck ? onOpenTasteDeck() : navigate("/ai"))}
-              >
-                <SlidersHorizontal size={16} aria-hidden="true" />
-                Taste Calibration (30)
-              </button>
+      <section className="hero-billboard-wrap page-rail" aria-label="Featured Film Billboard">
+        <div className="hero-billboard">
+          <div className="hero-scrim-left" />
+          <div className="hero-scrim-bottom" />
+          <div className="hero-content">
+            <div className="hero-text-block">
+              <span className="hero-kicker">Spotlight</span>
+              <h1 className="hero-title">Discover Your Next Film</h1>
+              <p className="hero-overview">
+                Curated unwatched spotlights and recommendations calibrated to your vault ratings.
+              </p>
+              <div className="hero-actions">
+                <button
+                  type="button"
+                  className="btn-hero-primary"
+                  onClick={() => (onOpenTasteDeck ? onOpenTasteDeck() : navigate("/ai"))}
+                >
+                  <SlidersHorizontal size={16} aria-hidden="true" />
+                  Taste Calibration (30)
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
     );
   }
 
@@ -101,42 +103,45 @@ export default function HeroBillboard({
   const hasBackdrop = Boolean(slide.backdrop && !/unsplash\.com/i.test(slide.backdrop));
 
   return (
-    <div
-      className="hero-billboard"
+    <section
+      className="hero-billboard-wrap page-rail"
       aria-label="Featured Film Billboard"
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
-      onFocus={() => setIsPaused(true)}
-      onBlur={() => setIsPaused(false)}
     >
-      <AnimatePresence mode="wait">
-        {hasBackdrop ? (
-          <motion.div
-            key={`bd-${slideId || safeIndex}`}
-            className="hero-backdrop"
-            style={{ backgroundImage: `url(${slide.backdrop})` }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.45 }}
-          />
-        ) : (
-          <motion.div
-            key={`blur-${slideId || safeIndex}`}
-            className="hero-backdrop-blurred"
-            style={slide.poster ? { backgroundImage: `url(${slide.poster})` } : undefined}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.45 }}
-          />
-        )}
-      </AnimatePresence>
+      <div
+        className="hero-billboard"
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
+        onFocus={() => setIsPaused(true)}
+        onBlur={() => setIsPaused(false)}
+      >
+        <AnimatePresence mode="wait">
+          {hasBackdrop ? (
+            <motion.div
+              key={`bd-${slideId || safeIndex}`}
+              className="hero-backdrop"
+              style={{ backgroundImage: `url(${slide.backdrop})` }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.45 }}
+            />
+          ) : (
+            <motion.div
+              key={`blur-${slideId || safeIndex}`}
+              className="hero-backdrop-blurred"
+              style={slide.poster ? { backgroundImage: `url(${slide.poster})` } : undefined}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.45 }}
+            />
+          )}
+        </AnimatePresence>
 
-      <div className="hero-scrim-left" />
-      <div className="hero-scrim-bottom" />
+        <div className="hero-scrim-left" />
+        <div className="hero-scrim-bottom" />
 
-      <div className="hero-content page-rail">
+        <div className="hero-content">
         <AnimatePresence mode="wait">
           <motion.div
             key={`txt-${slideId || safeIndex}`}
@@ -223,6 +228,7 @@ export default function HeroBillboard({
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </section>
   );
 }

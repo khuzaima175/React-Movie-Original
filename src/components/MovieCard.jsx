@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Star, Plus, Check, Info, Trash2, CheckSquare, Square } from "lucide-react";
 import PosterImage from "./PosterImage";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
+import { useScrollReveal } from "../hooks/useScrollReveal";
 
 export default function MovieCard({
   movie,
@@ -14,9 +15,16 @@ export default function MovieCard({
   isSelected = false,
   onToggleSelect,
   showCaption = false,
+  animateOnScroll = false,
   revealIndex = 0,
   className = ""
 }) {
+  const [revealRef, isRevealed] = useScrollReveal({
+    rootMargin: "120px 0px 40px 0px",
+    threshold: 0,
+    disabled: !animateOnScroll || !movie
+  });
+
   if (!movie) return null;
 
   const id = movie.imdbID || movie.id;
@@ -55,13 +63,16 @@ export default function MovieCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 22 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.08, margin: "0px 80px -20px 80px" }}
+      ref={animateOnScroll ? revealRef : undefined}
+      initial={animateOnScroll ? { opacity: 0, y: 20 } : { opacity: 1, y: 0 }}
+      animate={{
+        opacity: !animateOnScroll || isRevealed ? 1 : 0,
+        y: !animateOnScroll || isRevealed ? 0 : 20
+      }}
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{
-        duration: 0.44,
-        delay: Math.min((revealIndex % 7) * 0.032, 0.2),
+        duration: 0.42,
+        delay: animateOnScroll ? Math.min((revealIndex % 7) * 0.032, 0.2) : 0,
         ease: [0.22, 1, 0.36, 1]
       }}
       whileHover={{ y: -3, transition: { duration: 0.16 } }}

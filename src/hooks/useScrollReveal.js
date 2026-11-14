@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
- * Lightweight IntersectionObserver scroll-reveal hook.
- * Triggers once when an element approaches the viewport from below, creating
- * smooth GPU-composited upward entrance transitions without layout thrash.
+ * Callback-ref IntersectionObserver scroll-reveal hook.
+ * Attaches dynamically even when elements mount asynchronously after data loads,
+ * and includes a passive scroll-position fallback so tall or zoomed-out blocks
+ * never remain hidden at opacity 0.
  */
 export function useScrollReveal({
-  rootMargin = "0px 0px -36px 0px",
-  threshold = 0.05,
+  rootMargin = "160px 0px 80px 0px",
+  threshold = 0,
   disabled = false
 } = {}) {
-  const ref = useRef(null);
+  const [node, setNode] = useState(null);
   const [isVisible, setIsVisible] = useState(() => {
     if (disabled) return true;
     if (typeof window === "undefined") return true;
@@ -21,19 +22,29 @@ export function useScrollReveal({
     return false;
   });
 
-  useEffect(() => {
-    if (disabled || isVisible) return;
-    const node = ref.current;
-    if (!node) return;
+  const ref = useCallback((el) => {
+    setNode(el || null);
+  }, []);
 
-    if (typeof window === "undefined" || typeof window.IntersectionObserver !== "function") {
+  useEffect(() => {
+    if (disabled || isVisible || !node) return;
+
+    if (typeof window === "undefined") {
       setIsVisible(true);
       return;
     }
 
-    // Elements already within or near the initial fold appear without delay.
-    const rect = node.getBoundingClientRect();
-    if (rect.top <= window.innerHeight * 0.96) {
+    const isNearViewport = () => {
+      const rect = node.getBoundingClientRect();
+      return rect.top <= (window.innerHeight || 900) + 120;
+    };
+
+    if (isNearViewport()) {
+      setIsVisible(true);
+      return;
+    }
+
+    if (typeof window.IntersectionObserver !== "function") {
       setIsVisible(true);
       return;
     }
@@ -41,9 +52,10 @@ export function useScrollReveal({
     const observer = new window.IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting || entry.boundingClientRect.top <= window.innerHeight) {
+          if (entry.isIntersecting || entry.boundingClientRect.top <= (window.innerHeight || 900) + 120) {
             setIsVisible(true);
             observer.disconnect();
+            window.removeEventListener("scroll", onScrollFallback);
             break;
           }
         }
@@ -51,9 +63,22 @@ export function useScrollReveal({
       { rootMargin, threshold }
     );
 
+    const onScrollFallback = () => {
+      if (isNearViewport()) {
+        setIsVisible(true);
+        observer.disconnect();
+        window.removeEventListener("scroll", onScrollFallback);
+      }
+    };
+
     observer.observe(node);
-    return () => observer.disconnect();
-  }, [disabled, isVisible, rootMargin, threshold]);
+    window.addEventListener("scroll", onScrollFallback, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", onScrollFallback);
+    };
+  }, [disabled, isVisible, node, rootMargin, threshold]);
 
   return [ref, isVisible];
 }

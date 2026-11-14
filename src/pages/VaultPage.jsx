@@ -254,6 +254,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
                   <MovieCard
                     key={id}
                     movie={movie}
+                    animateOnScroll={true}
                     revealIndex={idx}
                     onSelectMovie={handleSelectMovie}
                     onDeleteMovie={handleDeleteSingle}

@@ -39,11 +39,13 @@ export default function HomePosterGrid({
 
   return (
     <section
-      ref={revealRef}
-      className={`home-mosaic-section page-rail cv-reveal ${isRevealed ? "is-visible" : ""}`}
+      className="home-mosaic-section page-rail"
       aria-label="Explore full film catalog"
     >
-      <div className="home-mosaic-header">
+      <div
+        ref={revealRef}
+        className={`home-mosaic-header cv-reveal ${isRevealed ? "is-visible" : ""}`}
+      >
         <div className="home-mosaic-title-wrap">
           <h2 className="home-mosaic-heading">All Films</h2>
           <p className="home-mosaic-subtitle">
@@ -81,6 +83,7 @@ export default function HomePosterGrid({
             <MovieCard
               key={id}
               movie={movie}
+              animateOnScroll={true}
               revealIndex={idx}
               onSelectMovie={onSelectMovie}
               onQuickAdd={onQuickAdd}
