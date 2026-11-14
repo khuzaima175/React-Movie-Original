@@ -3,7 +3,7 @@ import { Modal } from "./ui/Modal";
 import { Button } from "./ui/Button";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
-import { Dices, Sparkles, Film, Bookmark, Star, ArrowRight, RotateCw } from "lucide-react";
+import { Dices, Film, Bookmark, Star, ArrowRight, RotateCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
@@ -135,8 +135,8 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.2rem", color: "#e2b13c", fontWeight: 600 }}>
-                  <Sparkles size={14} aria-hidden="true" />
-                  <span>Oracle Pick</span>
+                  <Film size={14} aria-hidden="true" />
+                  <span>Tonight's Pick</span>
                 </div>
                 <h3 style={{ fontSize: "1.7rem", fontWeight: 700, color: "#f4f4f2", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {pickedMovie.title || pickedMovie.Title}

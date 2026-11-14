@@ -12,7 +12,7 @@ import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
 import { Bookmark, Sparkles, Compass } from "lucide-react";
 
-export default function VaultPage() {
+export default function VaultPage({ onOpenBackup }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { watched = [], watchlist = [], addWatched, deleteWatched, deleteWatchlist, addToWatchlist } = useApp();
@@ -213,7 +213,7 @@ export default function VaultPage() {
           setIsManageMode((prev) => !prev);
           setSelectedIds([]);
         }}
-        onOpenBackup={() => setIsBackupOpen(true)}
+        onOpenBackup={() => (onOpenBackup ? onOpenBackup() : setIsBackupOpen(true))}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         selectedGenre={selectedGenre}

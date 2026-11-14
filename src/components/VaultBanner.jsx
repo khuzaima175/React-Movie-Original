@@ -2,10 +2,10 @@ import { useState } from "react";
 import {
   Film,
   Bookmark,
-  Sparkles,
   CheckSquare,
   XSquare,
-  Settings,
+  ArrowUpDown,
+  BarChart3,
   Search,
   X,
   SlidersHorizontal,
@@ -118,7 +118,6 @@ export default function VaultBanner({
       <div className="studio-hero-tier">
         <div className="studio-hero-left">
           <div className="hero-title-line">
-            <span className="live-studio-pulse" aria-hidden="true" />
             <h1 className="vault-spacious-title">My Vault</h1>
             <span className="vault-count-pill">{totalMovies} titles</span>
           </div>
@@ -150,9 +149,9 @@ export default function VaultBanner({
               className={`btn-executive btn-insights-glow ${isInsightsOpen ? "active" : ""}`}
               onClick={() => setIsInsightsOpen((prev) => !prev)}
               aria-expanded={isInsightsOpen}
-              title="Toggle Detailed Histogram and Taste DNA"
+              title="Toggle Detailed Histogram and Taste Breakdown"
             >
-              <Sparkles size={15} className="text-accent" aria-hidden="true" />
+              <BarChart3 size={15} className="text-accent" aria-hidden="true" />
               <span>{isInsightsOpen ? "Close DNA" : "Taste DNA"}</span>
               {isInsightsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
@@ -179,10 +178,10 @@ export default function VaultBanner({
           <button
             className="btn-executive ghost"
             onClick={onOpenBackup}
-            title="Backup & Portability"
+            title="Import or Export Ratings & Backups"
           >
-            <Settings size={15} aria-hidden="true" />
-            <span className="desktop-only">Backup</span>
+            <ArrowUpDown size={15} aria-hidden="true" />
+            <span className="desktop-only">Import / Export</span>
           </button>
         </div>
       </div>
@@ -264,7 +263,7 @@ export default function VaultBanner({
                 <div className="insight-panel-card">
                   <div className="panel-title-bar">
                     <div className="panel-title-text">
-                      <Sparkles size={15} className="text-accent" aria-hidden="true" />
+                      <BarChart3 size={15} className="text-accent" aria-hidden="true" />
                       <h4>Taste DNA</h4>
                     </div>
                     <span className="panel-sub-label">Collection milestones</span>

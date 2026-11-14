@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useApp } from "../context/AppContext";
 import MovieRecommendations from "../components/MovieRecommendations";
 import AIChat from "../components/AIChat";
-import { Sparkles, MessageSquare } from "lucide-react";
+import { Compass, MessageSquare } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function AIPage() {
@@ -25,13 +25,11 @@ export default function AIPage() {
         <header className="ai-studio-header">
           <div className="ai-studio-brand">
             <div className="ai-brand-headline">
-              <span className="live-ai-pulse" aria-hidden="true" />
-              <h1 className="ai-studio-title">AI Oracle</h1>
+              <h1 className="ai-studio-title">Film Oracle</h1>
               <span className="ai-sync-pill">
-                <span className="status-dot" aria-hidden="true" />
                 {watched.length > 0
-                  ? `${watched.length} Films Synced`
-                  : "Syncing Ready"}
+                  ? `${watched.length} films logged`
+                  : "No films logged yet"}
               </span>
             </div>
             <p className="ai-studio-desc">
@@ -54,7 +52,7 @@ export default function AIPage() {
                   transition={{ type: "spring", stiffness: 450, damping: 32 }}
                 />
               )}
-              <Sparkles size={14} className="tab-icon" aria-hidden="true" />
+              <Compass size={14} className="tab-icon" aria-hidden="true" />
               <span>AI Picks</span>
             </button>
 

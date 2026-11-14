@@ -1,23 +1,53 @@
-import { useState } from "react";
-import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
-import { AppProvider } from "./context/AppContext";
+import { useState, useEffect } from "react";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { AppProvider, useApp } from "./context/AppContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AnimatedBackground from "./components/AnimatedBackground";
 import NavBar from "./components/NavBar";
 import SearchModal from "./components/SearchModal";
 import RandomPicker from "./components/RandomPicker";
+import BackupManagerModal from "./components/BackupManagerModal";
+import QuickRateModal from "./components/QuickRateModal";
 import DashboardPage from "./pages/DashboardPage";
 import MoviePage from "./pages/MoviePage";
 import VaultPage from "./pages/VaultPage";
 import AIPage from "./pages/AIPage";
-import { reveal } from "./motion";
 import { Film } from "lucide-react";
 
 function AppContent() {
+  const { watched = [], watchlist = [], addWatched, addToWatchlist } = useApp();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRandomPickerOpen, setIsRandomPickerOpen] = useState(false);
+  const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [backupInitialTab, setBackupInitialTab] = useState("export");
+  const [isTasteDeckOpen, setIsTasteDeckOpen] = useState(false);
+  const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
+  const [quickRateTarget, setQuickRateTarget] = useState(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    function handleGlobalKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+        return;
+      }
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const tag = String(document.activeElement?.tagName || "").toLowerCase();
+        const isEditable =
+          tag === "input" ||
+          tag === "textarea" ||
+          tag === "select" ||
+          document.activeElement?.isContentEditable;
+        if (!isEditable) {
+          e.preventDefault();
+          setIsSearchOpen(true);
+        }
+      }
+    }
+    window.addEventListener("keydown", handleGlobalKey);
+    return () => window.removeEventListener("keydown", handleGlobalKey);
+  }, []);
 
   function handleSelectMovie(id) {
     if (navigate) {
@@ -27,18 +57,27 @@ function AppContent() {
     }
   }
 
+  function handleOpenBackup(tab = "export") {
+    setBackupInitialTab(tab);
+    setIsBackupOpen(true);
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-bg text-text-1 selection:bg-accent/20 selection:text-accent">
       <AnimatedBackground />
       <NavBar
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenRandomPicker={() => setIsRandomPickerOpen(true)}
+        onOpenBackup={() => handleOpenBackup("export")}
+        onOpenTasteDeck={() => setIsTasteDeckOpen(true)}
+        onOpenCloudSync={() => setIsCloudSyncOpen(true)}
       />
 
       <SearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onSelectMovie={handleSelectMovie}
+        onQuickRate={(movie) => setQuickRateTarget(movie)}
       />
 
       <RandomPicker
@@ -47,12 +86,38 @@ function AppContent() {
         onSelectMovie={handleSelectMovie}
       />
 
+      <BackupManagerModal
+        isOpen={isBackupOpen}
+        initialTab={backupInitialTab}
+        onClose={() => setIsBackupOpen(false)}
+      />
+
+      <QuickRateModal
+        movie={quickRateTarget}
+        watched={watched}
+        watchlist={watchlist}
+        onClose={() => setQuickRateTarget(null)}
+        onSaveWatched={addWatched}
+        onAddToWatchlist={addToWatchlist}
+      />
+
       <main className="flex-1 w-full">
         <Routes>
-          <Route path="/" element={<DashboardPage onOpenSearch={() => setIsSearchOpen(true)} />} />
+          <Route
+            path="/"
+            element={
+              <DashboardPage
+                onOpenSearch={() => setIsSearchOpen(true)}
+                onOpenTasteDeck={() => setIsTasteDeckOpen(true)}
+              />
+            }
+          />
           <Route path="/movie/:id" element={<MoviePage />} />
-          <Route path="/vault" element={<VaultPage />} />
-          <Route path="/ai" element={<AIPage />} />
+          <Route
+            path="/vault"
+            element={<VaultPage onOpenBackup={() => handleOpenBackup("export")} />}
+          />
+          <Route path="/ai" element={<AIPage onOpenTasteDeck={() => setIsTasteDeckOpen(true)} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -64,11 +129,11 @@ function AppContent() {
             <Film size={14} className="text-accent" aria-hidden="true" />
             <span className="font-semibold text-text-2 tracking-wide">CINEMAVAULT</span>
             <span className="text-hairline-strong">•</span>
-            <span>Personal Film Vault & Taste Intelligence</span>
+            <span>Personal Film Log &amp; Recommendations</span>
           </div>
 
           <div className="flex items-center gap-4">
-            <span>Data powered by <strong className="font-medium text-text-2">TMDB, OMDb API</strong> & <strong className="font-medium text-text-2">Gemini AI</strong></span>
+            <span>Data powered by <strong className="font-medium text-text-2">TMDB, OMDb API</strong> &amp; <strong className="font-medium text-text-2">Gemini AI</strong></span>
             <span className="hidden sm:inline text-hairline-strong">•</span>
             <span className="text-text-2 font-medium">Built by Khuzaima</span>
           </div>
