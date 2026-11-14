@@ -1,686 +1,578 @@
-import { useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileJson,
+  FileSpreadsheet,
+  FileUp,
+  Layers,
+  Loader2,
+  Star,
+  Upload
+} from "lucide-react";
 import { useApp } from "../context/AppContext";
-import { parseCSVImport, buildWatchedRecordFromImport } from "../services/csvImport";
-import { fetchOmdbJson } from "../services/apiTransport";
+import {
+  fetchOmdbJson,
+  fetchTmdbJson,
+  hasOmdbBackend,
+  hasTmdbBackend
+} from "../services/apiTransport";
+import { parseCSVImport } from "../services/csvImport";
+import { mapTmdbSearchItem } from "../services/searchService";
+import {
+  buildBackupJsonPayload,
+  buildRatingsCsv,
+  parseJsonBackupContent,
+  resolveCsvRowFallbackRecord,
+  summarizeImportDiff
+} from "../services/vaultPortability";
 import { Modal } from "./ui/Modal";
 import { Tabs } from "./ui/Tabs";
 import { Button } from "./ui/Button";
-import {
-  FileJson,
-  FileSpreadsheet,
-  Star,
-  Upload,
-  Download,
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  AlertTriangle,
-  Layers,
-  FileUp
-} from "lucide-react";
 
-export default function BackupManagerModal({ isOpen, onClose }) {
-  const { watched = [], watchlist = [], setWatched, setWatchlist } = useApp();
-  const [activeTab, setActiveTab] = useState("export"); // "export" | "import"
-  const [importMode, setImportMode] = useState("merge"); // "merge" | "overwrite"
+const IMPORT_MODES = [
+  {
+    id: "merge_update",
+    label: "Merge & Update",
+    hint: "Add new films and update existing entries if incoming scores changed."
+  },
+  {
+    id: "add_new",
+    label: "Add New Only",
+    hint: "Preserve all current vault scores and append only unseen films."
+  },
+  {
+    id: "replace",
+    label: "Replace Vault",
+    hint: "Wipe current local lists and replace with the imported snapshot."
+  }
+];
 
-  // Import Status State
+function triggerFileDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function enrichCsvRowMetadata(row, apiKey) {
+  const alreadyHasRichMetadata = Boolean(
+    row.imdbId &&
+    row.poster &&
+    row.poster !== "N/A" &&
+    row.director
+  );
+  if (alreadyHasRichMetadata) {
+    return row;
+  }
+
+  let omdbData = null;
+  if (hasOmdbBackend({ apiKey }) || Boolean(apiKey)) {
+    try {
+      const omdbQuery = row.imdbId && /^tt\d+$/i.test(row.imdbId)
+        ? { i: row.imdbId }
+        : { t: row.title, ...(row.year ? { y: row.year } : {}) };
+      const res = await fetchOmdbJson({
+        ...omdbQuery,
+        ...(apiKey ? { apikey: apiKey } : {})
+      });
+      if (res && res.Response === "True") {
+        omdbData = res;
+      }
+    } catch {
+      omdbData = null;
+    }
+  }
+
+  if (omdbData) {
+    return {
+      ...row,
+      imdbId: row.imdbId || omdbData.imdbID,
+      poster: omdbData.Poster && omdbData.Poster !== "N/A" ? omdbData.Poster : (row.poster || "N/A"),
+      director: row.director || (omdbData.Director && omdbData.Director !== "N/A" ? omdbData.Director : "Imported"),
+      genre: row.genre || (omdbData.Genre && omdbData.Genre !== "N/A" ? omdbData.Genre : "Drama"),
+      runtime: row.runtime || (omdbData.Runtime && omdbData.Runtime !== "N/A" ? omdbData.Runtime : "N/A"),
+      imdbRating: row.imdbRating || (omdbData.imdbRating && omdbData.imdbRating !== "N/A" ? omdbData.imdbRating : null),
+      year: row.year || omdbData.Year || ""
+    };
+  }
+
+  if (hasTmdbBackend()) {
+    try {
+      const tmdbPayload = await fetchTmdbJson("/3/search/movie", {
+        query: row.title,
+        ...(row.year ? { primary_release_year: row.year } : {}),
+        include_adult: false,
+        language: "en-US"
+      });
+      const firstHit = Array.isArray(tmdbPayload?.results) ? tmdbPayload.results[0] : null;
+      if (firstHit) {
+        const mapped = mapTmdbSearchItem(firstHit);
+        return {
+          ...row,
+          imdbId: row.imdbId || mapped.imdbID,
+          tmdbId: row.tmdbId || mapped.tmdbId,
+          poster: mapped.Poster && mapped.Poster !== "N/A" ? mapped.Poster : (row.poster || "N/A"),
+          genre: row.genre || mapped.genre || "Drama",
+          imdbRating: row.imdbRating || mapped.imdbRating || null,
+          year: row.year || mapped.Year || ""
+        };
+      }
+    } catch {
+      // fall back safely to CSV row metadata
+    }
+  }
+
+  return row;
+}
+
+export default function BackupManagerModal({
+  isOpen,
+  initialTab = "export",
+  onClose
+}) {
+  const {
+    apiKey,
+    watched = [],
+    watchlist = [],
+    setWatched,
+    setWatchlist,
+    userRegion,
+    setUserRegion,
+    userWatchProviders,
+    setUserWatchProviders
+  } = useApp();
+
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [importMode, setImportMode] = useState("merge_update");
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, title: "" });
+  const [pendingImport, setPendingImport] = useState(null);
   const [resultMessage, setResultMessage] = useState(null);
 
   const fileInputRef = useRef(null);
   const cancelRef = useRef(false);
 
-  if (!isOpen) return null;
-
-  // ── EXPORT ACTIONS ──
-  function exportJSON() {
-    const dataStr =
-      "data:text/json;charset=utf-8," +
-      encodeURIComponent(JSON.stringify({ watched, watchlist }, null, 2));
-    triggerDownload(dataStr, "cinemavault_backup.json");
-  }
-
-  function exportGeneralCSV() {
-    const headers = [
-      "Title",
-      "Year",
-      "IMDb ID",
-      "IMDb Rating",
-      "Runtime",
-      "My Rating",
-      "Notes",
-      "Genres",
-      "Director",
-      "Type",
-    ];
-    const rows = [
-      ...watched.map((m) => [
-        m.title,
-        m.year,
-        m.imdbID,
-        m.imdbRating,
-        m.runtime,
-        m.userRating,
-        m.userNote || "",
-        m.genre || "",
-        m.director || "",
-        "Watched",
-      ]),
-      ...watchlist.map((m) => [
-        m.title,
-        m.year,
-        m.imdbID,
-        m.imdbRating,
-        m.runtime,
-        "",
-        "",
-        "",
-        "",
-        "Watchlist",
-      ]),
-    ];
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((e) =>
-        e.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(",")
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    triggerDownload(url, "cinemavault_collection.csv");
-  }
-
-  function exportLetterboxdCSV() {
-    const headers = ["Title", "Year", "Rating10"];
-    const rows = watched.map((m) => [m.title, m.year, m.userRating]);
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((e) =>
-        e.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(",")
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    triggerDownload(url, "letterboxd_ratings_import.csv");
-  }
-
-  function triggerDownload(url, filename) {
-    const anchor = document.createElement("a");
-    anchor.setAttribute("href", url);
-    anchor.setAttribute("download", filename);
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  }
-
-  // ── IMPORT ACTIONS ──
-  const handleDragOver = (e) => e.preventDefault();
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    if (isProcessing) return;
-    const file = e.dataTransfer.files[0];
-    if (file) processFile(file);
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) processFile(file);
-  };
-
-  function processFile(file) {
-    setIsProcessing(true);
+  useEffect(() => {
+    if (!isOpen) return;
+    setActiveTab(initialTab || "export");
     setResultMessage(null);
-    cancelRef.current = false;
+    setPendingImport(null);
+    setIsProcessing(false);
+  }, [isOpen, initialTab]);
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const content = e.target.result;
-      if (file.name.endsWith(".json")) {
-        handleJSONImport(content);
-      } else if (file.name.endsWith(".csv")) {
-        await handleCSVImport(content);
-      } else {
-        setResultMessage({
-          type: "error",
-          text: "Unsupported file type. Please upload a .json or .csv file.",
-        });
-        setIsProcessing(false);
-      }
-    };
-    reader.readAsText(file);
+  const diffPreview = useMemo(() => {
+    if (!pendingImport) return null;
+    return summarizeImportDiff({
+      existingWatched: watched,
+      existingWatchlist: watchlist,
+      incomingWatched: pendingImport.incomingWatched,
+      incomingWatchlist: pendingImport.incomingWatchlist,
+      mode: importMode
+    });
+  }, [pendingImport, watched, watchlist, importMode]);
+
+  function handleExportJson() {
+    const payload = buildBackupJsonPayload({
+      watched,
+      watchlist,
+      userRegion,
+      userWatchProviders
+    });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    triggerFileDownload(blob, `cinemavault-backup-${dateStamp}.json`);
+    setResultMessage({
+      type: "success",
+      text: `Exported ${watched.length} watched films and ${watchlist.length} watchlist items as JSON (Schema v2).`
+    });
   }
 
-  function handleJSONImport(content) {
-    try {
-      const data = JSON.parse(content);
-      if (!data.watched && !data.watchlist) {
-        throw new Error("Invalid backup format. Missing collections.");
-      }
-
-      const newWatchedList = Array.isArray(data.watched) ? data.watched : [];
-      const newWatchlistList = Array.isArray(data.watchlist) ? data.watchlist : [];
-
-      if (importMode === "overwrite") {
-        setWatched(newWatchedList);
-        setWatchlist(newWatchlistList);
-        setResultMessage({
-          type: "success",
-          text: `Success! Vault overwritten with ${newWatchedList.length} rated films and ${newWatchlistList.length} watchlist titles.`,
-        });
-      } else {
-        // Merge
-        setWatched((prev) => {
-          const existingIds = new Set(prev.map((m) => m.imdbID));
-          const filteredNew = newWatchedList.filter((m) => !existingIds.has(m.imdbID));
-          return [...prev, ...filteredNew];
-        });
-        setWatchlist((prev) => {
-          const existingIds = new Set(prev.map((m) => m.imdbID));
-          const filteredNew = newWatchlistList.filter((m) => !existingIds.has(m.imdbID));
-          return [...prev, ...filteredNew];
-        });
-
-        setResultMessage({
-          type: "success",
-          text: `Success! Merged data. Added newly found items.`,
-        });
-      }
-    } catch (err) {
-      setResultMessage({ type: "error", text: `JSON Parse Error: ${err.message}` });
-    } finally {
-      setIsProcessing(false);
-    }
+  function handleExportCsv(format) {
+    const csvString = buildRatingsCsv({ watched, watchlist, format });
+    const blob = new Blob([`\uFEFF${csvString}`], {
+      type: "text/csv;charset=utf-8;"
+    });
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const suffix = format === "letterboxd" ? "letterboxd" : "full";
+    triggerFileDownload(blob, `cinemavault-${suffix}-${dateStamp}.csv`);
+    setResultMessage({
+      type: "success",
+      text:
+        format === "letterboxd"
+          ? "Exported rated films in Letterboxd CSV format (unrated entries omitted)."
+          : `Exported full CinemaVault CSV (${watched.length + watchlist.length} titles).`
+    });
   }
 
-  async function handleCSVImport(content) {
-    const { lineCount, rows: parsedRows } = parseCSVImport(content);
-    if (lineCount <= 1) {
-      setResultMessage({ type: "error", text: "CSV is empty or missing data." });
-      setIsProcessing(false);
-      return;
+  function handleApplyPendingImport() {
+    if (!pendingImport || !diffPreview) return;
+
+    setWatched(diffPreview.mergedWatched);
+    setWatchlist(diffPreview.mergedWatchlist);
+
+    if (pendingImport.preferences) {
+      if (pendingImport.preferences.userRegion && setUserRegion) {
+        setUserRegion(pendingImport.preferences.userRegion);
+      }
+      if (Array.isArray(pendingImport.preferences.userWatchProviders) && setUserWatchProviders) {
+        setUserWatchProviders(pendingImport.preferences.userWatchProviders);
+      }
     }
 
-    if (parsedRows.length === 0) {
-      setResultMessage({ type: "error", text: "No valid movie entries could be parsed." });
-      setIsProcessing(false);
-      return;
-    }
-
-    const resolvedWatched = [];
-    const resolvedWatchlist = [];
-    const total = parsedRows.length;
-
-    const BATCH_SIZE = 4;
-    for (let i = 0; i < total; i += BATCH_SIZE) {
-      if (cancelRef.current) break;
-      const batch = parsedRows.slice(i, i + BATCH_SIZE);
-      setProgress({ current: Math.min(i + batch.length, total), total, title: batch[0].title });
-
-      await Promise.all(
-        batch.map(async (row) => {
-          if (cancelRef.current) return;
-
-          const fallbackMovie = () => {
-            const tempId = row.imdbId || `csv-${Math.random().toString(36).substr(2, 9)}`;
-            const isWatchlist =
-              row.type.toLowerCase().includes("watchlist") ||
-              (!row.rating && row.type.toLowerCase() !== "watched");
-
-            if (isWatchlist) {
-              resolvedWatchlist.push({
-                imdbID: tempId,
-                title: row.title,
-                year: row.year || "N/A",
-                poster: "",
-                imdbRating: 0,
-                runtime: 0,
-              });
-            } else {
-              resolvedWatched.push(
-                buildWatchedRecordFromImport(
-                  {
-                    imdbID: tempId,
-                    title: row.title,
-                    year: row.year || "N/A",
-                    poster: "",
-                    imdbRating: 0,
-                    runtime: 0,
-                    userRating: row.rating || 5,
-                    userNote: row.note || "",
-                    director: "Unknown",
-                    writer: "Unknown",
-                    genre: "Unknown",
-                    shortPlot: "Imported via CSV backup.",
-                  },
-                  row
-                )
-              );
-            }
-          };
-
-          try {
-            const query = row.imdbId && row.imdbId.startsWith("tt")
-              ? { i: row.imdbId }
-              : { t: row.title, ...(row.year ? { y: row.year } : {}) };
-
-            const data = await fetchOmdbJson(query);
-            if (!data) throw new Error("Network issues");
-
-            if (data.Response === "True") {
-              const isWatchlist =
-                row.type.toLowerCase().includes("watchlist") ||
-                (row.rating === null && !row.type);
-
-              if (isWatchlist) {
-                resolvedWatchlist.push({
-                  imdbID: data.imdbID,
-                  title: data.Title,
-                  year: data.Year,
-                  poster: data.Poster !== "N/A" ? data.Poster : "",
-                  imdbRating: Number(data.imdbRating) || 0,
-                  runtime: Number(data.Runtime?.split(" ")[0] || 0),
-                });
-              } else {
-                resolvedWatched.push(
-                  buildWatchedRecordFromImport(
-                    {
-                      imdbID: data.imdbID,
-                      title: data.Title,
-                      year: data.Year,
-                      poster: data.Poster !== "N/A" ? data.Poster : "",
-                      imdbRating: Number(data.imdbRating) || 0,
-                      runtime: Number(data.Runtime?.split(" ")[0] || 0),
-                      userRating: row.rating || 7,
-                      userNote: row.note || "",
-                      director: data.Director || "Unknown",
-                      writer: data.Writer || "Unknown",
-                      genre: data.Genre || "Unknown",
-                      shortPlot: data.Plot
-                        ? data.Plot.split(" ").slice(0, 15).join(" ") + "..."
-                        : "",
-                    },
-                    row
-                  )
-                );
-              }
-            } else {
-              fallbackMovie();
-            }
-          } catch (err) {
-            fallbackMovie();
-          }
-        })
-      );
-
-      await new Promise((r) => setTimeout(r, 40));
-    }
-
-    if (cancelRef.current) {
-      setResultMessage({
-        type: "warning",
-        text: "Import cancelled mid-way. No collections were saved.",
-      });
-      setIsProcessing(false);
-      return;
-    }
-
-    if (importMode === "overwrite") {
-      setWatched(resolvedWatched);
-      setWatchlist(resolvedWatchlist);
-    } else {
-      setWatched((prev) => {
-        const existingIds = new Set(prev.map((m) => m.imdbID));
-        const filteredNew = resolvedWatched.filter((m) => !existingIds.has(m.imdbID));
-        return [...prev, ...filteredNew];
-      });
-      setWatchlist((prev) => {
-        const existingIds = new Set(prev.map((m) => m.imdbID));
-        const filteredNew = resolvedWatchlist.filter((m) => !existingIds.has(m.imdbID));
-        return [...prev, ...filteredNew];
-      });
-    }
+    const parts = [];
+    if (diffPreview.newWatchedCount > 0) parts.push(`${diffPreview.newWatchedCount} watched added`);
+    if (diffPreview.updatedRatingCount > 0) parts.push(`${diffPreview.updatedRatingCount} ratings updated`);
+    if (diffPreview.newWatchlistCount > 0) parts.push(`${diffPreview.newWatchlistCount} watchlisted`);
+    if (diffPreview.duplicatesSkipped > 0) parts.push(`${diffPreview.duplicatesSkipped} skipped`);
 
     setResultMessage({
       type: "success",
-      text: `Import Completed! Processed ${resolvedWatched.length} watched films and ${resolvedWatchlist.length} watchlist items.`,
+      text: parts.length > 0
+        ? `Import complete: ${parts.join(", ")}.`
+        : "No new changes needed; your Vault already contains every entry."
     });
-    setIsProcessing(false);
+    setPendingImport(null);
   }
 
-  function cancelImport() {
-    cancelRef.current = true;
-  }
+  async function handleFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
 
-  const modalTabs = [
-    { id: "export", label: "Export Vault", icon: Download },
-    { id: "import", label: "Import Backup", icon: Upload },
-  ];
+    setResultMessage(null);
+    setPendingImport(null);
+    cancelRef.current = false;
+
+    const lowerName = file.name.toLowerCase();
+    try {
+      const content = await file.text();
+
+      if (lowerName.endsWith(".json")) {
+        const parsed = parseJsonBackupContent(content);
+        setPendingImport({
+          fileName: file.name,
+          formatLabel: "JSON Backup",
+          incomingWatched: parsed.watched,
+          incomingWatchlist: parsed.watchlist,
+          preferences: parsed.preferences || null,
+          droppedCount: 0
+        });
+        return;
+      }
+
+      if (lowerName.endsWith(".csv")) {
+        const parsedCsv = parseCSVImport(content);
+        if (!parsedCsv.rows.length) {
+          setResultMessage({
+            type: "error",
+            text: "No readable movie rows found in this CSV file."
+          });
+          return;
+        }
+
+        setIsProcessing(true);
+        setProgress({ current: 0, total: parsedCsv.rows.length, title: "Preparing CSV rows..." });
+
+        const incomingWatched = [];
+        const incomingWatchlist = [];
+
+        for (let i = 0; i < parsedCsv.rows.length; i += 1) {
+          if (cancelRef.current) break;
+          const row = parsedCsv.rows[i];
+          setProgress({
+            current: i + 1,
+            total: parsedCsv.rows.length,
+            title: row.title
+          });
+
+          const enriched = await enrichCsvRowMetadata(row, apiKey);
+          const resolved = resolveCsvRowFallbackRecord(enriched);
+          if (resolved.status === "watched") {
+            incomingWatched.push(resolved.record);
+          } else {
+            incomingWatchlist.push(resolved.record);
+          }
+
+          if (i < parsedCsv.rows.length - 1 && !row.poster) {
+            await new Promise((resolve) => setTimeout(resolve, 60));
+          }
+        }
+
+        setIsProcessing(false);
+        if (cancelRef.current) {
+          setResultMessage({
+            type: "error",
+            text: "CSV processing was cancelled before applying changes."
+          });
+          return;
+        }
+
+        setPendingImport({
+          fileName: file.name,
+          formatLabel: "CSV Import",
+          incomingWatched,
+          incomingWatchlist,
+          preferences: null,
+          droppedCount: parsedCsv.droppedRows?.length || 0
+        });
+        return;
+      }
+
+      setResultMessage({
+        type: "error",
+        text: "Unsupported file extension. Please upload a .json or .csv file."
+      });
+    } catch (err) {
+      setIsProcessing(false);
+      setResultMessage({
+        type: "error",
+        text: err?.message || "Failed to parse the selected file."
+      });
+    }
+  }
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={isProcessing ? () => {} : onClose}
-      title="Vault Data Manager"
+      onClose={() => {
+        if (!isProcessing) onClose?.();
+      }}
+      title="Import & Export Vault"
       size="lg"
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "2.4rem" }}>
-        {/* Navigation Tabs */}
-        {!isProcessing && (
-          <Tabs
-            tabs={modalTabs}
-            activeTab={activeTab}
-            onChange={setActiveTab}
-          />
+      <div className="p-6 sm:p-8 flex flex-col gap-6 max-h-[82vh] overflow-y-auto">
+        <Tabs
+          tabs={[
+            { id: "export", label: "Export Data", icon: Download },
+            { id: "import", label: "Import Data", icon: Upload }
+          ]}
+          activeTab={activeTab}
+          onChange={(nextTab) => {
+            if (!isProcessing) {
+              setActiveTab(nextTab);
+              setResultMessage(null);
+            }
+          }}
+        />
+
+        {resultMessage && (
+          <div
+            className={`flex items-start gap-3 p-4 rounded-xl border text-sm ${
+              resultMessage.type === "success"
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                : "bg-red-500/10 border-red-500/30 text-red-300"
+            }`}
+          >
+            {resultMessage.type === "success" ? (
+              <CheckCircle2 size={18} className="shrink-0 mt-0.5" aria-hidden="true" />
+            ) : (
+              <AlertCircle size={18} className="shrink-0 mt-0.5" aria-hidden="true" />
+            )}
+            <span>{resultMessage.text}</span>
+          </div>
         )}
 
-        {/* Modal Body */}
-        {isProcessing ? (
-          <div style={{ padding: "3.6rem 0", textAlign: "center" }}>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.8rem" }}>
-              <Sparkles size={38} style={{ color: "#e2b13c" }} className="spin-icon" aria-hidden="true" />
-            </div>
-            <div>
-              <h4 style={{ fontSize: "1.8rem", fontWeight: 700, color: "#f4f4f2" }}>Syncing with OMDb API...</h4>
-              <p style={{ fontSize: "1.35rem", color: "#8a8a86", marginTop: "0.8rem" }}>
-                Resolving: <strong style={{ color: "#f4f4f2" }}>{progress.title || "Initializing..."}</strong>
-              </p>
-            </div>
+        {activeTab === "export" ? (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex flex-col justify-between gap-4 p-5 rounded-xl bg-[#1c1d20] border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <FileJson size={22} className="text-[#e2b13c]" aria-hidden="true" />
+                  <h3 className="text-base font-bold text-[#f4f4f2] m-0">CinemaVault JSON (v2)</h3>
+                  <p className="text-xs text-[#9e9e99] leading-relaxed m-0">
+                    Lossless backup of all watched ratings, notes, TMDB/IMDb IDs, watchlist, and preferences.
+                  </p>
+                </div>
+                <Button variant="accent" icon={Download} onClick={handleExportJson}>
+                  Download JSON
+                </Button>
+              </div>
 
-            <div style={{ width: "100%", maxWidth: "460px", margin: "2.4rem auto 1.2rem", background: "#242528", borderRadius: "9999px", height: "0.8rem", overflow: "hidden", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <div
-                style={{
-                  background: "#e2b13c",
-                  height: "100%",
-                  transition: "all 150ms ease",
-                  borderRadius: "9999px",
-                  width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%`,
-                }}
-              />
-            </div>
+              <div className="flex flex-col justify-between gap-4 p-5 rounded-xl bg-[#1c1d20] border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <FileSpreadsheet size={22} className="text-[#e2b13c]" aria-hidden="true" />
+                  <h3 className="text-base font-bold text-[#f4f4f2] m-0">CinemaVault Full CSV</h3>
+                  <p className="text-xs text-[#9e9e99] leading-relaxed m-0">
+                    Spreadsheet-friendly archive including IMDb &amp; TMDB IDs, genres, runtime, and watched dates.
+                  </p>
+                </div>
+                <Button variant="secondary" icon={Download} onClick={() => handleExportCsv("cinemavault")}>
+                  Download CSV
+                </Button>
+              </div>
 
-            <p style={{ fontSize: "1.25rem", fontFamily: "monospace", color: "#8a8a86" }}>
-              Processed {progress.current} of {progress.total} films
-            </p>
-
-            <div style={{ marginTop: "2rem" }}>
-              <Button variant="ghost" size="sm" onClick={cancelImport}>
-                Cancel Import
-              </Button>
+              <div className="flex flex-col justify-between gap-4 p-5 rounded-xl bg-[#1c1d20] border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <Star size={22} className="text-[#e2b13c]" aria-hidden="true" />
+                  <h3 className="text-base font-bold text-[#f4f4f2] m-0">Letterboxd Ratings CSV</h3>
+                  <p className="text-xs text-[#9e9e99] leading-relaxed m-0">
+                    Clean rated-films export omitting unrated items for instant import into Letterboxd or Trakt.
+                  </p>
+                </div>
+                <Button variant="secondary" icon={Download} onClick={() => handleExportCsv("letterboxd")}>
+                  Export Rated CSV
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
-          <>
-            {activeTab === "export" ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
-                <p style={{ fontSize: "1.4rem", color: "#8a8a86", lineHeight: 1.6 }}>
-                  Download local copies of your CinemaVault collections. Use them to migrate between devices, share ratings, or maintain off-site backups.
-                </p>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1.6rem", paddingTop: "0.4rem" }}>
-                  {/* Full JSON */}
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                      padding: "2.4rem 2rem",
-                      borderRadius: "1.4rem",
-                      border: "1px solid rgba(255, 255, 255, 0.09)",
-                      background: "#18191c",
-                      textAlign: "left",
-                      transition: "all 0.25s ease"
-                    }}
-                    className="hover:border-[#e2b13c]/50 hover:bg-[#1e1f23] group"
-                  >
-                    <div>
-                      <div style={{ width: "4.6rem", height: "4.6rem", borderRadius: "1rem", background: "rgba(226, 177, 60, 0.14)", border: "1px solid rgba(226, 177, 60, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.6rem" }}>
-                        <FileJson size={22} />
-                      </div>
-                      <h5 style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>
-                        Full JSON Backup
-                      </h5>
-                      <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
-                        Complete data dump with ratings, watchlists, notes, and metadata.
-                      </p>
-                    </div>
+          <div className="flex flex-col gap-5">
+            {/* Merge Mode Selector */}
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#9e9e99]">
+                Import Strategy
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {IMPORT_MODES.map((modeOption) => {
+                  const isActive = importMode === modeOption.id;
+                  return (
                     <button
-                      onClick={exportJSON}
-                      style={{
-                        fontSize: "1.35rem",
-                        fontWeight: 600,
-                        color: "#e2b13c",
-                        marginTop: "2rem",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "0.6rem",
-                        padding: "0.9rem 1.4rem",
-                        borderRadius: "0.8rem",
-                        background: "rgba(226, 177, 60, 0.12)",
-                        border: "1px solid rgba(226, 177, 60, 0.3)",
-                        cursor: "pointer",
-                        width: "100%",
-                        transition: "all 0.2s ease"
-                      }}
-                      className="hover:bg-[#e2b13c] hover:text-[#0b0b0c]"
+                      key={modeOption.id}
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => setImportMode(modeOption.id)}
+                      className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        isActive
+                          ? "bg-[#e2b13c]/12 border-[#e2b13c]/50 text-[#f4f4f2]"
+                          : "bg-[#1c1d20] border-white/10 text-[#b6b6b2] hover:border-white/25"
+                      }`}
                     >
-                      <Download size={15} /> Download .json
-                    </button>
-                  </div>
-
-                  {/* General CSV */}
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                      padding: "2.4rem 2rem",
-                      borderRadius: "1.4rem",
-                      border: "1px solid rgba(255, 255, 255, 0.09)",
-                      background: "#18191c",
-                      textAlign: "left",
-                      transition: "all 0.25s ease"
-                    }}
-                    className="hover:border-white/20 hover:bg-[#1e1f23] group"
-                  >
-                    <div>
-                      <div style={{ width: "4.6rem", height: "4.6rem", borderRadius: "1rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#b6b6b2", marginBottom: "1.6rem" }}>
-                        <FileSpreadsheet size={22} />
+                      <div className="text-sm font-bold flex items-center gap-1.5">
+                        <Layers size={14} className={isActive ? "text-[#e2b13c]" : "text-[#8a8a86]"} aria-hidden="true" />
+                        <span>{modeOption.label}</span>
                       </div>
-                      <h5 style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>
-                        General CSV Export
-                      </h5>
-                      <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
-                        Spreadsheet-friendly table containing ratings, genres, and directors.
+                      <p className="text-xs text-[#8a8a86] mt-1 mb-0 leading-snug">
+                        {modeOption.hint}
                       </p>
-                    </div>
-                    <button
-                      onClick={exportGeneralCSV}
-                      style={{
-                        fontSize: "1.35rem",
-                        fontWeight: 600,
-                        color: "#b6b6b2",
-                        marginTop: "2rem",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "0.6rem",
-                        padding: "0.9rem 1.4rem",
-                        borderRadius: "0.8rem",
-                        background: "#242528",
-                        border: "1px solid rgba(255, 255, 255, 0.12)",
-                        cursor: "pointer",
-                        width: "100%",
-                        transition: "all 0.2s ease"
-                      }}
-                      className="hover:bg-white/10 hover:text-[#f4f4f2]"
-                    >
-                      <Download size={15} /> Download .csv
                     </button>
-                  </div>
-
-                  {/* Letterboxd CSV */}
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                      padding: "2.4rem 2rem",
-                      borderRadius: "1.4rem",
-                      border: "1px solid rgba(255, 255, 255, 0.09)",
-                      background: "#18191c",
-                      textAlign: "left",
-                      transition: "all 0.25s ease"
-                    }}
-                    className="hover:border-[#e2b13c]/50 hover:bg-[#1e1f23] group"
-                  >
-                    <div>
-                      <div style={{ width: "4.6rem", height: "4.6rem", borderRadius: "1rem", background: "#242528", border: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.6rem" }}>
-                        <Star size={22} />
-                      </div>
-                      <h5 style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f4f4f2" }}>
-                        Letterboxd CSV
-                      </h5>
-                      <p style={{ fontSize: "1.3rem", color: "#8a8a86", marginTop: "0.6rem", lineHeight: 1.5 }}>
-                        Formatted (Title, Year, Rating10) for importing ratings into Letterboxd.
-                      </p>
-                    </div>
-                    <button
-                      onClick={exportLetterboxdCSV}
-                      style={{
-                        fontSize: "1.35rem",
-                        fontWeight: 600,
-                        color: "#e2b13c",
-                        marginTop: "2rem",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "0.6rem",
-                        padding: "0.9rem 1.4rem",
-                        borderRadius: "0.8rem",
-                        background: "rgba(226, 177, 60, 0.12)",
-                        border: "1px solid rgba(226, 177, 60, 0.3)",
-                        cursor: "pointer",
-                        width: "100%",
-                        transition: "all 0.2s ease"
-                      }}
-                      className="hover:bg-[#e2b13c] hover:text-[#0b0b0c]"
-                    >
-                      <Download size={15} /> Download .csv
-                    </button>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "1.8rem" }}>
-                <p style={{ fontSize: "1.35rem", color: "#8a8a86", lineHeight: 1.6 }}>
-                  Upload <code style={{ color: "#f4f4f2", background: "#242528", padding: "0.2rem 0.6rem", borderRadius: "0.4rem" }}>.json</code> or <code style={{ color: "#f4f4f2", background: "#242528", padding: "0.2rem 0.6rem", borderRadius: "0.4rem" }}>.csv</code> files. Supports CinemaVault JSON backups and Letterboxd CSV exports.
+
+              {importMode === "replace" && (
+                <div className="flex items-center gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mt-1">
+                  <AlertTriangle size={15} className="shrink-0" aria-hidden="true" />
+                  <span>Replace Vault clears your existing local lists when you apply the previewed import.</span>
+                </div>
+              )}
+            </div>
+
+            {/* File Drop / Picker */}
+            {!pendingImport && !isProcessing && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
+                className="flex flex-col items-center justify-center gap-3 p-8 rounded-2xl border-2 border-dashed border-white/15 bg-[#191a1d] hover:border-[#e2b13c]/50 transition-colors cursor-pointer text-center"
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,.csv,application/json,text/csv"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <FileUp size={28} className="text-[#e2b13c]" aria-hidden="true" />
+                <div className="text-base font-bold text-[#f4f4f2]">
+                  Choose a .JSON or .CSV File
+                </div>
+                <p className="text-xs text-[#8a8a86] max-w-md m-0 leading-relaxed">
+                  Supports CinemaVault JSON (v1/v2 or bare ratings array), CinemaVault CSV, Letterboxd ratings/diary/watchlist CSV, and IMDb CSV exports.
                 </p>
-
-                {/* Mode Selector */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.4rem 1.8rem", borderRadius: "1rem", border: "1px solid rgba(255, 255, 255, 0.1)", background: "#1c1d20" }}>
-                  <span style={{ fontSize: "1.3rem", fontWeight: 600, color: "#b6b6b2", textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                    <Layers size={16} style={{ color: "#e2b13c" }} /> Import Mode
-                  </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-                    <Button
-                      size="sm"
-                      variant={importMode === "merge" ? "primary" : "ghost"}
-                      onClick={() => setImportMode("merge")}
-                    >
-                      Merge (Keep Current)
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={importMode === "overwrite" ? "danger" : "ghost"}
-                      onClick={() => setImportMode("overwrite")}
-                    >
-                      Overwrite
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Dropzone */}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "3.6rem 2rem",
-                    borderRadius: "1.4rem",
-                    border: "2px dashed rgba(255, 255, 255, 0.16)",
-                    background: "rgba(28, 29, 32, 0.35)",
-                    textAlign: "center",
-                    cursor: "pointer",
-                    transition: "all 0.2s ease"
-                  }}
-                  className="hover:border-[#e2b13c]/50 hover:bg-[#1c1d20]/50"
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <input
-                    type="file"
-                    accept=".json,.csv"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    style={{ display: "none" }}
-                  />
-                  <div style={{ width: "5.2rem", height: "5.2rem", borderRadius: "50%", background: "#242528", display: "flex", alignItems: "center", justifyContent: "center", color: "#e2b13c", marginBottom: "1.4rem" }}>
-                    <FileUp size={24} />
-                  </div>
-                  <p style={{ fontSize: "1.5rem", fontWeight: 500, color: "#f4f4f2" }}>
-                    Drag & Drop backup file here, or <span style={{ color: "#e2b13c", textDecoration: "underline", textUnderlineOffset: "4px" }}>browse</span>
-                  </p>
-                  <span style={{ fontSize: "1.25rem", color: "#8a8a86", marginTop: "0.6rem" }}>
-                    Supported: CinemaVault .json backup, Letterboxd .csv export
-                  </span>
-                </div>
-
-                {/* Result alerts */}
-                {resultMessage && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "1.2rem",
-                      padding: "1.4rem 1.6rem",
-                      borderRadius: "0.8rem",
-                      fontSize: "1.3rem",
-                      background: resultMessage.type === "success"
-                        ? "rgba(70, 211, 105, 0.1)"
-                        : resultMessage.type === "warning"
-                        ? "rgba(226, 177, 60, 0.1)"
-                        : "rgba(229, 72, 77, 0.1)",
-                      border: resultMessage.type === "success"
-                        ? "1px solid rgba(70, 211, 105, 0.3)"
-                        : resultMessage.type === "warning"
-                        ? "1px solid rgba(226, 177, 60, 0.3)"
-                        : "1px solid rgba(229, 72, 77, 0.3)",
-                      color: resultMessage.type === "success"
-                        ? "#46d369"
-                        : resultMessage.type === "warning"
-                        ? "#e2b13c"
-                        : "#e5484d"
-                    }}
-                  >
-                    {resultMessage.type === "success" && <CheckCircle2 size={18} style={{ flexShrink: 0, marginTop: "0.2rem" }} />}
-                    {resultMessage.type === "warning" && <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: "0.2rem" }} />}
-                    {resultMessage.type === "error" && <AlertCircle size={18} style={{ flexShrink: 0, marginTop: "0.2rem" }} />}
-                    <span style={{ lineHeight: 1.5 }}>{resultMessage.text}</span>
-                  </div>
-                )}
               </div>
             )}
-          </>
+
+            {/* Enrichment Progress */}
+            {isProcessing && (
+              <div className="p-5 rounded-xl bg-[#1c1d20] border border-white/10 flex flex-col gap-3">
+                <div className="flex items-center justify-between text-sm text-[#f4f4f2]">
+                  <span className="inline-flex items-center gap-2 font-semibold">
+                    <Loader2 size={16} className="animate-spin text-[#e2b13c]" aria-hidden="true" />
+                    Resolving metadata ({progress.current}/{progress.total})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      cancelRef.current = true;
+                    }}
+                    className="text-xs text-red-400 hover:underline bg-transparent border-0 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="text-xs text-[#9e9e99] m-0 truncate">{progress.title}</p>
+              </div>
+            )}
+
+            {/* Pre-Commit Diff Preview */}
+            {pendingImport && diffPreview && !isProcessing && (
+              <div className="p-5 rounded-2xl bg-[#1c1d20] border border-[#e2b13c]/35 flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-sm font-bold text-[#f4f4f2]">
+                      Preview: {pendingImport.fileName}
+                    </div>
+                    <div className="text-xs text-[#8a8a86]">
+                      {pendingImport.formatLabel}
+                      {pendingImport.droppedCount > 0
+                        ? ` • ${pendingImport.droppedCount} blank rows skipped`
+                        : ""}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPendingImport(null)}
+                  >
+                    Choose Another File
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-[#141416] border border-white/8">
+                    <div className="text-xl font-bold text-[#e2b13c]">{diffPreview.newWatchedCount}</div>
+                    <div className="text-xs text-[#9e9e99]">New Watched</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#141416] border border-white/8">
+                    <div className="text-xl font-bold text-[#f4f4f2]">{diffPreview.updatedRatingCount}</div>
+                    <div className="text-xs text-[#9e9e99]">Scores Updated</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#141416] border border-white/8">
+                    <div className="text-xl font-bold text-[#f4f4f2]">{diffPreview.newWatchlistCount}</div>
+                    <div className="text-xs text-[#9e9e99]">New Watchlist</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#141416] border border-white/8">
+                    <div className="text-xl font-bold text-[#8a8a86]">{diffPreview.duplicatesSkipped}</div>
+                    <div className="text-xs text-[#9e9e99]">Unchanged / Skipped</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <Button variant="secondary" onClick={() => setPendingImport(null)}>
+                    Cancel
+                  </Button>
+                  <Button variant="accent" icon={CheckCircle2} onClick={handleApplyPendingImport}>
+                    Confirm &amp; Apply Import
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </Modal>

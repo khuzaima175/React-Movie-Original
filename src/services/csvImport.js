@@ -166,20 +166,45 @@ export function parseCSVImport(content, options = {}) {
     h.replace(/^\uFEFF/, "").toLowerCase().replace(/["']/g, "").trim()
   );
 
-  const titleIdx = headers.findIndex((h) => h.includes("title") || h.includes("name"));
+  const findFirstMatchingHeader = (exactList, predicate) => {
+    const exactIdx = headers.findIndex((h) => exactList.includes(h));
+    if (exactIdx !== -1) return exactIdx;
+    return headers.findIndex(predicate);
+  };
+
+  const titleIdx = findFirstMatchingHeader(
+    ["title", "name"],
+    (h) => h.includes("title") || h.includes("name")
+  );
   const yearIdx = headers.findIndex((h) => h.includes("year") || h.includes("released"));
-  const ratingIdx = headers.findIndex(
-    (h) => h.includes("rating") || h.includes("userrating") || h.includes("stars")
+  const ratingIdx = findFirstMatchingHeader(
+    ["your rating", "user rating", "userrating", "rating10", "rating"],
+    (h) => (h.includes("rating") && !h.includes("imdb rating")) || h.includes("stars")
   );
   const noteIdx = headers.findIndex(
     (h) => h.includes("note") || h.includes("review") || h.includes("comment")
   );
-  const typeIdx = headers.findIndex((h) => h.includes("type") || h.includes("list"));
-  const imdbIdIdx = headers.findIndex((h) => h.includes("imdb") || h.includes("id"));
+  const typeIdx = findFirstMatchingHeader(
+    ["type", "list"],
+    (h) => (h.includes("type") && h !== "title type") || h.includes("list")
+  );
+  const imdbIdIdx = findFirstMatchingHeader(
+    ["const", "imdb id", "imdbid"],
+    (h) => h.includes("imdb") || h === "id"
+  );
+  const tmdbIdIdx = findFirstMatchingHeader(
+    ["tmdb id", "tmdbid", "tmdb"],
+    (h) => h.includes("tmdb")
+  );
   const watchedDateIdx = headers.findIndex(
     (h) => h === "watched date" || h === "date watched" || h === "datewatched"
   );
-  const loggedDateIdx = headers.findIndex((h) => h === "date");
+  const loggedDateIdx = headers.findIndex((h) => h === "date" || h === "date rated");
+  const directorIdx = headers.findIndex((h) => h.includes("director"));
+  const genreIdx = headers.findIndex((h) => h === "genre" || h === "genres");
+  const runtimeIdx = headers.findIndex((h) => h.includes("runtime"));
+  const imdbRatingIdx = headers.findIndex((h) => h === "imdb rating");
+  const posterIdx = headers.findIndex((h) => h === "poster" || h === "poster url");
 
   const hasRecognizedHeader = titleIdx !== -1 || ratingIdx !== -1;
   const getColIdx = (idx, fallback) => (idx !== -1 ? idx : fallback);
@@ -194,6 +219,8 @@ export function parseCSVImport(content, options = {}) {
   const rows = [];
   const droppedRows = [];
 
+  const readCol = (cols, idx) => (idx !== -1 && cols[idx] ? cols[idx].trim() : "");
+
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i]);
     if (cols.length <= finalTitleIdx || !cols[finalTitleIdx]) {
@@ -207,13 +234,25 @@ export function parseCSVImport(content, options = {}) {
       continue;
     }
 
+    const rawTmdb = readCol(cols, tmdbIdIdx);
+    const parsedTmdb = rawTmdb && /^\d+$/.test(rawTmdb) ? Number(rawTmdb) : null;
+    const rawRuntime = readCol(cols, runtimeIdx);
+    const posterVal = readCol(cols, posterIdx);
+    const imdbRatingVal = readCol(cols, imdbRatingIdx);
+
     const row = {
       title,
       year: cols[finalYearIdx] ? cols[finalYearIdx].replace(/\D/g, "") : "",
       rating: cols[finalRatingIdx] ? parseRating(cols[finalRatingIdx]) : null,
       note: finalNoteIdx !== -1 ? (cols[finalNoteIdx] || "") : "",
-      type: finalTypeIdx !== -1 && cols[finalTypeIdx] ? cols[finalTypeIdx].trim() : "",
-      imdbId: finalImdbIdIdx !== -1 && cols[finalImdbIdIdx] ? cols[finalImdbIdIdx].trim() : ""
+      type: readCol(cols, finalTypeIdx),
+      imdbId: readCol(cols, finalImdbIdIdx),
+      ...(parsedTmdb ? { tmdbId: parsedTmdb } : {}),
+      ...(readCol(cols, directorIdx) ? { director: readCol(cols, directorIdx) } : {}),
+      ...(readCol(cols, genreIdx) ? { genre: readCol(cols, genreIdx) } : {}),
+      ...(rawRuntime ? { runtime: /^\d+$/.test(rawRuntime) ? `${rawRuntime} min` : rawRuntime } : {}),
+      ...(imdbRatingVal && Number.isFinite(Number(imdbRatingVal)) ? { imdbRating: imdbRatingVal } : {}),
+      ...(posterVal ? { poster: posterVal } : {})
     };
 
     if (hasRecognizedHeader) {
