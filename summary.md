@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![CinemaVault Banner](assets/screenshot.png)
+![CinemaVault Banner](assets/movie_vault.png)
 
 ### *Stop scrolling. Start watching. A private, streaming-grade film tracker powered by an on-device 25,000-film taste model and resilient Gemini AI curation.*
 
