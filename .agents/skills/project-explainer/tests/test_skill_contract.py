@@ -51,9 +51,14 @@ class TestSkillContract(unittest.TestCase):
         how_to_check = re.search(r"\*\*How to check:\*\*\s*(.*?)\*\*Code anchor:\*\*", text, re.DOTALL)
         self.assertIsNotNone(how_to_check)
         self.assertNotIn("compute_hot_score()", how_to_check.group(1))
-        # Direct commands & V8 features explicitly documented
+        # V9 upgrades: default depth is standard, rich M0/standard shapes, Easy English without analogy crutches
+        self.assertNotIn("brief (default", text)
+        self.assertIn("depth: standard", text)
+        self.assertNotIn("like coffee cooling", text)
+        self.assertNotIn("Analogy-Only Rescue", text)
+        # Direct commands & V8/V9 features explicitly documented
         for required_token in (
-            "Analogy-Only Rescue",
+            "Plain-English Rescue",
             "M0 trace anchor",
             "Red Flags",
             "`map`",
@@ -64,8 +69,12 @@ class TestSkillContract(unittest.TestCase):
             "Tiny repo",
             "Large / Monorepo",
             "py -3",
+            "ASCII Flow",
+            "Worked Example",
+            "Why This Design",
+            "Boundary Map",
         ):
-            self.assertIn(required_token, text, f"Missing V8 requirement: {required_token}")
+            self.assertIn(required_token, text, f"Missing V9 requirement: {required_token}")
 
     def test_no_project_specific_leakage(self):
         for md in [SKILL_MD, *REFS_DIR.glob("*.md")]:
@@ -80,10 +89,12 @@ class TestSkillContract(unittest.TestCase):
         self.assertIn("How to check", pt_text)
 
         dc_text = (REFS_DIR / "deep-and-commands.md").read_text(encoding="utf-8")
-        self.assertIn("do not repeat the Brief Card", dc_text)
+        self.assertIn("do not repeat", dc_text)
         self.assertIn("fallback branch", dc_text)
         self.assertIn("rollback", dc_text)
         self.assertIn("Predict the Output", dc_text)
+        self.assertNotIn("Physical analogy", dc_text)
+        self.assertIn("Plain-English intuition", dc_text)
         if len(dc_text.splitlines()) > 100:
             self.assertIn("## Contents", dc_text)
 
@@ -92,10 +103,12 @@ class TestSkillContract(unittest.TestCase):
         self.assertIn("feature <name> challenge", fd_text)
         self.assertNotIn("CinemaVault", fd_text)
         self.assertIn("FeedRanker", fd_text)
+        self.assertIn("easy, everyday English", fd_text)
 
         qd_text = (REFS_DIR / "quiz-and-defense.md").read_text(encoding="utf-8")
         self.assertIn("Predict the Output", qd_text)
         self.assertIn("Session Ledger", qd_text)
+        self.assertIn("plain, easy English", qd_text)
         if len(qd_text.splitlines()) > 100:
             self.assertIn("## Contents", qd_text)
 
@@ -105,6 +118,66 @@ class TestSkillContract(unittest.TestCase):
         self.assertIn("❓", fp_text)
         self.assertIn("[Needs approval]", fp_text)
         self.assertIn("OWNERSHIP_GUIDE.md", fp_text)
+        self.assertIn("plain, everyday English", fp_text)
+
+    def test_visual_diagrams_feature_present(self):
+        text = SKILL_MD.read_text(encoding="utf-8")
+        self.assertIn("references/visual-diagrams.md", text)
+        self.assertIn("visual", text)
+        self.assertIn("picture", text)
+        self.assertIn("as many", text)
+        self.assertIn("in parallel", text)
+        self.assertIn("manage_subagents", text)
+        self.assertIn("visual mermaid", text)
+        self.assertIn("visual off", text)
+        self.assertNotIn("3–5 boxes each", text)
+        self.assertIn("never clone", text)
+
+        vd_path = REFS_DIR / "visual-diagrams.md"
+        self.assertTrue(vd_path.exists(), "Missing references/visual-diagrams.md")
+        vd_text = vd_path.read_text(encoding="utf-8")
+
+        for banned in (
+            "dark slate/obsidian",
+            "glowing arrows",
+            "3 to 5 boxes/nodes max",
+            "rounded card containers",
+        ):
+            self.assertNotIn(banned, vd_text, f"Old rigid template still in visual-diagrams.md: {banned}")
+
+        for token in (
+            "image-generator",
+            "flash_lite",
+            "Nano Banana Lite",
+            "read_file",
+            "Mermaid",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "[Needs approval]",
+            "as many focused",
+            "in parallel",
+            "Zero polling",
+            "visual mermaid",
+            "visual off",
+            "full creative permission",
+            "any kind of picture",
+            "Anti-Clone Rule",
+            "Before vs. After",
+            "Architectural Blueprint",
+            "Wireframe",
+            "Storyboard",
+            "Whiteboard",
+            "Light Editorial Paper",
+            "Data-Journalism Chart",
+            "sequenceDiagram",
+            "stateDiagram-v2",
+            "xychart-beta",
+        ):
+            self.assertIn(token, vd_text, f"Missing visual-diagrams token: {token}")
+        if len(vd_text.splitlines()) > 100:
+            self.assertIn("## Contents", vd_text)
 
 
 if __name__ == "__main__":

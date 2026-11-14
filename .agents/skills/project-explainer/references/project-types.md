@@ -4,7 +4,7 @@ Use this reference during **Step 0.2** and **Step 0.3** to order modules by **le
 
 ## Goal Emphasis Shift
 
-| Active Goal | What to Emphasize Across Modules | Brief Card Focus (`Main catch` & `How to check`) |
+| Active Goal | What to Emphasize Across Modules | Teaching Card Focus (`Main catch` & `How to check`, in easy English) |
 |---|---|---|
 | `explain` / `defend` *(default)* | Design choices, tradeoffs, weak spots, and reviewer traps. | **Main catch:** biggest assumption or `⚠️ Mismatch`; **How to check:** hand-trace or smallest proof check. |
 | `debug` | Execution flow, state mutations, race conditions, and edge cases. | **Main catch:** state mutation, null/NaN edge, or silent fallback; **How to check:** reproduce or assert failing boundary input. |
