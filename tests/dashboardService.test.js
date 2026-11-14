@@ -6,7 +6,8 @@ import {
   toDashboardCardItem,
   buildHeroSlides,
   loadHomeDiscoveryFeeds,
-  shouldShowCarouselArrows
+  shouldShowCarouselArrows,
+  collectCatalogMosaic
 } from "../src/services/dashboardService.js";
 
 function createMemoryStorage() {
@@ -222,4 +223,97 @@ test("shouldShowCarouselArrows returns true only when scrollWidth exceeds client
   assert.equal(shouldShowCarouselArrows(1202, 1200), false);
   assert.equal(shouldShowCarouselArrows(1450, 1200), true);
   assert.equal(shouldShowCarouselArrows(0, 0), false);
+});
+
+test("loadHomeDiscoveryFeeds returns up to 8 live rows (~20 posters/row via page 1+2) with zero duplicates and populates mosaicPool", async () => {
+  const watched = [{ imdbID: "tt9990001", tmdbId: 9990001, title: "Already Watched", year: "2020", genre: "Sci-Fi", userRating: 9 }];
+  const watchlist = [{ imdbID: "tmdb_9990002", tmdbId: 9990002, title: "Already Watchlisted", year: "2022" }];
+
+  let nextId = 100;
+  const fetchTmdb = async (_path, params = {}) => {
+    const page = Number(params.page || 1);
+    const results = [];
+    if (page === 1) {
+      results.push({ id: 9990001, title: "Already Watched", release_date: "2020-01-01", vote_average: 8.4, genre_ids: [878], poster_path: "/watched.jpg" });
+      results.push({ id: 9990002, title: "Already Watchlisted", release_date: "2022-01-01", vote_average: 7.9, genre_ids: [18], poster_path: "/watchlisted.jpg" });
+    }
+    for (let i = 0; i < 15; i += 1) {
+      const id = nextId++;
+      results.push({
+        id,
+        title: `Discovery Film ${id}`,
+        release_date: "2024-04-10",
+        vote_average: 7.5 + ((id % 15) * 0.1),
+        genre_ids: [i % 2 === 0 ? 18 : 878],
+        poster_path: `/poster_${id}.jpg`,
+        backdrop_path: `/backdrop_${id}.jpg`,
+        overview: "Cinematic plot."
+      });
+    }
+    return { results };
+  };
+
+  const result = await loadHomeDiscoveryFeeds({
+    watched,
+    watchlist,
+    userRegion: "US",
+    hasBackend: true,
+    fetchTmdb,
+    now: Date.UTC(2026, 10, 14, 15, 0, 0),
+    storage: createMemoryStorage()
+  });
+
+  assert.equal(result.isLive, true);
+  assert.equal(result.rows.length, 8);
+  assert.ok(result.rows[0].movies.length <= 20 && result.rows[0].movies.length >= 15);
+  assert.ok(Array.isArray(result.mosaicPool) && result.mosaicPool.length >= 40);
+
+  const flat = result.rows.flatMap((r) => r.movies);
+  const uniqueIds = new Set(flat.map((m) => m.tmdbId));
+  assert.equal(uniqueIds.size, flat.length);
+  assert.equal(flat.some((m) => m.tmdbId === 9990001 || m.tmdbId === 9990002), false);
+});
+
+test("loadHomeDiscoveryFeeds offline fallback provides at least 36 unique posters across curated rows", async () => {
+  const result = await loadHomeDiscoveryFeeds({
+    watched: [],
+    watchlist: [],
+    hasBackend: false,
+    storage: createMemoryStorage()
+  });
+  assert.equal(result.isLive, false);
+  const all = result.rows.flatMap((r) => r.movies);
+  assert.ok(all.length >= 36, `Expected >= 36 fallback posters, got ${all.length}`);
+  const seen = new Set(all.map((m) => `${m.title.toLowerCase()}::${m.year}`));
+  assert.equal(seen.size, all.length);
+  assert.ok(Array.isArray(result.mosaicPool) && result.mosaicPool.length >= 36);
+});
+
+test("collectCatalogMosaic filters items by selectedGenre case-insensitively, preserves deduplication, and caps by limit", () => {
+  const rows = [
+    {
+      key: "a",
+      movies: [
+        { imdbID: "tt1", title: "Alpha", year: "2020", genre: "Sci-Fi • Drama", poster: "p1.jpg" },
+        { imdbID: "tt2", title: "Beta", year: "2021", genre: "Crime • Thriller", poster: "p2.jpg" }
+      ]
+    },
+    {
+      key: "b",
+      movies: [
+        { imdbID: "tt1", title: "Alpha", year: "2020", genre: "Sci-Fi • Drama", poster: "p1.jpg" },
+        { imdbID: "tt3", title: "Gamma", year: "2022", genre: "sci-fi, Action", poster: "p3.jpg" }
+      ]
+    }
+  ];
+
+  const all = collectCatalogMosaic({ rows, selectedGenre: "All", limit: 2 });
+  assert.equal(all.totalCount, 3);
+  assert.equal(all.items.length, 2);
+  assert.ok(all.availableGenres.includes("All"));
+  assert.ok(all.availableGenres.includes("Sci-Fi"));
+
+  const sciFi = collectCatalogMosaic({ rows, selectedGenre: "sci-fi", limit: 10 });
+  assert.equal(sciFi.totalCount, 2);
+  assert.deepEqual(sciFi.items.map((m) => m.title), ["Alpha", "Gamma"]);
 });

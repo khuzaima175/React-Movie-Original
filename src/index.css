@@ -4164,9 +4164,9 @@ body {
 .hero-billboard {
   position: relative;
   width: 100%;
-  height: clamp(34rem, 52vh, 48rem);
-  min-height: 34rem;
-  max-height: 48rem;
+  height: clamp(30rem, 44vh, 42rem);
+  min-height: 30rem;
+  max-height: 42rem;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -4404,6 +4404,122 @@ body {
   flex-direction: column;
   gap: 3.6rem;
   padding: 2rem 0 4rem;
+}
+
+.home-mosaic-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 1.6rem 6rem 2rem;
+}
+
+.home-mosaic-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.6rem;
+}
+
+.home-mosaic-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.home-mosaic-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+}
+
+.home-mosaic-subtitle {
+  margin: 0;
+  font-size: 1.3rem;
+  color: var(--text-3);
+}
+
+.home-mosaic-genres {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.home-mosaic-genre-pill {
+  padding: 0.6rem 1.3rem;
+  border-radius: 9999px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.home-mosaic-genre-pill:hover {
+  color: var(--text-1);
+  border-color: var(--hairline-strong);
+}
+
+.home-mosaic-genre-pill.active {
+  background: rgba(226, 177, 60, 0.16);
+  border-color: rgba(226, 177, 60, 0.45);
+  color: #e2b13c;
+}
+
+.home-poster-mosaic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
+  gap: 1.8rem;
+}
+
+.home-poster-mosaic-grid .unified-movie-card {
+  width: 100%;
+  flex: none;
+}
+
+.home-mosaic-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 1.2rem;
+}
+
+.home-mosaic-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1.05rem 2.2rem;
+  border-radius: 1rem;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 1.35rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.home-mosaic-more-btn:hover {
+  border-color: rgba(226, 177, 60, 0.5);
+  color: #e2b13c;
+}
+
+@media (max-width: 768px) {
+  .home-mosaic-section {
+    padding: 1.2rem 1.6rem 2rem;
+  }
+
+  .home-poster-mosaic-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
 }
 
 .carousel-section {
@@ -4694,8 +4810,8 @@ body {
 
 .unified-movie-card {
   position: relative;
-  flex: 0 0 17.5rem;
-  width: 17.5rem;
+  flex: 0 0 16.2rem;
+  width: 16.2rem;
   aspect-ratio: 2/3;
   border-radius: var(--r-poster);
   overflow: hidden;

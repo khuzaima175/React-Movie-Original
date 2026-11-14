@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Star, Plus, Check, Info, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
+import { Star, Plus, Check, Info, Layers, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { buildSeenCollisionSet } from "../services/dashboardService";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
@@ -11,7 +11,8 @@ export default function HeroBillboard({
   watched = [],
   watchlist = [],
   onAddWatched,
-  onAddToWatchlist
+  onAddToWatchlist,
+  onOpenTasteDeck
 }) {
   const navigate = useNavigate();
   const activeSlides = Array.isArray(slides) ? slides : [];
@@ -54,9 +55,9 @@ export default function HeroBillboard({
             <div className="hero-actions">
               <button
                 className="btn-hero-primary"
-                onClick={() => navigate("/ai")}
+                onClick={() => (onOpenTasteDeck ? onOpenTasteDeck() : navigate("/ai"))}
               >
-                <Sparkles size={18} aria-hidden="true" /> Ask AI Oracle
+                <Layers size={18} aria-hidden="true" /> Quick Taste (30)
               </button>
             </div>
           </div>
@@ -191,10 +192,10 @@ export default function HeroBillboard({
 
               <button
                 className="btn-hero-secondary"
-                onClick={() => navigate("/ai")}
-                aria-label="Open AI Oracle recommendations"
+                onClick={() => (onOpenTasteDeck ? onOpenTasteDeck() : navigate("/ai"))}
+                aria-label="Open rapid taste builder for 30 films"
               >
-                <Sparkles size={17} className="text-accent" aria-hidden="true" /> AI Oracle
+                <Layers size={17} className="text-accent" aria-hidden="true" /> Quick Taste (30)
               </button>
             </div>
           </motion.div>

@@ -3,13 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import HeroBillboard from "../components/HeroBillboard";
 import MovieCarouselRow from "../components/MovieCarouselRow";
+import HomePosterGrid from "../components/HomePosterGrid";
 import QuickRateModal from "../components/QuickRateModal";
 import { loadHomeDiscoveryFeeds } from "../services/dashboardService";
 
-export default function DashboardPage() {
+export default function DashboardPage({ onOpenTasteDeck }) {
   const navigate = useNavigate();
   const { watched = [], watchlist = [], userRegion = "GLOBAL", addWatched, addToWatchlist } = useApp();
-  const [feeds, setFeeds] = useState({ heroSlides: [], rows: [], isLive: false });
+  const [feeds, setFeeds] = useState({ heroSlides: [], rows: [], mosaicPool: [], isLive: false });
   const [quickAddMovie, setQuickAddMovie] = useState(null);
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export default function DashboardPage() {
         watchlist={watchlist}
         onAddWatched={addWatched}
         onAddToWatchlist={addToWatchlist}
+        onOpenTasteDeck={onOpenTasteDeck}
       />
 
       <div className="home-rows-container">
@@ -83,6 +85,15 @@ export default function DashboardPage() {
             seeAllLink="/vault"
           />
         )}
+
+        <HomePosterGrid
+          rows={feeds.rows}
+          mosaicPool={feeds.mosaicPool}
+          watched={watched}
+          onSelectMovie={handleSelectMovie}
+          onQuickAdd={setQuickAddMovie}
+          onAddWatched={addWatched}
+        />
       </div>
 
       <QuickRateModal
