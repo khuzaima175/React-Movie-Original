@@ -30,7 +30,7 @@ test("buildBucketAParams keeps legacy any behavior while liberating explicit moo
   // "hidden-gem": adds vote_count.lte ceiling and relaxes with_cast
   const gemParams = buildBucketAParams(darkProfile, "hidden-gem", {}, "test-key");
   assert.equal(gemParams.get("with_cast"), null);
-  assert.equal(gemParams.get("vote_count.lte"), "1500");
+  assert.equal(gemParams.get("vote_count.lte"), "2000");
 
   // Custom moodFilters + pagination
   const customParams = buildBucketAParams(
@@ -63,7 +63,7 @@ test("fetchCandidatePool promotes Bucket A quota under explicit mood and filters
       release_date: "2018-05-01",
       vote_average: 7.6,
       vote_count: 800,
-      genre_ids: prefix === "A" ? [35, 10751] : [80, 53]
+      genre_ids: prefix === "A" ? [35, 10751] : (i % 2 === 0 ? [35, 10749] : [80, 53])
     }));
 
   const fetcher = async (url) => {
@@ -106,6 +106,7 @@ test("fetchCandidatePool promotes Bucket A quota under explicit mood and filters
   assert.ok(bucketCCount > 0 && bucketCCount <= 2, `Expected capped Bucket C (1..2), got ${bucketCCount}`);
   assert.ok(bucketACount >= 14, `Expected Bucket A >= 14/20 under explicit mood, got ${bucketACount}`);
   assert.ok(!comfortPool.some((c) => c.tmdbId === 1000 || c.tmdbId === 1001), "excludeIds must be filtered");
+  assert.ok(comfortPool.every((c) => !c.genre_ids.includes(80)), "off-mood Crime/Thriller items from Bucket B/C must be filtered out");
 });
 
 test("rankCandidatePool preserves exact baseline on any and reorders distinctly per mood", () => {
@@ -205,4 +206,84 @@ test("rankCandidatePool preserves exact baseline on any and reorders distinctly 
     4
   );
   assert.deepEqual(filtered.map((c) => c.tmdbId), [102, 104]);
+});
+
+test("rankCandidatePool strictly excludes hydrated non-selected streaming providers when userProviders is active", () => {
+  const profile = { lovedGenreIds: [28, 35, 878] };
+  const makeOnNetflixOrMax = (id, title, provId, provName, collabSim) => ({
+    tmdbId: id,
+    title,
+    tmdbGenreIds: [28, 878],
+    vote_average: 7.7,
+    vote_count: 5000,
+    collabSim,
+    year: "2020",
+    streamProviders: [{ id: provId, name: provName }],
+    providersHydrated: true,
+    providerMatchedByQuery: true
+  });
+
+  const pool = [
+    {
+      tmdbId: 293660,
+      title: "Deadpool",
+      tmdbGenreIds: [28, 12, 35],
+      vote_average: 8.0,
+      vote_count: 30000,
+      collabSim: 0.99,
+      year: "2016",
+      streamProviders: [{ id: 337, name: "Disney Plus" }],
+      providersHydrated: true,
+      providerMatchedByQuery: false
+    },
+    ...Array.from({ length: 10 }, (_, i) =>
+      makeOnNetflixOrMax(
+        500 + i,
+        `Valid Pick ${i + 1}`,
+        i % 2 === 0 ? 1796 : 384,
+        i % 2 === 0 ? "Netflix Standard with Ads" : "HBO Max",
+        0.25 - i * 0.01
+      )
+    )
+  ];
+
+  const ranked = rankCandidatePool(
+    pool,
+    { profile, mood: "any", userProviders: [8, 1899] },
+    DEFAULT_RANKER_WEIGHTS,
+    10
+  );
+
+  assert.equal(ranked.length, 10);
+  assert.equal(ranked.some((c) => c.tmdbId === 293660), false, "Disney+ Deadpool must be excluded for Netflix/Max");
+});
+
+test("rankCandidatePool separates all 5 explicit moods on a shared pool even when off-mood blockbusters have 3x collabSim", () => {
+  const darkProfile = { lovedGenreIds: [28, 18, 878] };
+  const pool = [
+    // Off-mood high-collab blockbuster traps
+    { tmdbId: 1, title: "V for Vendetta", tmdbGenreIds: [28, 53, 878], vote_average: 7.9, vote_count: 14500, collabSim: 0.96, year: "2006" },
+    { tmdbId: 2, title: "The Martian", tmdbGenreIds: [18, 12, 878], vote_average: 8.0, vote_count: 19500, collabSim: 0.94, year: "2015" },
+    { tmdbId: 3, title: "Edge of Tomorrow", tmdbGenreIds: [28, 878], vote_average: 7.9, vote_count: 13500, collabSim: 0.92, year: "2014" },
+    // Mind-Bending pure cerebral puzzle
+    { tmdbId: 10, title: "Ex Machina", tmdbGenreIds: [18, 878, 9648], vote_average: 7.7, vote_count: 12000, collabSim: 0.30, year: "2015" },
+    // Dark Thriller neo-noir
+    { tmdbId: 11, title: "Prisoners", tmdbGenreIds: [80, 53, 18], vote_average: 8.1, vote_count: 11000, collabSim: 0.28, year: "2013" },
+    // Fun Popcorn
+    { tmdbId: 12, title: "Mad Max: Fury Road", tmdbGenreIds: [28, 12], vote_average: 7.6, vote_count: 21000, collabSim: 0.28, year: "2015" },
+    // Comfort Watch
+    { tmdbId: 13, title: "Paddington 2", tmdbGenreIds: [12, 35, 10751], vote_average: 7.8, vote_count: 2300, collabSim: 0.22, year: "2017" },
+    // Hidden Gem
+    { tmdbId: 14, title: "Coherence", tmdbGenreIds: [53, 878], vote_average: 7.4, vote_count: 1450, collabSim: 0.20, year: "2013" }
+  ];
+
+  const top1For = (mood) => rankCandidatePool(pool, { profile: darkProfile, mood }, DEFAULT_RANKER_WEIGHTS, 3)[0];
+
+  assert.equal(top1For("mind-bending").title, "Ex Machina");
+  assert.equal(top1For("dark-thriller").title, "Prisoners");
+  assert.equal(top1For("comfort-watch").title, "Paddington 2");
+  assert.equal(top1For("hidden-gem").title, "Coherence");
+  const funTop = rankCandidatePool(pool, { profile: darkProfile, mood: "fun-popcorn" }, DEFAULT_RANKER_WEIGHTS, 3);
+  assert.ok([2, 3, 12].includes(funTop[0].tmdbId));
+  assert.equal(funTop.some((c) => c.title === "Prisoners"), false);
 });

@@ -3,8 +3,10 @@ import {
   getMoodPreset,
   normalizeMoodFilters,
   isExplicitMoodActive,
+  matchesMoodCandidateGate,
   GENRE_NAME_TO_ID
 } from "./moodPolicy.js";
+import { matchesWatchProviders } from "./tmdbService.js";
 
 /**
  * Calibrated Logistic Ranker Weights
@@ -381,12 +383,38 @@ export function computeMoodScoreAdjustment(candidate = {}, mood = "any", moodFil
 
   if (preset.id === "hidden-gem") {
     const votes = Number(candidate.vote_count ?? candidate.voteCount ?? 0);
-    if (votes >= 50 && votes <= 1500) {
-      delta += 2.2;
-    } else if (votes > 1500 && votes <= 4000) {
-      delta += 0.6;
-    } else if (votes > 15000) {
-      delta -= 2.6;
+    const rating = Number(candidate.vote_average ?? candidate.imdbRating ?? 0);
+    if (votes >= 50 && votes <= 1200 && rating >= 7.2) {
+      delta += 2.6;
+    } else if (votes >= 50 && votes <= 2000) {
+      delta += 2.0;
+    } else if (votes > 2000) {
+      delta -= 3.5;
+    }
+  }
+
+  if (candGenres.length > 0) {
+    if (preset.id === "mind-bending") {
+      if ((candGenreSet.has(9648) || candGenreSet.has(878)) && !candGenreSet.has(28) && !candGenreSet.has(12)) {
+        delta += 0.65;
+      }
+      if ((candGenreSet.has(28) || candGenreSet.has(12)) && !candGenreSet.has(9648)) {
+        delta -= 0.85;
+      }
+    } else if (preset.id === "dark-thriller") {
+      if ((candGenreSet.has(80) || candGenreSet.has(53)) && (candGenreSet.has(18) || candGenreSet.has(9648))) {
+        delta += 0.65;
+      }
+      if (candGenreSet.has(878) || candGenreSet.has(14) || candGenreSet.has(12)) {
+        delta -= 0.9;
+      }
+    } else if (preset.id === "fun-popcorn") {
+      if (candGenreSet.has(12) || candGenreSet.has(35) || (candGenreSet.has(28) && candGenreSet.has(878))) {
+        delta += 0.65;
+      }
+      if (candGenreSet.has(18) && candGenreSet.has(9648) && !candGenreSet.has(28) && !candGenreSet.has(12) && !candGenreSet.has(35)) {
+        delta -= 0.85;
+      }
     }
   }
 
@@ -446,30 +474,53 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
     normalizedFilters?.moodId && normalizedFilters.moodId !== "any" && (!rawMood || rawMood === "any")
       ? normalizedFilters.moodId
       : rawMood;
+  const userProviders = context?.userProviders ?? options?.userProviders ?? [];
+  const hasProviderFilter = Array.isArray(userProviders) && userProviders.length > 0;
+
+  let workingPool = pool;
+  if (hasProviderFilter) {
+    const providerVerified = workingPool.filter(c => matchesWatchProviders(c, userProviders));
+    if (providerVerified.length >= Math.min(6, topK)) {
+      workingPool = providerVerified;
+    } else if (providerVerified.length > 0) {
+      const verifiedKeys = new Set(providerVerified.map(c => String(c?.tmdbId ?? c?.id ?? c?.imdbID ?? "")));
+      workingPool = [
+        ...providerVerified,
+        ...workingPool.filter(c => !verifiedKeys.has(String(c?.tmdbId ?? c?.id ?? c?.imdbID ?? "")) && c?.providerMatchedByQuery)
+      ];
+    }
+  }
 
   const collabSimMap = context?.collabSimMap;
   let maxPoolCollab = 0;
   if (collabSimMap && typeof collabSimMap.get === "function") {
-    for (const c of pool) {
+    for (const c of workingPool) {
       const cid = Number(c?.tmdbId ?? c?.id ?? 0);
       const val = Number(collabSimMap.get(cid) ?? c?.collabSim ?? 0);
       if (val > maxPoolCollab) maxPoolCollab = val;
     }
   } else {
-    for (const c of pool) {
+    for (const c of workingPool) {
       const val = Number(c?.collabSim ?? 0);
       if (val > maxPoolCollab) maxPoolCollab = val;
     }
   }
   const collabScale = maxPoolCollab > 0.05 ? maxPoolCollab : 1.0;
 
-  const scored = pool.map(cand => {
+  const effectiveWeights = explicitMood
+    ? { ...weights, collabSim: Number(weights.collabSim ?? DEFAULT_RANKER_WEIGHTS.collabSim) * 0.35 }
+    : weights;
+  const effectiveOptions = explicitMood
+    ? { ...options, metadataDampingFactor: 1.0 }
+    : options;
+
+  const scored = workingPool.map(cand => {
     const features = extractCandidateFeatures(cand, context);
     features.rawCollabSim = features.collabSim;
     if (features.collabSim > 0 && maxPoolCollab > 0.05) {
       features.collabSim = Math.min(1.0, features.collabSim / collabScale);
     }
-    const base = scoreCandidate(features, weights, options);
+    const base = scoreCandidate(features, effectiveWeights, effectiveOptions);
     const moodAdj = explicitMood ? computeMoodScoreAdjustment(cand, effectiveMood, normalizedFilters) : 0;
     const logit = explicitMood ? base.logit + moodAdj : base.logit;
     const probability = explicitMood ? 1 / (1 + Math.exp(-logit)) : base.probability;
@@ -494,9 +545,29 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
     };
   });
 
-  scored.sort((a, b) => b.rankerProbability - a.rankerProbability);
+  let ordered;
+  if (explicitMood) {
+    const gatePassed = [];
+    const gateRejected = [];
+    for (const item of scored) {
+      if (matchesMoodCandidateGate(item, effectiveMood, normalizedFilters)) {
+        gatePassed.push(item);
+      } else {
+        gateRejected.push(item);
+      }
+    }
+    gatePassed.sort((a, b) => b.rankerProbability - a.rankerProbability);
+    gateRejected.sort((a, b) => b.rankerProbability - a.rankerProbability);
+    ordered = (gatePassed.length >= Math.min(10, topK) || gateRejected.length === 0)
+      ? gatePassed
+      : [...gatePassed, ...gateRejected];
+  } else {
+    scored.sort((a, b) => b.rankerProbability - a.rankerProbability);
+    ordered = scored;
+  }
+
   const activeReserve = reserve !== undefined ? reserve : (options?.reserve ?? null);
-  return activeReserve ? selectWithReserve(scored, topK, activeReserve, context, weights, options) : scored.slice(0, topK);
+  return activeReserve ? selectWithReserve(ordered, topK, activeReserve, context, weights, options) : ordered.slice(0, topK);
 }
 
 /**

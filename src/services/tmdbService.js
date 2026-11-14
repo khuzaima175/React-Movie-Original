@@ -17,7 +17,8 @@ import { computeZScoredWeights, computeUserRatingStats } from "./scoringUtils.js
 import {
   getMoodPreset,
   normalizeMoodFilters,
-  isExplicitMoodActive
+  isExplicitMoodActive,
+  matchesMoodCandidateGate
 } from "./moodPolicy.js";
 import {
   resolveTmdbKey,
@@ -532,9 +533,10 @@ export function buildBucketAParams(profile = {}, mood = "any", options = {}, api
     params.set("with_cast", profile.topCastIds.join("|"));
   }
 
-  const providerFilter = buildProviderFilter(userProviders);
+  const providerFilter = buildProviderFilter(userProviders, { expandAliases: true });
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
+    params.set("with_watch_monetization_types", "flatrate|free|ads");
     params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
   } else if (userRegion && userRegion !== "GLOBAL") {
     params.set("watch_region", userRegion);
@@ -635,9 +637,10 @@ export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {
     include_adult: "false"
   });
 
-  const providerFilter = buildProviderFilter(userProviders);
+  const providerFilter = buildProviderFilter(userProviders, { expandAliases: true });
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
+    params.set("with_watch_monetization_types", "flatrate|free|ads");
     params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
   } else if (userRegion && userRegion !== "GLOBAL") {
     params.set("watch_region", userRegion);
@@ -692,9 +695,10 @@ export async function fetchBucketC(profile, options = {}, collisionSets = {}, ta
     include_adult: "false"
   });
 
-  const providerFilter = buildProviderFilter(userProviders);
+  const providerFilter = buildProviderFilter(userProviders, { expandAliases: true });
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
+    params.set("with_watch_monetization_types", "flatrate|free|ads");
     params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
   } else if (userRegion && userRegion !== "GLOBAL") {
     params.set("watch_region", userRegion);
@@ -748,6 +752,7 @@ function applyProviderAndRegionParams(params, userRegion = "US", userProviders =
   const providerFilter = buildProviderFilter(userProviders);
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
+    params.set("with_watch_monetization_types", "flatrate|free|ads");
     params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
   } else if (userRegion && userRegion !== "GLOBAL") {
     params.set("watch_region", userRegion);
@@ -858,15 +863,22 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
   const collisionSets = { watchedIdSet, watchedTitleSet, watchlistTitleSet, excludeIdSet };
   const moodFilters = normalizeMoodFilters(options.moodFilters);
   const explicitMood = isExplicitMoodActive(mood, moodFilters);
+  const cleanMood = String(mood || "any").trim().toLowerCase();
   const currentYear = new Date().getUTCFullYear();
-  const skipRecentLane = Boolean(moodFilters?.maxYear && moodFilters.maxYear < currentYear - 2);
+  const skipRecentLane = Boolean(
+    (explicitMood && cleanMood === "hidden-gem") ||
+    (moodFilters?.maxYear && moodFilters.maxYear < currentYear - 2)
+  );
 
   // COLD-START BYPASS: If user has < 3 ratings, route entirely to expanded Bucket A + Bucket D
   const targetPoolSize = Math.max(20, Math.min(500, Number(options.poolSize) || 60));
   if ((watchedMovies || []).length < 3) {
     const coldPool = await fetchBucketA(profile, mood, options, collisionSets, targetPoolSize);
     const existingIds = new Set(coldPool.map(item => Number(item?.id ?? item?.tmdbId ?? 0)));
-    const bucketD = skipRecentLane ? [] : await fetchBucketD(profile, options, collisionSets, existingIds);
+    const rawColdBucketD = skipRecentLane ? [] : await fetchBucketD(profile, options, collisionSets, existingIds);
+    const bucketD = explicitMood
+      ? rawColdBucketD.filter(m => matchesMoodCandidateGate(m, mood, moodFilters))
+      : rawColdBucketD;
     return bucketD.length > 0 ? [...coldPool, ...bucketD] : coldPool;
   }
 
@@ -883,7 +895,10 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
     profile.topCrewMemberId ? fetchBucketC(profile, options, collisionSets, bucketCTarget) : Promise.resolve([])
   ]);
 
-  // 2. Merge and deduplicate specific pool
+  // 2. Merge and deduplicate specific pool (applying mood gate when explicit mood is active)
+  const filteredB = explicitMood ? bucketB.filter(m => matchesMoodCandidateGate(m, mood, moodFilters)) : bucketB;
+  const filteredC = explicitMood ? bucketC.filter(m => matchesMoodCandidateGate(m, mood, moodFilters)) : bucketC;
+
   const specificPool = [];
   const seenIds = new Set();
   const addSpecific = (list) => {
@@ -894,8 +909,8 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
       }
     }
   };
-  addSpecific(bucketB);
-  addSpecific(bucketC);
+  addSpecific(filteredB);
+  addSpecific(filteredC);
 
   // 3. Dynamic Waterfall Sizing: Bucket A fetches enough to fill targetPoolSize
   const remainingSlots = Math.max(targetPoolSize - specificPool.length, 12);
@@ -923,7 +938,8 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
 
   const basePool = combined.slice(0, targetPoolSize);
   const existingIds = new Set(basePool.map(item => Number(item?.id ?? item?.tmdbId ?? 0)));
-  const bucketD = skipRecentLane ? [] : await fetchBucketD(profile, options, collisionSets, existingIds);
+  const rawBucketD = skipRecentLane ? [] : await fetchBucketD(profile, options, collisionSets, existingIds);
+  const bucketD = explicitMood ? rawBucketD.filter(m => matchesMoodCandidateGate(m, mood, moodFilters)) : rawBucketD;
   return bucketD.length > 0 ? [...basePool, ...bucketD] : basePool;
 }
 
@@ -1283,7 +1299,7 @@ async function getCachedTmdbDetails(id, userRegion = "US", detailFetcher = null)
 export async function enrichCandidatePoolMetadata(candidates = [], options = {}) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
-  const maxEnrich = Math.max(0, options.maxEnrich ?? 45);
+  const maxEnrich = Math.max(0, options.maxEnrich ?? 80);
   const concurrency = Math.max(1, options.concurrency ?? 6);
   const userRegion = options.userRegion || "US";
   const detailFetcher = typeof options.detailFetcher === "function" ? options.detailFetcher : null;
@@ -1322,6 +1338,8 @@ export async function enrichCandidatePoolMetadata(candidates = [], options = {})
           keywordNames: Array.isArray(details.keywordNames) ? details.keywordNames : (existing.keywordNames || []),
           tmdbGenreIds: Array.isArray(details.tmdbGenreIds) ? details.tmdbGenreIds : (existing.tmdbGenreIds || existing.genre_ids || []),
           streamProviders: Array.isArray(details.streamProviders) ? details.streamProviders : (existing.streamProviders || []),
+          freeProviders: Array.isArray(details.freeProviders) ? details.freeProviders : (existing.freeProviders || []),
+          providersHydrated: true,
           runtimeMinutes: details.runtimeMinutes ?? existing.runtimeMinutes ?? null,
           imdbID: details.imdbID ?? existing.imdbID ?? null,
           sourceBucket: existing.sourceBucket,
@@ -1352,8 +1370,14 @@ export async function fetchEmbeddingCandidates(
   if (!Array.isArray(neighbors) || neighbors.length === 0) return [];
 
   const maxNeighbors = options.maxNeighbors ?? 30;
+  const maxScan = options.maxScan ?? Math.max(maxNeighbors * 2, 80);
   const concurrency = Math.max(1, options.concurrency ?? 6);
   const userRegion = options.userRegion || "US";
+  const userProviders = options.userProviders || [];
+  const mood = options.mood || "any";
+  const moodFilters = options.moodFilters || null;
+  const explicitMood = isExplicitMoodActive(mood, moodFilters);
+  const hasProviderFilter = Array.isArray(userProviders) && userProviders.length > 0;
   const customFetcher = typeof options.detailFetcher === "function" ? options.detailFetcher : null;
 
   const seenIds = new Set([
@@ -1369,7 +1393,7 @@ export async function fetchEmbeddingCandidates(
     if (!id || seenIds.has(id)) continue;
     seenIds.add(id);
     unseen.push({ tmdbId: id, collabSim: Number(n?.collabSim ?? 0) });
-    if (unseen.length >= maxNeighbors) break;
+    if (unseen.length >= maxScan) break;
   }
 
   if (unseen.length === 0) return [];
@@ -1385,9 +1409,10 @@ export async function fetchEmbeddingCandidates(
       try {
         const details = await getCachedTmdbDetails(item.tmdbId, userRegion, customFetcher);
         if (!details) continue;
-        results[idx] = {
+        const candidate = {
           id: details.tmdbId || item.tmdbId,
           tmdbId: details.tmdbId || item.tmdbId,
+          imdbID: details.imdbID || null,
           title: details.title || "Unknown",
           year: details.year || "N/A",
           release_date: details.release_date || null,
@@ -1406,10 +1431,19 @@ export async function fetchEmbeddingCandidates(
           poster: details.poster || null,
           backdrop: details.backdrop || null,
           streamProviders: details.streamProviders || [],
+          freeProviders: details.freeProviders || [],
+          providersHydrated: true,
           collabSim: item.collabSim,
           sourceBucket: "Bucket E (Embedding)",
-          providerMatchedByQuery: false
+          providerMatchedByQuery: hasProviderFilter ? matchesWatchProviders(details, userProviders) : false
         };
+        if (explicitMood && !matchesMoodCandidateGate(candidate, mood, moodFilters)) {
+          continue;
+        }
+        if (hasProviderFilter && !matchesWatchProviders(candidate, userProviders)) {
+          continue;
+        }
+        results[idx] = candidate;
       } catch (_) {
         // Skip failed neighbor fetches gracefully
       }
@@ -1417,5 +1451,5 @@ export async function fetchEmbeddingCandidates(
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, unseen.length) }, worker));
-  return results.filter(Boolean);
+  return results.filter(Boolean).slice(0, maxNeighbors);
 }
