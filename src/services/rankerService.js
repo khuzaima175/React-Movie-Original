@@ -687,7 +687,8 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
     const gatePassed = [];
     const gateRejected = [];
     for (const item of scored) {
-      if (matchesMoodCandidateGate(item, effectiveMood, normalizedFilters)) {
+      const passesAvoid = avoidRules.length === 0 || !candidateMatchesAvoidRule(item, avoidRules).matched;
+      if (passesAvoid && matchesMoodCandidateGate(item, effectiveMood, normalizedFilters)) {
         gatePassed.push(item);
       } else {
         gateRejected.push(item);

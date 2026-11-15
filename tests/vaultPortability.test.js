@@ -135,4 +135,14 @@ test("buildBackupJsonPayload & parseJsonBackupContent round-trip preferences.tas
   const parsedLegacy = parseJsonBackupContent(JSON.stringify(legacyPayload));
   assert.equal(parsedLegacy.preferences.userRegion, "GB");
   assert.equal(parsedLegacy.preferences.tasteRules, undefined);
+
+  // New Schema v2 export with empty tasteRules emits [] so Replace-mode imports can clear rules cleanly
+  const emptyRulesPayload = buildBackupJsonPayload({
+    watched: [{ imdbID: "tt0111161", title: "Shawshank", year: "1994", userRating: 10 }],
+    watchlist: [],
+    userRegion: "US",
+    userWatchProviders: [],
+    tasteRules: []
+  });
+  assert.deepEqual(emptyRulesPayload.preferences.tasteRules, []);
 });

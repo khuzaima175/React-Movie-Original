@@ -81,16 +81,23 @@ function resolveGenreAlias(token) {
 }
 
 function stripClauseDirectives(clause) {
-  let current = cleanStr(clause).toLowerCase();
+  let current = cleanStr(clause)
+    .toLowerCase()
+    .replace(/^['"]+|['".!?;:]+$/g, "")
+    .trim();
   // Strip repeated leading negation/preference prefixes and trailing generic nouns
   const leadRe = /^(?:no|avoid|never|skip|exclude|without|dislike|hate|don't|dont|not|less|prefer|more|love|enjoy|favorite|favour|into|want|only|much|excessive)\s+/i;
   const trailRe = /\s+(?:movies?|films?|flicks?|cinema|pictures?|shows?|series|stuff|ones?)$/i;
   for (let i = 0; i < 4; i++) {
-    const next = current.replace(leadRe, "").replace(trailRe, "").trim();
+    const next = current
+      .replace(leadRe, "")
+      .replace(trailRe, "")
+      .replace(/^['"]+|['".!?;:]+$/g, "")
+      .trim();
     if (next === current) break;
     current = next;
   }
-  return current.replace(/^['"]+|['"]+$/g, "").trim();
+  return current.replace(/^['"]+|['".!?;:]+$/g, "").trim();
 }
 
 function singularizeTrailingGenreWord(phrase) {
@@ -275,7 +282,7 @@ function getCandidateSearchText(candidate = {}) {
 function buildPhraseRegex(phrase) {
   const cleaned = cleanStr(phrase);
   if (!cleaned) return null;
-  const pattern = escapeRegex(cleaned).replace(/(?:\\-|\s)+/g, "[\\s-]+");
+  const pattern = escapeRegex(cleaned).replace(/(?:\\-|-|\s)+/g, "[\\s-]+");
   const startsWord = /^[a-z0-9]/i.test(cleaned);
   const endsWord = /[a-z0-9]$/i.test(cleaned);
   return new RegExp(`${startsWord ? "\\b" : ""}${pattern}${endsWord ? "\\b" : ""}`, "i");

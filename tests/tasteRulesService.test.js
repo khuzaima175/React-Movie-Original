@@ -48,9 +48,13 @@ test("extractRuleSignals prevents broad genre blacklist trap on qualified negati
   assert.equal(cheesyAction.genreIds.includes(28), false, "Qualified 'Avoid cheesy action' must NOT add Action (28) to avoidGenreIds");
   assert.ok(cheesyAction.keywords.includes("cheesy action"));
 
-  // Unqualified negations MUST populate avoidGenreIds
-  const unqualified = extractRuleSignals("No horror or musicals, avoid documentaries, skip westerns", "avoid");
+  // Unqualified negations MUST populate avoidGenreIds (even with trailing sentence punctuation)
+  const unqualified = extractRuleSignals("No horror or musicals, avoid documentaries, skip westerns.", "avoid");
   assert.deepEqual(unqualified.genreIds.sort((a, b) => a - b), [27, 37, 99, 10402]);
+
+  const punctuated = extractRuleSignals("No horror.", "avoid");
+  assert.deepEqual(punctuated.genreIds, [27], "Trailing period must not block unqualified genre extraction");
+  assert.deepEqual(punctuated.keywords, []);
 
   const mixed = extractRuleSignals("No horror or gore", "avoid");
   assert.deepEqual(mixed.genreIds, [27]);
@@ -119,6 +123,18 @@ test("candidateMatchesAvoidRule matches period dramas & war films via word bound
     preferRules
   );
   assert.equal(preferHit.matched, true);
+
+  // Hyphenated rule phrases should also match space-separated prose
+  const [hyphenAvoid] = normalizeTasteRules([{ id: "a3", text: "No slow-burn mysteries", polarity: "avoid", active: true }]);
+  const { avoidRules: hyphenCompiled } = compileActiveTasteRules([hyphenAvoid]);
+  assert.equal(
+    candidateMatchesAvoidRule(
+      { title: "Foggy Harbor", genre: "Mystery", plot: "A slow burn mystery set on a bleak island." },
+      hyphenCompiled
+    ).matched,
+    true,
+    "Hyphenated rule keyword must match space-separated variant"
+  );
 });
 
 test("buildTasteRulesHashSegment emits empty string when inactive and invalidates on edits/toggles", () => {

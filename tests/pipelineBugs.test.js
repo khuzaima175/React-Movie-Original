@@ -1455,6 +1455,19 @@ test("formatTmdbMovieDetails, applyDetailsToCandidate, bridgeTmdbToOmdb, and mer
         const bridged = await bridgeTmdbToOmdb({ tmdbId: 60369200, title: "Bridged Franchise Pick" }, "US");
         assert.equal(bridged.collectionId, 404609);
         assert.equal(bridged.collectionName, "John Wick Collection");
+
+        const fallbackBridged = await bridgeTmdbToOmdb(
+            {
+                tmdbId: 99887766,
+                title: "Fallback Franchise Pick",
+                year: "2024",
+                collectionId: 777111,
+                collectionName: "Fallback Saga Collection"
+            },
+            "US"
+        );
+        assert.equal(fallbackBridged.collectionId, 777111);
+        assert.equal(fallbackBridged.collectionName, "Fallback Saga Collection");
     } finally {
         globalThis.fetch = prevFetch;
         if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;

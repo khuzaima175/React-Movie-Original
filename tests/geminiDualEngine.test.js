@@ -2049,3 +2049,47 @@ test("buildGeminiReRankPrompt preserves all active/pinned tasteRules ahead of ov
         assert.ok(prompt.includes(rule.text), `Active Taste Rule '${rule.id}' must never be truncated away`);
     }
 });
+
+test("OMDb fallback pipeline injects active tasteRules into the Gemini prompt", async () => {
+    const prevTmdb = process.env.VITE_TMDB_KEY;
+    const prevOmdb = process.env.VITE_OMDB_KEY;
+    delete process.env.VITE_TMDB_KEY;
+    delete process.env.VITE_OMDB_KEY;
+    resetSessionWorkingModels({ clearStorage: true });
+
+    let capturedPrompt = "";
+    const mockAi = {
+        models: {
+            generateContent: async ({ contents }) => {
+                capturedPrompt = String(contents || "");
+                return {
+                    text: JSON.stringify({
+                        tasteProfile: { favoriteGenres: ["Sci-Fi"], preferredEra: "2010s", ratingStyle: "Focused" },
+                        recommendations: [
+                            { title: "Ex Machina", year: "2014", type: "movie", genre: "Sci-Fi", matchScore: 91, reason: "Taut cerebral tension." }
+                        ]
+                    })
+                };
+            }
+        }
+    };
+
+    try {
+        const res = await getMovieRecommendations(
+            [{ imdbID: "tt0816692", title: "Interstellar", year: "2014", userRating: 9, genre: "Sci-Fi" }],
+            [],
+            undefined,
+            {
+                aiClient: mockAi,
+                tasteRules: [{ id: "tr_omdb", text: "No slasher horror", polarity: "avoid", active: true }]
+            }
+        );
+        assert.ok(capturedPrompt.includes("No slasher horror"), "OMDb fallback prompt must include active tasteRules");
+        assert.equal(res.recommendations.length, 1);
+    } finally {
+        if (prevTmdb === undefined) delete process.env.VITE_TMDB_KEY;
+        else process.env.VITE_TMDB_KEY = prevTmdb;
+        if (prevOmdb === undefined) delete process.env.VITE_OMDB_KEY;
+        else process.env.VITE_OMDB_KEY = prevOmdb;
+    }
+});

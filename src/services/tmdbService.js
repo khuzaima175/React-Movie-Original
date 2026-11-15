@@ -1465,6 +1465,8 @@ export async function bridgeTmdbToOmdb(tmdbMovie, userRegion = "US") {
         cast: data.Actors || "N/A",
         castIds: [],
         tmdbKeywords: [],
+        collectionId: tmdbMovie.collectionId ?? null,
+        collectionName: tmdbMovie.collectionName ?? null,
         userRating: 0
       };
     }
@@ -1484,6 +1486,8 @@ export async function bridgeTmdbToOmdb(tmdbMovie, userRegion = "US") {
     imdbRating: tmdbMovie.imdbRating || "N/A",
     castIds: [],
     tmdbKeywords: [],
+    collectionId: tmdbMovie.collectionId ?? null,
+    collectionName: tmdbMovie.collectionName ?? null,
     userRating: 0
   };
 }

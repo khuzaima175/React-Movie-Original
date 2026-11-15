@@ -112,7 +112,7 @@ export function buildBackupJsonPayload({
     preferences: {
       userRegion,
       userWatchProviders: Array.isArray(userWatchProviders) ? userWatchProviders : [],
-      ...(normalizedRules.length > 0 ? { tasteRules: normalizedRules } : {})
+      tasteRules: normalizedRules
     }
   };
 }

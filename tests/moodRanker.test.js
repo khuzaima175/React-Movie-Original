@@ -464,3 +464,56 @@ test("rankCandidatePool applies -3.5 avoid penalty, +0.6 prefer boost, 0 delta w
   assert.equal(shortlist.some((c) => c.tmdbId === 2001), false, "Shortlist Slice 2 cold slots must reject avoid-rule matches");
   assert.equal(shortlist.some((c) => c.tmdbId === 2002), false, "Shortlist Slice 3 outlier slots must reject avoid-rule matches");
 });
+
+test("rankCandidatePool excludes avoidRules matches from explicit mood gatePassed and updates diagnostics accurately", () => {
+  const profile = { lovedGenreIds: [878, 9648] };
+  const pool = [
+    {
+      id: 951,
+      tmdbId: 951,
+      title: "Clean Cerebral Puzzle",
+      year: "2020",
+      genre: "Sci-Fi, Mystery",
+      tmdbGenreIds: [878, 9648],
+      vote_average: 7.9,
+      vote_count: 2500,
+      collabSim: 0.7,
+      overview: "A tight time-paradox investigation inside a research station."
+    },
+    {
+      id: 952,
+      tmdbId: 952,
+      title: "Amnesia Twist Mystery",
+      year: "2021",
+      genre: "Sci-Fi, Mystery",
+      tmdbGenreIds: [878, 9648],
+      vote_average: 8.1,
+      vote_count: 3500,
+      collabSim: 0.85,
+      overview: "An investigator uncovers an amnesia twist after a lab accident."
+    }
+  ];
+
+  let diag = null;
+  const ranked = rankCandidatePool(
+    pool,
+    {
+      profile,
+      mood: "mind-bending",
+      tasteRules: [{ id: "a_amnesia", text: "Avoid amnesia twist", polarity: "avoid", active: true }]
+    },
+    DEFAULT_RANKER_WEIGHTS,
+    2,
+    {
+      onDiagnostics: (d) => {
+        diag = d;
+      }
+    }
+  );
+
+  assert.equal(ranked.length, 1, "Explicit mood gate must exclude avoid-rule match even when mood genre gates pass");
+  assert.equal(ranked[0].tmdbId, 951);
+  assert.equal(diag?.gatePassedCount, 1);
+  assert.equal(diag?.gateRejectedCount, 1);
+  assert.deepEqual(diag?.moodShortfall, { requested: 2, available: 1 });
+});

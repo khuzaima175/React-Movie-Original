@@ -2701,6 +2701,10 @@ async function generateWithOmdbFallback(ai, watchedMovies, watchlist, onProgress
     onProgress?.("Synthesizing recommendations from vault history...");
     const targetCount = Math.max(1, Number(options.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const { effectiveMood, preset, vibeConstraints } = buildMoodPromptSummary(options.mood || "any", options.moodFilters);
+    const { activeRules: fallbackActiveRules } = compileActiveTasteRules(options?.tasteRules);
+    const fallbackRuleLines = fallbackActiveRules.map(
+        (r) => `- [${r.polarity === "avoid" ? "Avoid" : "Prefer"}] ${r.text}`
+    );
 
     const analytics = buildTasteAnalytics(watchedMovies);
     const header = "Title|Year|Director|Genre|Rating|UserNote";
@@ -2715,7 +2719,7 @@ ${historyData}
 
 Mood requested: "${cleanStr(effectiveMood)}" (${preset.label}) — ${preset.promptDirective}
 ${vibeConstraints.length > 0 ? `Custom Vibe Constraints: ${vibeConstraints.join(" | ")}` : ""}
-Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and recommendations (title, year, type, genre, matchScore, reason).
+${fallbackRuleLines.length > 0 ? `\nUSER'S STEERABLE TASTE RULES (Follow strictly):\n${fallbackRuleLines.join("\n")}\n` : ""}Return JSON with tasteProfile (favoriteGenres, preferredEra, ratingStyle) and recommendations (title, year, type, genre, matchScore, reason).
 `;
 
     const generationConfig = {

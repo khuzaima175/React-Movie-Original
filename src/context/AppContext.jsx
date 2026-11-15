@@ -870,6 +870,8 @@ export function AppProvider({ children }) {
             tmdbKeywords: Array.isArray(details.tmdbKeywords) ? details.tmdbKeywords : [],
             castIds: Array.isArray(details.castIds) ? details.castIds : [],
             crewPersonId: details.crewPersonId ?? mergedEntry.crewPersonId ?? null,
+            collectionId: details.collectionId ?? mergedEntry.collectionId ?? null,
+            collectionName: details.collectionName ?? mergedEntry.collectionName ?? null,
             ...(Array.isArray(details.tmdbGenreIds) && details.tmdbGenreIds.length > 0 ? { tmdbGenreIds: details.tmdbGenreIds } : {}),
             ...(!mergedEntry.release_date && details.release_date ? { release_date: details.release_date } : {}),
             ...((!mergedEntry.director || mergedEntry.director === "Unknown") && details.director ? { director: details.director } : {}),
