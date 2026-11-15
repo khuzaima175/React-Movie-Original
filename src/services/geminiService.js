@@ -157,6 +157,7 @@ export function getWorkingModelStorageKey(cascadeType = "curation") {
 
 let sessionCurationModel = null;
 let sessionFastModel = null;
+let proxyRateLimitedUntilMs = 0;
 export const modelCooldowns = new Map();
 let clockFn = () => Date.now();
 
@@ -210,6 +211,15 @@ function parseRetryDelayMs(err) {
     if (Number.isFinite(err?.retryAfterMs) && err.retryAfterMs > 0) {
         return Math.ceil(err.retryAfterMs);
     }
+    if (err?.retryAfter !== undefined && err?.retryAfter !== null) {
+        const directRetryAfter = parseDurationStringMs(err.retryAfter);
+        if (directRetryAfter) return directRetryAfter;
+        const parsedDateMs = Date.parse(String(err.retryAfter));
+        if (Number.isFinite(parsedDateMs)) {
+            const deltaMs = parsedDateMs - clockFn();
+            if (deltaMs > 0) return Math.ceil(deltaMs);
+        }
+    }
     if (err?.retryDelay !== undefined) {
         const direct = parseDurationStringMs(err.retryDelay);
         if (direct) return direct;
@@ -251,6 +261,10 @@ function parseRetryDelayMs(err) {
  */
 export function classifyGeminiError(err) {
     if (!err) return "transient";
+    const errorCode = String(err?.errorCode || err?.error?.errorCode || "").trim().toUpperCase();
+    if (errorCode === "PROXY_RATE_LIMIT") {
+        return "proxy_rate_limit";
+    }
     const status = Number(err?.status ?? err?.statusCode ?? err?.error?.code ?? err?.code);
     const name = String(err?.name || "").toLowerCase();
     const parts = [
@@ -392,6 +406,7 @@ function clearPersistedWorkingModel(cascadeType, storage) {
 export const resetSessionWorkingModels = (options = {}) => {
     sessionCurationModel = null;
     sessionFastModel = null;
+    proxyRateLimitedUntilMs = 0;
     modelCooldowns.clear();
     if (options?.clearStorage) {
         const storage = resolveLocalStorage(options);
@@ -473,6 +488,22 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
     const cascadeType = options.cascadeType || "curation";
     const getNow = typeof options.now === "function" ? options.now : clockFn;
     const startNowMs = getNow();
+    if (proxyRateLimitedUntilMs > startNowMs) {
+        return null;
+    }
+
+    const rawMaxCascadeDurationMs = options.maxCascadeDurationMs;
+    const maxCascadeDurationMs =
+        rawMaxCascadeDurationMs === Infinity
+            ? Infinity
+            : rawMaxCascadeDurationMs !== undefined &&
+                rawMaxCascadeDurationMs !== null &&
+                Number.isFinite(Number(rawMaxCascadeDurationMs)) &&
+                Number(rawMaxCascadeDurationMs) >= 0
+              ? Number(rawMaxCascadeDurationMs)
+              : 45_000;
+    const cascadeDeadlineMs = startNowMs + maxCascadeDurationMs;
+
     const storage = resolveLocalStorage(options);
     const tracker = options.spendTracker || spendTracker;
 
@@ -497,6 +528,14 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
 
     let lastError = null;
     for (const model of candidateModels) {
+        const iterNowMs = getNow();
+        const remainingBudgetMs = cascadeDeadlineMs - iterNowMs;
+        if (remainingBudgetMs < 3000) {
+            console.warn(
+                `Cascade deadline reached (${remainingBudgetMs}ms remaining < 3000ms); skipping remaining models in ${cascadeType} cascade.`
+            );
+            return null;
+        }
         const lowerModel = String(model || "").toLowerCase();
         const isHydrogen = lowerModel.includes("gemini-4-hydrogen");
 
@@ -530,12 +569,23 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
         };
 
         const defaultTimeout = getDefaultAttemptTimeoutMs(model);
-        const perAttemptTimeout = options.timeoutMs || defaultTimeout;
+        const requestedTimeout = options.timeoutMs || defaultTimeout;
+        const perAttemptTimeout = Math.min(requestedTimeout, remainingBudgetMs);
+        const isBudgetClamped = perAttemptTimeout < requestedTimeout;
+        let deadlineClampTriggered = false;
 
         let timer;
         const timeoutPromise = new Promise((_, reject) => {
             timer = setTimeout(() => {
-                const err = new Error(`Model ${model} timed out after ${perAttemptTimeout}ms`);
+                const err = new Error(
+                    isBudgetClamped
+                        ? `Model ${model} aborted by cascade deadline clamp after ${perAttemptTimeout}ms`
+                        : `Model ${model} timed out after ${perAttemptTimeout}ms`
+                );
+                if (isBudgetClamped) {
+                    deadlineClampTriggered = true;
+                    err.isCascadeDeadlineClamp = true;
+                }
                 controller.abort(err);
                 reject(err);
             }, perAttemptTimeout);
@@ -593,7 +643,23 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
         } catch (err) {
             lastError = err;
             const failNowMs = getNow();
+            if (err?.isCascadeDeadlineClamp || deadlineClampTriggered) {
+                console.warn(
+                    `Cascade deadline clamp aborted ${model} in ${cascadeType} cascade; returning null without cooldown.`
+                );
+                return null;
+            }
             const reason = classifyGeminiError(err);
+            if (reason === "proxy_rate_limit") {
+                const retryMs = parseRetryDelayMs(err);
+                if (Number.isFinite(retryMs) && retryMs > 0) {
+                    proxyRateLimitedUntilMs = Math.max(proxyRateLimitedUntilMs, failNowMs + retryMs);
+                }
+                console.warn(
+                    `Proxy rate limit hit on ${model} in ${cascadeType} cascade; aborting cloud cascade without cooldown.`
+                );
+                return null;
+            }
             const cooldownMs = getCooldownMsForError(err, reason);
             modelCooldowns.set(model, {
                 untilMs: failNowMs + cooldownMs,

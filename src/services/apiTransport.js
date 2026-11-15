@@ -145,9 +145,20 @@ export function createProxyGeminiClient(options = {}) {
 
         if (!res || !res.ok) {
           const message = data?.error?.message || data?.error || `Gemini proxy error (HTTP ${res?.status ?? 500})`;
+          const rawRetryAfter =
+            typeof res?.headers?.get === "function"
+              ? (res.headers.get("Retry-After") ?? res.headers.get("retry-after"))
+              : (res?.headers?.["Retry-After"] ?? res?.headers?.["retry-after"] ?? null);
+          const retryAfter =
+            rawRetryAfter !== undefined && rawRetryAfter !== null && String(rawRetryAfter).trim() !== ""
+              ? String(rawRetryAfter).trim()
+              : null;
+          const errorCode = data?.errorCode || data?.error?.errorCode || null;
           throw Object.assign(new Error(message), {
             status: res?.status,
-            error: data?.error
+            error: data?.error,
+            ...(errorCode ? { errorCode } : {}),
+            ...(retryAfter !== null ? { retryAfter } : {})
           });
         }
 

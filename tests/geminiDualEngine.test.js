@@ -947,3 +947,156 @@ test("mergeGeminiExplanationsWithRanker enforces two-pass soft max-2-per-directo
     assert.equal(relaxed.recommendations.length, 4);
     assert.equal(relaxed.recommendations.filter((r) => r.director === "Christopher Nolan").length, 4);
 });
+
+test("executeCascade aborts immediately on PROXY_RATE_LIMIT without model cooldown and honors session Retry-After", async () => {
+  resetSessionWorkingModels();
+  assert.equal(classifyGeminiError({ status: 429, errorCode: "PROXY_RATE_LIMIT" }), "proxy_rate_limit");
+  assert.equal(classifyGeminiError({ status: 429 }), "quota");
+
+  let fakeNow = 5_000_000_000_000;
+  let calls = 0;
+  const { createProxyGeminiClient } = await import("../src/services/apiTransport.js");
+
+  try {
+    let return429 = true;
+    const proxyClient = createProxyGeminiClient({
+      fetchFn: async () => {
+        calls += 1;
+        if (return429) {
+          return new Response(
+            JSON.stringify({
+              error: "Too many requests. Please try again shortly.",
+              errorCode: "PROXY_RATE_LIMIT"
+            }),
+            {
+              status: 429,
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": "15",
+                "X-RateLimit-Source": "proxy"
+              }
+            }
+          );
+        }
+        return new Response(JSON.stringify({ text: "{\"ok\":true}", usageMetadata: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    });
+
+    // First attempt hits PROXY_RATE_LIMIT -> immediate cascade abort, null returned, 0 cooldowns
+    const res1 = await executeCascade(proxyClient, CURATION_MODEL_CASCADE, { contents: "test1" }, {
+      cascadeType: "curation",
+      now: () => fakeNow
+    });
+    assert.equal(res1, null);
+    assert.equal(calls, 1, "must abort cascade on primary without trying fallback models");
+    assert.equal(modelCooldowns.size, 0, "PROXY_RATE_LIMIT must not add any model to modelCooldowns");
+
+    // Within Retry-After window (10s < 15s) -> skips cloud call cleanly
+    fakeNow += 10_000;
+    const res2 = await executeCascade(proxyClient, CURATION_MODEL_CASCADE, { contents: "test2" }, {
+      cascadeType: "curation",
+      now: () => fakeNow
+    });
+    assert.equal(res2, null);
+    assert.equal(calls, 1, "must skip cloud call until session Retry-After expires");
+
+    // After Retry-After expires (16s > 15s) -> resumes cloud calls normally
+    return429 = false;
+    fakeNow += 6_000;
+    const res3 = await executeCascade(proxyClient, CURATION_MODEL_CASCADE, { contents: "test3" }, {
+      cascadeType: "curation",
+      now: () => fakeNow
+    });
+    assert.ok(res3);
+    assert.equal(calls, 2);
+  } finally {
+    resetSessionWorkingModels();
+  }
+});
+
+test("executeCascade enforces maxCascadeDurationMs budget clamp without cooldown and skips attempts under 3000ms", async (t) => {
+  resetSessionWorkingModels();
+
+  try {
+    // 1. Sub-3000ms budget immediately skips all attempts
+    let zeroBudgetCalls = 0;
+    const noopAi = {
+      models: {
+        generateContent: async () => {
+          zeroBudgetCalls += 1;
+          return { text: "ok" };
+        }
+      }
+    };
+    const resSub3s = await executeCascade(noopAi, CURATION_MODEL_CASCADE, { contents: "sub3s" }, {
+      cascadeType: "curation",
+      maxCascadeDurationMs: 2500
+    });
+    assert.equal(resSub3s, null);
+    assert.equal(zeroBudgetCalls, 0);
+
+    // 2. Remaining budget dropping under 3000ms after attempt 1 skips fallback attempt 2
+    let fakeNow = 6_000_000_000_000;
+    let partialBudgetCalls = 0;
+    const slowFailAi = {
+      models: {
+        generateContent: async () => {
+          partialBudgetCalls += 1;
+          fakeNow += 42_500; // leaves 2500ms on default 45000ms budget
+          const err = new Error("Service Unavailable");
+          err.status = 503;
+          throw err;
+        }
+      }
+    };
+    const resPartial = await executeCascade(slowFailAi, CURATION_MODEL_CASCADE, { contents: "partial" }, {
+      cascadeType: "curation",
+      now: () => fakeNow
+    });
+    assert.equal(resPartial, null);
+    assert.equal(partialBudgetCalls, 1, "must skip fallback model when under 3000ms remain");
+    assert.equal(modelCooldowns.get(CURATION_MODEL_CASCADE[0])?.reason, "transient");
+
+    // 3. Timeout clamped by maxCascadeDurationMs aborts at deadline without adding model cooldown
+    resetSessionWorkingModels();
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let clampNow = 7_000_000_000_000;
+    let capturedSignal = null;
+    let clampCalls = 0;
+    const hangingAi = {
+      models: {
+        generateContent: async ({ config }) => {
+          clampCalls += 1;
+          capturedSignal = config.abortSignal;
+          await new Promise(() => {});
+        }
+      }
+    };
+
+    const cascadePromise = executeCascade(hangingAi, CURATION_MODEL_CASCADE, { contents: "clamp" }, {
+      cascadeType: "curation",
+      timeoutMs: 15_000,
+      maxCascadeDurationMs: 5_000,
+      now: () => clampNow
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(clampCalls, 1);
+    assert.equal(capturedSignal?.aborted, false);
+
+    clampNow += 5_000;
+    t.mock.timers.tick(5_000);
+
+    const resClamped = await cascadePromise;
+    assert.equal(resClamped, null);
+    assert.equal(capturedSignal?.aborted, true);
+    assert.equal(clampCalls, 1);
+    assert.equal(modelCooldowns.size, 0, "abort caused by budget clamp must not add model to modelCooldowns");
+  } finally {
+    resetSessionWorkingModels();
+  }
+});

@@ -42,7 +42,10 @@ function normalizeHostCandidate(rawHost = "") {
  */
 export function isRequestOriginAllowed(req) {
   const rawOrigin = getHeader(req, "origin");
-  if (!rawOrigin) return true;
+  if (!rawOrigin) {
+    const secFetchSite = String(getHeader(req, "sec-fetch-site") || "").trim().toLowerCase();
+    return secFetchSite !== "cross-site";
+  }
 
   let parsedOrigin;
   try {
@@ -172,8 +175,12 @@ export function enforceApiSecurity(
   if (!rl.allowed) {
     if (typeof res?.setHeader === "function") {
       res.setHeader("Retry-After", String(rl.retryAfterSec));
+      res.setHeader("X-RateLimit-Source", "proxy");
     }
-    res.status(429).json({ error: "Too many requests. Please try again shortly." });
+    res.status(429).json({
+      error: "Too many requests. Please try again shortly.",
+      errorCode: "PROXY_RATE_LIMIT"
+    });
     return false;
   }
 

@@ -643,3 +643,182 @@ test("getMovieDetailsBatch chunks at 40 in proxy mode, honors 30-day cache TTL, 
     else process.env.VITE_TMDB_KEY = prevTmdb;
   }
 });
+
+test("api/* proxy 429 rate limit sets X-RateLimit-Source: proxy, Retry-After, errorCode PROXY_RATE_LIMIT, and createProxyGeminiClient forwards them", async () => {
+  resetRateLimitBuckets();
+  const prevGemini = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "SERVER_GEMINI_SECRET";
+  try {
+    const aiFactory = () => ({
+      models: {
+        generateContent: async () => ({ text: "ok", usageMetadata: null })
+      }
+    });
+
+    for (let i = 0; i < 20; i += 1) {
+      const okRes = createMockRes();
+      await geminiHandler(
+        {
+          method: "POST",
+          headers: { "x-forwarded-for": "198.51.100.88" },
+          body: { model: "gemini-3.5-flash-lite", contents: "hi" },
+          aiFactory
+        },
+        okRes
+      );
+      assert.equal(okRes.statusCode, 200);
+    }
+
+    const blockedRes = createMockRes();
+    await geminiHandler(
+      {
+        method: "POST",
+        headers: { "x-forwarded-for": "198.51.100.88" },
+        body: { model: "gemini-3.5-flash-lite", contents: "hi" },
+        aiFactory
+      },
+      blockedRes
+    );
+
+    assert.equal(blockedRes.statusCode, 429);
+    assert.equal(blockedRes.body?.errorCode, "PROXY_RATE_LIMIT");
+    assert.equal(blockedRes.headers["X-RateLimit-Source"], "proxy");
+    assert.ok(Number(blockedRes.headers["Retry-After"]) >= 1);
+
+    const client = createProxyGeminiClient({
+      fetchFn: async () =>
+        new Response(JSON.stringify(blockedRes.body), {
+          status: blockedRes.statusCode,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": blockedRes.headers["Retry-After"],
+            "X-RateLimit-Source": blockedRes.headers["X-RateLimit-Source"]
+          }
+        })
+    });
+
+    let thrown = null;
+    try {
+      await client.models.generateContent({ model: "gemini-3.5-flash-lite", contents: "hi" });
+    } catch (err) {
+      thrown = err;
+    }
+
+    assert.ok(thrown);
+    assert.equal(thrown.status, 429);
+    assert.equal(thrown.errorCode, "PROXY_RATE_LIMIT");
+    assert.equal(thrown.retryAfter, blockedRes.headers["Retry-After"]);
+  } finally {
+    resetRateLimitBuckets();
+    if (prevGemini === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGemini;
+  }
+});
+
+test("api/* Sec-Fetch-Site: cross-site is rejected when Origin is absent, never overrides ALLOWED_ORIGIN, and passes without headers", async () => {
+  resetRateLimitBuckets();
+  const prevTmdb = process.env.TMDB_API_KEY;
+  const prevAllowed = process.env.ALLOWED_ORIGIN;
+  process.env.TMDB_API_KEY = "SERVER_TMDB_SECRET";
+  process.env.ALLOWED_ORIGIN = "https://vault.partner.example";
+
+  try {
+    const fetchFn = async () =>
+      new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+
+    // Absent Origin + Sec-Fetch-Site: cross-site -> 403
+    const crossSiteNoOrigin = createMockRes();
+    await tmdbHandler(
+      {
+        method: "GET",
+        headers: {
+          host: "cinemavault.example.com",
+          "sec-fetch-site": "cross-site",
+          "x-forwarded-for": "198.51.100.90"
+        },
+        query: { path: "/3/discover/movie" },
+        fetchFn
+      },
+      crossSiteNoOrigin
+    );
+    assert.equal(crossSiteNoOrigin.statusCode, 403);
+
+    // Absent Origin + mixed-case Sec-Fetch-Site: Cross-Site -> 403
+    const crossSiteMixedCase = createMockRes();
+    await tmdbHandler(
+      {
+        method: "GET",
+        headers: {
+          host: "cinemavault.example.com",
+          "sec-fetch-site": "Cross-Site",
+          "x-forwarded-for": "198.51.100.91"
+        },
+        query: { path: "/3/discover/movie" },
+        fetchFn
+      },
+      crossSiteMixedCase
+    );
+    assert.equal(crossSiteMixedCase.statusCode, 403);
+
+    // Neither Origin nor Sec-Fetch-Site present -> pass-through allowed
+    const serverCallNoHeaders = createMockRes();
+    await tmdbHandler(
+      {
+        method: "GET",
+        headers: {
+          host: "cinemavault.example.com",
+          "x-forwarded-for": "198.51.100.92"
+        },
+        query: { path: "/3/discover/movie" },
+        fetchFn
+      },
+      serverCallNoHeaders
+    );
+    assert.equal(serverCallNoHeaders.statusCode, 200);
+
+    // ALLOWED_ORIGIN match + Sec-Fetch-Site: cross-site -> allowed (never overridden)
+    const allowedOriginOverrideCheck = createMockRes();
+    await tmdbHandler(
+      {
+        method: "GET",
+        headers: {
+          host: "cinemavault.example.com",
+          origin: "https://vault.partner.example",
+          "sec-fetch-site": "cross-site",
+          "x-forwarded-for": "198.51.100.93"
+        },
+        query: { path: "/3/discover/movie" },
+        fetchFn
+      },
+      allowedOriginOverrideCheck
+    );
+    assert.equal(allowedOriginOverrideCheck.statusCode, 200);
+
+    // Disallowed Origin + Sec-Fetch-Site: same-origin -> still 403
+    const evilOriginWithSameOriginFetchSite = createMockRes();
+    await tmdbHandler(
+      {
+        method: "GET",
+        headers: {
+          host: "cinemavault.example.com",
+          origin: "https://evil.example.com",
+          "sec-fetch-site": "same-origin",
+          "x-forwarded-for": "198.51.100.94"
+        },
+        query: { path: "/3/discover/movie" },
+        fetchFn
+      },
+      evilOriginWithSameOriginFetchSite
+    );
+    assert.equal(evilOriginWithSameOriginFetchSite.statusCode, 403);
+  } finally {
+    resetRateLimitBuckets();
+    if (prevTmdb === undefined) delete process.env.TMDB_API_KEY;
+    else process.env.TMDB_API_KEY = prevTmdb;
+    if (prevAllowed === undefined) delete process.env.ALLOWED_ORIGIN;
+    else process.env.ALLOWED_ORIGIN = prevAllowed;
+  }
+});
