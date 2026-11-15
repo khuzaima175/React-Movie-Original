@@ -211,7 +211,7 @@ export default function MovieDetails({
       isActive = false;
       controller.abort();
     };
-  }, [selectedId, movie?.tmdbId, movie?.collectionId]);
+  }, [selectedId, movie?.loadedForSelectedId, movie?.tmdbId, movie?.collectionId]);
 
   const collectionTimeline = useMemo(
     () => normalizeCollectionTimeline(collectionRaw, movie, watched, watchlist),

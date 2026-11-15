@@ -75,7 +75,7 @@ export default function ExplorePage({ onQuickRate }) {
   );
 
   const [rawPagesState, setRawPagesState] = useState({
-    signature: "",
+    signature: null,
     items: [],
     loadedPage: 0,
     totalResults: 0,
@@ -109,8 +109,8 @@ export default function ExplorePage({ onQuickRate }) {
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const yearDebounceTimerRef = useRef(null);
-  const personMenuRef = useRef(null);
-  const keywordMenuRef = useRef(null);
+  const personMenuRefs = useRef({ desktop: null, mobile: null });
+  const keywordMenuRefs = useRef({ desktop: null, mobile: null });
 
   useEffect(() => {
     setYearFromDraft(filters.yearFrom);
@@ -127,13 +127,16 @@ export default function ExplorePage({ onQuickRate }) {
     document.title = "Explore Catalog | CinemaVault";
   }, []);
 
-  // Dismiss autocomplete popovers cleanly on outside click
+  // Dismiss autocomplete popovers cleanly on outside click across desktop/mobile mounts
   useEffect(() => {
+    const isInsideAny = (refsMap, target) =>
+      Object.values(refsMap).some((el) => el && el.contains(target));
+
     function handleOutsidePointerDown(e) {
-      if (personMenuRef.current && !personMenuRef.current.contains(e.target)) {
+      if (!isInsideAny(personMenuRefs.current, e.target)) {
         setIsPersonMenuOpen(false);
       }
-      if (keywordMenuRef.current && !keywordMenuRef.current.contains(e.target)) {
+      if (!isInsideAny(keywordMenuRefs.current, e.target)) {
         setIsKeywordMenuOpen(false);
       }
     }
@@ -411,9 +414,11 @@ export default function ExplorePage({ onQuickRate }) {
         filteredResults,
         isLoading,
         isLoadingMore,
-        errorMsg
+        errorMsg,
+        hideWatched: filters.hideWatched,
+        page: filters.page
       }),
-    [rawPagesState, filterSignature, filteredResults, isLoading, isLoadingMore, errorMsg]
+    [rawPagesState, filterSignature, filteredResults, isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page]
   );
 
   const activeChips = useMemo(() => getActiveFilterChips(filters), [filters]);
@@ -421,21 +426,31 @@ export default function ExplorePage({ onQuickRate }) {
 
   // Auto-advance once if hideWatched hides everything on page 1 cleanly
   useEffect(() => {
-    if (
-      !isLoading &&
-      !isLoadingMore &&
-      !errorMsg &&
-      filters.hideWatched &&
-      viewState.hasFreshData &&
-      rawPagesState.items.length > 0 &&
-      viewState.visibleItems.length === 0 &&
-      hasMorePages &&
-      filters.page < 3
-    ) {
+    if (viewState.shouldAutoAdvance) {
       updateFilters({ page: filters.page + 1 }, { resetPage: false, replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page, viewState.hasFreshData, rawPagesState.items.length, viewState.visibleItems.length, hasMorePages, filterSignature]);
+  }, [viewState.shouldAutoAdvance, filters.page, filterSignature]);
+
+  function createAutocompleteContainerProps(menuRefs, idPrefix, isOpen, setOpen) {
+    return {
+      ref: (el) => {
+        menuRefs.current[idPrefix] = el;
+      },
+      onKeyDown: (e) => {
+        if (e.key === "Escape" && isOpen) {
+          e.stopPropagation();
+          e.preventDefault();
+          setOpen(false);
+        }
+      },
+      onBlur: (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) {
+          setOpen(false);
+        }
+      }
+    };
+  }
 
   function renderFilterControls(idPrefix = "desktop") {
     return (
@@ -683,7 +698,15 @@ export default function ExplorePage({ onQuickRate }) {
               </button>
             </div>
           ) : (
-            <div className="explore-autocomplete" ref={personMenuRef}>
+            <div
+              className="explore-autocomplete"
+              {...createAutocompleteContainerProps(
+                personMenuRefs,
+                idPrefix,
+                isPersonMenuOpen,
+                setIsPersonMenuOpen
+              )}
+            >
               <div className="explore-search-input-wrap">
                 <Search size={14} aria-hidden="true" />
                 <input
@@ -695,13 +718,6 @@ export default function ExplorePage({ onQuickRate }) {
                     setPersonQuery(e.target.value);
                     setIsPersonMenuOpen(true);
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && isPersonMenuOpen) {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      setIsPersonMenuOpen(false);
-                    }
-                  }}
                   aria-label="Filter by director or actor"
                 />
               </div>
@@ -712,6 +728,7 @@ export default function ExplorePage({ onQuickRate }) {
                     <li key={p.id}>
                       <button
                         type="button"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           updateFilters({ person: { id: p.id, name: p.name } });
                           setPersonQuery("");
@@ -764,7 +781,15 @@ export default function ExplorePage({ onQuickRate }) {
               ))}
             </div>
           )}
-          <div className="explore-autocomplete" ref={keywordMenuRef}>
+          <div
+            className="explore-autocomplete"
+            {...createAutocompleteContainerProps(
+              keywordMenuRefs,
+              idPrefix,
+              isKeywordMenuOpen,
+              setIsKeywordMenuOpen
+            )}
+          >
             <div className="explore-search-input-wrap">
               <Sparkles size={14} aria-hidden="true" />
               <input
@@ -776,13 +801,6 @@ export default function ExplorePage({ onQuickRate }) {
                   setKeywordQuery(e.target.value);
                   setIsKeywordMenuOpen(true);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape" && isKeywordMenuOpen) {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    setIsKeywordMenuOpen(false);
-                  }
-                }}
                 aria-label="Filter by cinematic motif or keyword"
               />
             </div>
@@ -793,6 +811,7 @@ export default function ExplorePage({ onQuickRate }) {
                   <li key={kw.id}>
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         if (!filters.keywords.some((existing) => existing.id === kw.id)) {
                           updateFilters({ keywords: [...filters.keywords, kw] });

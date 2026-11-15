@@ -378,9 +378,16 @@ export function deriveExploreViewState({
   filteredResults = [],
   isLoading = false,
   isLoadingMore = false,
-  errorMsg = ""
+  errorMsg = "",
+  hideWatched = false,
+  page = 1
 } = {}) {
-  const hasFreshData = Boolean(rawPagesState && rawPagesState.signature === filterSignature);
+  const hasFreshData = Boolean(
+    rawPagesState &&
+    rawPagesState.signature !== null &&
+    rawPagesState.signature !== undefined &&
+    rawPagesState.signature === filterSignature
+  );
   const visibleItems = hasFreshData && Array.isArray(filteredResults) ? filteredResults : [];
   const displayTotalResults = hasFreshData ? (Number(rawPagesState?.totalResults) || 0) : 0;
   const displayTotalPages = hasFreshData ? Math.max(1, Number(rawPagesState?.totalPages) || 1) : 1;
@@ -388,6 +395,17 @@ export function deriveExploreViewState({
     ? Math.max(0, (rawPagesState?.items?.length || 0) - visibleItems.length)
     : 0;
   const isFetching = Boolean(isLoading || isLoadingMore);
+  const currentPage = Number.isSafeInteger(Number(page)) && Number(page) > 0 ? Number(page) : 1;
+  const shouldAutoAdvance = Boolean(
+    !errorMsg &&
+    !isFetching &&
+    hideWatched &&
+    hasFreshData &&
+    (rawPagesState?.items?.length || 0) > 0 &&
+    visibleItems.length === 0 &&
+    currentPage < displayTotalPages &&
+    currentPage < 3
+  );
 
   return {
     hasFreshData,
@@ -395,9 +413,10 @@ export function deriveExploreViewState({
     displayTotalResults,
     displayTotalPages,
     hiddenWatchedCount,
-    showSkeleton: !errorMsg && isFetching && visibleItems.length === 0,
-    showEmptyState: !errorMsg && !isFetching && hasFreshData && visibleItems.length === 0,
-    showGrid: !errorMsg && visibleItems.length > 0
+    shouldAutoAdvance,
+    showSkeleton: !errorMsg && (isFetching || shouldAutoAdvance) && visibleItems.length === 0,
+    showEmptyState: !errorMsg && !isFetching && !shouldAutoAdvance && hasFreshData && visibleItems.length === 0,
+    showGrid: visibleItems.length > 0
   };
 }
 

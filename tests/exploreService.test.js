@@ -181,4 +181,58 @@ test("buildExploreSearchParams preserves explicit region=US for non-US defaults 
   assert.deepEqual(merged.genres, [878]);
   assert.equal(merged.yearFrom, "2010");
   assert.equal(merged.yearTo, "2019");
+
+  // Initial default load (signature: null vs filterSignature: "") must not look fresh prematurely
+  const initialDefault = deriveExploreViewState({
+    rawPagesState: { signature: null, items: [], loadedPage: 0, totalResults: 0, totalPages: 1 },
+    filterSignature: "",
+    filteredResults: [],
+    isLoading: true,
+    isLoadingMore: false,
+    errorMsg: ""
+  });
+  assert.equal(initialDefault.hasFreshData, false);
+  assert.equal(initialDefault.showSkeleton, true);
+
+  // Pre-effect commit when hideWatched cleared page 1 must suppress empty-state flash & flag auto-advance
+  const preAutoAdvance = deriveExploreViewState({
+    rawPagesState: { signature: "hideWatched=1", items: [{ tmdbId: 1 }], loadedPage: 1, totalResults: 100, totalPages: 5 },
+    filterSignature: "hideWatched=1",
+    filteredResults: [],
+    isLoading: false,
+    isLoadingMore: false,
+    errorMsg: "",
+    hideWatched: true,
+    page: 1
+  });
+  assert.equal(preAutoAdvance.shouldAutoAdvance, true);
+  assert.equal(preAutoAdvance.showSkeleton, true);
+  assert.equal(preAutoAdvance.showEmptyState, false);
+
+  // Load-More pagination error preserves fresh loaded page 1 grid below the Retry alert
+  const loadMoreFailed = deriveExploreViewState({
+    rawPagesState: { signature: "genres=878", items: [{ tmdbId: 1 }], loadedPage: 1, totalResults: 100, totalPages: 5 },
+    filterSignature: "genres=878",
+    filteredResults: [{ tmdbId: 1 }],
+    isLoading: false,
+    isLoadingMore: false,
+    errorMsg: "Failed to fetch matching films from TMDB.",
+    hideWatched: false,
+    page: 2
+  });
+  assert.equal(loadMoreFailed.showGrid, true);
+  assert.equal(loadMoreFailed.showEmptyState, false);
+
+  // Filter-switch error never leaks stale previous grid
+  const switchFailed = deriveExploreViewState({
+    rawPagesState: { signature: "genres=28", items: [{ tmdbId: 1 }], loadedPage: 1, totalResults: 100, totalPages: 5 },
+    filterSignature: "genres=878",
+    filteredResults: [{ tmdbId: 1 }],
+    isLoading: false,
+    isLoadingMore: false,
+    errorMsg: "Failed to fetch matching films from TMDB.",
+    hideWatched: false,
+    page: 1
+  });
+  assert.equal(switchFailed.showGrid, false);
 });
