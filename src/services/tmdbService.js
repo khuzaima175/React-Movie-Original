@@ -1215,8 +1215,12 @@ export function formatTmdbMovieDetails(data, userRegion = "US") {
     profile: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null
   }));
 
-  const tmdbKeywords = (data.keywords?.keywords || []).slice(0, 10).map(k => k.id);
-  const keywordNames = (data.keywords?.keywords || []).slice(0, 10).map(k => k.name);
+  const keywordItems = (data.keywords?.keywords || [])
+    .slice(0, 10)
+    .filter((k) => Number.isSafeInteger(Number(k?.id)) && Number(k.id) > 0 && String(k?.name || "").trim())
+    .map((k) => ({ id: Number(k.id), name: String(k.name).trim() }));
+  const tmdbKeywords = keywordItems.map((k) => k.id);
+  const keywordNames = keywordItems.map((k) => k.name);
   const tmdbGenreIds = (data.genres || []).map(g => g.id);
 
   const trailerKey = extractOfficialTrailerKey(data.videos?.results || []);
@@ -1277,6 +1281,7 @@ export function formatTmdbMovieDetails(data, userRegion = "US") {
     castDetails,
     tmdbKeywords,
     keywordNames,
+    keywordItems,
     tmdbGenreIds,
     trailerUrl,
     trailerKey: trailerKey || null,
@@ -1315,6 +1320,96 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
   } catch (err) {
     console.warn("Failed to fetch detailed TMDB movie data:", err);
     return null;
+  }
+}
+
+/**
+ * Fetch a TMDB collection timeline (sequels/prequels/trilogies) by collection ID.
+ */
+export async function fetchCollectionTimeline(collectionId, options = {}) {
+  const id = Number(collectionId);
+  if (!Number.isSafeInteger(id) || id <= 0 || !hasTmdbBackend(options)) return null;
+
+  try {
+    const data = await fetchTmdbJson(
+      `/3/collection/${id}`,
+      { language: options.language || "en-US" },
+      options
+    );
+    if (!data || !Number.isSafeInteger(Number(data.id || id))) return null;
+    return {
+      id: Number(data.id || id),
+      name: String(data.name || "").trim(),
+      overview: String(data.overview || "").trim(),
+      backdrop: data.backdrop_path ? `https://image.tmdb.org/t/p/original${data.backdrop_path}` : null,
+      parts: Array.isArray(data.parts) ? data.parts : []
+    };
+  } catch (err) {
+    console.warn("Failed to fetch TMDB collection timeline:", err);
+    return null;
+  }
+}
+
+/**
+ * Fetch TMDB /recommendations and merge /similar fallback when recommendations has < 4 entries.
+ */
+export async function fetchTmdbMovieRecommendations(tmdbId, options = {}) {
+  const id = Number(tmdbId);
+  if (!Number.isSafeInteger(id) || id <= 0 || !hasTmdbBackend(options)) return [];
+
+  const query = {
+    language: options.language || "en-US",
+    page: options.page || 1
+  };
+  const dedupeMap = new Map();
+
+  const appendUnique = (items = [], sourceBucket = "TMDB Recs") => {
+    for (const item of Array.isArray(items) ? items : []) {
+      const itemId = Number(item?.id);
+      if (!Number.isSafeInteger(itemId) || itemId <= 0 || itemId === id || dedupeMap.has(itemId)) continue;
+      dedupeMap.set(itemId, {
+        ...normalizeTmdbItem(item, sourceBucket),
+        imdbID: item.external_ids?.imdb_id || `tmdb_${itemId}`
+      });
+    }
+  };
+
+  try {
+    const recData = await fetchTmdbJson(`/3/movie/${id}/recommendations`, query, options);
+    appendUnique(recData?.results, "TMDB Recs");
+
+    if (dedupeMap.size < 4) {
+      const simData = await fetchTmdbJson(`/3/movie/${id}/similar`, query, options);
+      appendUnique(simData?.results, "TMDB Similar");
+    }
+    return Array.from(dedupeMap.values());
+  } catch (err) {
+    console.warn("Failed to fetch TMDB recommendations:", err);
+    return [];
+  }
+}
+
+/**
+ * Autocomplete TMDB motif/theme keywords via /3/search/keyword.
+ */
+export async function searchTmdbKeywords(query = "", options = {}) {
+  const clean = String(query || "").trim();
+  if (!clean || !hasTmdbBackend(options)) return [];
+
+  try {
+    const data = await fetchTmdbJson(
+      "/3/search/keyword",
+      { query: clean, page: options.page || 1 },
+      options
+    );
+    const limit = Number(options.limit) > 0 ? Number(options.limit) : 12;
+    return (Array.isArray(data?.results) ? data.results : [])
+      .filter((k) => Number.isSafeInteger(Number(k?.id)) && String(k?.name || "").trim())
+      .slice(0, limit)
+      .map((k) => ({ id: Number(k.id), name: String(k.name).trim() }));
+  } catch (err) {
+    console.warn("Failed to search TMDB keywords:", err);
+    return [];
   }
 }
 

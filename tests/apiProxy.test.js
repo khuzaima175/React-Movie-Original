@@ -862,3 +862,51 @@ test("api/* Sec-Fetch-Site: cross-site is rejected when Origin is absent, never 
     else process.env.ALLOWED_ORIGIN = prevAllowed;
   }
 });
+
+test("api/tmdb handler allows collection, keyword search, recommendations, and similar paths while blocking invalid suffixes", async () => {
+  resetRateLimitBuckets();
+  const prevTmdb = process.env.TMDB_API_KEY;
+  process.env.TMDB_API_KEY = "SERVER_TMDB_SECRET";
+
+  try {
+    const validQueries = [
+      { path: "/3/collection/87359", language: "en-US" },
+      { path: "/3/search/keyword", query: "time travel", page: "1" },
+      { path: "/3/movie/157336/recommendations", page: "1" },
+      { path: "/3/movie/157336/similar", page: "1" }
+    ];
+
+    for (const q of validQueries) {
+      const okRes = createMockRes();
+      let forwardedUrl = "";
+      await tmdbHandler(
+        {
+          method: "GET",
+          query: q,
+          fetchFn: async (url) => {
+            forwardedUrl = String(url);
+            return { ok: true, status: 200, json: async () => ({ id: 1, results: [] }) };
+          }
+        },
+        okRes
+      );
+      assert.equal(okRes.statusCode, 200, `expected 200 for ${q.path}`);
+      assert.match(forwardedUrl, /api_key=SERVER_TMDB_SECRET/);
+    }
+
+    for (const badPath of [
+      "/3/collection/87359/images",
+      "/3/collection/not-a-number",
+      "/3/movie/157336/account_states",
+      "/3/search/keyword/../person"
+    ]) {
+      const badRes = createMockRes();
+      await tmdbHandler({ method: "GET", query: { path: badPath } }, badRes);
+      assert.equal(badRes.statusCode, 400, `expected 400 for ${badPath}`);
+    }
+  } finally {
+    resetRateLimitBuckets();
+    if (prevTmdb === undefined) delete process.env.TMDB_API_KEY;
+    else process.env.TMDB_API_KEY = prevTmdb;
+  }
+});
