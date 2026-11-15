@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { Bookmark, Check, Flame, Star } from "lucide-react";
+import { Bookmark, Check, Star } from "lucide-react";
 import { Modal } from "./ui/Modal";
 import PosterImage from "./PosterImage";
 import StarRatingStage from "./StarRatingStage";
 import { buildSeenCollisionSet } from "../services/dashboardService";
 import {
-  getRatingTier,
   prepareQuickRatePayload,
   prepareWatchlistPayload
 } from "../services/ratingTiers";
@@ -52,7 +51,6 @@ export default function QuickRateModal({
   const isAlreadyWatchlisted = [...movieKeys].some((key) => watchlistKeys.has(key));
 
   const activeRating = hoverRating || selectedRating || 0;
-  const activeTier = getRatingTier(activeRating);
   const quickTags = getContextualQuickTags(activeRating);
 
   function handleSaveToVault() {

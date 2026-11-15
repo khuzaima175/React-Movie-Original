@@ -28,7 +28,7 @@ import {
   buildHybridSimilarFilms,
   shouldLoadRabbitHoleForMovie
 } from "../services/rabbitHoleService";
-import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
+import { getRatingTier } from "../services/ratingTiers";
 import { findMatchingMovie, isSameMovie } from "../services/movieIdentity";
 import {
   extractMovieCreditPeople,
@@ -77,7 +77,6 @@ import {
   Tag,
   Edit3,
   ExternalLink,
-  SlidersHorizontal,
   MessageSquare,
   CheckCircle2,
   GitCompareArrows
@@ -635,8 +634,6 @@ export default function MovieDetails({
     setUserNote((prev) => toggleQuickTagInNote(prev, tag));
   }
 
-  const activeDisplayRating = hoverRating || userRating || 0;
-  const currentTier = getRatingTier(activeDisplayRating);
   const isInCompare = Boolean(movie && compareItems.some((item) => isSameMovie(item, movie)));
 
   return (

@@ -73,7 +73,7 @@ export default function StarRatingStage({
             <span className="star-stage-percentile-pill" title={calibration.summaryText}>
               {calibration.topPercentile !== null && activeScore > 0
                 ? `Top ${calibration.topPercentile}% of Vault`
-                : `${calibration.ratedCount || 0} Vaultrated`.replace("Vaultrated", "in Vault")}
+                : `${calibration.ratedCount || 0} in Vault`}
             </span>
           )}
         </div>
