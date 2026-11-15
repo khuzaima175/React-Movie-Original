@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
 **Last Updated:** November 15, 2026 (`main`)  
-**Status:** Production-ready on `main` · **`241 / 241` unit tests passing** across **29** suites · Production build green (**`2303` modules**)
+**Status:** Production-ready on `main` · **`249 / 249` unit tests passing** across **29** suites · Production build green (**`2303` modules**)
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -94,13 +94,13 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
    │        collabSim by max(catalogMax, 0.05) when catalog size >= 50 (with `poolMax` fallback for small synthetic maps)
    │      • Any Vibe: Smoothstep `[0, 0.02]` ramp -> `0.35x` Metadata Damping + 2 recent-release reserve slots (`computeReserveQualityScore`)
    │      • Explicit Mood / Match Vibe: `collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`, & strict `matchesMoodCandidateGate` (emitting `moodShortfall` UI alert when sparse)
-   │      • Selects Top 30 candidates -> Locks deterministic 50–99% matchScore + up to 3 matchReasons badges
+   │      • Builds 39-pick stratified shortlist (`buildDiversifiedGeminiShortlist`: 25 core + 8 cold 2024–2026 + 6 diverse outliers) while locking deterministic 50–99% matchScore + up to 3 matchReasons badges internally
    │
-   └─► 5. geminiService.js + apiTransport.js (H1 Cascade -> 10 Picks + Rotation + Smart Cache v4)
+   └─► 5. geminiService.js + apiTransport.js (H1 Cascade -> 10 Picks + Verified Wildcards + Smart Cache v4)
           • Calls `/api/gemini` proxy in production (zero client keys) or direct key in local dev
-          • Sends `userStats`, `topDirectors`, <=10 anchors (`[Series]` + `userNote` <=180 chars), <=5 disliked/dismissed (nested `{ movie, weight, zScore }` lookup), <=3 recent (`120`-char notes), `6–7★` `NEAR MISSES`, <=8 `USER'S WATCHLIST`, & Top 30 compact candidates (`Specs`, top 3 `Cast`, top 5 `Themes`, `Tagline` <=70, `Plot` <=250, bounded `< 18,000` chars) to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
-          • Uses per-model AbortController timeouts (35s Hydrogen, 15s Flash curation models) & balanced `#1–#15` default vs `#16–#30` promotion/veto curation rules
-          • Selects 10 diverse winners (`DEFAULT_RECOMMENDATION_COUNT = 10`) with two-pass soft max-2-per-director cap, deterministic top-up backfill, note-aware profile cache hashing, & session Refresh rotation (`120` IDs, pages `1..5`)
+          • Sends `userStats`, `topDirectors`, <=10 anchors, <=5 disliked/dismissed (nested `{ movie, weight, zScore }` lookup), <=3 recent (`120`-char notes), `6–7★` `NEAR MISSES`, <=8 `USER'S WATCHLIST`, `ADDITIONAL TOP FAVORITES` (11–25), `LOVED SERIES / ANIME`, deduplicated `ADDITIONAL VIEWER NOTES` (all remaining notes), & 39 unbiased candidates (`Specs`, top 3 `Cast`, top 5 `Themes`, `Tagline` <=70, `Plot` <=250; zero `Match: XX%` or `#1–#15` rank bias, `<= 20,000` chars) to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
+          • Uses per-model AbortController timeouts (35s Hydrogen, 15s Flash curation models) & equal-footing `"Curate openly"` selection + optional 0–2 `wildcardPicks` (TMDB/vault/provider/mood verified via `verifyAndScoreWildcardPicks` without 1-item collabSim stretch)
+          • Selects 10 diverse winners (`DEFAULT_RECOMMENDATION_COUNT = 10`, prioritized wildcards + shortlist picks sorted by calibrated `matchScore`) with two-pass soft max-2-per-director cap, deterministic top-up backfill, note-aware profile cache hashing, & session Refresh rotation (`120` IDs, pages `1..5`)
           • If every cloud model fails or key/proxy is absent, falls back cleanly to Top 10 from ranker!
 ```
 
@@ -220,6 +220,7 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 | **14** | **Client production bundle risked exposing API secrets & cross-ID duplicates skipped Vault collision checks** | Vite `VITE_*` vars embed in `build/assets/*.js`; `tmdb_123` vs `tt...` caused Hero/Home/Vault duplicates & silent `5★`/`7★` fake CSV ratings | Added `/api/{gemini,tmdb,omdb}` Vercel proxies + `apiTransport.js`, canonical `movieIdentity.js` (`isSameMovie`), `vaultPortability.js` (`0` rating preservation), & opt-in Supabase RLS sync | [api/](./api), [apiTransport.js](./src/services/apiTransport.js), [movieIdentity.js](./src/services/movieIdentity.js), [vaultPortability.js](./src/services/vaultPortability.js) |
 | **15** | **Pre-2024 OMDb/CSV movies lacked `tmdbId` & keywords (hiding indexed favorites from embeddings), TV shows risked movie-ID collision, & `tmdb_...`/`tt...` imports duplicated entries** | Legacy imports saved only `imdbID` (or un-enriched Quick Rate entries); untyped series (`2017–2020`) lacked `/3/find` TV guards; `summarizeImportDiff` used single-key maps & batch fetches looped past `429` | Added series-guarded `backfillMissingTmdbIds` (`maxItems: 40`, `maxLookups: 15`, strict `±1`-year lookup, `tv_results` skip, `"N/A"` poster guard), `AppContext` deferred mount backfill + `addWatched` hydration, `MovieDetails` `isSeriesVaultItem` guard, `apiTransport` `429` stop, & `isSameMovie` dedupe in `summarizeImportDiff` | [tmdbService.js](./src/services/tmdbService.js), [AppContext.jsx](./src/context/AppContext.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx), [vaultPortability.js](./src/services/vaultPortability.js), [apiTransport.js](./src/services/apiTransport.js) |
 | **16** | **Gemini curation dropped `5★` relative dislikes (e.g., *Parasite*, *Spirited Away*), ignored `userNote` cache updates, omitted `userStats`/`topDirectors`/`Watchlist`/candidate themes & cast, and truncated plots at 140 chars** | `buildMovieIdentityLookup` checked flat `item.tmdbId` instead of nested `weightedRatings[].movie`, `buildWatchedHashSegment` excluded `userNote`, `mergeBackfilledMovieMetadata` dropped `cast`/`tagline`/`language`/`runtime`, & candidate formatter omitted hydrated TMDB fields | Fixed nested `{ movie, weight, zScore }` lookup, hashed `userNote` into `vlt_` cache keys, preserved `cast`/`writers`/`tagline`/`originCountry`/`spokenLanguages`/`mpaaRating`/`runtimeMinutes`/`keywordNames`/`overview`, wired `userStats`+`topDirectors`+`[Series]`+`USER'S WATCHLIST`+`180`-char notes, added `< 18,000`-char compact candidate blocks + `#1–#15`/`#16–#30` balance rules, & shared praise/critique `quickReviewTags.js` across `QuickRateModal` (`maxLength=200`) & `MovieDetails` | [geminiService.js](./src/services/geminiService.js), [tmdbService.js](./src/services/tmdbService.js), [quickReviewTags.js](./src/services/quickReviewTags.js), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx) |
+| **17** | **Gemini curation felt overly restricted (`Match: XX%` & `#1–#15` anchoring, narrow Top-30 pool, <=10 favorites, dropped series/extra notes, and no outside film escape hatch)** | Rank percentages and `#1–#15` wording anchored Gemini to math order; Top-30 cut off diverse/2024–2026 picks; only 10 favs + notes inside anchors were visible; outside picks risked hallucinations | Removed `Match: XX%` and `#1–#15` bias (`"Curate openly"`) while keeping calibrated `matchScore` locking; added 39-pick `buildDiversifiedGeminiShortlist` (`25+8+6`), `buildExtendedVaultContextSections` (`ADDITIONAL TOP FAVORITES` 11–25, `LOVED SERIES / ANIME`, all remaining `userNote`s `<= 20,000` chars), & TMDB/vault/provider/mood-verified 0–2 `wildcardPicks` (`verifyAndScoreWildcardPicks`) with 10/10 auto-backfill | [geminiService.js](./src/services/geminiService.js), [rankerService.js](./src/services/rankerService.js), [tmdbService.js](./src/services/tmdbService.js) |
 
 ---
 
@@ -227,12 +228,12 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 
 Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 
-### Check 1: Run All 241 Unit Tests (~0.8s, Offline)
+### Check 1: Run All 249 Unit Tests (~0.8s, Offline)
 ```bash
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with **`tests 241 | pass 241 | fail 0 | skipped 0`** across all **29** suites:
+- Exits `0` with **`tests 249 | pass 249 | fail 0 | skipped 0`** across all **29** suites:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/contentSim.test.js`
