@@ -281,3 +281,85 @@ test("evaluateBucketECohort computes isolated Bucket E recall, index ceiling, in
   assert.equal(row60.totalHits, 2);
   assert.equal(report.marginal30to60.marginalHits, 1);
 });
+
+test("evaluateWithinColdCohort ranks only masked candidates, computes random baseline, warm subpool/fullpool baselines, and zero structured contentSim share", async () => {
+  const { evaluateWithinColdCohort } = await import("../scripts/experiments/within_cold_eval.mjs");
+  const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+  const { selectMaskedTmdbIds } = await import("../scripts/experiments/mask_eval_utils.mjs");
+
+  // 24 items in index: train 101..110 (101..104 liked scifi+kw4565+crew525, 105..110 disliked horror),
+  // holdout positives 201..210, extra catalog 301..304.
+  const embItems = [];
+  const catalog = [];
+  for (let i = 1; i <= 10; i++) {
+    const id = 100 + i;
+    const liked = i <= 4;
+    embItems.push({ tmdbId: id, vector: liked ? [1, 0, 0, 0] : [0, 1, 0, 0] });
+    catalog.push({
+      id,
+      tmdbId: id,
+      title: `Train ${id}`,
+      userRating: liked ? 9 : 4,
+      tmdbGenreIds: liked ? [878] : [27],
+      tmdbKeywords: liked ? [4565] : [9999],
+      crewPersonId: liked ? 525 : 10,
+      vote_average: 7.5,
+      vote_count: 800,
+      dateWatched: `2026-01-${String(i).padStart(2, "0")}`
+    });
+  }
+  for (let i = 1; i <= 10; i++) {
+    const id = 200 + i;
+    const noMetaMatch = i === 10;
+    embItems.push({ tmdbId: id, vector: [0.95, 0.05, 0, 0] });
+    catalog.push({
+      id,
+      tmdbId: id,
+      title: `HoldoutPos ${id}`,
+      userRating: 9,
+      tmdbGenreIds: noMetaMatch ? [99] : [878],
+      tmdbKeywords: noMetaMatch ? [7777] : [4565],
+      crewPersonId: noMetaMatch ? 888 : 525,
+      vote_average: noMetaMatch ? 6.0 : 8.5,
+      vote_count: 900,
+      dateWatched: `2026-02-${String(i).padStart(2, "0")}`
+    });
+  }
+  for (let i = 1; i <= 4; i++) {
+    const id = 300 + i;
+    embItems.push({ tmdbId: id, vector: [0.1, 0.9, 0, 0] });
+    catalog.push({
+      id,
+      tmdbId: id,
+      title: `Filler ${id}`,
+      tmdbGenreIds: [27],
+      tmdbKeywords: [9999],
+      crewPersonId: 10,
+      vote_average: 5.5,
+      vote_count: 500
+    });
+  }
+
+  const emb = parseEmbeddingBinary(encodeEmbeddingBinary(embItems));
+  const user = { uid: "u1", ratings: catalog.slice(0, 20) };
+
+  const maskedHalf = selectMaskedTmdbIds(emb.ids, 0.5, 1);
+  assert.ok(maskedHalf.size >= 10);
+
+  const report = await evaluateWithinColdCohort(
+    [user],
+    catalog,
+    emb,
+    8,
+    [{ maskFrac: 0.5, maskSeed: 1 }]
+  );
+  assert.equal(report.eligibleUsers, 1);
+  assert.equal(report.perSeed.length, 1);
+  const s = report.perSeed[0];
+  assert.equal(s.nEvaluatedUsers, 1);
+  assert.ok(s.meanMaskedCandidates > 0 && s.meanMaskedCandidates < 14);
+  assert.ok(Math.abs(s.randomRecall20 - Math.min(1, 20 / s.meanMaskedCandidates)) < 1e-9);
+  assert.ok(s.coldRecall20Macro >= 0 && s.coldRecall20Macro <= 1);
+  assert.ok(s.warmSubpoolRecall20Macro >= 0 && s.warmSubpoolRecall20Macro <= 1);
+  assert.ok(s.zeroContentSimMicro >= 0 && s.zeroContentSimMicro <= 1);
+});

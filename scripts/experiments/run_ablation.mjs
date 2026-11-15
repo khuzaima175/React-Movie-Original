@@ -16,7 +16,7 @@ const {
   aggregateWarmColdBreakdowns,
   verifyColdFallbackPath
 } = await imp("scripts/experiments/mask_eval_utils.mjs");
-export { pairedBootstrapCI, formatCI };
+export { loadDatasets, loadEmb, pairedBootstrapCI, formatCI };
 
 function parseArgs(argv) {
   const args = {};
