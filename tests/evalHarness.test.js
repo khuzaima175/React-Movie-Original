@@ -363,3 +363,66 @@ test("evaluateWithinColdCohort ranks only masked candidates, computes random bas
   assert.ok(s.warmSubpoolRecall20Macro >= 0 && s.warmSubpoolRecall20Macro <= 1);
   assert.ok(s.zeroContentSimMicro >= 0 && s.zeroContentSimMicro <= 1);
 });
+
+test("selectTopKWithColdQuota keys strictly on collabSim === 0 (ignoring release date) and fills N slots by rankerProbability", async () => {
+  const {
+    selectTopKWithColdQuota,
+    isCollabColdCandidate,
+    scoreTopKSlateWarmCold
+  } = await import("../scripts/experiments/cold_quota_eval.mjs");
+
+  const mk = (id, rawCollabSim, prob, releaseDate) => ({
+    id,
+    tmdbId: id,
+    release_date: releaseDate,
+    features: { rawCollabSim, collabSim: rawCollabSim },
+    rankerProbability: prob
+  });
+
+  // Construct ordered descending list:
+  // - Warm items with 2026 release dates must NOT be treated as cold!
+  // - Cold items (rawCollabSim === 0) with 1995 release dates MUST be treated as cold!
+  const ordered = [
+    mk(1, 0.9, 0.99, "2026-06-01"),
+    mk(2, 0.8, 0.98, "2026-05-01"),
+    mk(3, 0.7, 0.97, "2025-01-01"),
+    mk(4, 0.6, 0.96, "2024-01-01"),
+    mk(5, 0.5, 0.95, "2022-01-01"),
+    mk(6, 0.4, 0.94, "2021-01-01"),
+    mk(7, 0.3, 0.93, "2020-01-01"),
+    mk(8, 0.2, 0.92, "2019-01-01"),
+    mk(9, 0.1, 0.91, "2018-01-01"),
+    mk(10, 0.05, 0.90, "2017-01-01"),
+    mk(101, 0, 0.75, "1995-01-01"), // old release year, collabSim === 0 -> cold!
+    mk(102, 0, 0.74, "1998-01-01"),
+    mk(103, 0, 0.73, "2001-01-01")
+  ];
+
+  assert.equal(isCollabColdCandidate(ordered[0]), false);
+  assert.equal(isCollabColdCandidate(ordered[10]), true);
+
+  const q0 = selectTopKWithColdQuota(ordered, 0, 10);
+  assert.deepEqual(q0.map(x => x.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+  const q3 = selectTopKWithColdQuota(ordered, 3, 10);
+  assert.equal(q3.length, 10);
+  assert.equal(q3.filter(isCollabColdCandidate).length, 3);
+  assert.deepEqual(q3.map(x => x.id), [1, 2, 3, 4, 5, 6, 7, 101, 102, 103]);
+
+  // If fewer cold items exist than requested quota N=5, fills with all available cold + best warm remaining
+  const q5 = selectTopKWithColdQuota(ordered, 5, 10);
+  assert.equal(q5.length, 10);
+  assert.equal(q5.filter(isCollabColdCandidate).length, 3);
+  assert.deepEqual(q5.map(x => x.id), [1, 2, 3, 4, 5, 6, 7, 101, 102, 103]); // slots 1..5 warm, 101..103 cold, 6..7 backfill warm -> [1..7, 101..103]
+
+  const holdoutPos = new Set(["1", "101", "102"]);
+  const holdoutRel = new Map([["1", 10], ["101", 9], ["102", 8]]);
+  const coldSet = new Set(["101", "102", "103"]);
+  const stats = scoreTopKSlateWarmCold(q3, holdoutPos, holdoutRel, coldSet, 10);
+  assert.equal(stats.coldSlots, 3);
+  assert.equal(stats.coldHits, 2);
+  assert.equal(stats.warmHits, 1);
+  assert.equal(stats.recall10, 1.0);
+  assert.equal(stats.coldRecall10, 1.0);
+  assert.equal(stats.warmRecall10, 1.0);
+});

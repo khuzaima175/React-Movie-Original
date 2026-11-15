@@ -1,0 +1,2437 @@
+{
+  "generatedAt": "2026-11-15T04:20:01.811Z",
+  "embeddingIndexPath": ".data/item_embeddings_clean2_f16.bin",
+  "quotas": [
+    0,
+    2,
+    3,
+    5
+  ],
+  "maskFracs": [
+    0,
+    0.15,
+    0.3
+  ],
+  "datasets": [
+    {
+      "label": "328 >=8★",
+      "byMask": [
+        {
+          "maskFrac": 0,
+          "seeds": 1,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 1,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 0,
+              "ndcg10": 0.09093029437838837,
+              "recall10": 0.08048780487804888,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 264,
+              "meanWarmHitsPerSeed": 264,
+              "totalColdPosSumAcrossSeeds": 45,
+              "totalWarmPosSumAcrossSeeds": 3235,
+              "totalHoldoutPosSumAcrossSeeds": 3280,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.08109756097560983,
+              "warmRecall10Micro": 0.08160741885625966,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 1,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 2,
+              "ndcg10": 0.08349089264552631,
+              "recall10": 0.06859756097560979,
+              "coldHitsSumAcrossSeeds": 2,
+              "meanColdHitsPerSeed": 2,
+              "warmHitsSumAcrossSeeds": 223,
+              "meanWarmHitsPerSeed": 223,
+              "totalColdPosSumAcrossSeeds": 45,
+              "totalWarmPosSumAcrossSeeds": 3235,
+              "totalHoldoutPosSumAcrossSeeds": 3280,
+              "coldRecall10Macro": 0.06060606060606061,
+              "coldRecall10Micro": 0.044444444444444446,
+              "warmRecall10Macro": 0.06849593495934961,
+              "warmRecall10Micro": 0.06893353941267388,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.007439401732862068,
+                  "ciLo": -0.010327760194953182,
+                  "ciHi": -0.004792040653388211,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.011890243902439031,
+                  "ciLo": -0.01585365853658536,
+                  "ciHi": -0.008231707317073175,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.01260162601626017,
+                  "ciLo": -0.016497289972899717,
+                  "ciHi": -0.009146341463414639,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.006097560975609756,
+                  "ciLo": 0,
+                  "ciHi": 0.01524390243902439,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.125,
+                  "ciLo": -0.16463414634146342,
+                  "ciHi": -0.09146341463414634,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 2,
+                "meanWarmHitsDeltaPerSeed": -41
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 1,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 3,
+              "ndcg10": 0.07947791586303932,
+              "recall10": 0.0625,
+              "coldHitsSumAcrossSeeds": 3,
+              "meanColdHitsPerSeed": 3,
+              "warmHitsSumAcrossSeeds": 202,
+              "meanWarmHitsPerSeed": 202,
+              "totalColdPosSumAcrossSeeds": 45,
+              "totalWarmPosSumAcrossSeeds": 3235,
+              "totalHoldoutPosSumAcrossSeeds": 3280,
+              "coldRecall10Macro": 0.06666666666666667,
+              "coldRecall10Micro": 0.06666666666666667,
+              "warmRecall10Macro": 0.06202574525745255,
+              "warmRecall10Micro": 0.062442040185471406,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.011452378515349072,
+                  "ciLo": -0.0151551717218891,
+                  "ciHi": -0.007954494024138671,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.017987804878048765,
+                  "ciLo": -0.022865853658536557,
+                  "ciHi": -0.013414634146341465,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.01907181571815716,
+                  "ciLo": -0.023949864498644953,
+                  "ciHi": -0.014701897018970188,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.009146341463414634,
+                  "ciLo": 0,
+                  "ciHi": 0.021341463414634148,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.18902439024390244,
+                  "ciLo": -0.23780487804878048,
+                  "ciHi": -0.14634146341463414,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 3,
+                "meanWarmHitsDeltaPerSeed": -62
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 1,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 5,
+              "ndcg10": 0.06867214058813079,
+              "recall10": 0.04756097560975601,
+              "coldHitsSumAcrossSeeds": 4,
+              "meanColdHitsPerSeed": 4,
+              "warmHitsSumAcrossSeeds": 152,
+              "meanWarmHitsPerSeed": 152,
+              "totalColdPosSumAcrossSeeds": 45,
+              "totalWarmPosSumAcrossSeeds": 3235,
+              "totalHoldoutPosSumAcrossSeeds": 3280,
+              "coldRecall10Macro": 0.07272727272727272,
+              "coldRecall10Micro": 0.08888888888888889,
+              "warmRecall10Macro": 0.04661246612466116,
+              "warmRecall10Micro": 0.04698608964451314,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.022258153790257584,
+                  "ciLo": -0.02767822347772544,
+                  "ciHi": -0.017087118467180844,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.03292682926829263,
+                  "ciLo": -0.03963414634146336,
+                  "ciHi": -0.026219512195121933,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.03448509485094846,
+                  "ciLo": -0.04122628726287257,
+                  "ciHi": -0.027947154471544677,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.012195121951219513,
+                  "ciLo": 0,
+                  "ciHi": 0.027439024390243903,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.34146341463414637,
+                  "ciLo": -0.40853658536585363,
+                  "ciHi": -0.2774390243902439,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 4,
+                "meanWarmHitsDeltaPerSeed": -112
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.15,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 0,
+              "ndcg10": 0.08807406777219118,
+              "recall10": 0.07703252032520332,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 758,
+              "meanWarmHitsPerSeed": 252.66666666666666,
+              "totalColdPosSumAcrossSeeds": 1551,
+              "totalWarmPosSumAcrossSeeds": 8289,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.09024672538392046,
+              "warmRecall10Micro": 0.09144649535529015,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 2,
+              "ndcg10": 0.08405760813991393,
+              "recall10": 0.0708333333333334,
+              "coldHitsSumAcrossSeeds": 51,
+              "meanColdHitsPerSeed": 17,
+              "warmHitsSumAcrossSeeds": 646,
+              "meanWarmHitsPerSeed": 215.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1551,
+              "totalWarmPosSumAcrossSeeds": 8289,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0.029938864838864834,
+              "coldRecall10Micro": 0.03288201160541586,
+              "warmRecall10Macro": 0.0765602819718673,
+              "warmRecall10Micro": 0.07793461213656654,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.00401645963227723,
+                  "ciLo": -0.006289079207911276,
+                  "ciHi": -0.0016927827875362108,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.006199186991869917,
+                  "ciLo": -0.009146341463414637,
+                  "ciHi": -0.0031504065040650403,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.01368644341205317,
+                  "ciLo": -0.016978803716608593,
+                  "ciHi": -0.01050579106981546,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.05182926829268294,
+                  "ciLo": 0.03658536585365854,
+                  "ciHi": 0.07012195121951219,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.11382113821138214,
+                  "ciLo": -0.1402439024390244,
+                  "ciHi": -0.08739837398373985,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 17,
+                "meanWarmHitsDeltaPerSeed": -37.333333333333314
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 3,
+              "ndcg10": 0.08209273733096883,
+              "recall10": 0.06819105691056916,
+              "coldHitsSumAcrossSeeds": 73,
+              "meanColdHitsPerSeed": 24.333333333333332,
+              "warmHitsSumAcrossSeeds": 598,
+              "meanWarmHitsPerSeed": 199.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1551,
+              "totalWarmPosSumAcrossSeeds": 8289,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0.041880071780071776,
+              "coldRecall10Micro": 0.047066408768536426,
+              "warmRecall10Macro": 0.07077969738030711,
+              "warmRecall10Micro": 0.07214380504282784,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.005981330441222339,
+                  "ciLo": -0.008847097019538796,
+                  "ciHi": -0.0029612540595321158,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.008841463414634146,
+                  "ciLo": -0.012703252032520318,
+                  "ciHi": -0.004878048780487805,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.01946702800361337,
+                  "ciLo": -0.023711930571686666,
+                  "ciHi": -0.015564911601496973,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.07418699186991864,
+                  "ciLo": 0.054878048780487805,
+                  "ciHi": 0.09654471544715444,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.16260162601626016,
+                  "ciLo": -0.19715447154471546,
+                  "ciHi": -0.1310975609756097,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 24.333333333333332,
+                "meanWarmHitsDeltaPerSeed": -53.333333333333314
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 5,
+              "ndcg10": 0.07433248904937359,
+              "recall10": 0.057113821138211375,
+              "coldHitsSumAcrossSeeds": 108,
+              "meanColdHitsPerSeed": 36,
+              "warmHitsSumAcrossSeeds": 454,
+              "meanWarmHitsPerSeed": 151.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1551,
+              "totalWarmPosSumAcrossSeeds": 8289,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0.06426741591741592,
+              "coldRecall10Micro": 0.06963249516441006,
+              "warmRecall10Macro": 0.05394325074203118,
+              "warmRecall10Micro": 0.054771383761611774,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.013741578722817581,
+                  "ciLo": -0.018500397968495414,
+                  "ciHi": -0.00910362488821162,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.019918699186991858,
+                  "ciLo": -0.026117886178861772,
+                  "ciHi": -0.014024390243902446,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.036303474641889245,
+                  "ciLo": -0.042930539424441846,
+                  "ciHi": -0.03004379597367402,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.10975609756097558,
+                  "ciLo": 0.08333333333333333,
+                  "ciHi": 0.13922764227642276,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.30894308943089427,
+                  "ciLo": -0.3658536585365853,
+                  "ciHi": -0.2550813008130081,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 36,
+                "meanWarmHitsDeltaPerSeed": -101.33333333333331
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.3,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 0,
+              "ndcg10": 0.08341048460425222,
+              "recall10": 0.07306910569105697,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 719,
+              "meanWarmHitsPerSeed": 239.66666666666666,
+              "totalColdPosSumAcrossSeeds": 2934,
+              "totalWarmPosSumAcrossSeeds": 6906,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.1034258452703574,
+              "warmRecall10Micro": 0.10411236605849986,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 2,
+              "ndcg10": 0.08089546174851418,
+              "recall10": 0.06819105691056916,
+              "coldHitsSumAcrossSeeds": 56,
+              "meanColdHitsPerSeed": 18.666666666666668,
+              "warmHitsSumAcrossSeeds": 615,
+              "meanWarmHitsPerSeed": 205,
+              "totalColdPosSumAcrossSeeds": 2934,
+              "totalWarmPosSumAcrossSeeds": 6906,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0.018997675913563765,
+              "coldRecall10Micro": 0.0190865712338105,
+              "warmRecall10Macro": 0.08832591302103494,
+              "warmRecall10Micro": 0.08905299739357081,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.0025150228557380546,
+                  "ciLo": -0.0044546630083555075,
+                  "ciHi": -0.0005650806349549054,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.004878048780487805,
+                  "ciLo": -0.007621951219512197,
+                  "ciHi": -0.0020325203252032514,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.01509993224932249,
+                  "ciLo": -0.01870967221576977,
+                  "ciHi": -0.01161762808104271,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.056910569105691027,
+                  "ciLo": 0.04065040650406505,
+                  "ciHi": 0.07520325203252035,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.1056910569105691,
+                  "ciLo": -0.13008130081300814,
+                  "ciHi": -0.08130081300813005,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 18.666666666666668,
+                "meanWarmHitsDeltaPerSeed": -34.66666666666666
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 3,
+              "ndcg10": 0.07969303041863687,
+              "recall10": 0.06646341463414639,
+              "coldHitsSumAcrossSeeds": 87,
+              "meanColdHitsPerSeed": 29,
+              "warmHitsSumAcrossSeeds": 567,
+              "meanWarmHitsPerSeed": 189,
+              "totalColdPosSumAcrossSeeds": 2934,
+              "totalWarmPosSumAcrossSeeds": 6906,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0.0289330630140599,
+              "coldRecall10Micro": 0.02965235173824131,
+              "warmRecall10Macro": 0.08147059297973928,
+              "warmRecall10Micro": 0.08210251954821894,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.003717454185615362,
+                  "ciLo": -0.006048046953175368,
+                  "ciHi": -0.0011405776523830881,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.00660569105691057,
+                  "ciLo": -0.009959349593495934,
+                  "ciHi": -0.0030487804878048773,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.02195525229061814,
+                  "ciLo": -0.026473577235772348,
+                  "ciHi": -0.01740426184023745,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.0884146341463414,
+                  "ciLo": 0.06707317073170731,
+                  "ciHi": 0.11178861788617887,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.1544715447154471,
+                  "ciLo": -0.18495934959349603,
+                  "ciHi": -0.12296747967479678,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 29,
+                "meanWarmHitsDeltaPerSeed": -50.66666666666666
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 328,
+              "meanColdSlots": 5,
+              "ndcg10": 0.07198629840063822,
+              "recall10": 0.05599593495934957,
+              "coldHitsSumAcrossSeeds": 119,
+              "meanColdHitsPerSeed": 39.666666666666664,
+              "warmHitsSumAcrossSeeds": 432,
+              "meanWarmHitsPerSeed": 144,
+              "totalColdPosSumAcrossSeeds": 2934,
+              "totalWarmPosSumAcrossSeeds": 6906,
+              "totalHoldoutPosSumAcrossSeeds": 9840,
+              "coldRecall10Macro": 0.03958990588274077,
+              "coldRecall10Micro": 0.040558963871847306,
+              "warmRecall10Macro": 0.06221165634275388,
+              "warmRecall10Micro": 0.06255430060816682,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 328,
+                  "meanDelta": -0.011424186203614026,
+                  "ciLo": -0.015504128905944664,
+                  "ciHi": -0.00735792340297951,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 328,
+                  "meanDelta": -0.01707317073170731,
+                  "ciLo": -0.022154471544715438,
+                  "ciHi": -0.011788617886178862,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 328,
+                  "meanDelta": -0.041214188927603514,
+                  "ciLo": -0.04823202993934699,
+                  "ciHi": -0.034429039230868486,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": 0.12093495934959353,
+                  "ciLo": 0.09552845528455282,
+                  "ciHi": 0.15040650406504064,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 328,
+                  "meanDelta": -0.29166666666666674,
+                  "ciLo": -0.3394308943089432,
+                  "ciHi": -0.2439024390243903,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 39.666666666666664,
+                "meanWarmHitsDeltaPerSeed": -95.66666666666666
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "328 >=9★",
+      "byMask": [
+        {
+          "maskFrac": 0,
+          "seeds": 1,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 1,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 0,
+              "ndcg10": 0.11451941433101363,
+              "recall10": 0.09770128446115293,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 288,
+              "meanWarmHitsPerSeed": 288,
+              "totalColdPosSumAcrossSeeds": 33,
+              "totalWarmPosSumAcrossSeeds": 2967,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.09899618838763578,
+              "warmRecall10Micro": 0.09706774519716886,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 1,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 2,
+              "ndcg10": 0.10744947203945297,
+              "recall10": 0.08642569966583133,
+              "coldHitsSumAcrossSeeds": 3,
+              "meanColdHitsPerSeed": 3,
+              "warmHitsSumAcrossSeeds": 253,
+              "meanWarmHitsPerSeed": 253,
+              "totalColdPosSumAcrossSeeds": 33,
+              "totalWarmPosSumAcrossSeeds": 2967,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0.038461538461538464,
+              "coldRecall10Micro": 0.09090909090909091,
+              "warmRecall10Macro": 0.08627427944862161,
+              "warmRecall10Micro": 0.08527131782945736,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.007069942291560653,
+                  "ciLo": -0.009469418451089342,
+                  "ciHi": -0.004836507039150467,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.011275584795321642,
+                  "ciLo": -0.015478801169590647,
+                  "ciHi": -0.007602339181286553,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.012721908939014209,
+                  "ciLo": -0.017170530492898916,
+                  "ciHi": -0.008719715956558067,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.009868421052631578,
+                  "ciLo": 0,
+                  "ciHi": 0.02631578947368421,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.11513157894736842,
+                  "ciLo": -0.1513157894736842,
+                  "ciHi": -0.08223684210526316,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 3,
+                "meanWarmHitsDeltaPerSeed": -35
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 1,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 3,
+              "ndcg10": 0.09990484952618083,
+              "recall10": 0.07746188387635763,
+              "coldHitsSumAcrossSeeds": 4,
+              "meanColdHitsPerSeed": 4,
+              "warmHitsSumAcrossSeeds": 225,
+              "meanWarmHitsPerSeed": 225,
+              "totalColdPosSumAcrossSeeds": 33,
+              "totalWarmPosSumAcrossSeeds": 2967,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0.05128205128205128,
+              "coldRecall10Micro": 0.12121212121212122,
+              "warmRecall10Macro": 0.07680398913951551,
+              "warmRecall10Micro": 0.07583417593528817,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.014614564804832803,
+                  "ciLo": -0.01802793300395645,
+                  "ciHi": -0.011424160556541822,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.02023940058479531,
+                  "ciLo": -0.02513706140350874,
+                  "ciHi": -0.01541483918128655,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.022192199248120284,
+                  "ciLo": -0.02757936507936504,
+                  "ciHi": -0.017186194653299913,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.013157894736842105,
+                  "ciLo": 0,
+                  "ciHi": 0.03618421052631579,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.20723684210526316,
+                  "ciLo": -0.2532894736842105,
+                  "ciHi": -0.1611842105263158,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 4,
+                "meanWarmHitsDeltaPerSeed": -63
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 1,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 5,
+              "ndcg10": 0.08522633730757823,
+              "recall10": 0.05862050960735166,
+              "coldHitsSumAcrossSeeds": 5,
+              "meanColdHitsPerSeed": 5,
+              "warmHitsSumAcrossSeeds": 169,
+              "meanWarmHitsPerSeed": 169,
+              "totalColdPosSumAcrossSeeds": 33,
+              "totalWarmPosSumAcrossSeeds": 2967,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0.08974358974358973,
+              "coldRecall10Micro": 0.15151515151515152,
+              "warmRecall10Macro": 0.0574509189640768,
+              "warmRecall10Micro": 0.056959892146949784,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.029293077023435397,
+                  "ciLo": -0.034756431565489465,
+                  "ciHi": -0.024045704646207377,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.039080774853801105,
+                  "ciLo": -0.04656432748538003,
+                  "ciHi": -0.032044956140350835,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.04154526942355883,
+                  "ciLo": -0.049548350041770994,
+                  "ciHi": -0.03445462614870505,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.01644736842105263,
+                  "ciLo": 0,
+                  "ciHi": 0.039473684210526314,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.39144736842105265,
+                  "ciLo": -0.46381578947368424,
+                  "ciHi": -0.3256578947368421,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 5,
+                "meanWarmHitsDeltaPerSeed": -119
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.15,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 0,
+              "ndcg10": 0.11020957008289485,
+              "recall10": 0.0921779274575328,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 817,
+              "meanWarmHitsPerSeed": 272.3333333333333,
+              "totalColdPosSumAcrossSeeds": 1323,
+              "totalWarmPosSumAcrossSeeds": 7677,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.10676909287106649,
+              "warmRecall10Micro": 0.10642177934088837,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 2,
+              "ndcg10": 0.10832547629944293,
+              "recall10": 0.08969863895850744,
+              "coldHitsSumAcrossSeeds": 78,
+              "meanColdHitsPerSeed": 26,
+              "warmHitsSumAcrossSeeds": 718,
+              "meanWarmHitsPerSeed": 239.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1323,
+              "totalWarmPosSumAcrossSeeds": 7677,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.05219279164657315,
+              "coldRecall10Micro": 0.05895691609977324,
+              "warmRecall10Macro": 0.09385703842940679,
+              "warmRecall10Micro": 0.09352611697277582,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.001884093783451929,
+                  "ciLo": -0.004352005066149114,
+                  "ciHi": 0.00046018638501501554,
+                  "sig": false
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.0024792884990253398,
+                  "ciLo": -0.006304824561403509,
+                  "ciHi": 0.0012061403508771956,
+                  "sig": false
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.012912054441659701,
+                  "ciLo": -0.016392978975215824,
+                  "ciHi": -0.009686542745753276,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.08552631578947363,
+                  "ciLo": 0.06250000000000001,
+                  "ciHi": 0.1118421052631578,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.10855263157894732,
+                  "ciLo": -0.13706140350877197,
+                  "ciHi": -0.08114035087719298,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 26,
+                "meanWarmHitsDeltaPerSeed": -32.99999999999997
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 3,
+              "ndcg10": 0.10526428946342659,
+              "recall10": 0.08568861389585081,
+              "coldHitsSumAcrossSeeds": 100,
+              "meanColdHitsPerSeed": 33.333333333333336,
+              "warmHitsSumAcrossSeeds": 661,
+              "meanWarmHitsPerSeed": 220.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1323,
+              "totalWarmPosSumAcrossSeeds": 7677,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.06805087277076073,
+              "coldRecall10Micro": 0.07558578987150416,
+              "warmRecall10Macro": 0.08618421052631575,
+              "warmRecall10Micro": 0.08610134166992314,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.004945280619468252,
+                  "ciLo": -0.008014183939593468,
+                  "ciHi": -0.001970127405962954,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.0064893135616819805,
+                  "ciLo": -0.011251218323586746,
+                  "ciHi": -0.001926691729323305,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.020584882344750765,
+                  "ciLo": -0.025267596073517123,
+                  "ciHi": -0.016146703564466725,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.10964912280701748,
+                  "ciLo": 0.08223684210526311,
+                  "ciHi": 0.14035087719298242,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.1710526315789474,
+                  "ciLo": -0.2083333333333334,
+                  "ciHi": -0.1348684210526316,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 33.333333333333336,
+                "meanWarmHitsDeltaPerSeed": -51.99999999999997
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 5,
+              "ndcg10": 0.09400378113064083,
+              "recall10": 0.07150428153717632,
+              "coldHitsSumAcrossSeeds": 138,
+              "meanColdHitsPerSeed": 46,
+              "warmHitsSumAcrossSeeds": 499,
+              "meanWarmHitsPerSeed": 166.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1323,
+              "totalWarmPosSumAcrossSeeds": 7677,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.09557934854853621,
+              "coldRecall10Micro": 0.10430839002267574,
+              "warmRecall10Macro": 0.06493925786688941,
+              "warmRecall10Micro": 0.06499934870392081,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.016205788952253993,
+                  "ciLo": -0.021179976029889414,
+                  "ciHi": -0.011372410201575775,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.020673645920356448,
+                  "ciLo": -0.027753411306042867,
+                  "ciHi": -0.01366088833194097,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.04182983500417709,
+                  "ciLo": -0.049322960178223324,
+                  "ciHi": -0.0346351991088833,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.15131578947368424,
+                  "ciLo": 0.1184210526315789,
+                  "ciHi": 0.18750000000000008,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.34868421052631565,
+                  "ciLo": -0.4100877192982457,
+                  "ciHi": -0.2883771929824561,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 46,
+                "meanWarmHitsDeltaPerSeed": -105.99999999999997
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.3,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 0.0010964912280701754,
+              "ndcg10": 0.10409359838518221,
+              "recall10": 0.08531876566416048,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 762,
+              "meanWarmHitsPerSeed": 254,
+              "totalColdPosSumAcrossSeeds": 2590,
+              "totalWarmPosSumAcrossSeeds": 6410,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.11844106794764685,
+              "warmRecall10Micro": 0.1188767550702028,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 2,
+              "ndcg10": 0.10364937890261312,
+              "recall10": 0.0854405980228349,
+              "coldHitsSumAcrossSeeds": 97,
+              "meanColdHitsPerSeed": 32.333333333333336,
+              "warmHitsSumAcrossSeeds": 666,
+              "meanWarmHitsPerSeed": 222,
+              "totalColdPosSumAcrossSeeds": 2590,
+              "totalWarmPosSumAcrossSeeds": 6410,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.04009230332368313,
+              "coldRecall10Micro": 0.03745173745173745,
+              "warmRecall10Macro": 0.10360319200779722,
+              "warmRecall10Micro": 0.10390015600624025,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.0004442194825690823,
+                  "ciLo": -0.002831882970549385,
+                  "ciHi": 0.0019297182766973915,
+                  "sig": false
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": 0.00012183235867446436,
+                  "ciLo": -0.0034965886939571163,
+                  "ciHi": 0.0035209551656920092,
+                  "sig": false
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.014837875939849617,
+                  "ciLo": -0.01840147243107769,
+                  "ciHi": -0.01141699735449735,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.10635964912280693,
+                  "ciLo": 0.08114035087719298,
+                  "ciHi": 0.13377192982456138,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.10526315789473684,
+                  "ciLo": -0.1304824561403509,
+                  "ciHi": -0.08114035087719296,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 32.333333333333336,
+                "meanWarmHitsDeltaPerSeed": -32
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 3,
+              "ndcg10": 0.10137519336118572,
+              "recall10": 0.08243307922584242,
+              "coldHitsSumAcrossSeeds": 122,
+              "meanColdHitsPerSeed": 40.666666666666664,
+              "warmHitsSumAcrossSeeds": 614,
+              "meanWarmHitsPerSeed": 204.66666666666666,
+              "totalColdPosSumAcrossSeeds": 2590,
+              "totalWarmPosSumAcrossSeeds": 6410,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.04861074998369102,
+              "coldRecall10Micro": 0.047104247104247106,
+              "warmRecall10Macro": 0.09570627958785849,
+              "warmRecall10Micro": 0.09578783151326054,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.0027184050239964885,
+                  "ciLo": -0.005580160694736825,
+                  "ciHi": 0.0002576628403132753,
+                  "sig": false
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.002885686438318015,
+                  "ciLo": -0.007283834586466163,
+                  "ciHi": 0.001500278473962686,
+                  "sig": false
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.022734788359788354,
+                  "ciLo": -0.027425334168755214,
+                  "ciHi": -0.018358831105541623,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.13377192982456143,
+                  "ciLo": 0.10307017543859645,
+                  "ciHi": 0.16557017543859656,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.162280701754386,
+                  "ciLo": -0.19627192982456143,
+                  "ciHi": -0.13048245614035087,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 40.666666666666664,
+                "meanWarmHitsDeltaPerSeed": -49.33333333333334
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 304,
+              "meanColdSlots": 5,
+              "ndcg10": 0.09513121885069344,
+              "recall10": 0.074520067529936,
+              "coldHitsSumAcrossSeeds": 174,
+              "meanColdHitsPerSeed": 58,
+              "warmHitsSumAcrossSeeds": 491,
+              "meanWarmHitsPerSeed": 163.66666666666666,
+              "totalColdPosSumAcrossSeeds": 2590,
+              "totalWarmPosSumAcrossSeeds": 6410,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.06547609356961231,
+              "coldRecall10Micro": 0.06718146718146718,
+              "warmRecall10Macro": 0.0764637287663603,
+              "warmRecall10Micro": 0.0765990639625585,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 304,
+                  "meanDelta": -0.008962379534488769,
+                  "ciLo": -0.013429387643579146,
+                  "ciHi": -0.004601999351827457,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 304,
+                  "meanDelta": -0.010798698134224453,
+                  "ciLo": -0.01725581314397103,
+                  "ciHi": -0.0045991715399610125,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 304,
+                  "meanDelta": -0.04197733918128653,
+                  "ciLo": -0.04945958646616538,
+                  "ciHi": -0.03475920704539124,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": 0.19078947368421068,
+                  "ciLo": 0.15460526315789477,
+                  "ciHi": 0.23026315789473695,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 304,
+                  "meanDelta": -0.2971491228070174,
+                  "ciLo": -0.3508771929824562,
+                  "ciHi": -0.2456140350877193,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 58,
+                "meanWarmHitsDeltaPerSeed": -90.33333333333334
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "fresh_300 >=8★",
+      "byMask": [
+        {
+          "maskFrac": 0,
+          "seeds": 1,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 1,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 0,
+              "ndcg10": 0.07832322740063852,
+              "recall10": 0.07766666666666668,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 233,
+              "meanWarmHitsPerSeed": 233,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2999,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.07766666666666668,
+              "warmRecall10Micro": 0.07769256418806268,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 1,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 2,
+              "ndcg10": 0.06962012190812,
+              "recall10": 0.0643333333333333,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 193,
+              "meanWarmHitsPerSeed": 193,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2999,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.0643333333333333,
+              "warmRecall10Micro": 0.06435478492830944,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.008703105492518513,
+                  "ciLo": -0.012360008566498838,
+                  "ciHi": -0.005825801846506281,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.01333333333333334,
+                  "ciLo": -0.01766666666666666,
+                  "ciHi": -0.00933333333333334,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.01333333333333334,
+                  "ciLo": -0.01766666666666666,
+                  "ciHi": -0.00933333333333334,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0,
+                  "ciLo": 0,
+                  "ciHi": 0,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.13333333333333333,
+                  "ciLo": -0.17666666666666667,
+                  "ciHi": -0.09333333333333334,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 0,
+                "meanWarmHitsDeltaPerSeed": -40
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 1,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 3,
+              "ndcg10": 0.06688065824978565,
+              "recall10": 0.05899999999999996,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 177,
+              "meanWarmHitsPerSeed": 177,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2999,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.05899999999999996,
+              "warmRecall10Micro": 0.05901967322440813,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.011442569150852885,
+                  "ciLo": -0.015289312757805061,
+                  "ciHi": -0.00814077091026034,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.01866666666666666,
+                  "ciLo": -0.02366666666666665,
+                  "ciHi": -0.014000000000000004,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.01866666666666666,
+                  "ciLo": -0.02366666666666665,
+                  "ciHi": -0.014000000000000004,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0,
+                  "ciLo": 0,
+                  "ciHi": 0,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.18666666666666668,
+                  "ciLo": -0.23666666666666666,
+                  "ciHi": -0.14,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 0,
+                "meanWarmHitsDeltaPerSeed": -56
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 1,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 5,
+              "ndcg10": 0.05899522765757551,
+              "recall10": 0.04499999999999994,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 135,
+              "meanWarmHitsPerSeed": 135,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2999,
+              "totalHoldoutPosSumAcrossSeeds": 3000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.04499999999999994,
+              "warmRecall10Micro": 0.045015005001667226,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.019327999743063023,
+                  "ciLo": -0.024175932656427854,
+                  "ciHi": -0.014897826681731691,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.03266666666666664,
+                  "ciLo": -0.039333333333333276,
+                  "ciHi": -0.02599999999999998,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.03266666666666664,
+                  "ciLo": -0.039333333333333276,
+                  "ciHi": -0.02599999999999998,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0,
+                  "ciLo": 0,
+                  "ciHi": 0,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.32666666666666666,
+                  "ciLo": -0.3933333333333333,
+                  "ciHi": -0.26,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 0,
+                "meanWarmHitsDeltaPerSeed": -98
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.15,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 0.0011111111111111111,
+              "ndcg10": 0.07518502836366342,
+              "recall10": 0.07433333333333333,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 669,
+              "meanWarmHitsPerSeed": 223,
+              "totalColdPosSumAcrossSeeds": 1235,
+              "totalWarmPosSumAcrossSeeds": 7765,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.0856507936507936,
+              "warmRecall10Micro": 0.08615582743077914,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 2,
+              "ndcg10": 0.07109148326839217,
+              "recall10": 0.06922222222222223,
+              "coldHitsSumAcrossSeeds": 52,
+              "meanColdHitsPerSeed": 17.333333333333332,
+              "warmHitsSumAcrossSeeds": 571,
+              "meanWarmHitsPerSeed": 190.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1235,
+              "totalWarmPosSumAcrossSeeds": 7765,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.04566573212906692,
+              "coldRecall10Micro": 0.042105263157894736,
+              "warmRecall10Macro": 0.07303615520282182,
+              "warmRecall10Micro": 0.07353509336767547,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.004093545095271226,
+                  "ciLo": -0.006721778458492585,
+                  "ciHi": -0.0017206994641680222,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.0051111111111111105,
+                  "ciLo": -0.008666666666666666,
+                  "ciHi": -0.0017777777777777763,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.012614638447971782,
+                  "ciLo": -0.016244268077601414,
+                  "ciHi": -0.009300705467372135,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0.057777777777777796,
+                  "ciLo": 0.04000000000000001,
+                  "ciHi": 0.07666666666666666,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.10888888888888891,
+                  "ciLo": -0.14,
+                  "ciHi": -0.08111111111111109,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 17.333333333333332,
+                "meanWarmHitsDeltaPerSeed": -32.66666666666666
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 3,
+              "ndcg10": 0.06842071280261715,
+              "recall10": 0.06444444444444442,
+              "coldHitsSumAcrossSeeds": 68,
+              "meanColdHitsPerSeed": 22.666666666666668,
+              "warmHitsSumAcrossSeeds": 512,
+              "meanWarmHitsPerSeed": 170.66666666666666,
+              "totalColdPosSumAcrossSeeds": 1235,
+              "totalWarmPosSumAcrossSeeds": 7765,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.05906401986716261,
+              "coldRecall10Micro": 0.05506072874493927,
+              "warmRecall10Macro": 0.06561992945326274,
+              "warmRecall10Micro": 0.06593689632968448,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.006764315561046261,
+                  "ciLo": -0.010118787854226444,
+                  "ciHi": -0.003526366815023601,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.009888888888888892,
+                  "ciLo": -0.014888888888888886,
+                  "ciHi": -0.0052222222222222245,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.02003086419753087,
+                  "ciLo": -0.025038359788359794,
+                  "ciHi": -0.015369929453262791,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0.07555555555555553,
+                  "ciLo": 0.05444444444444444,
+                  "ciHi": 0.09888888888888889,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.17444444444444449,
+                  "ciLo": -0.2177777777777777,
+                  "ciHi": -0.1333333333333334,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 22.666666666666668,
+                "meanWarmHitsDeltaPerSeed": -52.33333333333334
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 5,
+              "ndcg10": 0.06299641859098916,
+              "recall10": 0.05444444444444437,
+              "coldHitsSumAcrossSeeds": 92,
+              "meanColdHitsPerSeed": 30.666666666666668,
+              "warmHitsSumAcrossSeeds": 398,
+              "meanWarmHitsPerSeed": 132.66666666666666,
+              "totalColdPosSumAcrossSeeds": 1235,
+              "totalWarmPosSumAcrossSeeds": 7765,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.07839056288014166,
+              "coldRecall10Micro": 0.07449392712550608,
+              "warmRecall10Macro": 0.050762345679012305,
+              "warmRecall10Micro": 0.051255634256278174,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.012188609772674252,
+                  "ciLo": -0.01676412972595294,
+                  "ciHi": -0.008098670147831777,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.01988888888888888,
+                  "ciLo": -0.026444444444444434,
+                  "ciHi": -0.013666666666666674,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.03488844797178129,
+                  "ciLo": -0.042445767195767176,
+                  "ciHi": -0.028132716049382722,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0.10222222222222214,
+                  "ciLo": 0.07777777777777778,
+                  "ciHi": 0.1288888888888889,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.3011111111111112,
+                  "ciLo": -0.36666666666666664,
+                  "ciHi": -0.24222222222222228,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 30.666666666666668,
+                "meanWarmHitsDeltaPerSeed": -90.33333333333334
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.3,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 0.01,
+              "ndcg10": 0.07279172896108578,
+              "recall10": 0.07055555555555555,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 635,
+              "meanWarmHitsPerSeed": 211.66666666666666,
+              "totalColdPosSumAcrossSeeds": 2607,
+              "totalWarmPosSumAcrossSeeds": 6393,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.09910317460317453,
+              "warmRecall10Micro": 0.09932738933208196,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 2,
+              "ndcg10": 0.07146643122067718,
+              "recall10": 0.06744444444444442,
+              "coldHitsSumAcrossSeeds": 68,
+              "meanColdHitsPerSeed": 22.666666666666668,
+              "warmHitsSumAcrossSeeds": 539,
+              "meanWarmHitsPerSeed": 179.66666666666666,
+              "totalColdPosSumAcrossSeeds": 2607,
+              "totalWarmPosSumAcrossSeeds": 6393,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.026745528748525215,
+              "coldRecall10Micro": 0.02608362102032988,
+              "warmRecall10Macro": 0.08427777777777772,
+              "warmRecall10Micro": 0.08431096511809792,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.0013252977404085986,
+                  "ciLo": -0.003518202026326458,
+                  "ciHi": 0.0009105874013159733,
+                  "sig": false
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.003111111111111111,
+                  "ciLo": -0.00644444444444444,
+                  "ciHi": 0.00033333333333333495,
+                  "sig": false
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.014825396825396823,
+                  "ciLo": -0.01871560846560846,
+                  "ciHi": -0.011218253968253968,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0.07555555555555553,
+                  "ciLo": 0.05111111111111113,
+                  "ciHi": 0.1011111111111111,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.10666666666666662,
+                  "ciLo": -0.13444444444444448,
+                  "ciHi": -0.08111111111111108,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 22.666666666666668,
+                "meanWarmHitsDeltaPerSeed": -32
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 3,
+              "ndcg10": 0.06866686036716747,
+              "recall10": 0.06544444444444443,
+              "coldHitsSumAcrossSeeds": 102,
+              "meanColdHitsPerSeed": 34,
+              "warmHitsSumAcrossSeeds": 487,
+              "meanWarmHitsPerSeed": 162.33333333333334,
+              "totalColdPosSumAcrossSeeds": 2607,
+              "totalWarmPosSumAcrossSeeds": 6393,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.03882000748550886,
+              "coldRecall10Micro": 0.039125431530494824,
+              "warmRecall10Macro": 0.07660361552028214,
+              "warmRecall10Micro": 0.07617706866885657,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.004124868593918285,
+                  "ciLo": -0.007504228351556478,
+                  "ciHi": -0.000774109352144733,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.005111111111111111,
+                  "ciLo": -0.009666666666666672,
+                  "ciHi": -0.0005555555555555559,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.022499559082892414,
+                  "ciLo": -0.027583774250440913,
+                  "ciHi": -0.017649911816578476,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0.11333333333333329,
+                  "ciLo": 0.08333333333333331,
+                  "ciHi": 0.14333333333333337,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.1644444444444445,
+                  "ciLo": -0.20111111111111116,
+                  "ciHi": -0.12999999999999995,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 34,
+                "meanWarmHitsDeltaPerSeed": -49.333333333333314
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 300,
+              "meanColdSlots": 5,
+              "ndcg10": 0.06564506130126409,
+              "recall10": 0.05988888888888885,
+              "coldHitsSumAcrossSeeds": 149,
+              "meanColdHitsPerSeed": 49.666666666666664,
+              "warmHitsSumAcrossSeeds": 390,
+              "meanWarmHitsPerSeed": 130,
+              "totalColdPosSumAcrossSeeds": 2607,
+              "totalWarmPosSumAcrossSeeds": 6393,
+              "totalHoldoutPosSumAcrossSeeds": 9000,
+              "coldRecall10Macro": 0.054854765840033216,
+              "coldRecall10Micro": 0.05715381664748753,
+              "warmRecall10Macro": 0.06131834215167545,
+              "warmRecall10Micro": 0.06100422336931018,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 300,
+                  "meanDelta": -0.007146667659821661,
+                  "ciLo": -0.011712812527495096,
+                  "ciHi": -0.0027898106302525773,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 300,
+                  "meanDelta": -0.010666666666666672,
+                  "ciLo": -0.01711111111111111,
+                  "ciHi": -0.004666666666666667,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 300,
+                  "meanDelta": -0.037784832451499106,
+                  "ciLo": -0.04522574955908289,
+                  "ciHi": -0.031064814814814826,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": 0.16555555555555568,
+                  "ciLo": 0.1288888888888889,
+                  "ciHi": 0.20444444444444448,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 300,
+                  "meanDelta": -0.27222222222222214,
+                  "ciLo": -0.3266666666666665,
+                  "ciHi": -0.22333333333333338,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 49.666666666666664,
+                "meanWarmHitsDeltaPerSeed": -81.66666666666666
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "fresh_300 >=9★",
+      "byMask": [
+        {
+          "maskFrac": 0,
+          "seeds": 1,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 1,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 0,
+              "ndcg10": 0.12274159942572918,
+              "recall10": 0.09964788732394374,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 280,
+              "meanWarmHitsPerSeed": 280,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2813,
+              "totalHoldoutPosSumAcrossSeeds": 2814,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.09964788732394374,
+              "warmRecall10Micro": 0.09953785993601137,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 1,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 2,
+              "ndcg10": 0.11148957970588878,
+              "recall10": 0.08345070422535213,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 234,
+              "meanWarmHitsPerSeed": 234,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2813,
+              "totalHoldoutPosSumAcrossSeeds": 2814,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.08345070422535213,
+              "warmRecall10Micro": 0.08318521151795237,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.011252019719840372,
+                  "ciLo": -0.014099995630385515,
+                  "ciHi": -0.008470719780111623,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.016197183098591552,
+                  "ciLo": -0.020422535211267596,
+                  "ciHi": -0.0119718309859155,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.016197183098591552,
+                  "ciLo": -0.020422535211267596,
+                  "ciHi": -0.0119718309859155,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0,
+                  "ciLo": 0,
+                  "ciHi": 0,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.1619718309859155,
+                  "ciLo": -0.20422535211267606,
+                  "ciHi": -0.11971830985915492,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 0,
+                "meanWarmHitsDeltaPerSeed": -46
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 1,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 3,
+              "ndcg10": 0.10773187894706185,
+              "recall10": 0.07922535211267606,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 222,
+              "meanWarmHitsPerSeed": 222,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2813,
+              "totalHoldoutPosSumAcrossSeeds": 2814,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.07922535211267606,
+              "warmRecall10Micro": 0.07891930323498045,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.015009720478667334,
+                  "ciLo": -0.01829804299326136,
+                  "ciHi": -0.011775690429044075,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.020422535211267592,
+                  "ciLo": -0.02570422535211265,
+                  "ciHi": -0.015492957746478875,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.020422535211267592,
+                  "ciLo": -0.02570422535211265,
+                  "ciHi": -0.015492957746478875,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0,
+                  "ciLo": 0,
+                  "ciHi": 0,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.20422535211267606,
+                  "ciLo": -0.25704225352112675,
+                  "ciHi": -0.15492957746478872,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 0,
+                "meanWarmHitsDeltaPerSeed": -58
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 1,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 5,
+              "ndcg10": 0.09333131302534138,
+              "recall10": 0.06285211267605628,
+              "coldHitsSumAcrossSeeds": 0,
+              "meanColdHitsPerSeed": 0,
+              "warmHitsSumAcrossSeeds": 177,
+              "meanWarmHitsPerSeed": 177,
+              "totalColdPosSumAcrossSeeds": 1,
+              "totalWarmPosSumAcrossSeeds": 2813,
+              "totalHoldoutPosSumAcrossSeeds": 2814,
+              "coldRecall10Macro": 0,
+              "coldRecall10Micro": 0,
+              "warmRecall10Macro": 0.06285211267605628,
+              "warmRecall10Micro": 0.06292214717383576,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.029410286400387856,
+                  "ciLo": -0.03435905070625987,
+                  "ciHi": -0.02468116244303773,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.03679577464788727,
+                  "ciLo": -0.04383802816901402,
+                  "ciHi": -0.029577464788732365,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.03679577464788727,
+                  "ciLo": -0.04383802816901402,
+                  "ciHi": -0.029577464788732365,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0,
+                  "ciLo": 0,
+                  "ciHi": 0,
+                  "sig": false
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.3626760563380282,
+                  "ciLo": -0.43309859154929575,
+                  "ciHi": -0.29225352112676056,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 0,
+                "meanWarmHitsDeltaPerSeed": -103
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.15,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 0.0035211267605633804,
+              "ndcg10": 0.117621303190295,
+              "recall10": 0.09336854460093906,
+              "coldHitsSumAcrossSeeds": 2,
+              "meanColdHitsPerSeed": 0.6666666666666666,
+              "warmHitsSumAcrossSeeds": 786,
+              "meanWarmHitsPerSeed": 262,
+              "totalColdPosSumAcrossSeeds": 1181,
+              "totalWarmPosSumAcrossSeeds": 7261,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.0010147133434804667,
+              "coldRecall10Micro": 0.001693480101608806,
+              "warmRecall10Macro": 0.10818429093076971,
+              "warmRecall10Micro": 0.10824955240325024,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 2,
+              "ndcg10": 0.11340845059510661,
+              "recall10": 0.08802816901408451,
+              "coldHitsSumAcrossSeeds": 62,
+              "meanColdHitsPerSeed": 20.666666666666668,
+              "warmHitsSumAcrossSeeds": 679,
+              "meanWarmHitsPerSeed": 226.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1181,
+              "totalWarmPosSumAcrossSeeds": 7261,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.05529081576155733,
+              "coldRecall10Micro": 0.05249788314987299,
+              "warmRecall10Macro": 0.09360468365750048,
+              "warmRecall10Micro": 0.09351329018041592,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.004212852595188412,
+                  "ciLo": -0.006598400917575613,
+                  "ciHi": -0.002027536654493323,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.005340375586854458,
+                  "ciLo": -0.00903755868544601,
+                  "ciHi": -0.0017605633802816882,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.01457960727326924,
+                  "ciLo": -0.018262351889112446,
+                  "ciHi": -0.01107059020791415,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0.07042253521126764,
+                  "ciLo": 0.050469483568075124,
+                  "ciHi": 0.09154929577464782,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.12558685446009388,
+                  "ciLo": -0.15727699530516434,
+                  "ciHi": -0.09624413145539902,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 20,
+                "meanWarmHitsDeltaPerSeed": -35.66666666666666
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 3,
+              "ndcg10": 0.10894863011750718,
+              "recall10": 0.08204225352112675,
+              "coldHitsSumAcrossSeeds": 73,
+              "meanColdHitsPerSeed": 24.333333333333332,
+              "warmHitsSumAcrossSeeds": 617,
+              "meanWarmHitsPerSeed": 205.66666666666666,
+              "totalColdPosSumAcrossSeeds": 1181,
+              "totalWarmPosSumAcrossSeeds": 7261,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.06462073688404414,
+              "coldRecall10Micro": 0.06181202370872142,
+              "warmRecall10Macro": 0.08489967583277436,
+              "warmRecall10Micro": 0.08497452141578295,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.008672673072787825,
+                  "ciLo": -0.011681984108077456,
+                  "ciHi": -0.005722690946173766,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.01132629107981221,
+                  "ciLo": -0.016138497652582153,
+                  "ciHi": -0.006748826291079815,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.02328461509799539,
+                  "ciLo": -0.028098218943289358,
+                  "ciHi": -0.018382983083687306,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0.08333333333333334,
+                  "ciLo": 0.05985915492957749,
+                  "ciHi": 0.10563380281690142,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.1983568075117371,
+                  "ciLo": -0.2382629107981221,
+                  "ciHi": -0.15727699530516429,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 23.666666666666664,
+                "meanWarmHitsDeltaPerSeed": -56.33333333333334
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 5,
+              "ndcg10": 0.10192991940297103,
+              "recall10": 0.07347417840375585,
+              "coldHitsSumAcrossSeeds": 106,
+              "meanColdHitsPerSeed": 35.333333333333336,
+              "warmHitsSumAcrossSeeds": 514,
+              "meanWarmHitsPerSeed": 171.33333333333334,
+              "totalColdPosSumAcrossSeeds": 1181,
+              "totalWarmPosSumAcrossSeeds": 7261,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.09347849473625292,
+              "coldRecall10Micro": 0.08975444538526672,
+              "warmRecall10Macro": 0.07052313883299793,
+              "warmRecall10Micro": 0.0707891475003443,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.015691383787324015,
+                  "ciLo": -0.0197309542328075,
+                  "ciHi": -0.011427453155090677,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.01989436619718309,
+                  "ciLo": -0.025938967136150227,
+                  "ciHi": -0.01355633802816902,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.03766115209777182,
+                  "ciLo": -0.04437178627319471,
+                  "ciHi": -0.03089881883895969,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0.12206572769953049,
+                  "ciLo": 0.09507042253521122,
+                  "ciHi": 0.15023474178403762,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.31924882629108,
+                  "ciLo": -0.3755868544600941,
+                  "ciHi": -0.2629107981220658,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 34.66666666666667,
+                "meanWarmHitsDeltaPerSeed": -90.66666666666666
+              }
+            }
+          ]
+        },
+        {
+          "maskFrac": 0.3,
+          "seeds": 3,
+          "quotas": [
+            {
+              "quota": 0,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 0.008215962441314555,
+              "ndcg10": 0.11122085761143365,
+              "recall10": 0.08651352559803267,
+              "coldHitsSumAcrossSeeds": 2,
+              "meanColdHitsPerSeed": 0.6666666666666666,
+              "warmHitsSumAcrossSeeds": 724,
+              "meanWarmHitsPerSeed": 241.33333333333334,
+              "totalColdPosSumAcrossSeeds": 2417,
+              "totalWarmPosSumAcrossSeeds": 6025,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.00044934640522875825,
+              "coldRecall10Micro": 0.0008274720728175424,
+              "warmRecall10Macro": 0.12106947238989489,
+              "warmRecall10Micro": 0.12016597510373445,
+              "vsN0": null
+            },
+            {
+              "quota": 2,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 2,
+              "ndcg10": 0.10932096735921133,
+              "recall10": 0.08433098591549298,
+              "coldHitsSumAcrossSeeds": 74,
+              "meanColdHitsPerSeed": 24.666666666666668,
+              "warmHitsSumAcrossSeeds": 637,
+              "meanWarmHitsPerSeed": 212.33333333333334,
+              "totalColdPosSumAcrossSeeds": 2417,
+              "totalWarmPosSumAcrossSeeds": 6025,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.028946165698795576,
+              "coldRecall10Micro": 0.03061646669424907,
+              "warmRecall10Macro": 0.10505998956703176,
+              "warmRecall10Micro": 0.10572614107883817,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.00189989025222232,
+                  "ciLo": -0.00420152005189685,
+                  "ciHi": 0.00036943211262906146,
+                  "sig": false
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.0021825396825396804,
+                  "ciLo": -0.006173150011178179,
+                  "ciHi": 0.0016431924882629107,
+                  "sig": false
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.016009482822863106,
+                  "ciLo": -0.020991690886057082,
+                  "ciHi": -0.0116513898204039,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0.0845070422535211,
+                  "ciLo": 0.059859154929577454,
+                  "ciHi": 0.11032863849765252,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.10211267605633799,
+                  "ciLo": -0.12910798122065728,
+                  "ciHi": -0.07746478873239436,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 24,
+                "meanWarmHitsDeltaPerSeed": -29
+              }
+            },
+            {
+              "quota": 3,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 3,
+              "ndcg10": 0.10766003471968844,
+              "recall10": 0.08198356807511738,
+              "coldHitsSumAcrossSeeds": 107,
+              "meanColdHitsPerSeed": 35.666666666666664,
+              "warmHitsSumAcrossSeeds": 584,
+              "meanWarmHitsPerSeed": 194.66666666666666,
+              "totalColdPosSumAcrossSeeds": 2417,
+              "totalWarmPosSumAcrossSeeds": 6025,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.04294124069242145,
+              "coldRecall10Micro": 0.04426975589573852,
+              "warmRecall10Macro": 0.09659484685893133,
+              "warmRecall10Micro": 0.09692946058091287,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.0035608228917452184,
+                  "ciLo": -0.006900778556041535,
+                  "ciHi": -0.0004610811769110794,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.004529957522915269,
+                  "ciLo": -0.009741784037558682,
+                  "ciHi": 0.0004107981220657285,
+                  "sig": false
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.02447462553096356,
+                  "ciLo": -0.030662214024890073,
+                  "ciHi": -0.019108633281168495,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0.12323943661971826,
+                  "ciLo": 0.09154929577464786,
+                  "ciHi": 0.15492957746478878,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.16431924882629115,
+                  "ciLo": -0.19953051643192496,
+                  "ciHi": -0.1302816901408451,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 35,
+                "meanWarmHitsDeltaPerSeed": -46.666666666666686
+              }
+            },
+            {
+              "quota": 5,
+              "seeds": 3,
+              "evaluatedUsers": 284,
+              "meanColdSlots": 5,
+              "ndcg10": 0.10139652177963798,
+              "recall10": 0.07400234741784036,
+              "coldHitsSumAcrossSeeds": 145,
+              "meanColdHitsPerSeed": 48.333333333333336,
+              "warmHitsSumAcrossSeeds": 478,
+              "meanWarmHitsPerSeed": 159.33333333333334,
+              "totalColdPosSumAcrossSeeds": 2417,
+              "totalWarmPosSumAcrossSeeds": 6025,
+              "totalHoldoutPosSumAcrossSeeds": 8442,
+              "coldRecall10Macro": 0.05986496726084533,
+              "coldRecall10Micro": 0.059991725279271824,
+              "warmRecall10Macro": 0.07931011997913402,
+              "warmRecall10Micro": 0.07933609958506224,
+              "vsN0": {
+                "ndcg10": {
+                  "n": 284,
+                  "meanDelta": -0.009824335831795686,
+                  "ciLo": -0.014401734572390084,
+                  "ciHi": -0.005578220971160372,
+                  "sig": true
+                },
+                "recall10": {
+                  "n": 284,
+                  "meanDelta": -0.012511178180192262,
+                  "ciLo": -0.018896713615023476,
+                  "ciHi": -0.0061815336463223736,
+                  "sig": true
+                },
+                "warmRecall10": {
+                  "n": 284,
+                  "meanDelta": -0.04175935241076083,
+                  "ciLo": -0.04954029733959306,
+                  "ciHi": -0.0344735077129443,
+                  "sig": true
+                },
+                "coldHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": 0.16784037558685455,
+                  "ciLo": 0.1326291079812206,
+                  "ciHi": 0.20422535211267623,
+                  "sig": true
+                },
+                "warmHitsPerUser": {
+                  "n": 284,
+                  "meanDelta": -0.28873239436619713,
+                  "ciLo": -0.3392018779342723,
+                  "ciHi": -0.24061032863849763,
+                  "sig": true
+                },
+                "meanColdHitsDeltaPerSeed": 47.66666666666667,
+                "meanWarmHitsDeltaPerSeed": -82
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
