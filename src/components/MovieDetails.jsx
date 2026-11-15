@@ -407,8 +407,12 @@ export default function MovieDetails({
 
   function handleDiscussFilm() {
     if (!movie) return;
+    const castNames = Array.isArray(movie.cast)
+      ? movie.cast
+      : (movie.castDetails || []).map((c) => c?.name).filter(Boolean);
     const focusPayload = {
       ...movie,
+      cast: castNames,
       imdbID: movie.imdbID || selectedId,
       isWatched,
       isWatchlist,

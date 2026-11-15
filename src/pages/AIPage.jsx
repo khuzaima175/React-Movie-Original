@@ -1,22 +1,192 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import MovieRecommendations from "../components/MovieRecommendations";
 import AIChat from "../components/AIChat";
 import { Button, Tabs } from "../components/ui";
+import {
+  parseAiPageParams,
+  loadFilmFocusCache,
+  saveFilmFocusCache
+} from "../services/filmChatService";
+import { findMatchingMovie } from "../services/movieIdentity";
+import {
+  findTmdbByImdbId,
+  fetchTmdbMovieDetails,
+  getFallbackPoster
+} from "../services/tmdbService";
+import { fetchOmdbJson } from "../services/apiTransport";
 import { SlidersHorizontal } from "lucide-react";
 
+function normalizeResolvedFocusMovie(rawMovie, parsedParams = {}) {
+  if (!rawMovie && !parsedParams.movieKey && !parsedParams.tmdbId) return null;
+  const source = rawMovie || {};
+  const castArr = Array.isArray(source.cast)
+    ? source.cast
+    : Array.isArray(source.castDetails)
+      ? source.castDetails.map((c) => c?.name).filter(Boolean)
+      : (typeof source.cast === "string" && source.cast !== "N/A")
+        ? source.cast.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+  const keywordsArr = Array.isArray(source.keywords) && source.keywords.length > 0
+    ? source.keywords
+    : (Array.isArray(source.keywordNames) ? source.keywordNames : []);
+  const title = source.title || source.Title || parsedParams.title || "Untitled Film";
+
+  return {
+    ...source,
+    imdbID: source.imdbID || parsedParams.imdbID || (parsedParams.tmdbId ? `tmdb_${parsedParams.tmdbId}` : null),
+    tmdbId: source.tmdbId ?? parsedParams.tmdbId ?? null,
+    title,
+    year: source.year || source.Year || "",
+    poster: source.poster || (source.Poster && source.Poster !== "N/A" ? source.Poster : null) || getFallbackPoster(title),
+    director: source.director || source.Director || "",
+    writers: source.writers || source.Writer || "",
+    genre: Array.isArray(source.genres) ? source.genres.join(", ") : (source.genre || source.Genre || ""),
+    runtime: source.runtime || source.Runtime || "",
+    imdbRating: source.imdbRating ?? null,
+    plot: source.plot || source.Plot || source.overview || "",
+    cast: castArr,
+    keywords: keywordsArr
+  };
+}
+
 export default function AIPage({ onOpenTasteDeck }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     watched = [],
     watchlist = [],
     addToWatchlist,
+    userRegion,
     aiRecommendations,
     setAiRecommendations,
     aiTasteProfile,
     setAiTasteProfile
   } = useApp();
 
-  const [aiSection, setAiSection] = useState("recs"); // "recs" | "chat"
+  const parsedParams = useMemo(() => parseAiPageParams(searchParams), [searchParams]);
+  const aiSection = parsedParams.tab;
+
+  const lookupKey = useMemo(() => {
+    if (aiSection !== "chat") return null;
+    return parsedParams.imdbID || (parsedParams.tmdbId ? `tmdb_${parsedParams.tmdbId}` : parsedParams.movieKey);
+  }, [aiSection, parsedParams]);
+
+  const [fetchedFocus, setFetchedFocus] = useState(null);
+
+  useEffect(() => {
+    if (!lookupKey) {
+      setFetchedFocus(null);
+      return;
+    }
+
+    const cached = loadFilmFocusCache(lookupKey);
+    if (cached && cached.plot && (cached.director || cached.cast?.length)) {
+      setFetchedFocus(cached);
+      return;
+    }
+
+    const vaultFallback = findMatchingMovie(watched, {
+      imdbID: parsedParams.imdbID || parsedParams.movieKey,
+      tmdbId: parsedParams.tmdbId,
+      title: parsedParams.title
+    }) || findMatchingMovie(watchlist, {
+      imdbID: parsedParams.imdbID || parsedParams.movieKey,
+      tmdbId: parsedParams.tmdbId,
+      title: parsedParams.title
+    });
+
+    if (cached) {
+      setFetchedFocus(cached);
+    } else if (vaultFallback) {
+      setFetchedFocus(normalizeResolvedFocusMovie(vaultFallback, parsedParams));
+    } else {
+      setFetchedFocus(normalizeResolvedFocusMovie(null, parsedParams));
+    }
+
+    let cancelled = false;
+
+    async function hydrateFocusedFilm() {
+      try {
+        let resolvedTmdbId = parsedParams.tmdbId;
+        if (!resolvedTmdbId && parsedParams.imdbID) {
+          const stub = await findTmdbByImdbId(parsedParams.imdbID);
+          resolvedTmdbId = stub?.tmdbId || null;
+        }
+
+        const [tmdbData, omdbData] = await Promise.all([
+          resolvedTmdbId ? fetchTmdbMovieDetails(resolvedTmdbId, userRegion || "US") : Promise.resolve(null),
+          parsedParams.imdbID ? fetchOmdbJson({ i: parsedParams.imdbID, plot: "full" }).catch(() => null) : Promise.resolve(null)
+        ]);
+
+        if (cancelled || (!tmdbData && (!omdbData || omdbData.Response === "False"))) return;
+
+        const validOmdb = omdbData && omdbData.Response !== "False" ? omdbData : null;
+        const merged = normalizeResolvedFocusMovie(
+          {
+            ...(vaultFallback || {}),
+            ...(cached || {}),
+            ...(validOmdb || {}),
+            ...(tmdbData || {}),
+            imdbID: tmdbData?.imdbID || validOmdb?.imdbID || parsedParams.imdbID || vaultFallback?.imdbID || null,
+            tmdbId: tmdbData?.tmdbId || resolvedTmdbId || vaultFallback?.tmdbId || null,
+            plot: tmdbData?.plot || validOmdb?.Plot || cached?.plot || "",
+            director: (tmdbData?.director && tmdbData.director !== "Unknown") ? tmdbData.director : (validOmdb?.Director || cached?.director || ""),
+            writers: tmdbData?.writers || validOmdb?.Writer || cached?.writers || "",
+            poster: tmdbData?.poster || (validOmdb?.Poster && validOmdb.Poster !== "N/A" ? validOmdb.Poster : null) || cached?.poster || vaultFallback?.poster || null,
+            imdbRating: validOmdb?.imdbRating && validOmdb.imdbRating !== "N/A"
+              ? validOmdb.imdbRating
+              : (tmdbData?.vote_average ? String(tmdbData.vote_average) : null)
+          },
+          parsedParams
+        );
+
+        if (!cancelled && merged) {
+          saveFilmFocusCache(merged);
+          setFetchedFocus(merged);
+        }
+      } catch (err) {
+        console.warn("Focused film hydration failed:", err);
+      }
+    }
+
+    hydrateFocusedFilm();
+    return () => {
+      cancelled = true;
+    };
+  }, [lookupKey, parsedParams.imdbID, parsedParams.tmdbId, parsedParams.movieKey, parsedParams.title, userRegion]);
+
+  const focusedMovie = useMemo(() => {
+    if (!lookupKey) return null;
+    const base = fetchedFocus || loadFilmFocusCache(lookupKey) || normalizeResolvedFocusMovie(null, parsedParams);
+    if (!base) return null;
+    const vaultEntry = findMatchingMovie(watched, base);
+    const watchlistEntry = findMatchingMovie(watchlist, base);
+    return {
+      ...base,
+      isWatched: Boolean(vaultEntry),
+      isWatchlist: Boolean(watchlistEntry),
+      userRating: vaultEntry?.userRating ?? base.userRating ?? null,
+      userNote: vaultEntry?.userNote ?? base.userNote ?? "",
+      vaultEntry: vaultEntry || null,
+      watchlistEntry: watchlistEntry || null
+    };
+  }, [lookupKey, fetchedFocus, watched, watchlist, parsedParams]);
+
+  function handleTabChange(nextTab) {
+    if (nextTab === "chat") {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", "chat");
+      setSearchParams(next);
+      return;
+    }
+    setSearchParams({ tab: "recs" });
+  }
+
+  function handleClearFocusedMovie() {
+    setFetchedFocus(null);
+    setSearchParams({ tab: "chat" });
+  }
 
   return (
     <div className={`ai-page-wrapper ${aiSection === "chat" ? "chat-mode" : ""}`}>
@@ -52,7 +222,7 @@ export default function AIPage({ onOpenTasteDeck }) {
                 { id: "chat", label: "Film Companion" }
               ]}
               activeTab={aiSection}
-              onChange={setAiSection}
+              onChange={handleTabChange}
             />
           </div>
         </header>
@@ -71,7 +241,14 @@ export default function AIPage({ onOpenTasteDeck }) {
             />
           )}
 
-          {aiSection === "chat" && <AIChat watched={watched} />}
+          {aiSection === "chat" && (
+            <AIChat
+              watched={watched}
+              watchlist={watchlist}
+              focusedMovie={focusedMovie}
+              onClearFocusedMovie={handleClearFocusedMovie}
+            />
+          )}
         </main>
       </div>
     </div>
