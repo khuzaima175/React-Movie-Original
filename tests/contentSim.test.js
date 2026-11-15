@@ -127,3 +127,94 @@ test("buildContentSimMap structured cold fallback scores unindexed films cleanly
   assert.equal(simMap.has(202611), false);
   assert.equal(coldNegative, 0, "negative-subtracted mismatch clamps cleanly at 0");
 });
+
+test("loadDefaultContentIndex negative-caches 404/non-binary responses for session, does not cache network/abort errors, and resets cleanly", async () => {
+  resetDefaultContentIndexCache();
+
+  // 404 must be negative-cached for the session
+  let fetchCount = 0;
+  const fetch404 = async () => {
+    fetchCount += 1;
+    return { ok: false, status: 404 };
+  };
+  assert.equal(await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetch404), null);
+  assert.equal(await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetch404), null);
+  assert.equal(fetchCount, 1, "404 response must be negative-cached without re-fetching");
+
+  // Non-binary HTML/magic fallback must also be negative-cached
+  resetDefaultContentIndexCache();
+  let htmlFetchCount = 0;
+  const htmlBuf = new TextEncoder().encode("<!doctype html><html></html>").buffer;
+  const fetchHtml = async () => {
+    htmlFetchCount += 1;
+    return { ok: true, arrayBuffer: async () => htmlBuf };
+  };
+  assert.equal(await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetchHtml), null);
+  assert.equal(await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetchHtml), null);
+  assert.equal(htmlFetchCount, 1, "non-binary payload must be negative-cached without re-fetching");
+
+  // Network error must NOT be negative-cached
+  resetDefaultContentIndexCache();
+  const validBuf = encodeEmbeddingBinary([{ tmdbId: 10, vector: [1, 0, 0, 0] }]);
+  let netAttempts = 0;
+  const fetchFlakyNet = async () => {
+    netAttempts += 1;
+    if (netAttempts === 1) throw new TypeError("Failed to fetch");
+    return { ok: true, arrayBuffer: async () => validBuf };
+  };
+  assert.equal(await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetchFlakyNet), null);
+  const netRecovered = await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetchFlakyNet);
+  assert.ok(netRecovered && netRecovered.count === 1, "subsequent call must retry after network error");
+  assert.equal(netAttempts, 2);
+
+  // AbortError must NOT be negative-cached
+  resetDefaultContentIndexCache();
+  let abortAttempts = 0;
+  const fetchFlakyAbort = async () => {
+    abortAttempts += 1;
+    if (abortAttempts === 1) {
+      const abortErr = new Error("Aborted");
+      abortErr.name = "AbortError";
+      throw abortErr;
+    }
+    return { ok: true, arrayBuffer: async () => validBuf };
+  };
+  assert.equal(await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetchFlakyAbort), null);
+  const abortRecovered = await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetchFlakyAbort);
+  assert.ok(abortRecovered && abortRecovered.count === 1, "subsequent call must retry after AbortError");
+  assert.equal(abortAttempts, 2);
+
+  // reset clears cached index too
+  resetDefaultContentIndexCache();
+  assert.equal(await loadDefaultContentIndex("/models/content_embeddings_f16.bin", fetch404), null);
+});
+
+test("buildContentSimMap reaches coldOnly structured fallback for unindexed post-2023 films even when contentIndex is null", () => {
+  const weightedRatings = [
+    {
+      weight: 2.0,
+      movie: {
+        tmdbId: 1,
+        crewPersonId: 525,
+        tmdbGenreIds: [878, 53],
+        tmdbKeywords: [4565, 9663]
+      }
+    }
+  ];
+
+  // Unindexed post-2023 film (not in collabSimMap, collabSim === 0) vs warm indexed film
+  const candidates = [
+    { tmdbId: 99001, crewPersonId: 525, tmdbGenreIds: [878, 53], tmdbKeywords: [4565] },
+    { tmdbId: 500, crewPersonId: 525, tmdbGenreIds: [878, 53], tmdbKeywords: [4565] }
+  ];
+  const collabSimMap = new Map([[500, 0.72]]);
+
+  const simMap = buildContentSimMap(weightedRatings, null, candidates, {
+    collabSimMap,
+    enableStructuredFallback: true,
+    coldOnly: true
+  });
+
+  assert.ok((simMap.get(99001) ?? 0) > 0, "coldOnly structured fallback must score collabSim===0 film when contentIndex is null");
+  assert.equal(simMap.has(500), false, "warm film with collabSim > 0 must remain skipped by coldOnly");
+});

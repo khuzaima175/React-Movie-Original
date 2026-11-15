@@ -751,6 +751,65 @@ export function fetchEmbeddingBinaryIndex(url, fetchFn, parser = parseEmbeddingB
 }
 
 /**
+ * Builds a session-memoized binary index loader that negative-caches missing
+ * or non-binary responses (404/non-5xx HTTP errors, HTML/text responses, or
+ * invalid binary payloads) for the session, while leaving transient network
+ * errors, AbortErrors, and >=500 responses uncached so later calls can retry.
+ */
+export function createSessionBinaryIndexLoader(defaultUrl, parser = parseEmbeddingBinary) {
+  let cachedPromise = null;
+
+  const reset = () => {
+    cachedPromise = null;
+  };
+
+  const load = (url = defaultUrl, customFetch = null) => {
+    const fetchFn = resolveBinaryFetch(customFetch);
+    if (!fetchFn) return Promise.resolve(null);
+
+    if (!cachedPromise) {
+      let attemptPromise = null;
+      attemptPromise = Promise.resolve()
+        .then(() => fetchFn(url))
+        .then(async res => {
+          if (!res || !res.ok) {
+            if (res && Number(res.status) >= 500 && cachedPromise === attemptPromise) {
+              cachedPromise = null;
+            }
+            return null;
+          }
+          const contentType = String(res.headers?.get?.("content-type") || "").toLowerCase();
+          if (
+            contentType.includes("text/html") ||
+            contentType.includes("application/json") ||
+            contentType.startsWith("text/")
+          ) {
+            return null;
+          }
+          const buf = await res.arrayBuffer();
+          if (!buf) return null;
+          try {
+            return parser(buf);
+          } catch (_) {
+            return null;
+          }
+        })
+        .catch(() => {
+          if (cachedPromise === attemptPromise) {
+            cachedPromise = null;
+          }
+          return null;
+        });
+      cachedPromise = attemptPromise;
+    }
+
+    return cachedPromise;
+  };
+
+  return { load, reset };
+}
+
+/**
  * Lazily loads `/models/item_embeddings_f16.bin` in browser environments (or via customFetch).
  * Gracefully resolves to null on 404, network error, Node.js runtime, or SPA HTML fallback.
  */

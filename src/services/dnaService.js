@@ -1,4 +1,4 @@
-import { resolveBinaryFetch, fetchEmbeddingBinaryIndex } from "./embeddingService.js";
+import { createSessionBinaryIndexLoader } from "./embeddingService.js";
 
 /**
  * Cinematic DNA (CDNA v1): per-film rubric axes (0-100, uint8) distilled offline by an LLM.
@@ -84,27 +84,21 @@ export function dnaSim(idx, profile, tmdbId) {
   return cosine(profile, slice(idx, i));
 }
 
-let cachedDnaIndexPromise = null;
+const dnaIndexLoader = createSessionBinaryIndexLoader("/models/cinematic_dna_u8.bin", parseDnaBinary);
 
 /**
- * Clears the memoized runtime CDNA binary index promise.
+ * Clears the memoized runtime CDNA binary index promise (including negative cache).
  */
 export function resetDefaultDnaIndexCache() {
-  cachedDnaIndexPromise = null;
+  dnaIndexLoader.reset();
 }
 
 /**
- * Lazily loads `/models/cinematic_dna_u8.bin` with graceful 404/HTML fallback.
+ * Lazily loads `/models/cinematic_dna_u8.bin` with graceful 404/HTML session negative
+ * caching (transient network errors and aborts are not cached).
  */
 export function loadDefaultDnaIndex(url = "/models/cinematic_dna_u8.bin", customFetch = null) {
-  const fetchFn = resolveBinaryFetch(customFetch);
-  if (!fetchFn) return Promise.resolve(null);
-
-  if (!cachedDnaIndexPromise) {
-    cachedDnaIndexPromise = fetchEmbeddingBinaryIndex(url, fetchFn, parseDnaBinary);
-  }
-
-  return cachedDnaIndexPromise;
+  return dnaIndexLoader.load(url, customFetch);
 }
 
 /**

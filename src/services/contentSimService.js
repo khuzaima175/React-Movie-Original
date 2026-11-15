@@ -1,6 +1,5 @@
 import {
-  resolveBinaryFetch,
-  fetchEmbeddingBinaryIndex,
+  createSessionBinaryIndexLoader,
   getRelativeWeightCutoff,
   l2NormalizeInPlace,
   computeUserEmbedding,
@@ -19,27 +18,21 @@ const OVERVIEW_STOPWORDS = new Set([
   "two", "all", "any", "both", "each", "own", "same", "too"
 ]);
 
-let cachedContentIndexPromise = null;
+const contentIndexLoader = createSessionBinaryIndexLoader("/models/content_embeddings_f16.bin");
 
 /**
- * Clears the memoized runtime content embedding index promise.
+ * Clears the memoized runtime content embedding index promise (including negative cache).
  */
 export function resetDefaultContentIndexCache() {
-  cachedContentIndexPromise = null;
+  contentIndexLoader.reset();
 }
 
 /**
- * Lazily loads `/models/content_embeddings_f16.bin` with graceful SPA-HTML / 404 fallback.
+ * Lazily loads `/models/content_embeddings_f16.bin` with graceful SPA-HTML / 404
+ * session negative caching (transient network errors and aborts are not cached).
  */
 export function loadDefaultContentIndex(url = "/models/content_embeddings_f16.bin", customFetch = null) {
-  const fetchFn = resolveBinaryFetch(customFetch);
-  if (!fetchFn) return Promise.resolve(null);
-
-  if (!cachedContentIndexPromise) {
-    cachedContentIndexPromise = fetchEmbeddingBinaryIndex(url, fetchFn);
-  }
-
-  return cachedContentIndexPromise;
+  return contentIndexLoader.load(url, customFetch);
 }
 
 function tokenizeOverview(text = "") {
@@ -241,6 +234,10 @@ export function buildContentSimMap(
     }
   }
 
+  // Intentionally restrict structured term fallback (coldOnly) to cold/unindexed films
+  // (e.g. post-2023 releases where collabSim === 0 and no CVEM vector exists): on warm
+  // indexed titles, adding noisy metadata TF-IDF alongside collaborative embeddings
+  // degrades offline AUC/NDCG, whereas cold films otherwise receive zero personalization.
   if (options.enableStructuredFallback === true && Array.isArray(candidates) && candidates.length > 0) {
     const coldOnly = options.coldOnly !== false;
     const collabSimMap = options.collabSimMap instanceof Map ? options.collabSimMap : null;
