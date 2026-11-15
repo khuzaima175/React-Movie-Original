@@ -147,7 +147,9 @@ export default function BackupManagerModal({
     userRegion,
     setUserRegion,
     userWatchProviders,
-    setUserWatchProviders
+    setUserWatchProviders,
+    tasteRules,
+    setTasteRules
   } = useApp();
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -186,7 +188,8 @@ export default function BackupManagerModal({
       watched,
       watchlist,
       userRegion,
-      userWatchProviders
+      userWatchProviders,
+      tasteRules
     });
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json;charset=utf-8"
@@ -236,6 +239,9 @@ export default function BackupManagerModal({
       }
       if (Array.isArray(pendingImport.preferences.userWatchProviders) && setUserWatchProviders) {
         setUserWatchProviders(pendingImport.preferences.userWatchProviders);
+      }
+      if (Array.isArray(pendingImport.preferences.tasteRules) && setTasteRules) {
+        setTasteRules(pendingImport.preferences.tasteRules);
       }
     }
 

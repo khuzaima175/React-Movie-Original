@@ -100,3 +100,39 @@ test("parseCSVImport recognizes IMDb Const and Your Rating headers", () => {
   assert.equal(parsed.rows[0].imdbId, "tt0111161");
   assert.equal(parsed.rows[0].rating, 10);
 });
+
+test("buildBackupJsonPayload & parseJsonBackupContent round-trip preferences.tasteRules while preserving backward compatibility", () => {
+  const sampleRules = [
+    { id: "r1", text: "No bleak misery", polarity: "avoid", pinned: true, active: true },
+    { id: "r2", text: "Prefer tight neo-noir thrillers", polarity: "prefer", pinned: false, active: true }
+  ];
+  const payload = buildBackupJsonPayload({
+    watched: [{ imdbID: "tt0111161", title: "Shawshank", year: "1994", userRating: 10 }],
+    watchlist: [],
+    userRegion: "US",
+    userWatchProviders: [8],
+    tasteRules: sampleRules,
+    now: 1700000000000
+  });
+
+  assert.equal(payload.schemaVersion, 2);
+  assert.ok(Array.isArray(payload.preferences.tasteRules));
+  assert.equal(payload.preferences.tasteRules.length, 2);
+  assert.equal(payload.preferences.tasteRules[0].text, "No bleak misery");
+
+  const reparsed = parseJsonBackupContent(JSON.stringify(payload));
+  assert.equal(reparsed.preferences.tasteRules.length, 2);
+  assert.equal(reparsed.preferences.tasteRules[1].polarity, "prefer");
+
+  // Backward compatibility: legacy v1/v2 backup lacking preferences.tasteRules must parse cleanly without crashing
+  const legacyPayload = {
+    schemaVersion: 2,
+    app: "CinemaVault",
+    watched: [{ imdbID: "tt0111161", title: "Shawshank", year: "1994", userRating: 10 }],
+    watchlist: [],
+    preferences: { userRegion: "GB", userWatchProviders: [8] }
+  };
+  const parsedLegacy = parseJsonBackupContent(JSON.stringify(legacyPayload));
+  assert.equal(parsedLegacy.preferences.userRegion, "GB");
+  assert.equal(parsedLegacy.preferences.tasteRules, undefined);
+});

@@ -1,5 +1,6 @@
 import { buildWatchedRecordFromImport } from "./csvImport.js";
 import { buildMovieKeys, extractTmdbNumericId, isSameMovie } from "./movieIdentity.js";
+import { normalizeTasteRules } from "./tasteRulesService.js";
 
 function indexMovieKeys(keyIndex, movie, idx) {
   for (const k of buildMovieKeys(movie)) {
@@ -96,8 +97,12 @@ export function buildBackupJsonPayload({
   watchlist = [],
   userRegion = "US",
   userWatchProviders = [],
+  tasteRules = [],
   now = Date.now()
 } = {}) {
+  const normalizedRules = Array.isArray(tasteRules) && tasteRules.length > 0
+    ? normalizeTasteRules(tasteRules)
+    : [];
   return {
     schemaVersion: 2,
     app: "CinemaVault",
@@ -106,7 +111,8 @@ export function buildBackupJsonPayload({
     watchlist: Array.isArray(watchlist) ? watchlist : [],
     preferences: {
       userRegion,
-      userWatchProviders: Array.isArray(userWatchProviders) ? userWatchProviders : []
+      userWatchProviders: Array.isArray(userWatchProviders) ? userWatchProviders : [],
+      ...(normalizedRules.length > 0 ? { tasteRules: normalizedRules } : {})
     }
   };
 }
@@ -186,11 +192,23 @@ export function parseJsonBackupContent(content = "") {
   }
 
   if (parsed && typeof parsed === "object" && (Array.isArray(parsed.watched) || Array.isArray(parsed.watchlist))) {
+    let normalizedPreferences = parsed.preferences;
+    if (
+      parsed.preferences &&
+      typeof parsed.preferences === "object" &&
+      Array.isArray(parsed.preferences.tasteRules)
+    ) {
+      normalizedPreferences = {
+        ...parsed.preferences,
+        tasteRules: normalizeTasteRules(parsed.preferences.tasteRules)
+      };
+    }
+
     return {
       watched: Array.isArray(parsed.watched) ? parsed.watched : [],
       watchlist: Array.isArray(parsed.watchlist) ? parsed.watchlist : [],
-      ...(parsed.preferences && typeof parsed.preferences === "object"
-        ? { preferences: parsed.preferences }
+      ...(normalizedPreferences && typeof normalizedPreferences === "object"
+        ? { preferences: normalizedPreferences }
         : {})
     };
   }

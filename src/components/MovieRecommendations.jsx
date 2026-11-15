@@ -44,6 +44,11 @@ import {
 } from "../services/moodPolicy";
 import { useApp } from "../context/AppContext";
 import { attachRecSourceToRecommendations } from "../services/vaultStats";
+import {
+  MAX_TASTE_RULES,
+  MAX_RULE_TEXT_LENGTH,
+  draftTasteRulesWithGemini
+} from "../services/tasteRulesService";
 import PosterImage from "./PosterImage";
 import QuickRateModal from "./QuickRateModal";
 import { Button, MetaLine } from "./ui";
@@ -62,7 +67,10 @@ import {
   Play,
   Globe,
   RotateCcw,
-  Info
+  Info,
+  Pin,
+  Pencil,
+  Trash2
 } from "lucide-react";
 
 const DISMISS_REASONS = [
@@ -89,6 +97,13 @@ export default function MovieRecommendations({
     userWatchProviders,
     setUserWatchProviders,
     toggleWatchProvider,
+    tasteRules = [],
+    setTasteRules,
+    addTasteRule,
+    updateTasteRule,
+    deleteTasteRule,
+    toggleTasteRuleActive,
+    toggleTasteRulePin,
     aiRecommendationsHash,
     aiModelInfo,
     aiFeedbackLog,
@@ -116,6 +131,12 @@ export default function MovieRecommendations({
   const [isParsingMood, setIsParsingMood] = useState(false);
   const [moodParseNote, setMoodParseNote] = useState("");
   const [isStreamingOpen, setIsStreamingOpen] = useState(false);
+  const [isRulesOpen, setIsRulesOpen] = useState(false);
+  const [newRuleText, setNewRuleText] = useState("");
+  const [newRulePolarity, setNewRulePolarity] = useState("prefer");
+  const [isDraftingRules, setIsDraftingRules] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState(null);
+  const [editingRuleText, setEditingRuleText] = useState("");
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
   const activeRequestRef = useRef(0);
@@ -141,7 +162,8 @@ export default function MovieRecommendations({
         userWatchProviders,
         activeMoodFilters,
         userRegion,
-        watched
+        watched,
+        tasteRules
       )
     : "";
 
@@ -200,9 +222,53 @@ export default function MovieRecommendations({
   const handleCloseFilterDeck = () => {
     setShowFilterDeck(false);
     setIsStreamingOpen(false);
+    setIsRulesOpen(false);
+    setEditingRuleId(null);
     if (shouldAutoRefreshOnDrawerClose(true, currentHash, aiRecommendationsHash, isLoading)) {
       handleGetRecommendations({ forceRefresh: false });
     }
+  };
+
+  const handleAddRuleSubmit = (e) => {
+    e.preventDefault();
+    const cleaned = newRuleText.trim();
+    if (!cleaned || !addTasteRule || (tasteRules || []).length >= MAX_TASTE_RULES) return;
+    addTasteRule(cleaned, newRulePolarity, { source: "user" });
+    setNewRuleText("");
+    setIsRulesOpen(true);
+  };
+
+  const handleAutoDraftRules = async () => {
+    if (isDraftingRules || watched.length === 0) return;
+    setIsDraftingRules(true);
+    try {
+      const profile = tasteProfileData || (await extractTasteProfile(watched, watchlist));
+      const key = resolveGeminiKey();
+      const ai = createGeminiClient(key);
+      const drafted = await draftTasteRulesWithGemini(ai, {
+        watched,
+        profile,
+        feedbackLog: aiFeedbackLog,
+        existingRules: tasteRules
+      });
+      if (setTasteRules && Array.isArray(drafted) && drafted.length > 0) {
+        setTasteRules(drafted);
+      }
+      setIsRulesOpen(true);
+    } catch (err) {
+      console.warn("Taste rules auto-draft failed:", err);
+    } finally {
+      setIsDraftingRules(false);
+    }
+  };
+
+  const handleSaveRuleEdit = (ruleId) => {
+    const cleaned = editingRuleText.trim();
+    if (cleaned && updateTasteRule) {
+      updateTasteRule(ruleId, { text: cleaned });
+    }
+    setEditingRuleId(null);
+    setEditingRuleText("");
   };
 
   const handleGetRecommendations = async (invokeOpts = {}) => {
@@ -238,7 +304,8 @@ export default function MovieRecommendations({
         targetCount: DEFAULT_RECOMMENDATION_COUNT,
         userRegion,
         userProviders: userWatchProviders,
-        feedbackLog: aiFeedbackLog
+        feedbackLog: aiFeedbackLog,
+        tasteRules
       });
 
       if (activeRequestRef.current !== requestId) return;
@@ -251,7 +318,8 @@ export default function MovieRecommendations({
         userWatchProviders,
         effectiveFilters,
         userRegion,
-        watched
+        watched,
+        tasteRules
       );
       setMoodShortfall(result?.moodShortfall ?? null);
       const liveModelInfo = {
@@ -641,6 +709,215 @@ export default function MovieRecommendations({
                 );
               })}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="taste-rules-section">
+        <div className="taste-rules-summary-bar">
+          <div className="streaming-summary-info">
+            <span className="streaming-summary-label">Taste Rules</span>
+            <span aria-hidden="true">·</span>
+            <span className="streaming-summary-value">
+              {(tasteRules || []).length === 0
+                ? "No custom rules"
+                : `${(tasteRules || []).filter((r) => r.active !== false).length} active${
+                    (tasteRules || []).some((r) => r.pinned)
+                      ? ` (${(tasteRules || []).filter((r) => r.pinned).length} pinned)`
+                      : ""
+                  }`}
+            </span>
+          </div>
+
+          <div className="taste-rules-summary-actions">
+            <button
+              type="button"
+              className="taste-rules-draft-btn"
+              onClick={handleAutoDraftRules}
+              disabled={isDraftingRules || watched.length === 0}
+              title={watched.length === 0 ? "Rate at least 1 film to auto-draft rules" : "Synthesize Prefer/Avoid rules from your rated Vault"}
+            >
+              {isDraftingRules ? (
+                <Loader2 size={13} className="spin-icon" aria-hidden="true" />
+              ) : (
+                <Sparkles size={13} aria-hidden="true" />
+              )}
+              <span>{isDraftingRules ? "Drafting..." : "Auto-Draft Rules from Vault"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="streaming-summary-toggle"
+              onClick={() => setIsRulesOpen((prev) => !prev)}
+              aria-expanded={isRulesOpen}
+            >
+              <span>{isRulesOpen ? "Done" : "Edit rules"}</span>
+              {isRulesOpen ? (
+                <ChevronUp size={14} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={14} aria-hidden="true" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {!isRulesOpen && (tasteRules || []).length > 0 && (
+          <div className="taste-rules-preview-strip">
+            {(tasteRules || []).map((rule) => (
+              <button
+                key={rule.id}
+                type="button"
+                className={`taste-rule-pill is-${rule.polarity} ${rule.active !== false ? "is-active" : "is-inactive"} ${rule.pinned ? "is-pinned" : ""}`}
+                onClick={() => toggleTasteRuleActive && toggleTasteRuleActive(rule.id)}
+                title="Click to pause or activate rule"
+              >
+                <span className="rule-polarity-tag">{rule.polarity === "avoid" ? "Avoid" : "Prefer"}</span>
+                <span className="rule-text-span">{rule.text}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isRulesOpen && (
+          <div className="taste-rules-drawer-body">
+            <form className="taste-rule-form" onSubmit={handleAddRuleSubmit}>
+              <div className="rule-polarity-switch" role="group" aria-label="Rule polarity">
+                <button
+                  type="button"
+                  className={`polarity-btn ${newRulePolarity === "prefer" ? "is-selected prefer" : ""}`}
+                  onClick={() => setNewRulePolarity("prefer")}
+                >
+                  Prefer
+                </button>
+                <button
+                  type="button"
+                  className={`polarity-btn ${newRulePolarity === "avoid" ? "is-selected avoid" : ""}`}
+                  onClick={() => setNewRulePolarity("avoid")}
+                >
+                  Avoid
+                </button>
+              </div>
+              <input
+                type="text"
+                className="taste-rule-input"
+                maxLength={MAX_RULE_TEXT_LENGTH}
+                value={newRuleText}
+                onChange={(e) => setNewRuleText(e.target.value)}
+                placeholder={
+                  newRulePolarity === "avoid"
+                    ? 'e.g. "No slow-burn period dramas" or "No horror"'
+                    : 'e.g. "Prefer cyberpunk noir under 130m"'
+                }
+                aria-label="New Taste Rule"
+              />
+              <Button
+                type="submit"
+                variant="secondary"
+                size="sm"
+                disabled={!newRuleText.trim() || (tasteRules || []).length >= MAX_TASTE_RULES}
+              >
+                <Plus size={13} aria-hidden="true" />
+                <span>Add</span>
+              </Button>
+            </form>
+
+            {(tasteRules || []).length === 0 ? (
+              <p className="taste-rules-empty">
+                Add up to {MAX_TASTE_RULES} persistent Prefer or Avoid rules, or click Auto-Draft above to extract patterns from your Vault.
+              </p>
+            ) : (
+              <ul className="taste-rules-list">
+                {(tasteRules || []).map((rule) => (
+                  <li
+                    key={rule.id}
+                    className={`taste-rule-item is-${rule.polarity} ${rule.active !== false ? "is-active" : "is-inactive"}`}
+                  >
+                    {editingRuleId === rule.id ? (
+                      <div className="taste-rule-edit-row">
+                        <input
+                          type="text"
+                          className="taste-rule-input"
+                          maxLength={MAX_RULE_TEXT_LENGTH}
+                          value={editingRuleText}
+                          onChange={(e) => setEditingRuleText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleSaveRuleEdit(rule.id);
+                            } else if (e.key === "Escape") {
+                              setEditingRuleId(null);
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="rule-icon-btn"
+                          onClick={() => handleSaveRuleEdit(rule.id)}
+                          aria-label="Save rule edit"
+                        >
+                          <Check size={13} aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rule-icon-btn"
+                          onClick={() => setEditingRuleId(null)}
+                          aria-label="Cancel rule edit"
+                        >
+                          <X size={13} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="taste-rule-toggle-main"
+                          onClick={() => toggleTasteRuleActive && toggleTasteRuleActive(rule.id)}
+                          title={rule.active !== false ? "Click to pause rule" : "Click to enable rule"}
+                        >
+                          <span className="rule-polarity-tag">
+                            {rule.polarity === "avoid" ? "Avoid" : "Prefer"}
+                          </span>
+                          <span className="rule-text-span">{rule.text}</span>
+                        </button>
+                        <div className="taste-rule-item-actions">
+                          <button
+                            type="button"
+                            className={`rule-icon-btn ${rule.pinned ? "is-pinned" : ""}`}
+                            onClick={() => toggleTasteRulePin && toggleTasteRulePin(rule.id)}
+                            aria-label={rule.pinned ? "Unpin rule" : "Pin rule"}
+                            title={rule.pinned ? "Pinned to prompt top" : "Pin rule"}
+                          >
+                            <Pin size={13} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rule-icon-btn"
+                            onClick={() => {
+                              setEditingRuleId(rule.id);
+                              setEditingRuleText(rule.text);
+                            }}
+                            aria-label="Edit rule"
+                            title="Edit rule"
+                          >
+                            <Pencil size={13} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rule-icon-btn danger"
+                            onClick={() => deleteTasteRule && deleteTasteRule(rule.id)}
+                            aria-label="Delete rule"
+                            title="Delete rule"
+                          >
+                            <Trash2 size={13} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

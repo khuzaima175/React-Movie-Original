@@ -160,7 +160,7 @@ function parseMovieCardsFromText(text) {
 }
 
 export default function AIChat({ watched }) {
-  const { watchlist, addToWatchlist } = useApp();
+  const { watchlist, addToWatchlist, tasteRules } = useApp();
 
   const [messages, setMessages] = useState([
     {
@@ -204,7 +204,8 @@ export default function AIChat({ watched }) {
       const responseText = await sendChatMessage(
         query,
         newMessages.filter((m) => m !== newMessages[0]),
-        watched
+        watched,
+        tasteRules
       );
       const latestFast = getLastModelInfo("fast");
       const turnModelInfo = latestFast && latestFast.seq > prevSeq ? latestFast : null;

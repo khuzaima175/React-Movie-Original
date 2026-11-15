@@ -16,6 +16,7 @@ import {
   isSeriesVaultItem
 } from "../services/tmdbService.js";
 import { getSupabaseClient, hasSupabaseConfig } from "../services/supabaseClient.js";
+import { normalizeTasteRules } from "../services/tasteRulesService.js";
 import {
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
@@ -108,6 +109,15 @@ export function AppProvider({ children }) {
     try {
       const saved = localStorage.getItem("cinemavault_user_providers");
       return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [tasteRules, setTasteRulesState] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cinemavault_taste_rules_v1");
+      return saved ? normalizeTasteRules(JSON.parse(saved)) : [];
     } catch {
       return [];
     }
@@ -209,6 +219,10 @@ export function AppProvider({ children }) {
     userWatchProvidersRef.current = Array.isArray(userWatchProviders) ? userWatchProviders : [];
     safeSetItem("cinemavault_user_providers", userWatchProviders || []);
   }, [userWatchProviders]);
+
+  useEffect(() => {
+    safeSetItem("cinemavault_taste_rules_v1", normalizeTasteRules(tasteRules || []));
+  }, [tasteRules]);
 
   useEffect(() => {
     if (aiRecommendations) {
@@ -964,6 +978,51 @@ export function AppProvider({ children }) {
     });
   }
 
+  const setTasteRules = useCallback((nextOrUpdater) => {
+    setTasteRulesState((prev) => {
+      const next = typeof nextOrUpdater === "function" ? nextOrUpdater(prev || []) : nextOrUpdater;
+      return normalizeTasteRules(next || []);
+    });
+  }, []);
+
+  const addTasteRule = useCallback((text, polarity = "prefer", opts = {}) => {
+    setTasteRulesState((prev) =>
+      normalizeTasteRules([
+        ...(prev || []),
+        {
+          text,
+          polarity,
+          pinned: Boolean(opts.pinned),
+          active: opts.active !== false,
+          source: opts.source || "user",
+          updatedAt: Date.now()
+        }
+      ])
+    );
+  }, []);
+
+  const updateTasteRule = useCallback((id, patch = {}) => {
+    setTasteRulesState((prev) =>
+      normalizeTasteRules((prev || []).map((r) => (r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r)))
+    );
+  }, []);
+
+  const deleteTasteRule = useCallback((id) => {
+    setTasteRulesState((prev) => (prev || []).filter((r) => r.id !== id));
+  }, []);
+
+  const toggleTasteRuleActive = useCallback((id) => {
+    setTasteRulesState((prev) =>
+      normalizeTasteRules((prev || []).map((r) => (r.id === id ? { ...r, active: !r.active, updatedAt: Date.now() } : r)))
+    );
+  }, []);
+
+  const toggleTasteRulePin = useCallback((id) => {
+    setTasteRulesState((prev) =>
+      normalizeTasteRules((prev || []).map((r) => (r.id === id ? { ...r, pinned: !r.pinned, updatedAt: Date.now() } : r)))
+    );
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -976,6 +1035,13 @@ export function AppProvider({ children }) {
         userWatchProviders,
         setUserWatchProviders,
         toggleWatchProvider,
+        tasteRules,
+        setTasteRules,
+        addTasteRule,
+        updateTasteRule,
+        deleteTasteRule,
+        toggleTasteRuleActive,
+        toggleTasteRulePin,
         addWatched,
         deleteWatched,
         addToWatchlist,
