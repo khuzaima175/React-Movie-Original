@@ -8,6 +8,11 @@ import { fetchOmdbJson } from "../services/apiTransport";
 import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
 import { findMatchingMovie } from "../services/movieIdentity";
 import {
+  QUICK_REVIEW_TAGS,
+  hasQuickTagInNote,
+  toggleQuickTagInNote
+} from "../services/quickReviewTags";
+import {
   ArrowLeft,
   Star,
   Bookmark,
@@ -36,19 +41,6 @@ import {
 
 // Cache enriched detail objects for this session
 const enrichedDetailsSessionCache = new Map();
-
-const QUICK_TAGS = [
-  "Masterpiece",
-  "MindBlowing",
-  "GreatActing",
-  "Cinematography",
-  "EpicScore",
-  "PlotTwist",
-  "MustRewatch",
-  "Emotional",
-  "CultClassic",
-  "Iconic"
-];
 
 export default function MovieDetails({
   selectedId,
@@ -369,12 +361,7 @@ export default function MovieDetails({
   }
 
   function handleToggleTag(tag) {
-    const formattedTag = `#${tag}`;
-    if (userNote.includes(formattedTag)) {
-      setUserNote((prev) => prev.replace(formattedTag, "").replace(/\s\s+/g, " ").trim());
-    } else {
-      setUserNote((prev) => (prev ? `${prev.trim()} ${formattedTag}` : formattedTag));
-    }
+    setUserNote((prev) => toggleQuickTagInNote(prev, tag));
   }
 
   const activeDisplayRating = hoverRating || userRating || 0;
@@ -607,8 +594,8 @@ export default function MovieDetails({
                     <div className="quick-tags-section">
                       <span className="quick-tags-label"><Tag size={12} aria-hidden="true" /> Quick Review Tags:</span>
                       <div className="quick-tags-row">
-                        {QUICK_TAGS.map((tag) => {
-                          const isTagActive = userNote.includes(`#${tag}`);
+                        {QUICK_REVIEW_TAGS.map(({ id: tag }) => {
+                          const isTagActive = hasQuickTagInNote(userNote, tag);
                           return (
                             <button
                               key={tag}
@@ -626,7 +613,7 @@ export default function MovieDetails({
                     {/* Personal Notes Textarea */}
                     <textarea
                       className="user-note-input luxury-notes-area"
-                      placeholder="Personal notes, quotes, or unforgettable scenes..."
+                      placeholder="1–2 lines on why you liked or disliked it (Gemini reads this to sharpen picks)..."
                       value={userNote}
                       onChange={(e) => setUserNote(e.target.value)}
                       aria-label="Personal notes on movie"

@@ -8,6 +8,11 @@ import {
   prepareQuickRatePayload,
   prepareWatchlistPayload
 } from "../services/ratingTiers";
+import {
+  getContextualQuickTags,
+  hasQuickTagInNote,
+  toggleQuickTagInNote
+} from "../services/quickReviewTags";
 
 export default function QuickRateModal({
   movie,
@@ -47,6 +52,7 @@ export default function QuickRateModal({
 
   const activeRating = hoverRating || selectedRating || 0;
   const activeTier = getRatingTier(activeRating);
+  const quickTags = getContextualQuickTags(activeRating);
 
   function handleSaveToVault() {
     const payload = prepareQuickRatePayload({ ...movie, userNote: note }, selectedRating);
@@ -147,13 +153,28 @@ export default function QuickRateModal({
             })}
           </div>
 
+          <div className="quick-tags-row" aria-label="Quick review tags">
+            {quickTags.map(({ id: tag }) => {
+              const isTagActive = hasQuickTagInNote(note, tag);
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  className={`quick-tag-chip ${isTagActive ? "tag-active" : ""}`}
+                  onClick={() => setNote((prev) => toggleQuickTagInNote(prev, tag, 200))}
+                >
+                  #{tag}
+                </button>
+              );
+            })}
+          </div>
           <input
             type="text"
             className="quick-rate-note-input"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            maxLength={180}
-            placeholder="Quick note (optional)..."
+            maxLength={200}
+            placeholder="Why you liked or disliked it (1–2 lines for AI)..."
             aria-label="Optional quick note"
           />
         </div>
