@@ -1,7 +1,7 @@
 import { enforceApiSecurity } from "./_security.js";
 
 const ALLOWED_TMDB_PATH_RE =
-  /^\/3\/(discover\/movie|search\/movie|trending\/movie\/(?:day|week)|movie\/\d+(?:\/(?:keywords|credits|watch\/providers|videos|release_dates|external_ids))?|find\/[a-zA-Z0-9_-]+)$/;
+  /^\/3\/(discover\/movie|search\/(?:movie|person)|trending\/movie\/(?:day|week)|movie\/\d+(?:\/(?:keywords|credits|watch\/providers|videos|release_dates|external_ids))?|person\/\d+(?:\/movie_credits)?|find\/[a-zA-Z0-9_-]+)$/;
 
 function sanitizeUpstreamMessage(message, secret) {
   const text = String(message || "Upstream TMDB request failed");

@@ -237,6 +237,46 @@ test("api/tmdb handler allows trending/movie/(day|week) and rejects trending/per
   }
 });
 
+test("api/tmdb handler allows safe /3/person/:id and /3/search/person paths while blocking non-numeric or person trending paths", async () => {
+  resetRateLimitBuckets();
+  const prevTmdb = process.env.TMDB_API_KEY;
+  process.env.TMDB_API_KEY = "SERVER_TMDB_SECRET";
+  try {
+    const allowedPaths = [
+      { path: "/3/person/71580", append_to_response: "movie_credits,external_ids" },
+      { path: "/3/person/71580/movie_credits" },
+      { path: "/3/search/person", query: "Morten Tyldum" }
+    ];
+
+    for (const q of allowedPaths) {
+      let forwardedUrl = "";
+      const okRes = createMockRes();
+      await tmdbHandler(
+        {
+          method: "GET",
+          query: q,
+          fetchFn: async (url) => {
+            forwardedUrl = String(url);
+            return { ok: true, status: 200, json: async () => ({ id: 71580 }) };
+          }
+        },
+        okRes
+      );
+      assert.equal(okRes.statusCode, 200, `expected 200 for ${q.path}`);
+      assert.match(forwardedUrl, /api_key=SERVER_TMDB_SECRET/);
+    }
+
+    for (const badPath of ["/3/person/not-a-number", "/3/person/71580/../tv", "/3/trending/person/week"]) {
+      const badRes = createMockRes();
+      await tmdbHandler({ method: "GET", query: { path: badPath } }, badRes);
+      assert.equal(badRes.statusCode, 400, `expected 400 for ${badPath}`);
+    }
+  } finally {
+    if (prevTmdb === undefined) delete process.env.TMDB_API_KEY;
+    else process.env.TMDB_API_KEY = prevTmdb;
+  }
+});
+
 
 test("api/* proxies block cross-origin requests with 403 while allowing matching host, localhost, ALLOWED_ORIGIN, or server calls without Origin", async () => {
   resetRateLimitBuckets();

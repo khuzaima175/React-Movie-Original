@@ -1152,14 +1152,56 @@ function normalizeCollectionMetadata(primary = {}, fallback = null) {
   return { collectionId, collectionName };
 }
 
+/**
+ * Extracts unique credit person objects for a department while preserving TMDB person IDs.
+ */
+function extractUniqueCrewPeople(crewList = [], jobs = [], department = "", limit = Infinity) {
+  if (!Array.isArray(crewList) || crewList.length === 0) return [];
+  const allowedJobs = new Set(jobs);
+  const seenIds = new Set();
+  const seenNames = new Set();
+  const out = [];
+
+  for (const entry of crewList) {
+    if (!entry || !allowedJobs.has(entry.job)) continue;
+    const name = String(entry.name || "").trim();
+    if (!name) continue;
+    const rawId = Number(entry.id);
+    const id = Number.isSafeInteger(rawId) && rawId > 0 ? rawId : null;
+    if (id !== null) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+    } else {
+      const lower = name.toLowerCase();
+      if (seenNames.has(lower)) continue;
+      seenNames.add(lower);
+    }
+    out.push({
+      id,
+      name,
+      job: entry.job,
+      department: department || entry.department || "Crew"
+    });
+    if (out.length >= limit) break;
+  }
+
+  return out;
+}
+
 export function formatTmdbMovieDetails(data, userRegion = "US") {
   if (!data || !data.id) return null;
 
-  const directorObj = data.credits?.crew?.find(c => c.job === "Director");
+  const rawCrew = data.credits?.crew || [];
+  const directorDetails = extractUniqueCrewPeople(rawCrew, ["Director"], "Directing");
+  const writerDetails = extractUniqueCrewPeople(rawCrew, ["Screenplay", "Writer", "Story"], "Writing", 3);
+  const cinematographerDetails = extractUniqueCrewPeople(rawCrew, ["Director of Photography"], "Camera");
+  const composerDetails = extractUniqueCrewPeople(rawCrew, ["Original Music Composer", "Music"], "Sound");
+
+  const directorObj = rawCrew.find(c => c.job === "Director");
   const director = directorObj?.name || "Unknown";
-  const cinematographer = data.credits?.crew?.find(c => c.job === "Director of Photography")?.name || null;
-  const composer = data.credits?.crew?.find(c => c.job === "Original Music Composer" || c.job === "Music")?.name || null;
-  const writers = data.credits?.crew?.filter(c => ["Screenplay", "Writer", "Story"].includes(c.job)).map(c => c.name).slice(0, 3).join(", ") || null;
+  const cinematographer = rawCrew.find(c => c.job === "Director of Photography")?.name || null;
+  const composer = rawCrew.find(c => c.job === "Original Music Composer" || c.job === "Music")?.name || null;
+  const writers = rawCrew.filter(c => ["Screenplay", "Writer", "Story"].includes(c.job)).map(c => c.name).slice(0, 3).join(", ") || null;
 
   const fallbackCrew = data.credits?.crew?.find(c => ["Director of Photography", "Original Music Composer", "Screenplay", "Writer"].includes(c.job));
   const crewPersonId = (directorObj || fallbackCrew)?.id || null;
@@ -1225,6 +1267,10 @@ export function formatTmdbMovieDetails(data, userRegion = "US") {
     cinematographer,
     composer,
     writers,
+    directorDetails,
+    writerDetails,
+    cinematographerDetails,
+    composerDetails,
     crewPersonId,
     cast,
     castIds,
