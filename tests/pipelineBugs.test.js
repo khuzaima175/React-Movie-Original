@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractTasteProfile, buildBucketAParams, applyDetailsToCandidate, mergeBackfilledMovieMetadata } from "../src/services/tmdbService.js";
+import { extractTasteProfile, buildBucketAParams, applyDetailsToCandidate, mergeBackfilledMovieMetadata, formatTmdbMovieDetails, bridgeTmdbToOmdb } from "../src/services/tmdbService.js";
 import {
   DEFAULT_RECOMMENDATION_COUNT,
   MIN_VALID_CACHE_COUNT,
@@ -1389,6 +1389,76 @@ test("verifyAndScoreWildcardPicks uses strict TMDB search + fetchBatchFormattedD
     } finally {
         if (prevVitTmdb === undefined) delete process.env.VITE_TMDB_KEY;
         else process.env.VITE_TMDB_KEY = prevVitTmdb;
+    }
+});
+
+test("formatTmdbMovieDetails, applyDetailsToCandidate, bridgeTmdbToOmdb, and mergeBackfilledMovieMetadata extract and preserve belongs_to_collection metadata", async () => {
+    const details = formatTmdbMovieDetails({
+        id: 603692,
+        title: "John Wick: Chapter 4",
+        release_date: "2023-03-22",
+        belongs_to_collection: { id: 404609, name: "  John Wick Collection  " },
+        genres: [{ id: 28, name: "Action" }]
+    });
+    assert.equal(details.collectionId, 404609);
+    assert.equal(details.collectionName, "John Wick Collection");
+
+    const standaloneDetails = formatTmdbMovieDetails({
+        id: 555111,
+        title: "Standalone Drama",
+        release_date: "2023-05-01",
+        belongs_to_collection: null,
+        genres: [{ id: 18, name: "Drama" }]
+    });
+    assert.equal(standaloneDetails.collectionId, null);
+    assert.equal(standaloneDetails.collectionName, null);
+
+    const merged = applyDetailsToCandidate({ id: 603692, title: "John Wick: Chapter 4" }, details);
+    assert.equal(merged.collectionId, 404609);
+    assert.equal(merged.collectionName, "John Wick Collection");
+
+    const preservedExisting = applyDetailsToCandidate(
+        { id: 603692, title: "John Wick: Chapter 4", collectionId: 404609, collectionName: "John Wick Collection" },
+        standaloneDetails
+    );
+    assert.equal(preservedExisting.collectionId, 404609);
+    assert.equal(preservedExisting.collectionName, "John Wick Collection");
+
+    const vaultItem = { title: "John Wick: Chapter 4", userRating: 9 };
+    const backfilled = mergeBackfilledMovieMetadata(vaultItem, 603692, details, null);
+    assert.equal(backfilled.collectionId, 404609);
+    assert.equal(backfilled.collectionName, "John Wick Collection");
+
+    const prevFetch = globalThis.fetch;
+    const prevTmdbKey = process.env.VITE_TMDB_KEY;
+    process.env.VITE_TMDB_KEY = "TEST_TMDB_KEY";
+    globalThis.fetch = async (url) => {
+        const u = String(url);
+        if (u.includes("60369200")) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    id: 60369200,
+                    title: "Bridged Franchise Pick",
+                    release_date: "2023-03-22",
+                    belongs_to_collection: { id: 404609, name: "John Wick Collection" },
+                    genres: [{ id: 28, name: "Action" }],
+                    external_ids: { imdb_id: "tt10366206" },
+                    vote_average: 7.7
+                })
+            };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+    };
+    try {
+        const bridged = await bridgeTmdbToOmdb({ tmdbId: 60369200, title: "Bridged Franchise Pick" }, "US");
+        assert.equal(bridged.collectionId, 404609);
+        assert.equal(bridged.collectionName, "John Wick Collection");
+    } finally {
+        globalThis.fetch = prevFetch;
+        if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+        else process.env.VITE_TMDB_KEY = prevTmdbKey;
     }
 });
 

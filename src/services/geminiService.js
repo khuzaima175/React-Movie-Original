@@ -1840,6 +1840,9 @@ function buildRecommendationEntry(candidate = {}, fallback = {}, profile = {}, e
     const tmdbId = candidate.id || candidate.tmdbId || fallback.tmdbId;
     const title = candidate.title || fallback.title;
     const rawReason = extras.reason || fallback.reason || "Selected for your taste profile and requested vibe.";
+    const rawCollectionId = Number(candidate.collectionId ?? fallback.collectionId);
+    const collectionId = Number.isSafeInteger(rawCollectionId) && rawCollectionId > 0 ? rawCollectionId : null;
+    const collectionName = String(candidate.collectionName ?? fallback.collectionName ?? "").trim() || null;
     return {
         id: tmdbId,
         tmdbId,
@@ -1847,6 +1850,8 @@ function buildRecommendationEntry(candidate = {}, fallback = {}, profile = {}, e
         title,
         year: candidate.year || fallback.year || "N/A",
         ...(candidate.director || fallback.director ? { director: candidate.director || fallback.director } : {}),
+        ...(collectionId !== null ? { collectionId } : {}),
+        ...(collectionName ? { collectionName } : {}),
         genre: candidate.genre || (profile?.lovedGenreNames?.[0] || "Cinema"),
         poster: candidate.poster || getFallbackPoster(title),
         backdrop: candidate.backdrop || null,
@@ -2082,6 +2087,8 @@ export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {
                 : (stub.keywordNames || []),
             castIds: Array.isArray(details?.castIds) ? details.castIds : (stub.castIds || []),
             crewPersonId: details?.crewPersonId ?? stub.crewPersonId ?? null,
+            collectionId: details?.collectionId ?? stub.collectionId ?? null,
+            collectionName: details?.collectionName ?? stub.collectionName ?? null,
             streamProviders: Array.isArray(details?.streamProviders)
                 ? details.streamProviders
                 : (stub.streamProviders || []),

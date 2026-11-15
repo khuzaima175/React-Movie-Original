@@ -1700,3 +1700,83 @@ test("verifyAndScoreWildcardPicks rejects watched mixed-IDs, TV series, provider
         else process.env.VITE_GEMINI_KEY = prevGKey;
     }
 });
+
+test("verifyAndScoreWildcardPicks and mergeGeminiExplanationsWithRanker preserve collectionId and collectionName", async () => {
+    const shortlistCandidates = [
+        {
+            id: 603692,
+            tmdbId: 603692,
+            title: "John Wick: Chapter 4",
+            year: "2023",
+            director: "Chad Stahelski",
+            genre: "Action",
+            collectionId: 404609,
+            collectionName: "John Wick Collection",
+            matchScore: 91
+        },
+        {
+            id: 1002,
+            tmdbId: 1002,
+            title: "Standalone Thriller",
+            year: "2022",
+            director: "Jane Doe",
+            genre: "Thriller",
+            matchScore: 86
+        }
+    ];
+
+    const verifiedWildcards = await verifyAndScoreWildcardPicks(
+        [{ title: "The Godfather Part II", year: "1974", anchorTitles: ["Goodfellas"], reason: "Classic crime saga." }],
+        {
+            watched: [{ tmdbId: 769, title: "Goodfellas", year: "1990", userRating: 10, tmdbGenreIds: [18, 80] }],
+            existingCandidates: shortlistCandidates,
+            profile: { lovedGenreIds: [18, 80], lovedKeywordIds: [] }
+        },
+        {
+            wildcardFinder: async () => ({ tmdbId: 240, title: "The Godfather Part II", year: "1974" }),
+            detailFetcher: async () => ({
+                tmdbId: 240,
+                imdbID: "tt0071562",
+                title: "The Godfather Part II",
+                year: "1974",
+                release_date: "1974-12-20",
+                director: "Francis Ford Coppola",
+                genre: "Drama, Crime",
+                tmdbGenreIds: [18, 80],
+                tmdbKeywords: [],
+                keywordNames: [],
+                castIds: [],
+                collectionId: 230,
+                collectionName: "The Godfather Collection",
+                vote_average: 9.0,
+                vote_count: 12000,
+                streamProviders: [],
+                freeProviders: []
+            })
+        }
+    );
+
+    assert.equal(verifiedWildcards.length, 1);
+    assert.equal(verifiedWildcards[0].collectionId, 230);
+    assert.equal(verifiedWildcards[0].collectionName, "The Godfather Collection");
+
+    const merged = mergeGeminiExplanationsWithRanker(
+        {
+            tasteProfile: { favoriteGenres: ["Action"], preferredEra: "2020s", ratingStyle: "Bold" },
+            recommendations: [
+                { tmdbId: 603692, title: "John Wick: Chapter 4", anchorTitles: [], reason: "Relentless gun-fu choreography." }
+            ]
+        },
+        shortlistCandidates,
+        { lovedGenreNames: ["Action"] },
+        { verifiedWildcards },
+        3
+    );
+
+    const wickEntry = merged.recommendations.find((r) => r.tmdbId === 603692);
+    const godfatherEntry = merged.recommendations.find((r) => r.tmdbId === 240);
+    assert.equal(wickEntry?.collectionId, 404609);
+    assert.equal(wickEntry?.collectionName, "John Wick Collection");
+    assert.equal(godfatherEntry?.collectionId, 230);
+    assert.equal(godfatherEntry?.collectionName, "The Godfather Collection");
+});

@@ -1125,6 +1125,25 @@ export function extractOfficialTrailerKey(videosList = []) {
 /**
  * Formats a raw TMDB /3/movie/{id}?append_to_response=... payload into CinemaVault's detail shape.
  */
+function parsePositiveCollectionId(raw) {
+  const num = Number(raw);
+  return Number.isSafeInteger(num) && num > 0 ? num : null;
+}
+
+function normalizeCollectionMetadata(primary = {}, fallback = null) {
+  const collectionId = parsePositiveCollectionId(primary?.belongs_to_collection?.id ?? primary?.collectionId)
+    ?? parsePositiveCollectionId(fallback?.belongs_to_collection?.id ?? fallback?.collectionId)
+    ?? null;
+
+  const pickName = (src) => {
+    const cleaned = String(src?.belongs_to_collection?.name ?? src?.collectionName ?? "").trim();
+    return cleaned && !/^n\/a$/i.test(cleaned) ? cleaned : null;
+  };
+  const collectionName = pickName(primary) || pickName(fallback);
+
+  return { collectionId, collectionName };
+}
+
 export function formatTmdbMovieDetails(data, userRegion = "US") {
   if (!data || !data.id) return null;
 
@@ -1182,7 +1201,8 @@ export function formatTmdbMovieDetails(data, userRegion = "US") {
     if (cert) mpaaRating = cert;
   }
 
-  return {
+    const { collectionId, collectionName } = normalizeCollectionMetadata(data);
+    return {
     tmdbId: data.id,
     imdbID: imdbId,
     title: data.title,
@@ -1217,6 +1237,8 @@ export function formatTmdbMovieDetails(data, userRegion = "US") {
     productionCompanies: (data.production_companies || []).slice(0, 3).map(c => c.name).join(", ") || null,
     originCountry: (data.origin_country || data.production_countries?.map(c => c.iso_3166_1) || []).join(", ") || null,
     spokenLanguages: (data.spoken_languages || []).map(l => l.english_name).join(", ") || null,
+    collectionId,
+    collectionName,
     mpaaRating,
     streamProviders,
     buyRentProviders,
@@ -1400,6 +1422,8 @@ export async function bridgeTmdbToOmdb(tmdbMovie, userRegion = "US") {
         crewPersonId: details.crewPersonId || null,
         tmdbKeywords: details.tmdbKeywords || [],
         trailerKey: details.trailerKey || null,
+        collectionId: details.collectionId ?? null,
+        collectionName: details.collectionName ?? null,
         streamProviders: details.streamProviders || [],
         userRating: 0
       };
@@ -1534,6 +1558,7 @@ function pickEnrichedDetails(existing = {}, details = {}) {
   const originCountry = pickRichValue(details.originCountry, existing.originCountry);
   const tagline = pickRichValue(details.tagline, existing.tagline);
   const mpaaRating = pickRichValue(details.mpaaRating, existing.mpaaRating);
+  const { collectionId, collectionName } = normalizeCollectionMetadata(details, existing);
   const rawRuntime = Number(details.runtimeMinutes);
   const existingRuntime = Number(existing.runtimeMinutes);
   const runtimeMinutes = Number.isFinite(rawRuntime) && rawRuntime > 0
@@ -1548,6 +1573,8 @@ function pickEnrichedDetails(existing = {}, details = {}) {
     ...(originCountry ? { originCountry } : {}),
     ...(tagline ? { tagline } : {}),
     ...(mpaaRating ? { mpaaRating } : {}),
+    ...(collectionId !== null ? { collectionId } : {}),
+    ...(collectionName ? { collectionName } : {}),
     runtimeMinutes
   };
 }
