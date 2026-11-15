@@ -6,8 +6,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const imp = rel => import(pathToFileURL(path.join(ROOT, rel)).href);
 
 const { parseEmbeddingBinary } = await imp("src/services/embeddingService.js");
-const { evaluateRanker, evaluateRankerRolling, temporalHoldoutSplit, computeRecallAtK, computeNDCGAtK } = await imp("src/services/evalHarness.js");
+const { evaluateRanker, temporalHoldoutSplit, computeRecallAtK, computeNDCGAtK } = await imp("src/services/evalHarness.js");
 const { mapOmdbToTmdbGenreIds } = await imp("src/services/tmdbService.js");
+const {
+  selectMaskedTmdbIds,
+  buildMaskedCandidateMapsForEval,
+  buildRollingFoldInputs,
+  computeWarmColdBreakdown,
+  aggregateWarmColdBreakdowns,
+  verifyColdFallbackPath
+} = await imp("scripts/experiments/mask_eval_utils.mjs");
+export { pairedBootstrapCI, formatCI };
 
 function parseArgs(argv) {
   const args = {};
@@ -214,12 +223,51 @@ function meanObj(rows, key) {
 
 async function evalCohort(users, catalog, emb, minPos = 8, options = {}) {
   const ndcg = {}, rec = {}, prec = {}, neg = {}, auc8v7 = {}, auc9v7 = {};
+  const warmColdByUser = {};
+  const warmColdEntries = [];
+  const indexIdSet = options.indexIdSet instanceof Set
+    ? options.indexIdSet
+    : new Set(emb?.ids ? Array.from(emb.ids) : []);
+  const maskedIds = options.maskedIds instanceof Set ? options.maskedIds : new Set();
+
   for (const u of users) {
-    const spl = temporalHoldoutSplit(u.ratings, 10, minPos);
+    let collabOverride;
+    let repOverride;
+    let prep;
+    if (emb && maskedIds.size > 0) {
+      prep = await buildMaskedCandidateMapsForEval({
+        watched: u.ratings,
+        catalog,
+        holdoutSize: 10,
+        minPositiveRating: minPos,
+        embeddingIndex: emb,
+        embeddingOptions: options.embeddingOptions || {},
+        maskedIds
+      });
+      collabOverride = prep.maskedCollabSimMap;
+      repOverride = prep.maskedRepulsionMap;
+    } else {
+      const spl = temporalHoldoutSplit(u.ratings, 10, minPos);
+      const holdoutKeys = new Set(spl.holdoutRelevance.keys());
+      const excluded = new Set();
+      for (const m of u.ratings) {
+        const key = String(m?.id ?? m?.tmdbId ?? m?.imdbID ?? "");
+        if (key && !holdoutKeys.has(key)) excluded.add(key);
+      }
+      const candidateIds = [];
+      for (const c of catalog) {
+        const key = String(c?.id ?? c?.tmdbId ?? c?.imdbID ?? "");
+        if (key && !excluded.has(key)) candidateIds.push(key);
+      }
+      prep = { split: spl, candidateIds };
+    }
+
     const res = await evaluateRanker({
       watched: u.ratings,
       catalog,
       embeddingIndex: emb,
+      collabSimMap: collabOverride,
+      repulsionMap: repOverride,
       strategy: "ranker",
       minPositiveRating: minPos,
       includeRankedDetails: true,
@@ -230,12 +278,24 @@ async function evalCohort(users, catalog, emb, minPos = 8, options = {}) {
     if (res.status === "ok") {
       ndcg[u.uid] = res.metrics.ndcgAt10;
       rec[u.uid] = res.metrics.recallAt20;
-      prec[u.uid] = precAt10(res.top30Ids, spl.holdoutPositives);
+      prec[u.uid] = precAt10(res.top30Ids, prep.split.holdoutPositives);
       neg[u.uid] = res.metrics.negHitAt20;
-      const a8 = computeWithinUserAuc(res.rankedIds, res.rankedScores, spl.holdoutRelevance, 8, 7);
-      const a9 = computeWithinUserAuc(res.rankedIds, res.rankedScores, spl.holdoutRelevance, 9, 7);
+      const a8 = computeWithinUserAuc(res.rankedIds, res.rankedScores, prep.split.holdoutRelevance, 8, 7);
+      const a9 = computeWithinUserAuc(res.rankedIds, res.rankedScores, prep.split.holdoutRelevance, 9, 7);
       if (a8 !== null) auc8v7[u.uid] = a8;
       if (a9 !== null) auc9v7[u.uid] = a9;
+
+      if (emb) {
+        const wc = computeWarmColdBreakdown({
+          rankedIds: res.rankedIds,
+          candidateIds: prep.candidateIds,
+          holdoutPositives: prep.split.holdoutPositives,
+          indexIdSet,
+          maskedIds
+        });
+        warmColdByUser[u.uid] = wc;
+        warmColdEntries.push(wc);
+      }
     }
   }
   return {
@@ -251,7 +311,9 @@ async function evalCohort(users, catalog, emb, minPos = 8, options = {}) {
       auc8v7: meanObj({ auc8v7 }, "auc8v7"),
       auc9v7: meanObj({ auc9v7 }, "auc9v7")
     },
-    perUser: { ndcg, rec, prec, neg, auc8v7, auc9v7 }
+    warmCold: emb ? aggregateWarmColdBreakdowns(warmColdEntries) : null,
+    perUser: { ndcg, rec, prec, neg, auc8v7, auc9v7 },
+    warmColdByUser: emb ? warmColdByUser : null
   };
 }
 
@@ -273,62 +335,136 @@ function splitHoldoutForFold(watched, foldIdx, holdoutSize = 10, minPos = 8) {
 }
 
 async function evalBenchmarks(bench, emb, options = {}) {
+  const indexIdSet = options.indexIdSet instanceof Set
+    ? options.indexIdSet
+    : new Set(emb?.ids ? Array.from(emb.ids) : []);
+  const maskedIds = options.maskedIds instanceof Set ? options.maskedIds : new Set();
+
   const perVault = {};
   for (const minPos of [8, 9]) {
     const label = minPos === 8 ? "ge8" : "ge9";
     perVault[label] = {};
     const validMeans = [];
     const fold0Means = [];
+    const rollingWarmColdAll = [];
+    const fold0WarmColdAll = [];
+
     for (const v of bench.vaults) {
-      const roll = await evaluateRankerRolling({
-        watched: v.watched,
-        catalog: bench.catalog,
-        embeddingIndex: emb,
-        strategies: ["ranker"],
-        folds: 3,
-        minPositiveRating: minPos,
-        includeRankedDetails: true,
-        embeddingOptions: options.embeddingOptions || {},
-        contentOptions: options.contentOptions || {},
-        rankerOptions: options.rankerOptions || {}
-      });
-      const sr = roll.strategies.ranker;
-      if (sr.status !== "ok") {
-        perVault[label][v.name] = { status: sr.status, reason: sr.reason };
+      const foldInputs = buildRollingFoldInputs(v.watched, 3, 10, minPos);
+      const foldResults = [];
+      const foldPreps = [];
+      for (const input of foldInputs) {
+        let collabOverride;
+        let repOverride;
+        let prep;
+        if (emb && maskedIds.size > 0) {
+          prep = await buildMaskedCandidateMapsForEval({
+            watched: input.watched,
+            catalog: bench.catalog,
+            excludeIds: input.excludeIds,
+            holdoutSize: 10,
+            minPositiveRating: minPos,
+            embeddingIndex: emb,
+            embeddingOptions: options.embeddingOptions || {},
+            maskedIds
+          });
+          collabOverride = prep.maskedCollabSimMap;
+          repOverride = prep.maskedRepulsionMap;
+        } else {
+          const spl = temporalHoldoutSplit(input.watched, 10, minPos);
+          const holdoutKeys = new Set(spl.holdoutRelevance.keys());
+          const excluded = new Set((input.excludeIds || []).map(String));
+          for (const m of input.watched || []) {
+            const k = String(m?.id ?? m?.tmdbId ?? m?.imdbID ?? "");
+            if (k && !holdoutKeys.has(k)) excluded.add(k);
+          }
+          const candidateIds = [];
+          for (const c of bench.catalog || []) {
+            const k = String(c?.id ?? c?.tmdbId ?? c?.imdbID ?? "");
+            if (k && !excluded.has(k)) candidateIds.push(k);
+          }
+          prep = { split: spl, candidateIds };
+        }
+        const fRes = await evaluateRanker({
+          watched: input.watched,
+          excludeIds: input.excludeIds,
+          catalog: bench.catalog,
+          embeddingIndex: emb,
+          collabSimMap: collabOverride,
+          repulsionMap: repOverride,
+          strategy: "ranker",
+          holdoutSize: 10,
+          minPositiveRating: minPos,
+          includeRankedDetails: true,
+          embeddingOptions: options.embeddingOptions || {},
+          contentOptions: options.contentOptions || {},
+          rankerOptions: options.rankerOptions || {}
+        });
+        foldResults.push(fRes);
+        foldPreps.push(prep);
+      }
+
+      const okPairs = foldResults
+        .map((f, idx) => ({ f, idx, prep: foldPreps[idx] }))
+        .filter(x => x.f.status === "ok");
+      if (okPairs.length === 0) {
+        perVault[label][v.name] = {
+          status: "insufficient_data",
+          reason: foldResults[0]?.reason || "no usable folds"
+        };
         continue;
       }
-      const okFolds = sr.folds.map((f, idx) => ({ f, idx })).filter(x => x.f.status === "ok");
-      const foldSplits = okFolds.map(x => splitHoldoutForFold(v.watched, x.idx, 10, minPos));
-      const p10Folds = okFolds.map((x, j) => precAt10(x.f.top30Ids, foldSplits[j].holdoutPositives));
-      const auc8Folds = okFolds
-        .map((x, j) => computeWithinUserAuc(x.f.rankedIds, x.f.rankedScores, foldSplits[j].holdoutRelevance, 8, 7))
+
+      const meanKey = k => okPairs.reduce((s, x) => s + x.f.metrics[k], 0) / okPairs.length;
+      const p10Folds = okPairs.map(x => precAt10(x.f.top30Ids, x.prep.split.holdoutPositives));
+      const auc8Folds = okPairs
+        .map(x => computeWithinUserAuc(x.f.rankedIds, x.f.rankedScores, x.prep.split.holdoutRelevance, 8, 7))
         .filter(x => x !== null);
-      const auc9Folds = okFolds
-        .map((x, j) => computeWithinUserAuc(x.f.rankedIds, x.f.rankedScores, foldSplits[j].holdoutRelevance, 9, 7))
+      const auc9Folds = okPairs
+        .map(x => computeWithinUserAuc(x.f.rankedIds, x.f.rankedScores, x.prep.split.holdoutRelevance, 9, 7))
         .filter(x => x !== null);
       const rollP10 = p10Folds.reduce((a, b) => a + b, 0) / p10Folds.length;
       const rollAuc8 = auc8Folds.length ? auc8Folds.reduce((a, b) => a + b, 0) / auc8Folds.length : null;
       const rollAuc9 = auc9Folds.length ? auc9Folds.reduce((a, b) => a + b, 0) / auc9Folds.length : null;
-      const fold0Auc8 = computeWithinUserAuc(okFolds[0].f.rankedIds, okFolds[0].f.rankedScores, foldSplits[0].holdoutRelevance, 8, 7);
-      const fold0Auc9 = computeWithinUserAuc(okFolds[0].f.rankedIds, okFolds[0].f.rankedScores, foldSplits[0].holdoutRelevance, 9, 7);
+      const fold0Auc8 = computeWithinUserAuc(okPairs[0].f.rankedIds, okPairs[0].f.rankedScores, okPairs[0].prep.split.holdoutRelevance, 8, 7);
+      const fold0Auc9 = computeWithinUserAuc(okPairs[0].f.rankedIds, okPairs[0].f.rankedScores, okPairs[0].prep.split.holdoutRelevance, 9, 7);
+
+      const foldWarmCold = emb
+        ? okPairs.map(x =>
+            computeWarmColdBreakdown({
+              rankedIds: x.f.rankedIds,
+              candidateIds: x.prep.candidateIds,
+              holdoutPositives: x.prep.split.holdoutPositives,
+              indexIdSet,
+              maskedIds
+            })
+          )
+        : [];
+      if (emb) {
+        rollingWarmColdAll.push(...foldWarmCold);
+        fold0WarmColdAll.push(foldWarmCold[0]);
+      }
+
       const entry = {
         status: "ok",
-        foldsUsed: sr.foldsUsed,
+        foldsUsed: okPairs.length,
         rolling: {
-          ndcg10: sr.mean.ndcgAt10,
-          rec20: sr.mean.recallAt20,
+          ndcg10: meanKey("ndcgAt10"),
+          rec20: meanKey("recallAt20"),
           prec10: rollP10,
-          neg20: sr.mean.negHitAt20,
+          neg20: meanKey("negHitAt20"),
           auc8v7: rollAuc8,
-          auc9v7: rollAuc9
+          auc9v7: rollAuc9,
+          warmCold: emb ? aggregateWarmColdBreakdowns(foldWarmCold) : null
         },
         fold0: {
-          ndcg10: okFolds[0].f.metrics.ndcgAt10,
-          rec20: okFolds[0].f.metrics.recallAt20,
+          ndcg10: okPairs[0].f.metrics.ndcgAt10,
+          rec20: okPairs[0].f.metrics.recallAt20,
           prec10: p10Folds[0],
-          neg20: okFolds[0].f.metrics.negHitAt20,
+          neg20: okPairs[0].f.metrics.negHitAt20,
           auc8v7: fold0Auc8,
-          auc9v7: fold0Auc9
+          auc9v7: fold0Auc9,
+          warmCold: emb ? foldWarmCold[0] : null
         }
       };
       perVault[label][v.name] = entry;
@@ -339,17 +475,18 @@ async function evalBenchmarks(bench, emb, options = {}) {
       const vals = arr.map(x => x[k]).filter(v => v !== null && v !== undefined && Number.isFinite(v));
       return vals.length ? vals.reduce((s, x) => s + x, 0) / vals.length : null;
     };
-    const avg = arr => arr.length ? ({
+    const avg = (arr, pooledWc) => arr.length ? ({
       vaultsUsed: arr.length,
       ndcg10: arr.reduce((s, x) => s + x.ndcg10, 0) / arr.length,
       rec20: arr.reduce((s, x) => s + x.rec20, 0) / arr.length,
       prec10: arr.reduce((s, x) => s + x.prec10, 0) / arr.length,
       neg20: arr.reduce((s, x) => s + x.neg20, 0) / arr.length,
       auc8v7: meanOpt(arr, "auc8v7"),
-      auc9v7: meanOpt(arr, "auc9v7")
+      auc9v7: meanOpt(arr, "auc9v7"),
+      warmCold: emb ? aggregateWarmColdBreakdowns(pooledWc) : null
     }) : null;
-    perVault[label].MEAN_ROLLING = avg(validMeans);
-    perVault[label].MEAN_FOLD0 = avg(fold0Means);
+    perVault[label].MEAN_ROLLING = avg(validMeans, rollingWarmColdAll);
+    perVault[label].MEAN_FOLD0 = avg(fold0Means, fold0WarmColdAll);
   }
   return perVault;
 }
@@ -384,87 +521,124 @@ function printCohortComparison(name, cur, refs) {
 }
 
 const args = parseArgs(process.argv);
-const tag = args.tag || "baseline";
-const outDir = args["out-dir"] || path.join(ROOT, ".data/ablation_results");
-fs.mkdirSync(outDir, { recursive: true });
-const outFile = path.join(outDir, `eval_${tag}.json`);
+const isDirectMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 
-const { catalog, users328, users300, bench } = loadDatasets();
-const embClean2 = args.embeddings === "null" ? null : loadEmb(".data/item_embeddings_clean2_f16.bin");
+if (isDirectMain) {
+  const tag = args.tag || "baseline";
+  const outDir = args["out-dir"] || path.join(ROOT, ".data/ablation_results");
+  fs.mkdirSync(outDir, { recursive: true });
+  const outFile = path.join(outDir, `eval_${tag}.json`);
 
-const embeddingOptions = {};
-if (args["persona-agg"]) embeddingOptions.personaAggregation = String(args["persona-agg"]);
-if (args.beta !== undefined) embeddingOptions.personaBeta = Number(args.beta);
-if (args["ridge-blend"] !== undefined) embeddingOptions.ridgeBlend = Number(args["ridge-blend"]);
-if (args["ridge-lambda"] !== undefined) embeddingOptions.ridgeLambda = Number(args["ridge-lambda"]);
-const rankerOptions = {};
-if (args["collab-norm"]) rankerOptions.collabNormalization = String(args["collab-norm"]);
-if (args["smooth-damping"] === "false") rankerOptions.smoothDamping = false;
-else if (args["smooth-damping"] === "true") rankerOptions.smoothDamping = true;
-if (args.gamma !== undefined) rankerOptions.percentileGamma = Number(args.gamma);
-if (args["ramp-max"] !== undefined) rankerOptions.dampingRampMax = Number(args["ramp-max"]);
-const evalOpts = { embeddingOptions, rankerOptions };
+  const maskFrac = args["mask-frac"] !== undefined ? Number(args["mask-frac"]) : 0;
+  const maskSeed = args["mask-seed"] !== undefined ? Number(args["mask-seed"]) : 1;
 
-const t0 = Date.now();
-const result = { tag, generatedAt: new Date().toISOString(), evalOpts, datasets: {} };
+  const { catalog, users328, users300, bench } = loadDatasets();
+  const embClean2 = args.embeddings === "null" ? null : loadEmb(".data/item_embeddings_clean2_f16.bin");
+  const indexIdSet = new Set(embClean2?.ids ? Array.from(embClean2.ids) : []);
+  const maskedIds = embClean2 && maskFrac > 0 ? selectMaskedTmdbIds(embClean2.ids, maskFrac, maskSeed) : new Set();
 
-if (args.embeddings !== "null") {
-  result.datasets.c328_clean2_ge8 = await evalCohort(users328, catalog, embClean2, 8, evalOpts);
-  result.datasets.c328_clean2_ge9 = await evalCohort(users328, catalog, embClean2, 9, evalOpts);
-  result.datasets.bench_clean2 = await evalBenchmarks(bench, embClean2, evalOpts);
-}
+  const embeddingOptions = {};
+  if (args["persona-agg"]) embeddingOptions.personaAggregation = String(args["persona-agg"]);
+  if (args.beta !== undefined) embeddingOptions.personaBeta = Number(args.beta);
+  if (args["ridge-blend"] !== undefined) embeddingOptions.ridgeBlend = Number(args["ridge-blend"]);
+  if (args["ridge-lambda"] !== undefined) embeddingOptions.ridgeLambda = Number(args["ridge-lambda"]);
+  const rankerOptions = {};
+  if (args["collab-norm"]) rankerOptions.collabNormalization = String(args["collab-norm"]);
+  if (args["smooth-damping"] === "false") rankerOptions.smoothDamping = false;
+  else if (args["smooth-damping"] === "true") rankerOptions.smoothDamping = true;
+  if (args.gamma !== undefined) rankerOptions.percentileGamma = Number(args.gamma);
+  if (args["ramp-max"] !== undefined) rankerOptions.dampingRampMax = Number(args["ramp-max"]);
+  const evalOpts = { embeddingOptions, rankerOptions, indexIdSet, maskedIds };
 
-if (args["include-null"]) {
-  result.datasets.c328_null_ge8 = await evalCohort(users328, catalog, null, 8, evalOpts);
-  result.datasets.c328_null_ge9 = await evalCohort(users328, catalog, null, 9, evalOpts);
-  result.datasets.bench_null = await evalBenchmarks(bench, null, evalOpts);
-}
-
-if (args["include-300"]) {
-  result.datasets.c300_clean2_ge8 = await evalCohort(users300, catalog, embClean2, 8, evalOpts);
-  result.datasets.c300_clean2_ge9 = await evalCohort(users300, catalog, embClean2, 9, evalOpts);
-}
-
-fs.writeFileSync(outFile, JSON.stringify(result, null, 2));
-console.log(`Saved ${outFile} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-
-const compareTags = (args.compare || "").split(",").filter(Boolean);
-const refObjs = compareTags.map(t => {
-  const p = path.join(outDir, `eval_${t}.json`);
-  return [t, fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null];
-});
-
-if (result.datasets.c328_clean2_ge8) {
-  printCohortComparison("328-Cohort clean2 (>=8★)", result.datasets.c328_clean2_ge8, refObjs.map(([l, o]) => [l, o?.datasets?.c328_clean2_ge8]));
-  printCohortComparison("328-Cohort clean2 (>=9★)", result.datasets.c328_clean2_ge9, refObjs.map(([l, o]) => [l, o?.datasets?.c328_clean2_ge9]));
-  const b8 = result.datasets.bench_clean2.ge8;
-  const b9 = result.datasets.bench_clean2.ge9;
-  console.log(`\n--- 4 Benchmark Vaults clean2 ---`);
-  const fmtOpt = (v) => (v !== null && v !== undefined && Number.isFinite(v)) ? v.toFixed(4) : "n/a";
-  for (const [vName, d] of Object.entries(b8)) {
-    if (d.status !== "ok") continue;
-    console.log(`  >=8★ ${vName}: roll(${d.foldsUsed}/3) NDCG=${d.rolling.ndcg10.toFixed(4)} Rec20=${d.rolling.rec20.toFixed(4)} P10=${d.rolling.prec10.toFixed(4)} Neg20=${d.rolling.neg20.toFixed(4)} AUC9v7=${fmtOpt(d.rolling.auc9v7)} AUC8v7=${fmtOpt(d.rolling.auc8v7)} | fold0 NDCG=${d.fold0.ndcg10.toFixed(4)} Rec20=${d.fold0.rec20.toFixed(4)} P10=${d.fold0.prec10.toFixed(4)}`);
-  }
-  console.log(`  >=8★ MEAN ROLLING (4 vaults): NDCG=${b8.MEAN_ROLLING.ndcg10.toFixed(4)} Rec20=${b8.MEAN_ROLLING.rec20.toFixed(4)} P10=${b8.MEAN_ROLLING.prec10.toFixed(4)} Neg20=${b8.MEAN_ROLLING.neg20.toFixed(4)} AUC9v7=${fmtOpt(b8.MEAN_ROLLING.auc9v7)} AUC8v7=${fmtOpt(b8.MEAN_ROLLING.auc8v7)}`);
-  console.log(`  >=9★ MEAN ROLLING (${b9.MEAN_ROLLING.vaultsUsed} vaults): NDCG=${b9.MEAN_ROLLING.ndcg10.toFixed(4)} Rec20=${b9.MEAN_ROLLING.rec20.toFixed(4)} P10=${b9.MEAN_ROLLING.prec10.toFixed(4)} Neg20=${b9.MEAN_ROLLING.neg20.toFixed(4)} AUC9v7=${fmtOpt(b9.MEAN_ROLLING.auc9v7)} AUC8v7=${fmtOpt(b9.MEAN_ROLLING.auc8v7)}`);
-  for (const [l, o] of refObjs) {
-    const rb8 = o?.datasets?.bench_clean2?.ge8?.MEAN_ROLLING;
-    const rb9 = o?.datasets?.bench_clean2?.ge9?.MEAN_ROLLING;
-    if (rb8) {
-      const dA9 = (b8.MEAN_ROLLING.auc9v7 != null && rb8.auc9v7 != null) ? ` dAUC9v7=${(b8.MEAN_ROLLING.auc9v7 - rb8.auc9v7).toFixed(4)}` : "";
-      const dA8 = (b8.MEAN_ROLLING.auc8v7 != null && rb8.auc8v7 != null) ? ` dAUC8v7=${(b8.MEAN_ROLLING.auc8v7 - rb8.auc8v7).toFixed(4)}` : "";
-      const d9A9 = (b9.MEAN_ROLLING.auc9v7 != null && rb9.auc9v7 != null) ? ` dAUC9v7=${(b9.MEAN_ROLLING.auc9v7 - rb9.auc9v7).toFixed(4)}` : "";
-      console.log(`  Bench vs ${l}: >=8★ dNDCG=${(b8.MEAN_ROLLING.ndcg10 - rb8.ndcg10).toFixed(4)} dRec=${(b8.MEAN_ROLLING.rec20 - rb8.rec20).toFixed(4)} dP10=${(b8.MEAN_ROLLING.prec10 - rb8.prec10).toFixed(4)}${dA9}${dA8} | >=9★ dNDCG=${(b9.MEAN_ROLLING.ndcg10 - rb9.ndcg10).toFixed(4)} dRec=${(b9.MEAN_ROLLING.rec20 - rb9.rec20).toFixed(4)}${d9A9}`);
+  let coldPathCheck = null;
+  if (embClean2 && maskedIds.size > 0 && users300.length > 0) {
+    coldPathCheck = await verifyColdFallbackPath({
+      watched: users300[0].ratings,
+      catalog,
+      embeddingIndex: embClean2,
+      embeddingOptions,
+      maskedIds
+    });
+    if (!coldPathCheck.verified) {
+      throw new Error(`Cold-path verification failed: ${JSON.stringify(coldPathCheck)}`);
     }
   }
-}
 
-if (result.datasets.c328_null_ge8) {
-  printCohortComparison("328-Cohort metadata-only null (>=8★)", result.datasets.c328_null_ge8, refObjs.map(([l, o]) => [l, o?.datasets?.c328_null_ge8]));
-  printCohortComparison("328-Cohort metadata-only null (>=9★)", result.datasets.c328_null_ge9, refObjs.map(([l, o]) => [l, o?.datasets?.c328_null_ge9]));
-}
+  const t0 = Date.now();
+  const result = {
+    tag,
+    generatedAt: new Date().toISOString(),
+    maskFrac,
+    maskSeed,
+    maskedCount: maskedIds.size,
+    coldPathCheck,
+    evalOpts: { embeddingOptions, rankerOptions },
+    datasets: {}
+  };
 
-if (result.datasets.c300_clean2_ge8) {
-  printCohortComparison("fresh_300 clean2 (>=8★)", result.datasets.c300_clean2_ge8, refObjs.map(([l, o]) => [l, o?.datasets?.c300_clean2_ge8]));
-  printCohortComparison("fresh_300 clean2 (>=9★)", result.datasets.c300_clean2_ge9, refObjs.map(([l, o]) => [l, o?.datasets?.c300_clean2_ge9]));
+  if (args.embeddings !== "null") {
+    result.datasets.c328_clean2_ge8 = await evalCohort(users328, catalog, embClean2, 8, evalOpts);
+    result.datasets.c328_clean2_ge9 = await evalCohort(users328, catalog, embClean2, 9, evalOpts);
+    result.datasets.bench_clean2 = await evalBenchmarks(bench, embClean2, evalOpts);
+  }
+
+  if (args["include-null"]) {
+    result.datasets.c328_null_ge8 = await evalCohort(users328, catalog, null, 8, evalOpts);
+    result.datasets.c328_null_ge9 = await evalCohort(users328, catalog, null, 9, evalOpts);
+    result.datasets.bench_null = await evalBenchmarks(bench, null, evalOpts);
+  }
+
+  if (args["include-300"]) {
+    result.datasets.c300_clean2_ge8 = await evalCohort(users300, catalog, embClean2, 8, evalOpts);
+    result.datasets.c300_clean2_ge9 = await evalCohort(users300, catalog, embClean2, 9, evalOpts);
+  }
+
+  fs.writeFileSync(outFile, JSON.stringify(result, null, 2));
+  console.log(`Saved ${outFile} in ${((Date.now() - t0) / 1000).toFixed(1)}s (maskFrac=${maskFrac}, maskSeed=${maskSeed}, masked=${maskedIds.size})`);
+  if (coldPathCheck) {
+    console.log(
+      `  Cold-path check: candidates=${coldPathCheck.candidatesCount}, masked=${coldPathCheck.maskedCandCount}, maskedCollab0=${coldPathCheck.maskedCollabZeroCount}, maskedStructured>0=${coldPathCheck.maskedContentNonZeroCount}, warmColdLeak=${coldPathCheck.warmColdLeakCount}`
+    );
+  }
+
+  const compareTags = (args.compare || "").split(",").filter(Boolean);
+  const refObjs = compareTags.map(t => {
+    const p = path.join(outDir, `eval_${t}.json`);
+    return [t, fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : null];
+  });
+
+  if (result.datasets.c328_clean2_ge8) {
+    printCohortComparison("328-Cohort clean2 (>=8★)", result.datasets.c328_clean2_ge8, refObjs.map(([l, o]) => [l, o?.datasets?.c328_clean2_ge8]));
+    printCohortComparison("328-Cohort clean2 (>=9★)", result.datasets.c328_clean2_ge9, refObjs.map(([l, o]) => [l, o?.datasets?.c328_clean2_ge9]));
+    const b8 = result.datasets.bench_clean2.ge8;
+    const b9 = result.datasets.bench_clean2.ge9;
+    console.log(`\n--- 4 Benchmark Vaults clean2 ---`);
+    const fmtOpt = (v) => (v !== null && v !== undefined && Number.isFinite(v)) ? v.toFixed(4) : "n/a";
+    for (const [vName, d] of Object.entries(b8)) {
+      if (d.status !== "ok") continue;
+      console.log(`  >=8★ ${vName}: roll(${d.foldsUsed}/3) NDCG=${d.rolling.ndcg10.toFixed(4)} Rec20=${d.rolling.rec20.toFixed(4)} P10=${d.rolling.prec10.toFixed(4)} Neg20=${d.rolling.neg20.toFixed(4)} AUC9v7=${fmtOpt(d.rolling.auc9v7)} AUC8v7=${fmtOpt(d.rolling.auc8v7)} | fold0 NDCG=${d.fold0.ndcg10.toFixed(4)} Rec20=${d.fold0.rec20.toFixed(4)} P10=${d.fold0.prec10.toFixed(4)}`);
+    }
+    console.log(`  >=8★ MEAN ROLLING (4 vaults): NDCG=${b8.MEAN_ROLLING.ndcg10.toFixed(4)} Rec20=${b8.MEAN_ROLLING.rec20.toFixed(4)} P10=${b8.MEAN_ROLLING.prec10.toFixed(4)} Neg20=${b8.MEAN_ROLLING.neg20.toFixed(4)} AUC9v7=${fmtOpt(b8.MEAN_ROLLING.auc9v7)} AUC8v7=${fmtOpt(b8.MEAN_ROLLING.auc8v7)}`);
+    console.log(`  >=9★ MEAN ROLLING (${b9.MEAN_ROLLING.vaultsUsed} vaults): NDCG=${b9.MEAN_ROLLING.ndcg10.toFixed(4)} Rec20=${b9.MEAN_ROLLING.rec20.toFixed(4)} P10=${b9.MEAN_ROLLING.prec10.toFixed(4)} Neg20=${b9.MEAN_ROLLING.neg20.toFixed(4)} AUC9v7=${fmtOpt(b9.MEAN_ROLLING.auc9v7)} AUC8v7=${fmtOpt(b9.MEAN_ROLLING.auc8v7)}`);
+    for (const [l, o] of refObjs) {
+      const rb8 = o?.datasets?.bench_clean2?.ge8?.MEAN_ROLLING;
+      const rb9 = o?.datasets?.bench_clean2?.ge9?.MEAN_ROLLING;
+      if (rb8) {
+        const dA9 = (b8.MEAN_ROLLING.auc9v7 != null && rb8.auc9v7 != null) ? ` dAUC9v7=${(b8.MEAN_ROLLING.auc9v7 - rb8.auc9v7).toFixed(4)}` : "";
+        const dA8 = (b8.MEAN_ROLLING.auc8v7 != null && rb8.auc8v7 != null) ? ` dAUC8v7=${(b8.MEAN_ROLLING.auc8v7 - rb8.auc8v7).toFixed(4)}` : "";
+        const d9A9 = (b9.MEAN_ROLLING.auc9v7 != null && rb9.auc9v7 != null) ? ` dAUC9v7=${(b9.MEAN_ROLLING.auc9v7 - rb9.auc9v7).toFixed(4)}` : "";
+        console.log(`  Bench vs ${l}: >=8★ dNDCG=${(b8.MEAN_ROLLING.ndcg10 - rb8.ndcg10).toFixed(4)} dRec=${(b8.MEAN_ROLLING.rec20 - rb8.rec20).toFixed(4)} dP10=${(b8.MEAN_ROLLING.prec10 - rb8.prec10).toFixed(4)}${dA9}${dA8} | >=9★ dNDCG=${(b9.MEAN_ROLLING.ndcg10 - rb9.ndcg10).toFixed(4)} dRec=${(b9.MEAN_ROLLING.rec20 - rb9.rec20).toFixed(4)}${d9A9}`);
+      }
+    }
+  }
+
+  if (result.datasets.c328_null_ge8) {
+    printCohortComparison("328-Cohort metadata-only null (>=8★)", result.datasets.c328_null_ge8, refObjs.map(([l, o]) => [l, o?.datasets?.c328_null_ge8]));
+    printCohortComparison("328-Cohort metadata-only null (>=9★)", result.datasets.c328_null_ge9, refObjs.map(([l, o]) => [l, o?.datasets?.c328_null_ge9]));
+  }
+
+  if (result.datasets.c300_clean2_ge8) {
+    printCohortComparison("fresh_300 clean2 (>=8★)", result.datasets.c300_clean2_ge8, refObjs.map(([l, o]) => [l, o?.datasets?.c300_clean2_ge8]));
+    printCohortComparison("fresh_300 clean2 (>=9★)", result.datasets.c300_clean2_ge9, refObjs.map(([l, o]) => [l, o?.datasets?.c300_clean2_ge9]));
+  }
 }

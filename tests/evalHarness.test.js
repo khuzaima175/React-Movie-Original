@@ -85,3 +85,135 @@ test("temporalHoldoutSplit retains positive films in holdout when total positive
   assert.ok(split.holdoutPositives.has("2"), "must include the positive film in holdoutPositives");
   assert.equal(split.trainWatched.length, 1, "keeps earlier history before the positive film in trainWatched");
 });
+
+test("selectMaskedTmdbIds is deterministic by seed, order-invariant, and empty for maskFrac=0", async () => {
+  const { selectMaskedTmdbIds } = await import("../scripts/experiments/mask_eval_utils.mjs");
+  const ids = Array.from({ length: 100 }, (_, i) => 1000 + i);
+  const reversed = [...ids].reverse();
+
+  assert.equal(selectMaskedTmdbIds(ids, 0, 1).size, 0);
+
+  const a1 = selectMaskedTmdbIds(ids, 0.2, 1);
+  const a1Rev = selectMaskedTmdbIds(reversed, 0.2, 1);
+  const b1 = selectMaskedTmdbIds(ids, 0.2, 2);
+
+  assert.equal(a1.size, 20);
+  assert.deepEqual([...a1].sort((x, y) => x - y), [...a1Rev].sort((x, y) => x - y));
+  assert.notDeepEqual([...a1].sort((x, y) => x - y), [...b1].sort((x, y) => x - y));
+});
+
+test("buildMaskedCandidateMapsForEval masks only candidate maps without altering user vector and routes masked films to coldOnly fallback", async () => {
+  const {
+    buildMaskedCandidateMapsForEval,
+    verifyColdFallbackPath
+  } = await import("../scripts/experiments/mask_eval_utils.mjs");
+  const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+  const { evaluateRanker } = await import("../src/services/evalHarness.js");
+
+  // 4-D toy index: film 101 (loved in train), film 102 (disliked in train),
+  // candidate 201 (warm), candidate 202 (masked), candidate 203 (naturally unindexed)
+  const buf = encodeEmbeddingBinary([
+    { tmdbId: 101, vector: [1, 0, 0, 0] },
+    { tmdbId: 102, vector: [0, 1, 0, 0] },
+    { tmdbId: 201, vector: [0.95, 0.05, 0, 0] },
+    { tmdbId: 202, vector: [0.9, 0.1, 0, 0] }
+  ]);
+  const embIndex = parseEmbeddingBinary(buf);
+
+  const watched = [
+    { id: 101, tmdbId: 101, userRating: 10, tmdbGenreIds: [878], tmdbKeywords: [4565], crewPersonId: 525, dateWatched: "2026-01-01" },
+    { id: 102, tmdbId: 102, userRating: 2, tmdbGenreIds: [27], tmdbKeywords: [9999], crewPersonId: 10, dateWatched: "2026-02-01" },
+    { id: 201, tmdbId: 201, userRating: 9, tmdbGenreIds: [878], tmdbKeywords: [4565], crewPersonId: 525, dateWatched: "2026-03-01" },
+    { id: 202, tmdbId: 202, userRating: 9, tmdbGenreIds: [878], tmdbKeywords: [4565], crewPersonId: 525, dateWatched: "2026-04-01" },
+    { id: 203, tmdbId: 203, userRating: 9, tmdbGenreIds: [878], tmdbKeywords: [4565], crewPersonId: 525, dateWatched: "2026-05-01" }
+  ];
+  const catalog = watched.map(w => ({ ...w, vote_average: 8.2, vote_count: 1000 }));
+
+  // Mask both a train item (101) AND a candidate item (202):
+  // User vector must still use 101 from the full index!
+  const maskedIds = new Set([101, 202]);
+
+  const unmaskedPrep = await buildMaskedCandidateMapsForEval({
+    watched, catalog, holdoutSize: 3, minPositiveRating: 8, embeddingIndex: embIndex, maskedIds: new Set()
+  });
+  const maskedPrep = await buildMaskedCandidateMapsForEval({
+    watched, catalog, holdoutSize: 3, minPositiveRating: 8, embeddingIndex: embIndex, maskedIds
+  });
+
+  // Unmasked candidate 201 must have identical collabSim & repulsion even though train film 101 was in maskedIds
+  assert.equal(maskedPrep.maskedCollabSimMap.get(201), unmaskedPrep.fullCollabSimMap.get(201));
+  assert.equal(maskedPrep.maskedRepulsionMap.get(201), unmaskedPrep.fullRepulsionMap.get(201));
+  assert.ok((maskedPrep.maskedCollabSimMap.get(201) ?? 0) > 0.5);
+
+  // Masked candidate 202 must have 0/absent collabSim and repulsion on candidate side
+  assert.equal(maskedPrep.maskedCollabSimMap.has(202), false);
+  assert.equal(maskedPrep.maskedRepulsionMap.has(202), false);
+
+  // Verify coldOnly fallback gives structured contentSim > 0 to masked candidate 202 and 0 to warm candidate 201
+  const chk = await verifyColdFallbackPath({
+    watched, catalog, embeddingIndex: embIndex, maskedIds, holdoutSize: 3, minPositiveRating: 8
+  });
+  assert.equal(chk.verified, true);
+  assert.equal(chk.maskedCandCount, 1);
+  assert.equal(chk.maskedCollabZeroCount, 1);
+  assert.equal(chk.maskedContentNonZeroCount, 1);
+  assert.equal(chk.warmColdLeakCount, 0);
+
+  // End-to-end evaluateRanker call runs cleanly with masked maps
+  const evalRes = await evaluateRanker({
+    watched,
+    catalog,
+    embeddingIndex: embIndex,
+    collabSimMap: maskedPrep.maskedCollabSimMap,
+    repulsionMap: maskedPrep.maskedRepulsionMap,
+    strategy: "ranker",
+    holdoutSize: 3,
+    minPositiveRating: 8,
+    minTrain: 2,
+    includeRankedDetails: true
+  });
+  assert.equal(evalRes.status, "ok");
+  assert.equal(evalRes.rankedIds.length, 3);
+});
+
+test("computeWarmColdBreakdown and aggregateWarmColdBreakdowns split warm, masked, and cold positives accurately", async () => {
+  const { computeWarmColdBreakdown, aggregateWarmColdBreakdowns } = await import("../scripts/experiments/mask_eval_utils.mjs");
+  const indexIdSet = new Set([1, 2, 3, 4]);
+  const maskedIds = new Set([2, 4]); // 2 and 4 are masked cold; 5 is naturally unindexed cold; 1 and 3 are warm
+  const candidateIds = ["1", "2", "3", "4", "5", "6"]; // cold in pool: 2, 4, 5, 6 (4/6 = 66.7%)
+  const rankedIds = ["1", "2", "5", "3"]; // all 4 in top-20: cold top20 = 2, 5 (2/4 = 50%), masked top20 = 2
+  const holdoutPositives = new Set(["1", "2", "4", "5"]); // warm: 1 (hit); masked: 2 (hit), 4 (miss); all cold: 2 (hit), 4 (miss), 5 (hit)
+
+  // Slice top-20 of length 4 from rankedIds => wait: let's add enough warm fillers or check ratio directly
+  const b = computeWarmColdBreakdown({
+    rankedIds: ["1", "2", "3"], // top20 has 3 items: 1 (warm), 2 (masked cold), 3 (warm) -> cold hits: 2 (1/3), warm hits: 1 (1/1)
+    candidateIds,
+    holdoutPositives,
+    indexIdSet,
+    maskedIds
+  });
+
+  assert.equal(b.posWarmCount, 1);
+  assert.equal(b.posWarmHits, 1);
+  assert.equal(b.warmRecall20, 1.0);
+
+  assert.equal(b.posColdCount, 3); // ids 2, 4, 5
+  assert.equal(b.posColdHits, 1); // only id 2 in rankedIds
+  assert.ok(Math.abs(b.coldRecall20 - 1 / 3) < 1e-9);
+
+  assert.equal(b.posMaskedCount, 2); // ids 2, 4 (5 is unindexed, not masked)
+  assert.equal(b.posMaskedHits, 1); // id 2
+  assert.equal(b.maskedRecall20, 0.5);
+
+  assert.ok(Math.abs(b.top20ColdShare - 1 / 3) < 1e-9);
+  assert.ok(Math.abs(b.poolColdShare - 4 / 6) < 1e-9);
+  assert.equal(b.holdoutColdShare, 0.75);
+
+  const agg = aggregateWarmColdBreakdowns([b]);
+  assert.equal(agg.nUsers, 1);
+  assert.equal(agg.totalColdPos, 3);
+  assert.equal(agg.totalColdHits, 1);
+  assert.equal(agg.totalWarmPos, 1);
+  assert.equal(agg.totalWarmHits, 1);
+  assert.equal(agg.microMaskedRecall20, 0.5);
+});
