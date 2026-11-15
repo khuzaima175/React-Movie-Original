@@ -1538,9 +1538,6 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
             : "";
         const votesStr = c.vote_count ? ` (${c.vote_count}v)` : "";
         const ratingStr = c.vote_average != null && c.vote_average !== "N/A" ? `${c.vote_average}/10` : "N/A";
-        const matchDisplay = typeof c.matchScore === "number" && Number.isFinite(c.matchScore)
-            ? `${c.matchScore}%`
-            : "N/A";
 
         const runtimeNum = Number(c.runtimeMinutes);
         const langs = toLimitedList(c.spokenLanguages, 2);
@@ -1551,7 +1548,7 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         ].filter(Boolean);
         const specsStr = specsParts.length > 0 ? ` | [${specsParts.join(" | ")}]` : "";
 
-        const baseLine = `ID: ${c.id || c.tmdbId} | "${cleanStr(c.title)}" (${c.year})${directorStr} | Match: ${matchDisplay} | Genres: ${c.genre} | TMDB: ${ratingStr}${votesStr}${badgesStr}${specsStr}`;
+        const baseLine = `ID: ${c.id || c.tmdbId} | "${cleanStr(c.title)}" (${c.year})${directorStr} | Genres: ${c.genre} | TMDB: ${ratingStr}${votesStr}${badgesStr}${specsStr}`;
 
         const castList = toLimitedList(c.cast, 3);
         const themeList = toLimitedList(c.keywordNames, 5);
@@ -1582,7 +1579,7 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         return `
 You are an elite film critic and cinema intelligence engine.
 Select a diverse top ${targetCount} from these pre-ranked TMDB candidate movies and write compelling, personalized explanations.
-Do NOT invent scores—each candidate already has a calibrated ranker score.
+Do NOT output numeric match percentages—evaluate fit independently from taste signals, themes, cast, directors, and plots.
 
 USER TASTE PROFILE:
 ${tasteLines.join("\n")}
@@ -1597,7 +1594,7 @@ ${candidatesStr}
 
 TASK:
 Perform a diversity pass over these top candidates and select ${targetCount} distinct films.
-- Ranker balance: Favor #1–#15 ranked picks by default; promote a #16–#30 candidate (especially post-2023 releases lacking co-rating depth) only when its Plot, Themes, Cast, and Tone clearly match USER NOTES/favorite anchors better, or to replace a #1–#15 pick vetoed for clashing with Disliked/Near-Miss notes.
+- Curate openly: Every listed candidate already cleared availability and safety filters. Judge picks across the full list equally on tone, pacing, directorial voice, plots, user notes, and diversity.
 - Keep directors varied (max 2 picks per director unless deeply core).${explicitMood ? `\n- CRITICAL MOOD RULE: Every pick MUST genuinely fit the "${preset.label}" mood and any custom vibe constraints above — prioritize true mood matches over off-tone vault staples.` : ""}
 Write a bespoke 1-sentence upright editorial reason explaining how each pick fits their requested vibe and favorite anchors, user notes, directors, themes, or pacing (never generic plot summary).
 CRITICAL STYLE RULES FOR "reason" AND OUTPUT:
@@ -1612,10 +1609,16 @@ Output strict JSON with:
    - year (string)
    - anchorTitles (array of 1-3 exact titles from user's favorite anchor films)
    - reason (string: crisp 1-sentence editorial connection free of internal jargon)
+3. wildcardPicks (optional): Array of 0 to 2 theatrical feature films NOT already in PRE-RANKED CANDIDATE MOVIES, watched, or watchlist that fit even better (verified automatically via TMDB, vault exclusions, streaming providers, and active mood gates before inclusion), each with:
+   - title (string)
+   - year (string)
+   - anchorTitles (array of 1-3 exact titles from user's favorite anchor films)
+   - reason (string: crisp 1-sentence editorial connection free of internal jargon)
 `;
     };
 
-    const PROMPT_CHAR_BUDGET = 17600;
+    const PROMPT_CHAR_BUDGET = 19200;
+    const PROMPT_CHAR_LIMIT = 20000;
     let prompt = renderPrompt({ plotLimit: 250, taglineLimit: 70 });
     if (prompt.length > PROMPT_CHAR_BUDGET) {
         prompt = renderPrompt({ plotLimit: 250, taglineLimit: 0 });
@@ -1623,11 +1626,14 @@ Output strict JSON with:
     if (prompt.length > PROMPT_CHAR_BUDGET) {
         const excess = prompt.length - (PROMPT_CHAR_BUDGET - 400);
         const perCandidate = Math.max(1, topCandidates.length);
-        const tightenedPlot = Math.max(100, 250 - Math.ceil(excess / perCandidate) - 10);
+        const tightenedPlot = Math.max(80, 250 - Math.ceil(excess / perCandidate) - 10);
         prompt = renderPrompt({ plotLimit: tightenedPlot, taglineLimit: 0 });
     }
-    if (prompt.length >= 18000) {
+    if (prompt.length > PROMPT_CHAR_LIMIT) {
         prompt = renderPrompt({ plotLimit: 60, taglineLimit: 0 });
+    }
+    if (prompt.length > PROMPT_CHAR_LIMIT) {
+        prompt = renderPrompt({ plotLimit: 0, taglineLimit: 0 });
     }
     return prompt;
 }

@@ -1180,7 +1180,7 @@ test("buildGeminiReRankPrompt handles real extractTasteProfile shapes, notes on 
     assert.ok(prompt.includes("Severance"), "Watchlist signal included when non-empty");
 });
 
-test("buildGeminiReRankPrompt formats compact candidate metadata, balances #1-15 vs #16-30 promotion/veto rules, and stays under 18k chars", () => {
+test("buildGeminiReRankPrompt formats unbiased candidate metadata, enables equal-footing + optional wildcardPicks curation, and stays <= 20k chars", () => {
     const longOverview = "A".repeat(160) + " climax twist about memory loops." + "Z".repeat(200);
     const baseCandidate = {
         tmdbId: 888,
@@ -1241,16 +1241,20 @@ test("buildGeminiReRankPrompt formats compact candidate metadata, balances #1-15
     assert.ok(!prompt.includes("extra-sixth-tag"), "Caps themes at 5 keywords");
     assert.ok(prompt.includes("climax twist about memory loops."), "Includes plot up to 250 chars");
     assert.ok(!prompt.includes("Z".repeat(100)), "Caps plot at 250 chars");
-    assert.match(prompt, /#1[–-]#?15/i, "Explicitly instructs Gemini to favor #1–#15 ranker picks by default");
-    assert.match(prompt, /#16[–-]#?30/i, "Explicitly scopes promotion to #16–#30 fits and vetoing clashes");
+    assert.doesNotMatch(prompt, /\|\s*Match:\s*\d+%|\|\s*Match:\s*N\/A/, "Must omit calibrated % Match from candidate lines");
+    assert.doesNotMatch(prompt, /#1[–-]#?15/i, "Must remove #1-#15 obedience directive");
+    assert.doesNotMatch(prompt, /calibrated ranker score/i, "Must avoid anchoring Gemini on hidden math rank");
+    assert.match(prompt, /Curate openly:/i, "Uses unbiased open curation instruction");
+    assert.match(prompt, /wildcardPicks/i, "Documents optional outside wildcardPicks slot");
+    assert.ok(prompt.includes("[Recent cold-start gem]"), "Preserves qualitative matchReasons hints");
 
-    // Worst-case 30 candidates + 10 anchors + 5 dislikes + 3 recent + 4 near misses + 8 watchlist
+    // Worst-case 40 candidates + 10 anchors + 5 dislikes + 3 recent + 4 near misses + 8 watchlist
     const fullWatched = [
         ...Array.from({ length: 10 }, (_, i) => ({ tmdbId: i + 1, title: `Anchor Film ${i + 1}`, year: "2020", userRating: 10, director: "Director Name", genre: "Sci-Fi, Thriller", userNote: "A".repeat(180) })),
         ...Array.from({ length: 5 }, (_, i) => ({ tmdbId: i + 20, title: `Dislike Film ${i + 1}`, year: "2021", userRating: 3, genre: "Horror", userNote: "B".repeat(180) })),
         ...Array.from({ length: 4 }, (_, i) => ({ tmdbId: i + 30, title: `Near Miss ${i + 1}`, year: "2022", userRating: 7, genre: "Drama", userNote: "C".repeat(180) })),
     ];
-    const thirtyRich = Array.from({ length: 30 }, (_, idx) => ({
+    const fortyRich = Array.from({ length: 40 }, (_, idx) => ({
         ...baseCandidate,
         tmdbId: 900 + idx,
         id: 900 + idx,
@@ -1261,8 +1265,8 @@ test("buildGeminiReRankPrompt formats compact candidate metadata, balances #1-15
     const fullPrompt = buildGeminiReRankPrompt(
         { lovedGenreNames: ["Sci-Fi", "Thriller", "Action"], topDirectors: ["Denis Villeneuve", "Christopher Nolan", "Ridley Scott"], userStats: { mean: 7.8, std: 1.5, count: 122 } },
         "any",
-        thirtyRich,
+        fortyRich,
         { watched: fullWatched, watchlist: fullWatchlist }
     );
-    assert.ok(fullPrompt.length < 18000, `Expected worst-case 30-candidate prompt < 18000 chars, got ${fullPrompt.length}`);
+    assert.ok(fullPrompt.length <= 20000, `Expected worst-case 40-candidate prompt <= 20000 chars, got ${fullPrompt.length}`);
 });
