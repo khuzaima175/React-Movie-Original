@@ -1,14 +1,20 @@
 import { FAST_INTERACTIVE_CASCADE, executeCascade, createGeminiClient } from "./geminiService.js";
 import { resolveGeminiKey } from "./apiTransport.js";
 import { compileActiveTasteRules } from "./tasteRulesService.js";
+import { serializeFilmDossierForPrompt } from "./filmChatService.js";
 
 /**
- * Sends a message to the AI movie assistant with user context.
+ * Constructs the full Film Companion prompt string, optionally grounded around
+ * an active focused movie dossier and spoiler-safety toggle.
  */
-export const sendChatMessage = async (userMessage, chatHistory, watchedMovies, tasteRules = []) => {
-    const ai = createGeminiClient(resolveGeminiKey());
-    if (!ai) throw new Error("Gemini API Key missing");
-
+export function buildChatPromptPayload(
+    userMessage,
+    chatHistory = [],
+    watchedMovies = [],
+    tasteRules = [],
+    activeMovieContext = null,
+    chatOptions = {}
+) {
     // 1. Construct the System Context with User Data
     const movieContext = (watchedMovies || []).map(m =>
         `- ${m.title} (${m.userRating}/10)${m.userNote ? ` Note: "${m.userNote}"` : ""}`
@@ -19,18 +25,39 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies, t
         ? `\n\n    USER'S ACTIVE TASTE RULES (Respect strictly):\n${activeRules.map((r) => `    - [${r.polarity === "avoid" ? "Avoid" : "Prefer"}] ${r.text}`).join("\n")}`
         : "";
 
+    let focusBlock = "";
+    if (activeMovieContext && typeof activeMovieContext === "object") {
+        const spoilerSafe =
+            typeof chatOptions?.spoilerSafe === "boolean"
+                ? chatOptions.spoilerSafe
+                : !activeMovieContext.isWatched;
+        const dossier = serializeFilmDossierForPrompt(
+            activeMovieContext,
+            activeMovieContext.vaultEntry || null,
+            activeMovieContext.watchlistEntry || null,
+            { spoilerSafe }
+        );
+        if (dossier) {
+            focusBlock = `\n\n    FOCUSED FILM DOSSIER (Primary topic of this conversation):\n    ${dossier}`;
+        }
+    }
+
+    const focusGuideline = focusBlock
+        ? `\n    6.  **Focused Film Companion**: Keep this film (${activeMovieContext.title || "selected film"}) central unless the user pivots to comparisons or next watches. Respect the Spoiler Policy above strictly.`
+        : "";
+
     const systemInstruction = `
     You are a dedicated AI Movie Assistant. Your goal is to discuss cinema and give recommendations based on the user's history.
 
     USER'S WATCHED HISTORY:
-    ${movieContext}${rulesContext}
+    ${movieContext}${rulesContext}${focusBlock}
 
     STRICT GUIDELINES:
     1.  **Topic restriction**: You ONLY discuss movies, TV shows, directors, acting, and cinema history.
     2.  **Redirect**: If asked about anything else (life, code, math, politics), politely say: "I can only help you with movies! 🎬" and steer back to cinema.
     3.  **Personalization**: ALWAYS reference their watched history when possible. (e.g., "Since you rated ${watchedMovies?.[0]?.title || "your movies"} highly...")
     4.  **Tone**: Friendly, enthusiastic film buff. Keep answers concise (max 3-4 sentences unless asked for a deep dive).
-    5.  **Formatting**: When specifically recommending movies, always format titles as **Movie Title** (YYYY) so interactive cards can be displayed.
+    5.  **Formatting**: When specifically recommending movies, always format titles as **Movie Title** (YYYY) so interactive cards can be displayed.${focusGuideline}
     `;
 
     // 2. Build the history cleanly without duplicate user prompt
@@ -47,6 +74,32 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies, t
         prompt += `User: ${userMessage}\n`;
     }
     prompt += `AI:`;
+
+    return prompt;
+}
+
+/**
+ * Sends a message to the AI movie assistant with user context.
+ */
+export const sendChatMessage = async (
+    userMessage,
+    chatHistory,
+    watchedMovies,
+    tasteRules = [],
+    activeMovieContext = null,
+    chatOptions = {}
+) => {
+    const ai = createGeminiClient(resolveGeminiKey());
+    if (!ai) throw new Error("Gemini API Key missing");
+
+    const prompt = buildChatPromptPayload(
+        userMessage,
+        chatHistory,
+        watchedMovies,
+        tasteRules,
+        activeMovieContext,
+        chatOptions
+    );
 
     try {
         const response = await executeCascade(
