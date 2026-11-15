@@ -8,6 +8,11 @@ import {
   GENRE_NAME_TO_ID
 } from "./moodPolicy.js";
 import { matchesWatchProviders } from "./tmdbService.js";
+import {
+  compileActiveTasteRules,
+  candidateMatchesAvoidRule,
+  candidateMatchesPreferRule
+} from "./tasteRulesService.js";
 
 export const DEFAULT_METADATA_DAMPING_FACTOR = 0.35;
 export const DEFAULT_DISPLAY_TEMPERATURE = 1.45;
@@ -569,6 +574,13 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
   const userProviders = context?.userProviders ?? options?.userProviders ?? [];
   const hasProviderFilter = Array.isArray(userProviders) && userProviders.length > 0;
 
+  const rawTasteRules = context?.tasteRules ?? options?.tasteRules;
+  const compiledRules = Array.isArray(rawTasteRules) && rawTasteRules.length > 0
+    ? compileActiveTasteRules(rawTasteRules)
+    : null;
+  const avoidRules = compiledRules?.avoidRules || [];
+  const preferRules = compiledRules?.preferRules || [];
+
   let workingPool = pool;
   if (hasProviderFilter) {
     const providerVerified = workingPool.filter(c => matchesWatchProviders(c, userProviders));
@@ -632,9 +644,16 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
     }
     const base = scoreCandidate(features, effectiveWeights, effectiveOptions);
     const moodAdj = explicitMood ? computeMoodScoreAdjustment(cand, effectiveMood, normalizedFilters) : 0;
-    const logit = explicitMood ? base.logit + moodAdj : base.logit;
-    const probability = explicitMood ? 1 / (1 + Math.exp(-logit)) : base.probability;
-    const matchScore = explicitMood ? computeDisplayMatchScore(logit, effectiveOptions.displayTemperature) : base.matchScore;
+    let ruleAdj = 0;
+    if (avoidRules.length > 0 && candidateMatchesAvoidRule(cand, avoidRules).matched) {
+      ruleAdj = -3.5;
+    } else if (preferRules.length > 0 && candidateMatchesPreferRule(cand, preferRules).matched) {
+      ruleAdj = 0.6;
+    }
+    const adjusted = explicitMood || ruleAdj !== 0;
+    const logit = adjusted ? base.logit + moodAdj + ruleAdj : base.logit;
+    const probability = adjusted ? 1 / (1 + Math.exp(-logit)) : base.probability;
+    const matchScore = adjusted ? computeDisplayMatchScore(logit, effectiveOptions.displayTemperature) : base.matchScore;
 
     const reasons = generateMatchReasons(features);
     if (explicitMood && moodAdj >= 1.2 && effectiveMood && effectiveMood !== "any") {
@@ -793,11 +812,19 @@ export function buildDiversifiedGeminiShortlist(
     return true;
   };
 
+  const rawShortlistRules = context?.tasteRules ?? options?.tasteRules;
+  const shortlistAvoidRules = Array.isArray(rawShortlistRules) && rawShortlistRules.length > 0
+    ? compileActiveTasteRules(rawShortlistRules).avoidRules
+    : [];
+  const passesTasteAvoidGuard = (c) => (
+    shortlistAvoidRules.length === 0 || !candidateMatchesAvoidRule(c, shortlistAvoidRules).matched
+  );
+
   // Slice 2: Quality Cold 2024-2026 picks (falling back to older cold picks only if < coldLimit recent cold exist)
   const coldCap = Math.min(coldLimit, Math.max(0, shortlistLimit - selected.length));
   if (coldCap > 0) {
     const remainingCold = fullRanked.filter(
-      (c) => !selectedKeys.has(getShortlistCandidateKey(c)) && isCold(c) && passesQuality(c, minColdVoteAverage)
+      (c) => !selectedKeys.has(getShortlistCandidateKey(c)) && isCold(c) && passesQuality(c, minColdVoteAverage) && passesTasteAvoidGuard(c)
     );
     const recentCold = [];
     const olderCold = [];
@@ -831,6 +858,7 @@ export function buildDiversifiedGeminiShortlist(
 
     const candidateOutliers = fullRanked.filter((c) => {
       if (selectedKeys.has(getShortlistCandidateKey(c))) return false;
+      if (!passesTasteAvoidGuard(c)) return false;
       const rawRating = c?.vote_average ?? c?.imdbRating;
       if (rawRating !== null && rawRating !== undefined && rawRating !== "" && rawRating !== "N/A") {
         const ratingNum = Number(rawRating);
@@ -878,11 +906,11 @@ export function buildDiversifiedGeminiShortlist(
     }
   }
 
-  // Top up any remaining slots below shortlistLimit from fullRanked in rankerProbability order
+  // Top up any remaining slots below shortlistLimit from fullRanked in rankerProbability order (skipping avoid matches)
   if (selected.length < Math.min(shortlistLimit, fullRanked.length)) {
     for (const c of fullRanked) {
       const k = getShortlistCandidateKey(c);
-      if (selectedKeys.has(k)) continue;
+      if (selectedKeys.has(k) || !passesTasteAvoidGuard(c)) continue;
       selected.push(c);
       selectedKeys.add(k);
       if (selected.length >= shortlistLimit) break;

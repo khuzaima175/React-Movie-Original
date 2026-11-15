@@ -4,6 +4,7 @@ import { buildBucketAParams, fetchCandidatePool } from "../src/services/tmdbServ
 import {
   DEFAULT_RANKER_WEIGHTS,
   rankCandidatePool,
+  buildDiversifiedGeminiShortlist,
   computeMoodScoreAdjustment
 } from "../src/services/rankerService.js";
 
@@ -290,4 +291,176 @@ test("rankCandidatePool separates all 5 explicit moods on a shared pool even whe
   const funTop = rankCandidatePool(pool, { profile: darkProfile, mood: "fun-popcorn" }, DEFAULT_RANKER_WEIGHTS, 3);
   assert.ok([2, 3, 12].includes(funTop[0].tmdbId));
   assert.equal(funTop.some((c) => c.title === "Prisoners"), false);
+});
+
+test("buildBucketAParams applies only unqualified avoidGenreIds from tasteRules and leaves qualified dramas unbanned", () => {
+  const baseProfile = { lovedGenreIds: [18, 878], watchlistGenreIds: [], hatedKeywordIds: [], topCastIds: [] };
+
+  const horrorAvoidParams = buildBucketAParams(
+    baseProfile,
+    "any",
+    {
+      tasteRules: [
+        { id: "r1", text: "No horror or musicals", polarity: "avoid", active: true },
+        { id: "r2", text: "No westerns", polarity: "avoid", active: false }
+      ]
+    },
+    "test-key"
+  );
+  const withoutHorror = (horrorAvoidParams.get("without_genres") || "").split(",").filter(Boolean);
+  assert.ok(withoutHorror.includes("27"), "Unqualified 'No horror' must exclude 27");
+  assert.ok(withoutHorror.includes("10402"), "Unqualified 'musicals' must exclude 10402");
+  assert.equal(withoutHorror.includes("37"), false, "Inactive western rule must not exclude 37");
+
+  const periodDramaParams = buildBucketAParams(
+    baseProfile,
+    "any",
+    {
+      tasteRules: [{ id: "r3", text: "No slow-burn period dramas", polarity: "avoid", active: true }]
+    },
+    "test-key"
+  );
+  const withoutPeriod = (periodDramaParams.get("without_genres") || "").split(",").filter(Boolean);
+  assert.equal(withoutPeriod.includes("18"), false, "Qualified 'No slow-burn period dramas' must NOT ban Drama (18)");
+});
+
+test("rankCandidatePool applies -3.5 avoid penalty, +0.6 prefer boost, 0 delta when empty, and filters shortlist cold/outlier avoid hits", () => {
+  const profile = { lovedGenreIds: [18, 878] };
+  const pool = [
+    {
+      id: 901,
+      tmdbId: 901,
+      title: "Courtly Period Drama",
+      year: "2020",
+      release_date: "2020-04-01",
+      genre: "History, Drama",
+      tmdbGenreIds: [36, 18],
+      vote_average: 7.8,
+      vote_count: 2000,
+      collabSim: 0.7,
+      overview: "A restrained slow-burn period drama in 18th century France."
+    },
+    {
+      id: 902,
+      tmdbId: 902,
+      title: "Neon Cyberpunk Mystery",
+      year: "2021",
+      release_date: "2021-05-01",
+      genre: "Sci-Fi, Thriller",
+      tmdbGenreIds: [878, 53],
+      vote_average: 7.6,
+      vote_count: 2000,
+      collabSim: 0.55,
+      overview: "A sleek cyberpunk noir detective thriller."
+    },
+    {
+      id: 903,
+      tmdbId: 903,
+      title: "Neutral Drama",
+      year: "2021",
+      release_date: "2021-06-01",
+      genre: "Drama",
+      tmdbGenreIds: [18],
+      vote_average: 7.6,
+      vote_count: 2000,
+      collabSim: 0.55,
+      overview: "A grounded contemporary courtroom story."
+    }
+  ];
+
+  const baseRanked = rankCandidatePool(pool, { profile }, DEFAULT_RANKER_WEIGHTS, 10);
+  const emptyRuleRanked = rankCandidatePool(pool, { profile, tasteRules: [] }, DEFAULT_RANKER_WEIGHTS, 10);
+  assert.deepEqual(
+    emptyRuleRanked.map((c) => [c.tmdbId, c.rankerLogit, c.matchScore]),
+    baseRanked.map((c) => [c.tmdbId, c.rankerLogit, c.matchScore]),
+    "Empty tasteRules must produce bit-for-bit identical logits and scores"
+  );
+
+  const tasteRules = [
+    { id: "a1", text: "No slow-burn period dramas", polarity: "avoid", active: true },
+    { id: "p1", text: "Prefer cyberpunk noir", polarity: "prefer", active: true }
+  ];
+  const steeredRanked = rankCandidatePool(pool, { profile, tasteRules }, DEFAULT_RANKER_WEIGHTS, 10);
+  const byId = (arr, id) => arr.find((c) => c.tmdbId === id);
+
+  assert.ok(
+    Math.abs((byId(steeredRanked, 901).rankerLogit - byId(baseRanked, 901).rankerLogit) - (-3.5)) < 1e-6,
+    "Avoid match must receive -3.5 logit penalty"
+  );
+  assert.ok(
+    Math.abs((byId(steeredRanked, 902).rankerLogit - byId(baseRanked, 902).rankerLogit) - 0.6) < 1e-6,
+    "Prefer match must receive +0.6 logit boost"
+  );
+  assert.ok(
+    Math.abs(byId(steeredRanked, 903).rankerLogit - byId(baseRanked, 903).rankerLogit) < 1e-6,
+    "Unrelated Drama must receive 0 logit change"
+  );
+
+  // buildDiversifiedGeminiShortlist rejects avoid-rule matches in Slice 2 (cold 2024-2026) and Slice 3 (outliers)
+  const coreMovies = Array.from({ length: 26 }, (_, i) => ({
+    id: 1000 + i,
+    tmdbId: 1000 + i,
+    title: `Core Pick ${i}`,
+    year: "2018",
+    release_date: "2018-03-01",
+    director: `Dir ${i}`,
+    genre: "Sci-Fi",
+    tmdbGenreIds: [878],
+    vote_average: 8.2,
+    vote_count: 5000,
+    collabSim: 0.9 - i * 0.01,
+    overview: "Crisp futuristic thriller."
+  }));
+  const avoidedCold = {
+    id: 2001,
+    tmdbId: 2001,
+    title: "Cold Period Romance 2025",
+    year: "2025",
+    release_date: "2025-02-01",
+    director: "Period Dir",
+    genre: "Drama, History",
+    tmdbGenreIds: [18, 36],
+    vote_average: 8.6,
+    vote_count: 3000,
+    collabSim: 0,
+    overview: "A quiet slow-burn period drama in 19th-century England."
+  };
+  const avoidedOutlier = {
+    id: 2002,
+    tmdbId: 2002,
+    title: "Outlier Period Saga",
+    year: "1995",
+    release_date: "1995-05-01",
+    director: "Outlier Dir",
+    genre: "History, Drama",
+    tmdbGenreIds: [36, 18],
+    vote_average: 8.8,
+    vote_count: 4500,
+    collabSim: 0.05,
+    overview: "An aristocratic slow-burn period drama."
+  };
+  const cleanExtras = Array.from({ length: 20 }, (_, i) => ({
+    id: 3000 + i,
+    tmdbId: 3000 + i,
+    title: `Clean Extra ${i}`,
+    year: i < 10 ? "2025" : "2012",
+    release_date: i < 10 ? "2025-04-01" : "2012-04-01",
+    director: `Clean Dir ${i}`,
+    genre: "Thriller",
+    tmdbGenreIds: [53],
+    vote_average: 7.7,
+    vote_count: 1500,
+    collabSim: i < 10 ? 0 : 0.1,
+    overview: "Fast-paced investigation."
+  }));
+
+  const shortlist = buildDiversifiedGeminiShortlist(
+    [...coreMovies, avoidedCold, avoidedOutlier, ...cleanExtras],
+    { profile, tasteRules: [{ id: "a1", text: "No slow-burn period dramas", polarity: "avoid", active: true }] },
+    DEFAULT_RANKER_WEIGHTS,
+    { shortlistLimit: 39 }
+  );
+
+  assert.equal(shortlist.some((c) => c.tmdbId === 2001), false, "Shortlist Slice 2 cold slots must reject avoid-rule matches");
+  assert.equal(shortlist.some((c) => c.tmdbId === 2002), false, "Shortlist Slice 3 outlier slots must reject avoid-rule matches");
 });

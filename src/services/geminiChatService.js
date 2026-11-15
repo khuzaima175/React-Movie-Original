@@ -1,10 +1,11 @@
 import { FAST_INTERACTIVE_CASCADE, executeCascade, createGeminiClient } from "./geminiService.js";
 import { resolveGeminiKey } from "./apiTransport.js";
+import { compileActiveTasteRules } from "./tasteRulesService.js";
 
 /**
  * Sends a message to the AI movie assistant with user context.
  */
-export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) => {
+export const sendChatMessage = async (userMessage, chatHistory, watchedMovies, tasteRules = []) => {
     const ai = createGeminiClient(resolveGeminiKey());
     if (!ai) throw new Error("Gemini API Key missing");
 
@@ -13,11 +14,16 @@ export const sendChatMessage = async (userMessage, chatHistory, watchedMovies) =
         `- ${m.title} (${m.userRating}/10)${m.userNote ? ` Note: "${m.userNote}"` : ""}`
     ).join("\n") || "No watched movies yet.";
 
+    const { activeRules } = compileActiveTasteRules(tasteRules);
+    const rulesContext = activeRules.length > 0
+        ? `\n\n    USER'S ACTIVE TASTE RULES (Respect strictly):\n${activeRules.map((r) => `    - [${r.polarity === "avoid" ? "Avoid" : "Prefer"}] ${r.text}`).join("\n")}`
+        : "";
+
     const systemInstruction = `
     You are a dedicated AI Movie Assistant. Your goal is to discuss cinema and give recommendations based on the user's history.
 
     USER'S WATCHED HISTORY:
-    ${movieContext}
+    ${movieContext}${rulesContext}
 
     STRICT GUIDELINES:
     1.  **Topic restriction**: You ONLY discuss movies, TV shows, directors, acting, and cinema history.

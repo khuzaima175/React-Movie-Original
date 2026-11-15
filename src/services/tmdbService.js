@@ -33,6 +33,7 @@ import {
   normalizeYearKey,
   extractTmdbNumericId
 } from "./movieIdentity.js";
+import { compileActiveTasteRules } from "./tasteRulesService.js";
 
 export const getTmdbKey = () => resolveTmdbKey();
 export const getOmdbKey = () => resolveOmdbKey();
@@ -622,8 +623,15 @@ export function buildBucketAParams(profile = {}, mood = "any", options = {}, api
     params.set("with_genres", combinedLoved.join("|"));
   }
 
-  if (explicitMood && preset.withoutGenreIds?.length > 0) {
-    params.set("without_genres", preset.withoutGenreIds.join(","));
+  const withoutGenreSet = new Set(
+    explicitMood && Array.isArray(preset.withoutGenreIds) ? preset.withoutGenreIds : []
+  );
+  if (Array.isArray(options.tasteRules) && options.tasteRules.length > 0) {
+    const { avoidGenreIds } = compileActiveTasteRules(options.tasteRules);
+    for (const gid of avoidGenreIds) withoutGenreSet.add(gid);
+  }
+  if (withoutGenreSet.size > 0) {
+    params.set("without_genres", Array.from(withoutGenreSet).join(","));
   }
 
   if (moodFilters?.minYear) {

@@ -27,6 +27,7 @@ import {
     resetModelInfoForTests,
     createGeminiClient,
     buildGeminiReRankPrompt,
+    generateProfileHash,
     mergeGeminiExplanationsWithRanker,
     verifyAndScoreWildcardPicks,
     getMovieRecommendations
@@ -1902,4 +1903,149 @@ test("buildGeminiReRankPrompt includes franchise sequel guardrail and Collection
 
     assert.ok(prompt.includes("Collection: John Wick Collection"), "Prompt must surface Collection metadata tag");
     assert.ok(prompt.includes("Franchise rule:"), "Prompt must include Franchise sequel guardrail rule");
+});
+
+test("generateProfileHash invalidates cleanly when active tasteRules change while keeping empty 8th arg backward-compatible", () => {
+    const profile = { lovedGenreIds: [878, 18], hatedKeywordIds: [], topCastIds: [] };
+    const watched = [{ tmdbId: 10, title: "Blade Runner", userRating: 10 }];
+
+    const h7 = generateProfileHash(profile, [53], "any", [8], null, "US", watched);
+    const h8Empty = generateProfileHash(profile, [53], "any", [8], null, "US", watched, []);
+    const h8Inactive = generateProfileHash(
+        profile,
+        [53],
+        "any",
+        [8],
+        null,
+        "US",
+        watched,
+        [{ id: "r1", text: "No horror", polarity: "avoid", active: false }]
+    );
+    const h8Active = generateProfileHash(
+        profile,
+        [53],
+        "any",
+        [8],
+        null,
+        "US",
+        watched,
+        [{ id: "r1", text: "No horror", polarity: "avoid", active: true }]
+    );
+
+    assert.equal(h8Empty, h7);
+    assert.equal(h8Inactive, h7);
+    assert.notEqual(h8Active, h7);
+});
+
+test("verifyAndScoreWildcardPicks rejects wildcards matching active avoid tasteRules", async () => {
+    const res = await verifyAndScoreWildcardPicks(
+        [
+            { title: "Forbidden Slow Period Film", year: "2022", reason: "Violates avoid rule" },
+            { title: "Clean Sci-Fi Gem", year: "2022", reason: "Allowed gem" }
+        ],
+        {
+            watched: [{ tmdbId: 10, title: "Arrival", year: "2016", userRating: 10, tmdbGenreIds: [878, 18] }],
+            profile: { lovedGenreIds: [878, 18], lovedKeywordIds: [] },
+            tasteRules: [{ id: "a1", text: "No slow-burn period dramas", polarity: "avoid", active: true }]
+        },
+        {
+            wildcardFinder: async (title) => (
+                title === "Forbidden Slow Period Film"
+                    ? { tmdbId: 7771, title: "Forbidden Slow Period Film", year: "2022" }
+                    : { tmdbId: 7772, title: "Clean Sci-Fi Gem", year: "2022" }
+            ),
+            detailFetcher: async (id) => (
+                id === 7771
+                    ? {
+                        tmdbId: 7771,
+                        title: "Forbidden Slow Period Film",
+                        year: "2022",
+                        genre: "Drama, History",
+                        tmdbGenreIds: [18, 36],
+                        plot: "A quiet slow-burn period drama set in Regency England.",
+                        tmdbKeywords: [],
+                        keywordNames: [],
+                        castIds: [],
+                        streamProviders: [],
+                        freeProviders: []
+                    }
+                    : {
+                        tmdbId: 7772,
+                        title: "Clean Sci-Fi Gem",
+                        year: "2022",
+                        genre: "Sci-Fi",
+                        tmdbGenreIds: [878],
+                        plot: "A brisk mind-bending orbital rescue mission.",
+                        tmdbKeywords: [],
+                        keywordNames: [],
+                        castIds: [],
+                        streamProviders: [],
+                        freeProviders: []
+                    }
+            )
+        }
+    );
+
+    assert.equal(res.length, 1);
+    assert.equal(res[0].tmdbId, 7772);
+});
+
+test("buildGeminiReRankPrompt preserves all active/pinned tasteRules ahead of overflow truncation within <= 20000 chars", () => {
+    const maxRules = Array.from({ length: 8 }, (_, i) => ({
+        id: `tr_${i}`,
+        text: `${i % 2 === 0 ? "Prefer" : "Avoid"} rule ${i}: ` + "specific nuance ".repeat(6).trim(),
+        polarity: i % 2 === 0 ? "prefer" : "avoid",
+        pinned: i < 4,
+        active: true
+    }));
+
+    const massiveWatched = [
+        ...Array.from({ length: 25 }, (_, i) => ({
+            tmdbId: 100 + i,
+            title: `Favorite Movie ${i + 1}`,
+            year: "2018",
+            userRating: 9,
+            genre: "Sci-Fi, Drama",
+            userNote: `Anchor reflection ${i}: ` + "loved atmospheric cinematography ".repeat(5)
+        })),
+        ...Array.from({ length: 80 }, (_, i) => ({
+            tmdbId: 500 + i,
+            title: `Extra Noted Film ${i + 1}`,
+            year: "2020",
+            userRating: 8,
+            userNote: `Note ${i}: ` + "rich character study ".repeat(7)
+        })),
+        ...Array.from({ length: 10 }, (_, i) => ({
+            tmdbId: 900 + i,
+            title: `Series ${i + 1}`,
+            year: "2019–2023",
+            Type: "series",
+            userRating: 10,
+            userNote: "Great pacing."
+        }))
+    ];
+
+    const candidates = Array.from({ length: 39 }, (_, i) => ({
+        id: 9000 + i,
+        tmdbId: 9000 + i,
+        title: `Candidate Film ${i + 1}`,
+        year: "2022",
+        director: `Director ${i + 1}`,
+        genre: "Sci-Fi, Thriller",
+        overview: "O".repeat(250),
+        keywordNames: ["dystopia", "memory", "mystery", "ai", "noir"]
+    }));
+
+    const prompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Sci-Fi", "Drama"], topDirectors: ["Denis Villeneuve"] },
+        "mind-bending",
+        candidates,
+        { watched: massiveWatched, tasteRules: maxRules }
+    );
+
+    assert.ok(prompt.length <= 20000, `Prompt with 8 max-length rules + overflow must fit <= 20000 chars, got ${prompt.length}`);
+    assert.ok(prompt.includes("USER'S STEERABLE TASTE RULES"), "Steerable Taste Rules section must appear");
+    for (const rule of maxRules) {
+        assert.ok(prompt.includes(rule.text), `Active Taste Rule '${rule.id}' must never be truncated away`);
+    }
 });

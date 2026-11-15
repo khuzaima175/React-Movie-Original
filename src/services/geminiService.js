@@ -52,6 +52,11 @@ import {
     loadDefaultDnaIndex,
     buildDnaSimMap
 } from "./dnaService.js";
+import {
+    compileActiveTasteRules,
+    candidateMatchesAvoidRule,
+    buildTasteRulesHashSegment
+} from "./tasteRulesService.js";
 
 export const CURATION_MODEL_CASCADE = [
     "gemini-4-hydrogen",
@@ -1080,7 +1085,7 @@ function buildWatchedHashSegment(watched = []) {
     return `vlt_${tokens.length}_${hashStringFnv1a(`${tokens.join("|")}|`)}`;
 }
 
-export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "", watched = []) => {
+export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "", watched = [], tasteRules = []) => {
     const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
     const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
     const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
@@ -1095,7 +1100,9 @@ export const generateProfileHash = (profile, watchlistGenres = [], mood = "any",
     const cleanRegion = typeof userRegion === "string" ? userRegion.trim().toUpperCase() : "";
     const withRegion = cleanRegion ? `${withFilter}_reg_${cleanRegion}` : withFilter;
     const vaultSegment = buildWatchedHashSegment(watched);
-    return vaultSegment ? `${withRegion}_${vaultSegment}` : withRegion;
+    const withVault = vaultSegment ? `${withRegion}_${vaultSegment}` : withRegion;
+    const rulesSegment = buildTasteRulesHashSegment(tasteRules);
+    return rulesSegment ? `${withVault}_${rulesSegment}` : withVault;
 };
 
 /**
@@ -1574,6 +1581,11 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
     const watched = Array.isArray(context.watched) ? context.watched : [];
     const watchlist = Array.isArray(context.watchlist) ? context.watchlist : [];
     const feedbackLog = Array.isArray(context.feedbackLog) ? context.feedbackLog : [];
+    const { activeRules: compiledTasteRules } = compileActiveTasteRules(context.tasteRules);
+    const tasteRuleLines = compiledTasteRules
+        .slice()
+        .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+        .map((r) => `- [${r.pinned ? "PINNED " : ""}${r.polarity === "avoid" ? "Avoid" : "Prefer"}] ${r.text}`);
     const targetCount = Math.max(1, Number(context.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const { effectiveMood, preset, explicitMood, vibeConstraints } = buildMoodPromptSummary(mood, context.moodFilters);
     const parsedMoodFilters = normalizeMoodFilters(context.moodFilters);
@@ -1747,6 +1759,7 @@ Do NOT output numeric match percentages—evaluate fit independently from taste 
 
 USER TASTE PROFILE:
 ${tasteLines.join("\n")}
+${tasteRuleLines.length > 0 ? `\nUSER'S STEERABLE TASTE RULES (Follow strictly):\n${tasteRuleLines.join("\n")}` : ""}
 ${anchorFilms.length > 0 ? `\nUSER'S FAVORITE ANCHOR FILMS:\n${anchorFilms.join("\n")}` : ""}
 ${dislikedFilms.length > 0 ? `\nUSER'S DISLIKED / DISMISSED FILMS (Avoid similar tone):\n${dislikedFilms.join("\n")}` : ""}
 ${recentStreak.length > 0 ? `\nRECENT WATCH STREAK:\n${recentStreak.join("\n")}` : ""}
@@ -2015,6 +2028,10 @@ export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {
     const dnaIndex = context?.dnaIndex ?? null;
     const rankerWeights = context?.rankerWeights ?? options?.rankerWeights ?? DEFAULT_RANKER_WEIGHTS;
     const rankerOptions = context?.rankerOptions ?? options?.rankerOptions ?? {};
+    const tasteRules = context?.tasteRules ?? options?.tasteRules ?? [];
+    const { avoidRules } = Array.isArray(tasteRules) && tasteRules.length > 0
+        ? compileActiveTasteRules(tasteRules)
+        : { avoidRules: [] };
 
     const isExcludedOrSeen = (item) =>
         excludeIds.some((ex) => isSameMovie(item, ex)) ||
@@ -2132,6 +2149,7 @@ export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {
         if (verifiedEntries.some((v) => isSameMovie(v.cand, fullCand))) continue;
         if (hasProviderFilter && !matchesWatchProviders(fullCand, userProviders)) continue;
         if (explicitMood && !matchesMoodCandidateGate(fullCand, mood, moodFilters)) continue;
+        if (avoidRules.length > 0 && candidateMatchesAvoidRule(fullCand, avoidRules).matched) continue;
 
         verifiedEntries.push({ pick, cand: fullCand });
         if (verifiedEntries.length >= maxWildcards) break;
@@ -2200,7 +2218,8 @@ export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {
             repulsionMap,
             dnaSimMap: wcDnaSimMap,
             anchorKeywords: context?.anchorKeywords ?? profile?.lovedKeywordIds,
-            userProviders
+            userProviders,
+            tasteRules
         };
         const [scored] = rankCandidatePool(
             [cand],
@@ -2429,7 +2448,8 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         repulsionMap: options.repulsionMap,
         dnaSimMap: options.dnaSimMap,
         anchorKeywords: options.anchorKeywords ?? profile?.lovedKeywordIds,
-        userProviders: options.userProviders
+        userProviders: options.userProviders,
+        tasteRules: options.tasteRules
     };
 
     let topCandidates = ai
@@ -2505,6 +2525,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         watchlist: options.watchlist,
         feedbackLog: options.feedbackLog,
         embeddingIndex: options.embeddingIndex,
+        tasteRules: options.tasteRules,
         moodFilters,
         targetCount
     });
@@ -2619,6 +2640,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
                     embeddingIndex: options.embeddingIndex,
                     contentIndex: options.contentIndex,
                     dnaIndex: options.dnaIndex,
+                    tasteRules: options.tasteRules,
                     collabSimMap: options.collabSimMap,
                     contentSimMap: options.contentSimMap,
                     repulsionMap: options.repulsionMap,
