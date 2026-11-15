@@ -27,8 +27,13 @@ export default function CompareModal({ onQuickRate }) {
 
     return () => {
       document.body.style.overflow = prevOverflow;
-      if (prevFocused && typeof prevFocused.focus === "function") {
+      if (prevFocused && document.contains(prevFocused) && typeof prevFocused.focus === "function") {
         prevFocused.focus();
+      } else {
+        requestAnimationFrame(() => {
+          const dockBtn = document.querySelector(".compare-dock-pill .btn-primary");
+          dockBtn?.focus?.();
+        });
       }
     };
   }, [isCompareOpen]);

@@ -43,14 +43,16 @@ export function toCompareStub(movie) {
     ? movie.genres.filter(Boolean).join(", ")
     : movie.genre || movie.Genre || null;
 
+  const rawRuntime = movie.runtime ?? movie.Runtime;
   const runtimeText =
-    movie.runtime && movie.runtime !== "N/A"
-      ? String(movie.runtime)
+    rawRuntime && rawRuntime !== "N/A"
+      ? String(rawRuntime)
       : Number(movie.runtimeMinutes) > 0
         ? `${Number(movie.runtimeMinutes)} min`
         : null;
 
   const yearStr = normalizeYearKey(movie.year || movie.Year || movie.release_date || "");
+  const rawPoster = movie.poster || movie.Poster;
 
   return {
     id: canonicalId || title,
@@ -58,7 +60,7 @@ export function toCompareStub(movie) {
     tmdbId: tmdbId || null,
     title: title || "Untitled Film",
     year: yearStr || null,
-    poster: movie.poster && movie.poster !== "N/A" ? movie.poster : null,
+    poster: rawPoster && rawPoster !== "N/A" ? rawPoster : null,
     imdbRating:
       movie.imdbRating !== undefined && movie.imdbRating !== null && movie.imdbRating !== "N/A"
         ? String(movie.imdbRating)
@@ -241,12 +243,12 @@ function cosineBetweenSlices(sliceA, sliceB) {
   return dot / (sliceA.norm * sliceB.norm);
 }
 
-function parseNumericScore(raw, { stripPercent = false, max = 100 } = {}) {
+function parseNumericScore(raw, { stripPercent = false, min = Number.EPSILON, max = 100 } = {}) {
   if (raw === null || raw === undefined || raw === "" || raw === "N/A") return null;
   const text = stripPercent ? String(raw).replace(/%/g, "").trim() : String(raw).trim();
   if (!text) return null;
   const val = Number(text);
-  if (!Number.isFinite(val) || val <= 0 || val > max) return null;
+  if (!Number.isFinite(val) || val < min || val > max) return null;
   return val;
 }
 
@@ -480,8 +482,8 @@ export function buildCompareMatrix(
     const watchlistEntry = findMatchingMovie(watchlist, movie);
 
     const imdbVal = parseNumericScore(movie.imdbRating, { max: 10 });
-    const rtVal = parseNumericScore(movie.rottenTomatoes, { stripPercent: true, max: 100 });
-    const metascoreVal = parseNumericScore(movie.metascore, { max: 100 });
+    const rtVal = parseNumericScore(movie.rottenTomatoes, { stripPercent: true, min: 0, max: 100 });
+    const metascoreVal = parseNumericScore(movie.metascore, { min: 0, max: 100 });
     const tmdbVal = parseNumericScore(movie.tmdbRating ?? movie.vote_average, { max: 10 });
     const runtimeMins = parseRuntimeMins(movie.runtimeMinutes ?? movie.runtime);
     const budgetUsd = parseCurrencyUsd(movie.budget);
@@ -581,6 +583,79 @@ export function resolveExploreGenreId(genreName = "") {
 }
 
 /**
+ * Deduplicates an array of hydrated movie records by canonical IMDb/TMDB identity,
+ * preserving first-seen slot order.
+ */
+export function dedupeHydratedMovies(movies = []) {
+  if (!Array.isArray(movies)) return [];
+  const unique = [];
+  for (const movie of movies) {
+    if (!movie) continue;
+    if (!unique.some((existing) => isSameMovie(existing, movie))) {
+      unique.push(movie);
+    }
+  }
+  return unique;
+}
+
+/**
+ * Adds a film to a URL-backed Compare slot list, deduplicating across both raw URL tokens
+ * and already-hydrated movie records (e.g. tt0816692 <-> tmdb_157336).
+ */
+export function addUrlCompareSlot(urlIds = [], resolvedSlots = [], film) {
+  const safeIds = Array.isArray(urlIds) ? urlIds : [];
+  const safeResolved = Array.isArray(resolvedSlots) ? resolvedSlots : [];
+  if (!film) return { action: "invalid", ids: safeIds };
+
+  const token =
+    getCanonicalMovieKey(film) ||
+    film.imdbID ||
+    (film.tmdbId ? `tmdb_${film.tmdbId}` : "");
+  if (!token) return { action: "invalid", ids: safeIds };
+
+  const isDuplicate =
+    safeIds.some((id) => isSameMovie(id, film)) ||
+    safeResolved.some((m) => m && !m._notFound && isSameMovie(m, film));
+  if (isDuplicate) return { action: "duplicate", ids: safeIds };
+
+  if (safeIds.length >= COMPARE_MAX_ITEMS) {
+    return { action: "full", ids: safeIds };
+  }
+
+  return { action: "added", ids: [...safeIds, token] };
+}
+
+/**
+ * Removes a slot (valid movie or unresolvable _notFound stub) from a URL-backed Compare slot list,
+ * matching both raw URL tokens and cross-scheme hydrated identities.
+ */
+export function removeUrlCompareSlot(urlIds = [], resolvedSlots = [], target) {
+  const safeIds = Array.isArray(urlIds) ? urlIds : [];
+  const safeResolved = Array.isArray(resolvedSlots) ? resolvedSlots : [];
+  if (!target) return safeIds;
+
+  const targetRawKey = String(
+    typeof target === "object"
+      ? target._rawSlotKey || target.id || target.canonicalId || ""
+      : target
+  ).toLowerCase();
+
+  return safeIds.filter((id) => {
+    const idLower = String(id || "").toLowerCase();
+    if (targetRawKey && idLower === targetRawKey) return false;
+    if (isSameMovie(id, target)) return false;
+
+    const matchingResolved = safeResolved.find(
+      (m) => m && String(m._rawSlotKey || m.id || "").toLowerCase() === idLower
+    );
+    if (matchingResolved && !matchingResolved._notFound && isSameMovie(matchingResolved, target)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
  * Concurrently hydrates a Compare slot (bare ID string or lightweight card stub)
  * from TMDB + OMDb while preserving core identity fields cleanly.
  */
@@ -650,6 +725,15 @@ export async function hydrateCompareMovieSlot(rawIdOrStub, options = {}) {
       const fallbackFound = await safeCall(findByTitleYear, omdbData.Title, omdbData.Year, { strict: true });
       if (fallbackFound?.tmdbId) {
         tmdbData = await safeCall(fetchTmdbDetails, fallbackFound.tmdbId, userRegion);
+      }
+    }
+  } else if (stub?.title && findByTitleYear) {
+    const fallbackFound = await safeCall(findByTitleYear, stub.title, stub.year, { strict: true });
+    if (fallbackFound?.tmdbId) {
+      tmdbData = await safeCall(fetchTmdbDetails, fallbackFound.tmdbId, userRegion);
+      if (tmdbData?.imdbID) {
+        const lateOmdb = await safeCall(fetchOmdb, { i: tmdbData.imdbID }, { signal });
+        if (lateOmdb?.Response === "True") omdbData = lateOmdb;
       }
     }
   }

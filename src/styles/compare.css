@@ -484,6 +484,40 @@ body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
   font-size: 1.3rem;
 }
 
+.compare-warning-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.compare-warning-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.55rem 0.25rem 0.7rem;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--hairline-strong);
+  color: var(--text-1);
+  font-size: 1.2rem;
+}
+
+.compare-warning-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0.15rem;
+}
+
+.compare-warning-remove:hover {
+  color: var(--text-1);
+}
+
 .compare-retry-link {
   display: inline-flex;
   align-items: center;
@@ -760,7 +794,7 @@ body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
 .compare-label-cell {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 4;
   background: var(--surface-1);
   padding: 1.25rem 1.6rem;
   font-size: 1.25rem;
@@ -781,6 +815,12 @@ body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-3);
+}
+
+.compare-section-divider-label {
+  position: sticky;
+  left: 1.6rem;
+  display: inline-block;
 }
 
 .compare-hero-row {

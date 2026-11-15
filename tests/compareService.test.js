@@ -13,7 +13,10 @@ import {
   buildCompareMatrix,
   parseStoredCompareItems,
   hydrateCompareMovieSlot,
-  resolveExploreGenreId
+  resolveExploreGenreId,
+  dedupeHydratedMovies,
+  addUrlCompareSlot,
+  removeUrlCompareSlot
 } from "../src/services/compareService.js";
 
 test("toggleCompareItem deduplicates IMDb/TMDB identities and enforces 3-film limit", () => {
@@ -280,4 +283,104 @@ test("hydrateCompareMovieSlot hydrates lightweight stubs and bare URL IDs concur
     fetchOmdb: async () => ({ Response: "False" })
   });
   assert.equal(missing._notFound, true);
+
+  // Local CSV/Vault stub with only title + year resolves via findByTitleYear fallback
+  const localStubRes = await hydrateCompareMovieSlot(
+    { id: "local_arrival_2016", title: "Arrival", year: "2016" },
+    {
+      findByTitleYear: async (title, year) =>
+        title === "Arrival" && year === "2016" ? { tmdbId: 329865 } : null,
+      fetchTmdbDetails: async (tmdbId) => ({
+        tmdbId,
+        imdbID: "tt2543164",
+        title: "Arrival",
+        year: "2016",
+        runtime: "116 min",
+        budget: "$47,000,000",
+        revenue: "$203,388,186"
+      }),
+      fetchOmdb: async ({ i }) => ({
+        Response: "True",
+        imdbID: i,
+        imdbRating: "7.9",
+        Metascore: "81",
+        Ratings: [{ Source: "Rotten Tomatoes", Value: "94%" }]
+      })
+    }
+  );
+  assert.equal(localStubRes.imdbID, "tt2543164");
+  assert.equal(localStubRes.tmdbId, 329865);
+  assert.equal(localStubRes.rottenTomatoes, "94%");
+});
+
+test("toCompareStub preserves uppercase OMDb Poster/Runtime, buildCompareMatrix renders 0% RT and 0 Metascore, and dedupeHydratedMovies collapses cross-scheme duplicates", () => {
+  const omdbHit = toCompareStub({
+    imdbID: "tt0068646",
+    Title: "The Godfather",
+    Year: "1972",
+    Genre: "Crime, Drama",
+    Poster: "https://example.com/godfather.jpg",
+    Runtime: "175 min"
+  });
+  assert.equal(omdbHit.poster, "https://example.com/godfather.jpg");
+  assert.equal(omdbHit.runtime, "175 min");
+
+  const zeroMatrix = buildCompareMatrix([
+    {
+      imdbID: "tt0000001",
+      title: "Zero Critic Film",
+      rottenTomatoes: "0%",
+      metascore: "0",
+      imdbRating: "2.1"
+    },
+    {
+      imdbID: "tt0000002",
+      title: "Unrated Film",
+      rottenTomatoes: "N/A",
+      metascore: "N/A",
+      imdbRating: "0"
+    }
+  ]);
+  assert.equal(zeroMatrix.rows.rt[0], "0%");
+  assert.equal(zeroMatrix.rows.metascore[0], "0");
+  assert.equal(zeroMatrix.rows.rt[1], "—");
+  assert.equal(zeroMatrix.rows.imdb[1], "—");
+
+  const deduped = dedupeHydratedMovies([
+    { id: "tt0816692", imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar" },
+    { id: "tmdb_157336", imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar" },
+    { id: "tmdb_27205", imdbID: "tt1375666", tmdbId: 27205, title: "Inception" }
+  ]);
+  assert.equal(deduped.length, 2);
+  assert.deepEqual(deduped.map((m) => m.title), ["Interstellar", "Inception"]);
+
+  // URL slot helpers deduplicate cross-scheme identities via resolvedSlots and remove _notFound tokens cleanly
+  const resolved = [
+    { _rawSlotKey: "tt0816692", id: "tt0816692", imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar" },
+    { _rawSlotKey: "tt9999999", id: "tt9999999", _notFound: true }
+  ];
+  const dupAttempt = addUrlCompareSlot(
+    ["tt0816692", "tt9999999"],
+    resolved,
+    { id: "tmdb_157336", tmdbId: 157336, title: "Interstellar" }
+  );
+  assert.equal(dupAttempt.action, "duplicate");
+  assert.deepEqual(dupAttempt.ids, ["tt0816692", "tt9999999"]);
+
+  const afterRemoveBroken = removeUrlCompareSlot(
+    ["tt0816692", "tt9999999"],
+    resolved,
+    { id: "tt9999999", _notFound: true }
+  );
+  assert.deepEqual(afterRemoveBroken, ["tt0816692"]);
+
+  const afterRemoveCrossScheme = removeUrlCompareSlot(
+    ["tmdb_157336", "tmdb_27205"],
+    [
+      { _rawSlotKey: "tmdb_157336", id: "tt0816692", imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar" },
+      { _rawSlotKey: "tmdb_27205", id: "tt1375666", imdbID: "tt1375666", tmdbId: 27205, title: "Inception" }
+    ],
+    { id: "tt0816692", imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar" }
+  );
+  assert.deepEqual(afterRemoveCrossScheme, ["tmdb_27205"]);
 });

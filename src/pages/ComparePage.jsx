@@ -1,14 +1,13 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, GitCompareArrows, RotateCcw } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import {
-  COMPARE_MAX_ITEMS,
+  addUrlCompareSlot,
   buildCompareUrl,
-  parseCompareUrlIds
+  parseCompareUrlIds,
+  removeUrlCompareSlot
 } from "../services/compareService";
-import { isSameMovie } from "../services/movieIdentity";
-import { getCanonicalMovieKey } from "../services/vaultSyncService";
 import CompareWorkbench from "../components/CompareWorkbench";
 
 export default function ComparePage({ onQuickRate }) {
@@ -17,8 +16,19 @@ export default function ComparePage({ onQuickRate }) {
   const navigate = useNavigate();
 
   const urlIds = useMemo(() => parseCompareUrlIds(searchParams), [searchParams]);
-  const hasUrlIds = urlIds.length > 0;
-  const activeSlots = hasUrlIds ? urlIds : compareItems;
+  const [urlSessionStarted, setUrlSessionStarted] = useState(
+    () => parseCompareUrlIds(searchParams).length > 0 || searchParams.has("ids")
+  );
+  const resolvedSlotsRef = useRef([]);
+
+  useEffect(() => {
+    if (urlIds.length > 0 || searchParams.has("ids")) {
+      setUrlSessionStarted(true);
+    }
+  }, [urlIds.length, searchParams]);
+
+  const isUrlMode = urlIds.length > 0 || urlSessionStarted;
+  const activeSlots = isUrlMode ? urlIds : compareItems;
 
   useEffect(() => {
     document.title =
@@ -27,13 +37,16 @@ export default function ComparePage({ onQuickRate }) {
         : "Compare Films | CinemaVault";
   }, [activeSlots.length]);
 
+  const handleResolvedSlotsChange = useCallback((slots) => {
+    resolvedSlotsRef.current = Array.isArray(slots) ? slots : [];
+  }, []);
+
   function handleAddFilm(film) {
     if (!film) return;
-    if (hasUrlIds) {
-      const token = getCanonicalMovieKey(film) || film.imdbID || (film.tmdbId ? `tmdb_${film.tmdbId}` : "");
-      if (!token) return;
-      if (urlIds.some((id) => isSameMovie(id, film)) || urlIds.length >= COMPARE_MAX_ITEMS) return;
-      const nextUrl = buildCompareUrl([...urlIds, token]);
+    if (isUrlMode) {
+      const { action, ids } = addUrlCompareSlot(urlIds, resolvedSlotsRef.current, film);
+      if (action !== "added") return;
+      const nextUrl = buildCompareUrl(ids);
       const qs = nextUrl.includes("?") ? nextUrl.split("?")[1] : "";
       setSearchParams(qs, { replace: false });
       return;
@@ -42,8 +55,8 @@ export default function ComparePage({ onQuickRate }) {
   }
 
   function handleRemoveSlot(item) {
-    if (hasUrlIds) {
-      const nextIds = urlIds.filter((id) => !isSameMovie(id, item));
+    if (isUrlMode) {
+      const nextIds = removeUrlCompareSlot(urlIds, resolvedSlotsRef.current, item);
       if (nextIds.length === 0) {
         setSearchParams("", { replace: false });
       } else {
@@ -56,8 +69,9 @@ export default function ComparePage({ onQuickRate }) {
   }
 
   function handleClear() {
-    if (hasUrlIds) {
+    if (isUrlMode) {
       setSearchParams("", { replace: false });
+      return;
     }
     clearCompare();
   }
@@ -69,7 +83,7 @@ export default function ComparePage({ onQuickRate }) {
           <button
             type="button"
             className="compare-back-link"
-            onClick={() => navigate(-1)}
+            onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/"))}
           >
             <ArrowLeft size={15} aria-hidden="true" />
             <span>Back</span>
@@ -98,6 +112,7 @@ export default function ComparePage({ onQuickRate }) {
 
       <CompareWorkbench
         movieIdsOrItems={activeSlots}
+        onResolvedSlotsChange={handleResolvedSlotsChange}
         onNavigatePerson={(personId) => navigate(`/person/${personId}`)}
         onNavigateMovie={(movieId) => navigate(`/movie/${movieId}`)}
         onNavigateExplore={(route) => navigate(route)}

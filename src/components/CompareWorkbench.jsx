@@ -19,8 +19,10 @@ import {
   COMPARE_MAX_ITEMS,
   buildCompareMatrix,
   buildCompareUrl,
+  dedupeHydratedMovies,
   hydrateCompareMovieSlot,
-  resolveExploreGenreId
+  resolveExploreGenreId,
+  toCompareStub
 } from "../services/compareService";
 import { buildExploreRoute } from "../services/exploreService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
@@ -62,8 +64,27 @@ function createProviderBucket(movie) {
   return list.slice(0, 6);
 }
 
+function toQuickRateStub(movie) {
+  const base = toCompareStub(movie) || {};
+  return {
+    ...base,
+    id: movie?.imdbID || movie?.canonicalId || movie?.id || base.id,
+    imdbID: movie?.imdbID || base.imdbID || null,
+    tmdbId: movie?.tmdbId || base.tmdbId || null,
+    title: movie?.title || base.title || "Untitled Film",
+    year: movie?.year || base.year || null,
+    poster: movie?.poster || base.poster || null,
+    backdrop: movie?.backdrop || null,
+    genre: movie?.genre || base.genre || null,
+    runtime: movie?.runtime || base.runtime || null,
+    imdbRating: movie?.imdbRating || base.imdbRating || null,
+    streamProviders: Array.isArray(movie?.streamProviders) ? movie.streamProviders : []
+  };
+}
+
 export default function CompareWorkbench({
   movieIdsOrItems = [],
+  onResolvedSlotsChange,
   onNavigatePerson,
   onNavigateMovie,
   onNavigateExplore,
@@ -97,7 +118,7 @@ export default function CompareWorkbench({
   const [embeddingIndex, setEmbeddingIndex] = useState(null);
   const [isHydrating, setIsHydrating] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("idle");
 
   // Inline quick-search state for empty state or filling remaining comparison slots
   const [isAddSearchOpen, setIsAddSearchOpen] = useState(false);
@@ -137,7 +158,7 @@ export default function CompareWorkbench({
     const pendingDescriptors = [];
     for (const desc of descriptors) {
       const cacheKey = `${desc.key}::${effectiveRegion}`;
-      if (retryNonce === 0 && compareHydrationCache.has(cacheKey)) {
+      if (compareHydrationCache.has(cacheKey)) {
         immediateMap[desc.key] = compareHydrationCache.get(cacheKey);
       } else {
         pendingDescriptors.push(desc);
@@ -227,16 +248,22 @@ export default function CompareWorkbench({
     () =>
       slotDescriptors.map((desc) => {
         const cachedOrHydrated = hydratedByKey[desc.key];
-        if (cachedOrHydrated) return cachedOrHydrated;
+        if (cachedOrHydrated) {
+          return { ...cachedOrHydrated, _rawSlotKey: desc.key };
+        }
         return typeof desc.raw === "object"
-          ? { ...desc.raw, _hydrating: true }
-          : { id: desc.key, title: desc.key, _hydrating: true };
+          ? { ...desc.raw, _rawSlotKey: desc.key, _hydrating: true }
+          : { id: desc.key, _rawSlotKey: desc.key, title: desc.key, _hydrating: true };
       }),
     [slotDescriptors, hydratedByKey]
   );
 
+  useEffect(() => {
+    onResolvedSlotsChange?.(resolvedSlots);
+  }, [resolvedSlots, onResolvedSlotsChange]);
+
   const validMovies = useMemo(
-    () => resolvedSlots.filter((m) => m && !m._notFound),
+    () => dedupeHydratedMovies(resolvedSlots.filter((m) => m && !m._notFound)),
     [resolvedSlots]
   );
   const notFoundSlots = useMemo(
@@ -254,14 +281,56 @@ export default function CompareWorkbench({
   async function handleCopyShareLink() {
     if (typeof window === "undefined") return;
     const fullUrl = `${window.location.origin}${sharePath}`;
-    try {
-      await navigator.clipboard?.writeText(fullUrl);
-      setCopiedLink(true);
-      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = setTimeout(() => setCopiedLink(false), 2200);
-    } catch {
-      // Fallback: ignore unsupported clipboard errors silently
+    let copiedOk = false;
+
+    if (typeof navigator?.clipboard?.writeText === "function") {
+      try {
+        await navigator.clipboard.writeText(fullUrl);
+        copiedOk = true;
+      } catch {
+        copiedOk = false;
+      }
     }
+
+    if (!copiedOk && typeof document !== "undefined") {
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = fullUrl;
+        textArea.setAttribute("readonly", "");
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        copiedOk = Boolean(document.execCommand?.("copy"));
+        document.body.removeChild(textArea);
+      } catch {
+        copiedOk = false;
+      }
+    }
+
+    setCopyStatus(copiedOk ? "copied" : "failed");
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopyStatus("idle"), 2400);
+  }
+
+  function handleRetryFailedSlots() {
+    for (const desc of slotDescriptors) {
+      const cacheKey = `${desc.key}::${effectiveRegion}`;
+      const existing = hydratedByKey[desc.key] || compareHydrationCache.get(cacheKey);
+      if (!existing || existing._notFound || existing._partial) {
+        compareHydrationCache.delete(cacheKey);
+      }
+    }
+    setHydratedByKey((prev) => {
+      const next = { ...prev };
+      for (const desc of slotDescriptors) {
+        if (next[desc.key]?._notFound || next[desc.key]?._partial) {
+          delete next[desc.key];
+        }
+      }
+      return next;
+    });
+    setRetryNonce((n) => n + 1);
   }
 
   function handleQuickWatchlist(movie) {
@@ -293,93 +362,135 @@ export default function CompareWorkbench({
   const vaultQuickPicks = useMemo(() => {
     const candidates = [...(watched || []), ...(watchlist || [])];
     return candidates
-      .filter((c) => !slotDescriptors.some((d) => isSameMovie(d.raw, c)))
+      .filter(
+        (c) =>
+          !slotDescriptors.some((d) => isSameMovie(d.raw, c)) &&
+          !validMovies.some((m) => isSameMovie(m, c))
+      )
       .slice(0, 6);
-  }, [watched, watchlist, slotDescriptors]);
+  }, [watched, watchlist, slotDescriptors, validMovies]);
 
-  // Render clean empty/selector state when < 1 resolved films remain
-  if (slotDescriptors.length === 0) {
+  const colCount = matrix.items.length;
+  const occupiedSlots = Math.min(COMPARE_MAX_ITEMS, colCount + notFoundSlots.length);
+  const remainingSlots = Math.max(0, COMPARE_MAX_ITEMS - occupiedSlots);
+
+  const warningBanner = notFoundSlots.length > 0 && (
+    <div className="compare-warning-bar" role="status">
+      <div className="compare-warning-chips">
+        <span>Could not resolve from TMDB/OMDb:</span>
+        {notFoundSlots.map((slot) => (
+          <span key={slot._rawSlotKey || slot.id} className="compare-warning-chip">
+            <code>{slot.id}</code>
+            {onRemoveSlot && (
+              <button
+                type="button"
+                className="compare-warning-remove"
+                onClick={() => onRemoveSlot(slot)}
+                aria-label={`Remove unresolvable slot ${slot.id}`}
+                title="Remove invalid slot"
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="compare-retry-link"
+        onClick={handleRetryFailedSlots}
+      >
+        <RotateCcw size={13} aria-hidden="true" /> Retry
+      </button>
+    </div>
+  );
+
+  // Render clean empty/selector state when < 1 valid films resolve
+  if (colCount === 0) {
     return (
-      <div className="compare-empty-panel">
-        <div className="compare-empty-icon">
-          <GitCompareArrows size={28} aria-hidden="true" />
-        </div>
-        <h2 className="compare-empty-title display-title">Build Your Side-by-Side Comparison</h2>
-        <p className="compare-empty-subtitle">
-          Pick 2 or 3 films to contrast scores, budgets &amp; ROI, shared cast/crew, thematic DNA, and streaming options.
-        </p>
-
-        <div className="compare-search-box">
-          <div className="compare-search-input-wrap">
-            <Search size={15} aria-hidden="true" />
-            <input
-              type="search"
-              placeholder="Search any film title or IMDb ID (e.g. Interstellar, Dune)…"
-              value={addSearchQuery}
-              onChange={(e) => setAddSearchQuery(e.target.value)}
-              aria-label="Search films to compare"
-            />
+      <div className="compare-workbench">
+        {warningBanner}
+        <div className="compare-empty-panel">
+          <div className="compare-empty-icon">
+            <GitCompareArrows size={28} aria-hidden="true" />
           </div>
-          {isSearchingAdd && <p className="compare-search-status">Searching catalog…</p>}
-          {addSearchResults.length > 0 && (
-            <ul className="compare-search-results" role="listbox" aria-label="Search results to add">
-              {addSearchResults.map((film) => {
-                const key = film.imdbID || film.id || `tmdb_${film.tmdbId}`;
-                return (
-                  <li key={key}>
-                    <button
-                      type="button"
-                      className="compare-search-result-btn"
-                      onClick={() => handlePickFilmFromSearch(film)}
-                    >
-                      <div className="compare-search-thumb">
-                        <PosterImage src={film.Poster || film.poster} title={film.Title || film.title} />
-                      </div>
-                      <div className="compare-search-meta">
-                        <span className="compare-search-name">{film.Title || film.title}</span>
-                        <span className="compare-search-sub tabular-num">
-                          {film.Year || film.year || "—"}
-                          {film.imdbRating && film.imdbRating !== "N/A" ? ` · ★ ${film.imdbRating}` : ""}
+          <h2 className="compare-empty-title display-title">Build Your Side-by-Side Comparison</h2>
+          <p className="compare-empty-subtitle">
+            Pick 2 or 3 films to contrast scores, budgets &amp; ROI, shared cast/crew, thematic DNA, and streaming options.
+          </p>
+
+          <div className="compare-search-box">
+            <div className="compare-search-input-wrap">
+              <Search size={15} aria-hidden="true" />
+              <input
+                type="search"
+                placeholder="Search any film title or IMDb ID (e.g. Interstellar, Dune)…"
+                value={addSearchQuery}
+                onChange={(e) => setAddSearchQuery(e.target.value)}
+                aria-label="Search films to compare"
+              />
+            </div>
+            {isSearchingAdd && <p className="compare-search-status">Searching catalog…</p>}
+            {addSearchResults.length > 0 && (
+              <ul className="compare-search-results" role="listbox" aria-label="Search results to add">
+                {addSearchResults.map((film) => {
+                  const key = film.imdbID || film.id || `tmdb_${film.tmdbId}`;
+                  return (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        className="compare-search-result-btn"
+                        disabled={remainingSlots === 0}
+                        onClick={() => handlePickFilmFromSearch(film)}
+                      >
+                        <div className="compare-search-thumb">
+                          <PosterImage src={film.Poster || film.poster} title={film.Title || film.title} />
+                        </div>
+                        <div className="compare-search-meta">
+                          <span className="compare-search-name">{film.Title || film.title}</span>
+                          <span className="compare-search-sub tabular-num">
+                            {film.Year || film.year || "—"}
+                            {film.imdbRating && film.imdbRating !== "N/A" ? ` · ★ ${film.imdbRating}` : ""}
+                          </span>
+                        </div>
+                        <span className="compare-search-add-pill">
+                          <Plus size={14} aria-hidden="true" /> Add
                         </span>
-                      </div>
-                      <span className="compare-search-add-pill">
-                        <Plus size={14} aria-hidden="true" /> Add
-                      </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {vaultQuickPicks.length > 0 && remainingSlots > 0 && (
+            <div className="compare-quick-picks">
+              <div className="compare-quick-picks-label">Quick pick from your Vault</div>
+              <div className="compare-quick-picks-row">
+                {vaultQuickPicks.map((item) => {
+                  const key = getCanonicalMovieKey(item) || item.imdbID || item.id || item.title;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className="compare-quick-pick-chip"
+                      onClick={() => handlePickFilmFromSearch(item)}
+                    >
+                      <Plus size={13} aria-hidden="true" />
+                      <span>{item.title}</span>
+                      {item.year && <span className="tabular-num text-text-3">({item.year})</span>}
                     </button>
-                  </li>
-                );
-              })}
-            </ul>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
-
-        {vaultQuickPicks.length > 0 && (
-          <div className="compare-quick-picks">
-            <div className="compare-quick-picks-label">Quick pick from your Vault</div>
-            <div className="compare-quick-picks-row">
-              {vaultQuickPicks.map((item) => {
-                const key = getCanonicalMovieKey(item) || item.imdbID || item.id || item.title;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className="compare-quick-pick-chip"
-                    onClick={() => handlePickFilmFromSearch(item)}
-                  >
-                    <Plus size={13} aria-hidden="true" />
-                    <span>{item.title}</span>
-                    {item.year && <span className="tabular-num text-text-3">({item.year})</span>}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  const colCount = matrix.items.length;
   const minRuntime = matrix.items.reduce(
     (min, m) => (m.runtimeMins !== null ? Math.min(min, m.runtimeMins) : min),
     Infinity
@@ -399,14 +510,14 @@ export default function CompareWorkbench({
         </div>
 
         <div className="compare-toolbar-actions">
-          {colCount < COMPARE_MAX_ITEMS && onAddFilm && (
+          {remainingSlots > 0 && onAddFilm && (
             <Button
               variant="secondary"
               size="sm"
               onClick={() => setIsAddSearchOpen((prev) => !prev)}
             >
               <Plus size={14} aria-hidden="true" />
-              <span>{isAddSearchOpen ? "Close Finder" : `Add Film (${COMPARE_MAX_ITEMS - colCount} left)`}</span>
+              <span>{isAddSearchOpen ? "Close Finder" : `Add Film (${remainingSlots} left)`}</span>
             </Button>
           )}
           <Button
@@ -415,30 +526,23 @@ export default function CompareWorkbench({
             onClick={handleCopyShareLink}
             disabled={colCount < 2}
           >
-            {copiedLink ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-            <span>{copiedLink ? "Copied Share Link" : "Copy Share Link"}</span>
+            {copyStatus === "copied" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+            <span>
+              {copyStatus === "copied"
+                ? "Copied Share Link"
+                : copyStatus === "failed"
+                  ? "Copy Failed — Copy URL"
+                  : "Copy Share Link"}
+            </span>
           </Button>
         </div>
       </div>
 
       {/* Unresolvable URL ID warning if applicable */}
-      {notFoundSlots.length > 0 && (
-        <div className="compare-warning-bar" role="status">
-          <span>
-            Could not resolve {notFoundSlots.map((s) => s.id).join(", ")} from TMDB/OMDb.
-          </span>
-          <button
-            type="button"
-            className="compare-retry-link"
-            onClick={() => setRetryNonce((n) => n + 1)}
-          >
-            <RotateCcw size={13} aria-hidden="true" /> Retry
-          </button>
-        </div>
-      )}
+      {warningBanner}
 
       {/* Single-film helpful prompt + inline finder */}
-      {(colCount < 2 || isAddSearchOpen) && (
+      {((colCount < 2 && remainingSlots > 0) || (isAddSearchOpen && remainingSlots > 0)) && (
         <div className="compare-inline-adder">
           <div className="compare-inline-adder-head">
             <span>
@@ -574,7 +678,7 @@ export default function CompareWorkbench({
                         <button
                           type="button"
                           className="compare-mini-btn"
-                          onClick={() => onQuickRate(item)}
+                          onClick={() => onQuickRate(toQuickRateStub(item))}
                         >
                           <Star size={12} aria-hidden="true" />
                           <span>{item.vaultRating ? `${item.vaultRating}/10` : "Rate"}</span>
@@ -588,7 +692,9 @@ export default function CompareWorkbench({
           </div>
 
           {/* 2. Critics & Community Consensus */}
-          <div className="compare-section-divider">Critics &amp; Community Consensus</div>
+          <div className="compare-section-divider">
+            <span className="compare-section-divider-label">Critics &amp; Community Consensus</span>
+          </div>
 
           <div className="compare-row">
             <div className="compare-label-cell">IMDb Score</div>
@@ -649,7 +755,9 @@ export default function CompareWorkbench({
           </div>
 
           {/* 3. Your Vault Fit & Status */}
-          <div className="compare-section-divider">Your Vault Fit &amp; Status</div>
+          <div className="compare-section-divider">
+            <span className="compare-section-divider-label">Your Vault Fit &amp; Status</span>
+          </div>
 
           <div className="compare-row">
             <div className="compare-label-cell">Vault Log</div>
@@ -689,7 +797,9 @@ export default function CompareWorkbench({
           </div>
 
           {/* 4. Production & Financials */}
-          <div className="compare-section-divider">Production &amp; Financials</div>
+          <div className="compare-section-divider">
+            <span className="compare-section-divider-label">Production &amp; Financials</span>
+          </div>
 
           <div className="compare-row">
             <div className="compare-label-cell">Runtime</div>
@@ -764,7 +874,9 @@ export default function CompareWorkbench({
           </div>
 
           {/* 6. Regional Availability */}
-          <div className="compare-section-divider">Where to Watch ({effectiveRegion})</div>
+          <div className="compare-section-divider">
+            <span className="compare-section-divider-label">Where to Watch ({effectiveRegion})</span>
+          </div>
 
           <div className="compare-row">
             <div className="compare-label-cell">
