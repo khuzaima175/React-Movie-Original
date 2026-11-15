@@ -1040,6 +1040,15 @@ export const generateFallbackId = (title, year) => {
     }
 };
 
+function hashStringFnv1a(str = "") {
+    let hash = 2166136261;
+    for (let i = 0; i < str.length; i += 1) {
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+}
+
 /**
  * Profile-Based Sliding Window Cache Hash (Non-Mutating, Includes Anchor/Crew/Cast & Custom Vibe Filters)
  */
@@ -1049,24 +1058,17 @@ function buildWatchedHashSegment(watched = []) {
         .filter(Boolean)
         .map((m) => {
             const idPart = String(m.tmdbId ?? m.id ?? m.imdbID ?? m.title ?? m.Title ?? "").trim().toLowerCase();
+            if (!idPart) return "";
             const ratingPart = Number(m.userRating) || 0;
-            return idPart ? `${idPart}:${ratingPart}` : "";
+            const notePart = String(m.userNote || m.notes || "").trim().replace(/\s+/g, " ").toLowerCase();
+            const baseToken = `${idPart}:${ratingPart}`;
+            return notePart ? `${baseToken}:${hashStringFnv1a(notePart)}` : baseToken;
         })
         .filter(Boolean)
         .sort();
     if (tokens.length === 0) return "";
 
-    let hash = 2166136261;
-    for (let i = 0; i < tokens.length; i += 1) {
-        const str = tokens[i];
-        for (let j = 0; j < str.length; j += 1) {
-            hash ^= str.charCodeAt(j);
-            hash = Math.imul(hash, 16777619);
-        }
-        hash ^= 124;
-        hash = Math.imul(hash, 16777619);
-    }
-    return `vlt_${tokens.length}_${(hash >>> 0).toString(36)}`;
+    return `vlt_${tokens.length}_${hashStringFnv1a(`${tokens.join("|")}|`)}`;
 }
 
 export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "", watched = []) => {
@@ -1125,20 +1127,24 @@ function buildMovieIdentityLookup(movies = []) {
     const byTitleYear = new Map();
     for (const item of Array.isArray(movies) ? movies : []) {
         if (!item || typeof item !== "object") continue;
-        const tmdbNum = Number(item.tmdbId || (typeof item.id === "number" ? item.id : 0));
-        if (Number.isFinite(tmdbNum) && tmdbNum > 0 && !byTmdb.has(tmdbNum)) {
-            byTmdb.set(tmdbNum, item);
-        }
-        const imdb = typeof item.imdbID === "string" ? item.imdbID.trim().toLowerCase() : "";
-        if (/^tt\d+$/.test(imdb) && !byImdb.has(imdb)) {
-            byImdb.set(imdb, item);
-        }
-        const tKey = normalizeTitleKey(item.title || item.Title || "");
-        const yKey = normalizeYearKey(item.year || item.Year || "");
-        if (tKey) {
-            const fullKey = `${tKey}::${yKey}`;
-            if (!byTitleYear.has(fullKey)) byTitleYear.set(fullKey, item);
-            if (!byTitleYear.has(`${tKey}::`)) byTitleYear.set(`${tKey}::`, item);
+        // Support both runtime { movie, weight, zScore } rows and flat test fixtures
+        const sources = item.movie && typeof item.movie === "object" ? [item, item.movie] : [item];
+        for (const src of sources) {
+            const tmdbNum = Number(src.tmdbId || (typeof src.id === "number" ? src.id : 0));
+            if (Number.isFinite(tmdbNum) && tmdbNum > 0 && !byTmdb.has(tmdbNum)) {
+                byTmdb.set(tmdbNum, item);
+            }
+            const imdb = typeof src.imdbID === "string" ? src.imdbID.trim().toLowerCase() : "";
+            if (/^tt\d+$/.test(imdb) && !byImdb.has(imdb)) {
+                byImdb.set(imdb, item);
+            }
+            const tKey = normalizeTitleKey(src.title || src.Title || "");
+            const yKey = normalizeYearKey(src.year || src.Year || "");
+            if (tKey) {
+                const fullKey = `${tKey}::${yKey}`;
+                if (!byTitleYear.has(fullKey)) byTitleYear.set(fullKey, item);
+                if (!byTitleYear.has(`${tKey}::`)) byTitleYear.set(`${tKey}::`, item);
+            }
         }
     }
     return (movie) => {
@@ -1180,8 +1186,9 @@ function selectMoodStratifiedAnchors(watched = [], profile = {}, preset = {}, mo
         if (eligible.some((e) => isSameMovie(e.movie, movie))) continue;
 
         const weighted = lookupWeighted(movie);
-        const weight = Number.isFinite(Number(weighted?.finalWeight))
-            ? Number(weighted.finalWeight)
+        const rawWeight = weighted?.weight ?? weighted?.finalWeight;
+        const weight = Number.isFinite(Number(rawWeight))
+            ? Number(rawWeight)
             : rating;
         const genreIds = extractGenreIdsFromCandidate(movie);
         let matchesMood = false;

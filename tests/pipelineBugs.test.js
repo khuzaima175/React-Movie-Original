@@ -1177,3 +1177,14 @@ test("backfillMissingTmdbIds resolves IMDb/strict title+year movies, skips TV se
   }
 });
 
+test("generateProfileHash invalidates when userNote changes while keeping empty-note hashes unchanged", () => {
+    const baseWatched = [{ tmdbId: 550, title: "Fight Club", userRating: 9 }];
+    const withEmptyNote = [{ tmdbId: 550, title: "Fight Club", userRating: 9, userNote: "   " }];
+    const withNoteA = [{ tmdbId: 550, title: "Fight Club", userRating: 9, userNote: "Loved the twist" }];
+    const withNoteB = [{ tmdbId: 550, title: "Fight Club", userRating: 9, userNote: "Too dark on rewatch" }];
+
+    assert.equal(generateProfileHash({}, [], "any", [], null, "US", baseWatched), generateProfileHash({}, [], "any", [], null, "US", withEmptyNote));
+    assert.notEqual(generateProfileHash({}, [], "any", [], null, "US", baseWatched), generateProfileHash({}, [], "any", [], null, "US", withNoteA));
+    assert.notEqual(generateProfileHash({}, [], "any", [], null, "US", withNoteA), generateProfileHash({}, [], "any", [], null, "US", withNoteB));
+});
+

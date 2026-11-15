@@ -1100,3 +1100,26 @@ test("executeCascade enforces maxCascadeDurationMs budget clamp without cooldown
     resetSessionWorkingModels();
   }
 });
+
+test("selectMoodStratifiedAnchors and selectDislikedOrDismissedFilms support runtime { movie, weight, zScore } entries", () => {
+    const watched = [
+        { tmdbId: 101, title: "Generous Pick A", year: "2020", userRating: 9, genre: "Sci-Fi" },
+        { tmdbId: 102, title: "Generous Pick B", year: "2021", userRating: 9, genre: "Action" },
+        { tmdbId: 103, title: "Time Decayed Recent", year: "2024", userRating: 8, genre: "Drama" },
+        { tmdbId: 104, title: "Relative Letdown Five", year: "2022", userRating: 5, genre: "Drama", userNote: "Way too slow and depressing" },
+    ];
+    const weightedRatings = [
+        { movie: watched[0], rating: 9, zScore: 0.4, weight: 8.2 },
+        { movie: watched[1], rating: 9, zScore: 0.5, weight: 8.5 },
+        { movie: watched[2], rating: 8, zScore: 0.1, weight: 9.8 },
+        { movie: watched[3], rating: 5, zScore: -1.6, weight: 3.1 },
+    ];
+    const prompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Sci-Fi"], weightedRatings },
+        "any",
+        [{ tmdbId: 999, id: 999, title: "Candidate X", year: "2025", director: "Dir X", genre: "Sci-Fi", overview: "Test plot." }],
+        { watched }
+    );
+    assert.ok(prompt.includes('"Relative Letdown Five" (2022) [5/10]'), "Must surface rating 5 with zScore < -0.4 from nested movie shape");
+    assert.ok(prompt.indexOf('"Time Decayed Recent"') < prompt.indexOf('"Generous Pick A"'), "Must sort anchors using runtime weight (9.8 > 8.2)");
+});
