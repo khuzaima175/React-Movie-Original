@@ -1270,3 +1270,148 @@ test("buildGeminiReRankPrompt formats unbiased candidate metadata, enables equal
     );
     assert.ok(fullPrompt.length <= 20000, `Expected worst-case 40-candidate prompt <= 20000 chars, got ${fullPrompt.length}`);
 });
+
+test("buildGeminiReRankPrompt surfaces 25 favorites, all remaining userNotes without duplication, LOVED SERIES / ANIME, and omits empty blocks", () => {
+    const watched = [
+        // Top 10 anchors (including 1 loved series "Dark" + 1 anchor with note)
+        { tmdbId: 101, title: "Dark", Type: "series", year: "2017–2020", userRating: 10, dateWatched: "2026-10-10", userNote: "Best puzzle box ever" },
+        ...Array.from({ length: 9 }, (_, i) => ({
+            tmdbId: 102 + i,
+            title: `Top Anchor ${i + 1}`,
+            year: "2019",
+            userRating: 10,
+            dateWatched: `2026-10-0${9 - i}`,
+            userNote: i === 0 ? "Unique anchor note #1" : ""
+        })),
+        // Ranks 11..25 (including #15 no note, #22 with note) + #26 excluded from Additional Top Favorites
+        ...Array.from({ length: 16 }, (_, idx) => {
+            const rank = 11 + idx;
+            return {
+                tmdbId: 200 + rank,
+                title: `Broader Fav ${rank}`,
+                year: "2018",
+                userRating: 9 - (rank >= 15 ? 1 : 0),
+                dateWatched: `2025-01-${String(28 - idx).padStart(2, "0")}`,
+                userNote: rank === 22 ? "Loved the quiet coastal ending" : ""
+            };
+        }),
+        // Loved anime series outside top 10 anchors
+        { tmdbId: 301, title: "Attack on Titan", year: "2013–2023", userRating: 9, dateWatched: "2024-06-01", userNote: "Unmatched escalation" },
+        // Two 7★ / 6★ films with userNotes outside Near Miss top-4
+        ...Array.from({ length: 6 }, (_, i) => ({
+            tmdbId: 400 + i,
+            title: `Mid Film ${i + 1}`,
+            year: "2020",
+            userRating: 7,
+            genre: "Drama",
+            dateWatched: `2024-02-0${6 - i}`,
+            userNote: i >= 4 ? `Extra seven star note #${i + 1}` : `Near miss note ${i + 1}`
+        })),
+        // Disliked film with note
+        { tmdbId: 500, title: "Boring Dud", year: "2021", userRating: 3, userNote: "Way too sluggish" }
+    ];
+
+    const prompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Sci-Fi", "Drama"] },
+        "any",
+        [{ tmdbId: 900, id: 900, title: "Candidate X", year: "2024", genre: "Sci-Fi", vote_average: 7.5 }],
+        { watched }
+    );
+
+    const anchorSection = prompt.split("USER'S FAVORITE ANCHOR FILMS:")[1].split("USER'S DISLIKED / DISMISSED FILMS")[0];
+    const anchorCount = anchorSection.trim().split("\n").filter(Boolean).length;
+    assert.equal(anchorCount, 10, "Primary anchor block keeps max 10 items");
+
+    assert.ok(prompt.includes("ADDITIONAL TOP FAVORITES:"), "Includes broader favorites header");
+    assert.ok(prompt.includes('"Broader Fav 15" (2018) [8/10]'), "Includes rank #15 favorite");
+    assert.ok(prompt.includes('"Broader Fav 22" (2018) [8/10]'), "Includes rank #22 favorite");
+    assert.ok(prompt.includes('"Broader Fav 25" (2018) [8/10]'), "Includes rank #25 favorite");
+    assert.ok(!prompt.includes('"Broader Fav 26"'), "Caps total favorites at 25");
+
+    assert.ok(prompt.includes("LOVED SERIES / ANIME:"), "Includes Loved Series / Anime block");
+    assert.ok(prompt.includes('"Attack on Titan" (2013–2023) [9/10] [Series]'), "Labels range-year anime with [Series]");
+    assert.ok(prompt.includes('"Dark" (2017–2020) [10/10] [Series]'), "Preserves Dark [Series] label");
+
+    assert.ok(prompt.includes("ADDITIONAL VIEWER NOTES:"), "Includes Additional Viewer Notes section");
+    assert.ok(prompt.includes("Loved the quiet coastal ending"), "Includes note from #22 favorite");
+    assert.ok(prompt.includes("Extra seven star note #5"), "Includes 7★ note outside Near Miss top-4");
+    assert.ok(prompt.includes("Extra seven star note #6"), "Includes second extra 7★ note");
+
+    const notesSection = prompt.split("ADDITIONAL VIEWER NOTES:")[1].split("PRE-RANKED CANDIDATE MOVIES")[0];
+    assert.equal(notesSection.includes("Unique anchor note #1"), false, "Does not duplicate primary anchor notes");
+    assert.equal(notesSection.includes("Way too sluggish"), false, "Does not duplicate disliked film notes");
+
+    // Empty-section omission check on minimal fixture
+    const minimalPrompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Sci-Fi"] },
+        "any",
+        [{ tmdbId: 901, id: 901, title: "Solo Cand", year: "2024", genre: "Sci-Fi", vote_average: 7.4 }],
+        { watched: [{ tmdbId: 1, title: "Matrix", year: "1999", userRating: 10 }] }
+    );
+    assert.equal(minimalPrompt.includes("ADDITIONAL TOP FAVORITES:"), false, "Omits ADDITIONAL TOP FAVORITES when <= 10 favs");
+    assert.equal(minimalPrompt.includes("ADDITIONAL VIEWER NOTES:"), false, "Omits ADDITIONAL VIEWER NOTES when no extra notes");
+    assert.equal(minimalPrompt.includes("LOVED SERIES / ANIME:"), false, "Omits LOVED SERIES / ANIME when no series watched");
+});
+
+test("buildGeminiReRankPrompt compresses adversarial 40-candidate + 80-note + 10-series vault strictly <= 20000 chars", () => {
+    const adversarialWatched = [
+        ...Array.from({ length: 15 }, (_, i) => ({
+            tmdbId: 1000 + i,
+            title: `Favorite Film ${i + 1}`,
+            year: "2019",
+            userRating: 9,
+            dateWatched: `2025-11-${String(28 - i).padStart(2, "0")}`,
+            userNote: `Fav note ${i}: ` + "N".repeat(165)
+        })),
+        ...Array.from({ length: 10 }, (_, i) => ({
+            tmdbId: 2000 + i,
+            title: `Series Gem ${i + 1}`,
+            Type: "series",
+            year: "2020–2024",
+            userRating: 9,
+            dateWatched: `2025-10-${String(20 - i).padStart(2, "0")}`,
+            userNote: `Series note ${i}: ` + "S".repeat(160)
+        })),
+        ...Array.from({ length: 80 }, (_, i) => ({
+            tmdbId: 3000 + i,
+            title: `Noted Library Film ${i + 1}`,
+            year: "2015",
+            userRating: i < 5 ? 3 : 7,
+            dateWatched: `2024-01-${String((i % 28) + 1).padStart(2, "0")}`,
+            userNote: `Viewer thought ${i}: ` + "M".repeat(160)
+        }))
+    ];
+
+    const fortyCandidates = Array.from({ length: 40 }, (_, i) => ({
+        tmdbId: 9000 + i,
+        id: 9000 + i,
+        title: `Rich Candidate ${i + 1}`,
+        year: "2025",
+        director: "Denis Villeneuve",
+        genre: "Sci-Fi, Thriller",
+        vote_average: 7.9,
+        vote_count: 1500,
+        runtimeMinutes: 132,
+        spokenLanguages: ["English"],
+        cast: ["Actor A", "Actor B", "Actor C"],
+        keywordNames: ["dystopia", "memory", "mystery", "ai", "noir"],
+        tagline: "An unforgettable journey across space and memory.",
+        overview: "P".repeat(450)
+    }));
+
+    const prompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Sci-Fi", "Thriller"], topDirectors: ["Denis Villeneuve"] },
+        { mood: "mind-bending", customVibe: "cerebral sci-fi" },
+        fortyCandidates,
+        {
+            watched: adversarialWatched,
+            watchlist: Array.from({ length: 8 }, (_, i) => ({ tmdbId: 8000 + i, title: `Watchlist ${i}`, year: "2025" }))
+        }
+    );
+
+    assert.ok(prompt.length <= 20000, `Adversarial prompt must fit <= 20000 chars, got ${prompt.length}`);
+    assert.ok(prompt.includes("USER'S FAVORITE ANCHOR FILMS:"), "Core anchor block must remain intact");
+    assert.ok(prompt.includes("USER'S DISLIKED / DISMISSED FILMS"), "Disliked guardrails must remain intact");
+    assert.ok(prompt.includes("PRE-RANKED CANDIDATE MOVIES (Top 40):"), "All 40 candidates must remain in prompt");
+    assert.ok(prompt.includes('ID: 9039 | "Rich Candidate 40"'), "40th candidate line must not be truncated");
+});

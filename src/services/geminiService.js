@@ -1245,7 +1245,7 @@ function extractDirectorNames(rawDirectors = []) {
         .slice(0, 4);
 }
 
-function selectDislikedOrDismissedFilms(
+function selectDislikedOrDismissedEntries(
     watched = [],
     profile = {},
     feedbackLog = [],
@@ -1315,7 +1315,17 @@ function selectDislikedOrDismissedFilms(
     for (const w of dislikedWatched) addUnique(w);
     for (const d of dismissedList.slice(2)) addUnique(d);
 
-    return selected.map((s) => s.line);
+    return selected;
+}
+
+function selectDislikedOrDismissedFilms(
+    watched = [],
+    profile = {},
+    feedbackLog = [],
+    excludedAnchors = [],
+    maxItems = 5
+) {
+    return selectDislikedOrDismissedEntries(watched, profile, feedbackLog, excludedAnchors, maxItems).map((s) => s.line);
 }
 
 /**
@@ -1323,7 +1333,7 @@ function selectDislikedOrDismissedFilms(
  * using 64-D collaborative embeddings when available (with genre/keyword overlap fallback),
  * strictly excluding any film already listed in Disliked / Dismissed guardrails.
  */
-function selectNearMissFilms(watched = [], profile = {}, embeddingIndex = null, dislikedLines = [], maxCount = 4) {
+function selectNearMissEntries(watched = [], profile = {}, embeddingIndex = null, dislikedLines = [], maxCount = 4) {
     if (!Array.isArray(watched) || watched.length === 0) return [];
 
     const dislikedTitleKeys = new Set();
@@ -1450,8 +1460,107 @@ function selectNearMissFilms(watched = [], profile = {}, embeddingIndex = null, 
         const yr = movie.year || movie.Year || "N/A";
         const rawGenre = cleanStr(movie.genre || movie.Genre || "");
         const genreNote = rawGenre && rawGenre !== "N/A" ? ` • ${rawGenre.split(",").slice(0, 2).map(s => s.trim()).join(", ")}` : "";
-        return `- "${title}" (${yr}) [${rating}/10${genreNote}]${formatSeriesTag(movie)}${formatNoteSuffix(movie, 180)}`;
+        return {
+            ref: movie,
+            line: `- "${title}" (${yr}) [${rating}/10${genreNote}]${formatSeriesTag(movie)}${formatNoteSuffix(movie, 180)}`
+        };
     });
+}
+
+function selectNearMissFilms(watched = [], profile = {}, embeddingIndex = null, dislikedLines = [], maxCount = 4) {
+    return selectNearMissEntries(watched, profile, embeddingIndex, dislikedLines, maxCount).map((e) => e.line);
+}
+
+/**
+ * Builds #4 extended vault context blocks (ranks 11..25 favorites, loved series/anime, and remaining userNotes)
+ * without duplicating notes already emitted in primary anchors, dislikes, streak, or near-misses.
+ */
+function buildExtendedVaultContextSections({
+    watched = [],
+    broaderFavoriteEntries = [],
+    anchorEntries = [],
+    dislikedRefs = [],
+    recentItems = [],
+    nearMissRefs = [],
+    maxSeries = 12
+} = {}) {
+    const broaderFavoriteLines = broaderFavoriteEntries.map((m) => (
+        `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${formatSeriesTag(m)}`
+    ));
+
+    const alreadyPrintedNoteRefs = [
+        ...anchorEntries,
+        ...dislikedRefs,
+        ...recentItems,
+        ...nearMissRefs
+    ].filter(Boolean);
+
+    const seriesSeen = [];
+    for (const m of Array.isArray(watched) ? watched : []) {
+        if (!m || !isSeriesVaultItem(m)) continue;
+        const rating = Number(m.userRating);
+        if (!Number.isFinite(rating) || rating < 8) continue;
+        if (seriesSeen.some((prev) => isSameMovie(prev, m))) continue;
+        seriesSeen.push(m);
+    }
+    seriesSeen.sort(
+        (a, b) =>
+            Number(b.userRating || 0) - Number(a.userRating || 0) ||
+            parseSortDateMs(b) - parseSortDateMs(a) ||
+            cleanStr(a.title || a.Title || "").localeCompare(cleanStr(b.title || b.Title || ""))
+    );
+
+    const lovedSeriesItems = seriesSeen.slice(0, maxSeries).map((m) => {
+        const notePrintedElsewhere = alreadyPrintedNoteRefs.some((r) => isSameMovie(r, m));
+        if (!notePrintedElsewhere && cleanStr(m.userNote || m.notes || "")) {
+            alreadyPrintedNoteRefs.push(m);
+        }
+        return {
+            movie: m,
+            render: (noteLen = 140) => {
+                const yr = m.year || m.Year || "N/A";
+                const noteSuffix = !notePrintedElsewhere && noteLen > 0
+                    ? formatNoteSuffix(m, Math.min(140, noteLen))
+                    : "";
+                return `- "${cleanStr(m.title || m.Title || "")}" (${yr}) [${m.userRating}/10] [Series]${noteSuffix}`;
+            }
+        };
+    });
+
+    const extraNotesPool = [];
+    const seenNoted = [];
+    for (const m of Array.isArray(watched) ? watched : []) {
+        if (!m) continue;
+        const note = cleanStr(m.userNote || m.notes || "");
+        if (!note) continue;
+        if (alreadyPrintedNoteRefs.some((r) => isSameMovie(r, m))) continue;
+        if (seenNoted.some((prev) => isSameMovie(prev, m))) continue;
+        seenNoted.push(m);
+        extraNotesPool.push(m);
+    }
+    extraNotesPool.sort(
+        (a, b) =>
+            Number(b.userRating || 0) - Number(a.userRating || 0) ||
+            parseSortDateMs(b) - parseSortDateMs(a) ||
+            cleanStr(a.title || a.Title || "").localeCompare(cleanStr(b.title || b.Title || ""))
+    );
+
+    const extraNoteItems = extraNotesPool.map((m) => ({
+        movie: m,
+        render: (noteLen = 180) => {
+            const yr = m.year || m.Year || "N/A";
+            const r = Number(m.userRating);
+            const ratingBadge = Number.isFinite(r) && r > 0 ? `[${r}/10]` : "[Noted]";
+            const note = cleanStr(m.userNote || m.notes || "").slice(0, noteLen).trim();
+            return `- "${cleanStr(m.title || m.Title || "")}" (${yr}) ${ratingBadge}${formatSeriesTag(m)}: "${note}"`;
+        }
+    }));
+
+    return {
+        broaderFavoriteLines,
+        lovedSeriesItems,
+        extraNoteItems
+    };
 }
 
 /**
@@ -1465,8 +1574,13 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
     const { effectiveMood, preset, explicitMood, vibeConstraints } = buildMoodPromptSummary(mood, context.moodFilters);
     const parsedMoodFilters = normalizeMoodFilters(context.moodFilters);
 
-    // 1. Top Anchor Films (rated >= 8★, up to 10 films, mood-stratified with deterministic overall backfill)
-    const anchorEntries = selectMoodStratifiedAnchors(watched, profile, preset, parsedMoodFilters, 10);
+    // 1. Top Anchor Films (up to 10 primary anchors, plus up to 15 additional non-series favorites for ranks 11..25)
+    const allFavorites = selectMoodStratifiedAnchors(watched, profile, preset, parsedMoodFilters, 40);
+    const anchorEntries = allFavorites.slice(0, 10);
+    const broaderFavoriteEntries = allFavorites
+        .slice(10)
+        .filter((m) => !isSeriesVaultItem(m))
+        .slice(0, 15);
     const anchorFilms = anchorEntries.map(m => {
         const dirName = cleanStr(m.director || m.Director || "");
         const dirPart = dirName && dirName !== "Unknown" && dirName !== "N/A" ? `Dir: ${dirName}` : "";
@@ -1480,17 +1594,20 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
     });
 
     // 1b. Disliked / Dismissed Tonal Guardrails (up to 5 films rated <= 4★, negative z-score, or dismissed)
-    const dislikedFilms = selectDislikedOrDismissedFilms(watched, profile, feedbackLog, anchorEntries, 5);
+    const dislikedEntries = selectDislikedOrDismissedEntries(watched, profile, feedbackLog, anchorEntries, 5);
+    const dislikedFilms = dislikedEntries.map((s) => s.line);
 
     // 2. Recent Watch Streak (last 3 positively rated films with dates)
-    const recentStreak = [...watched]
+    const recentItems = [...watched]
         .filter(m => typeof m.userRating === "number" && m.userRating >= 6 && m.dateWatched)
         .sort((a, b) => new Date(b.dateWatched) - new Date(a.dateWatched))
-        .slice(0, 3)
+        .slice(0, 3);
+    const recentStreak = recentItems
         .map(m => `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${formatSeriesTag(m)}${formatNoteSuffix(m, 120)}`);
 
     // 2b. Near Misses (6-7★ films closest to 9-10★ favorites, excluding disliked items)
-    const nearMisses = selectNearMissFilms(watched, profile, context.embeddingIndex || null, dislikedFilms, 4);
+    const nearMissEntries = selectNearMissEntries(watched, profile, context.embeddingIndex || null, dislikedFilms, 4);
+    const nearMisses = nearMissEntries.map((e) => e.line);
 
     // 2c. Stated future interest from Watchlist (excluded from recommendations)
     const watchlistLines = [];
@@ -1502,6 +1619,21 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         seenWatchlist.push(m);
         watchlistLines.push(`- "${title}" (${m.year || m.Year || "N/A"})${formatSeriesTag(m)}`);
     }
+
+    // 2d. Extended Vault Context (#4: favorites #11..#25, loved series/anime, and remaining userNotes)
+    const {
+        broaderFavoriteLines,
+        lovedSeriesItems,
+        extraNoteItems
+    } = buildExtendedVaultContextSections({
+        watched,
+        broaderFavoriteEntries,
+        anchorEntries,
+        dislikedRefs: dislikedEntries.map((d) => d.ref),
+        recentItems,
+        nearMissRefs: nearMissEntries.map((n) => n.ref),
+        maxSeries: 12
+    });
 
     const lovedGenres = Array.isArray(profile?.lovedGenreNames) && profile.lovedGenreNames.length > 0
         ? profile.lovedGenreNames
@@ -1575,9 +1707,22 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         return detailParts.length > 0 ? `${baseLine}\n  ${detailParts.join(" | ")}` : baseLine;
     };
 
-    const renderPrompt = (candLimits) => {
+    const renderPrompt = (candLimits = {}) => {
+        const {
+            plotLimit = 250,
+            taglineLimit = 70,
+            extFavLimit = broaderFavoriteLines.length,
+            seriesLimit = lovedSeriesItems.length,
+            notesLimit = extraNoteItems.length,
+            noteLen = 180
+        } = candLimits;
+
+        const broaderLines = broaderFavoriteLines.slice(0, Math.max(0, extFavLimit));
+        const seriesLines = lovedSeriesItems.slice(0, Math.max(0, seriesLimit)).map((item) => item.render(noteLen));
+        const extraNotes = extraNoteItems.slice(0, Math.max(0, notesLimit)).map((item) => item.render(noteLen));
+
         const candidatesStr = topCandidates
-            .map((c) => formatCandidatePromptBlock(c, candLimits))
+            .map((c) => formatCandidatePromptBlock(c, { plotLimit, taglineLimit }))
             .join("\n");
 
         return `
@@ -1592,6 +1737,9 @@ ${dislikedFilms.length > 0 ? `\nUSER'S DISLIKED / DISMISSED FILMS (Avoid similar
 ${recentStreak.length > 0 ? `\nRECENT WATCH STREAK:\n${recentStreak.join("\n")}` : ""}
 ${nearMisses.length > 0 ? `\nNEAR MISSES (Good but not 9/10 for this user):\n${nearMisses.join("\n")}` : ""}
 ${watchlistLines.length > 0 ? `\nUSER'S WATCHLIST (Stated interest — excluded from candidates):\n${watchlistLines.join("\n")}` : ""}
+${broaderLines.length > 0 ? `\nADDITIONAL TOP FAVORITES:\n${broaderLines.join("\n")}` : ""}
+${seriesLines.length > 0 ? `\nLOVED SERIES / ANIME:\n${seriesLines.join("\n")}` : ""}
+${extraNotes.length > 0 ? `\nADDITIONAL VIEWER NOTES:\n${extraNotes.join("\n")}` : ""}
 
 PRE-RANKED CANDIDATE MOVIES (Top ${topCandidates.length}):
 ${candidatesStr}
@@ -1623,21 +1771,57 @@ Output strict JSON with:
 
     const PROMPT_CHAR_BUDGET = 19200;
     const PROMPT_CHAR_LIMIT = 20000;
-    let prompt = renderPrompt({ plotLimit: 250, taglineLimit: 70 });
+    let limits = {
+        plotLimit: 250,
+        taglineLimit: 70,
+        extFavLimit: broaderFavoriteLines.length,
+        seriesLimit: lovedSeriesItems.length,
+        notesLimit: extraNoteItems.length,
+        noteLen: 180
+    };
+    let prompt = renderPrompt(limits);
     if (prompt.length > PROMPT_CHAR_BUDGET) {
-        prompt = renderPrompt({ plotLimit: 250, taglineLimit: 0 });
+        limits = { ...limits, taglineLimit: 0 };
+        prompt = renderPrompt(limits);
     }
     if (prompt.length > PROMPT_CHAR_BUDGET) {
         const excess = prompt.length - (PROMPT_CHAR_BUDGET - 400);
         const perCandidate = Math.max(1, topCandidates.length);
         const tightenedPlot = Math.max(80, 250 - Math.ceil(excess / perCandidate) - 10);
-        prompt = renderPrompt({ plotLimit: tightenedPlot, taglineLimit: 0 });
+        limits = { ...limits, plotLimit: tightenedPlot };
+        prompt = renderPrompt(limits);
+    }
+    if (prompt.length > 19600) {
+        limits = { ...limits, plotLimit: 60 };
+        prompt = renderPrompt(limits);
+    }
+    if (prompt.length > 19600 && extraNoteItems.length > 0) {
+        limits = { ...limits, noteLen: 100 };
+        prompt = renderPrompt(limits);
+    }
+    if (prompt.length > 19600 && limits.notesLimit > 0) {
+        let lo = 0;
+        let hi = limits.notesLimit;
+        while (lo < hi) {
+            const mid = Math.ceil((lo + hi) / 2);
+            const probe = renderPrompt({ ...limits, notesLimit: mid });
+            if (probe.length <= 19600) lo = mid;
+            else hi = mid - 1;
+        }
+        limits = { ...limits, notesLimit: lo };
+        prompt = renderPrompt(limits);
+    }
+    if (prompt.length > PROMPT_CHAR_LIMIT && limits.extFavLimit > 0) {
+        limits = { ...limits, extFavLimit: 0 };
+        prompt = renderPrompt(limits);
+    }
+    if (prompt.length > PROMPT_CHAR_LIMIT && limits.seriesLimit > 0) {
+        limits = { ...limits, seriesLimit: 0 };
+        prompt = renderPrompt(limits);
     }
     if (prompt.length > PROMPT_CHAR_LIMIT) {
-        prompt = renderPrompt({ plotLimit: 60, taglineLimit: 0 });
-    }
-    if (prompt.length > PROMPT_CHAR_LIMIT) {
-        prompt = renderPrompt({ plotLimit: 0, taglineLimit: 0 });
+        limits = { ...limits, plotLimit: 0 };
+        prompt = renderPrompt(limits);
     }
     return prompt;
 }
