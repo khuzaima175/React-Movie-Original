@@ -689,6 +689,201 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
   return activeReserve ? selectWithReserve(ordered, topK, activeReserve, context, weights, options) : ordered.slice(0, topK);
 }
 
+export const DEFAULT_SHORTLIST_DIVERSITY_CONFIG = {
+  coreLimit: 25,
+  coldLimit: 8,
+  outlierLimit: 6,
+  shortlistLimit: 39,
+  coldMinYear: 2024,
+  coldMaxYear: 2026,
+  minColdVoteAverage: 6.4,
+  minColdVoteCount: 40
+};
+
+function extractCandidateYear(candidate = {}) {
+  const match = String(candidate?.release_date || candidate?.year || candidate?.Year || "").match(/\b(18\d{2}|19\d{2}|20\d{2}|21\d{2})\b/);
+  return match ? Number(match[1]) : null;
+}
+
+function normalizeDirectorToken(candidate = {}) {
+  const raw = String(candidate?.director || "").trim().toLowerCase();
+  if (!raw || raw === "unknown" || raw === "n/a") return "";
+  return raw;
+}
+
+function extractShortlistGenreKeys(candidate = {}) {
+  const ids = extractCandidateGenreIds(candidate);
+  if (ids.length > 0) return ids.map((id) => `id:${id}`);
+  if (typeof candidate?.genre === "string" && candidate.genre.trim()) {
+    return candidate.genre
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s && s !== "n/a")
+      .map((s) => `name:${s}`);
+  }
+  return [];
+}
+
+function getShortlistCandidateKey(candidate = {}) {
+  const primary = candidate?.tmdbId ?? candidate?.id ?? candidate?.imdbID;
+  if (primary !== undefined && primary !== null && String(primary).trim() !== "") {
+    return String(primary).trim();
+  }
+  return `${String(candidate?.title || "").trim().toLowerCase()}::${extractCandidateYear(candidate) ?? ""}`;
+}
+
+/**
+ * Builds a stratified shortlist (~39 picks: core top-25 + quality cold 2024-2026 + diverse outliers)
+ * for Gemini curation while preserving pure math ordering in rankCandidatePool for offline evals.
+ */
+export function buildDiversifiedGeminiShortlist(
+  candidates = [],
+  context = {},
+  weights = DEFAULT_RANKER_WEIGHTS,
+  options = {},
+  reserve = undefined
+) {
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
+
+  const cfg = { ...DEFAULT_SHORTLIST_DIVERSITY_CONFIG, ...(options || {}) };
+  const shortlistLimit = Math.max(1, Number(options?.shortlistLimit ?? options?.topK ?? cfg.shortlistLimit));
+  const coreLimit = Math.min(Math.max(1, Number(cfg.coreLimit)), shortlistLimit);
+  const coldLimit = Math.max(0, Number(cfg.coldLimit));
+  const outlierLimit = Math.max(0, Number(cfg.outlierLimit));
+  const coldMinYear = Number(cfg.coldMinYear);
+  const coldMaxYear = Number(cfg.coldMaxYear);
+  const minColdVoteAverage = Number(cfg.minColdVoteAverage);
+  const minColdVoteCount = Number(cfg.minColdVoteCount);
+
+  const coreRanked = rankCandidatePool(candidates, context, weights, coreLimit, options, reserve);
+  // Strip onDiagnostics on fullRanked so explicit mood shortfall diagnostics never fire twice.
+  const fullRanked = rankCandidatePool(
+    candidates,
+    context,
+    weights,
+    candidates.length,
+    { ...(options || {}), onDiagnostics: undefined },
+    null
+  );
+
+  if (fullRanked.length === 0) return [];
+
+  const selected = [...coreRanked];
+  const selectedKeys = new Set(selected.map(getShortlistCandidateKey));
+
+  const isCold = (c) => Number(c?.features?.rawCollabSim ?? c?.collabSim ?? 0) === 0;
+  const passesQuality = (c, minRating = minColdVoteAverage) => {
+    const rawRating = c?.vote_average ?? c?.imdbRating;
+    if (rawRating !== null && rawRating !== undefined && rawRating !== "" && rawRating !== "N/A") {
+      const ratingNum = Number(rawRating);
+      if (Number.isFinite(ratingNum) && ratingNum < minRating) return false;
+    }
+    const rawVotes = Number(c?.vote_count ?? c?.voteCount ?? 0);
+    if (Number.isFinite(rawVotes) && rawVotes > 0 && rawVotes < minColdVoteCount) {
+      return false;
+    }
+    return true;
+  };
+
+  // Slice 2: Quality Cold 2024-2026 picks (falling back to older cold picks only if < coldLimit recent cold exist)
+  const coldCap = Math.min(coldLimit, Math.max(0, shortlistLimit - selected.length));
+  if (coldCap > 0) {
+    const remainingCold = fullRanked.filter(
+      (c) => !selectedKeys.has(getShortlistCandidateKey(c)) && isCold(c) && passesQuality(c, minColdVoteAverage)
+    );
+    const recentCold = [];
+    const olderCold = [];
+    for (const c of remainingCold) {
+      const yr = extractCandidateYear(c);
+      if (yr !== null && yr >= coldMinYear && yr <= coldMaxYear) {
+        recentCold.push(c);
+      } else {
+        olderCold.push(c);
+      }
+    }
+    for (const pick of [...recentCold, ...olderCold].slice(0, coldCap)) {
+      selected.push(pick);
+      selectedKeys.add(getShortlistCandidateKey(pick));
+    }
+  }
+
+  // Slice 3: Diverse Outliers (greedy unseen director +2.0, underrepresented genre +1.0, underrepresented decade +0.8)
+  const outlierCap = Math.min(outlierLimit, Math.max(0, shortlistLimit - selected.length));
+  if (outlierCap > 0) {
+    const seenDirectors = new Set();
+    const seenGenres = new Set();
+    const seenDecades = new Set();
+    for (const item of selected) {
+      const d = normalizeDirectorToken(item);
+      if (d) seenDirectors.add(d);
+      for (const g of extractShortlistGenreKeys(item)) seenGenres.add(g);
+      const yr = extractCandidateYear(item);
+      if (yr !== null) seenDecades.add(Math.floor(yr / 10) * 10);
+    }
+
+    const candidateOutliers = fullRanked.filter((c) => {
+      if (selectedKeys.has(getShortlistCandidateKey(c))) return false;
+      const rawRating = c?.vote_average ?? c?.imdbRating;
+      if (rawRating !== null && rawRating !== undefined && rawRating !== "" && rawRating !== "N/A") {
+        const ratingNum = Number(rawRating);
+        if (Number.isFinite(ratingNum) && ratingNum < 6.5) return false;
+      }
+      if (isCold(c) && !passesQuality(c, 6.5)) return false;
+      return true;
+    });
+
+    const chosenIndices = new Set();
+    for (let step = 0; step < outlierCap; step++) {
+      let bestIdx = -1;
+      let bestBonus = -1;
+      let bestProb = -Infinity;
+      for (let i = 0; i < candidateOutliers.length; i++) {
+        if (chosenIndices.has(i)) continue;
+        const c = candidateOutliers[i];
+        const d = normalizeDirectorToken(c);
+        const genres = extractShortlistGenreKeys(c);
+        const yr = extractCandidateYear(c);
+        const decade = yr !== null ? Math.floor(yr / 10) * 10 : null;
+
+        let bonus = 0;
+        if (d && !seenDirectors.has(d)) bonus += 2.0;
+        if (genres.some((g) => !seenGenres.has(g))) bonus += 1.0;
+        if (decade !== null && !seenDecades.has(decade)) bonus += 0.8;
+
+        const prob = Number(c?.rankerProbability ?? -Infinity);
+        if (bonus > bestBonus || (bonus === bestBonus && prob > bestProb)) {
+          bestIdx = i;
+          bestBonus = bonus;
+          bestProb = prob;
+        }
+      }
+      if (bestIdx === -1) break;
+      chosenIndices.add(bestIdx);
+      const winner = candidateOutliers[bestIdx];
+      selected.push(winner);
+      selectedKeys.add(getShortlistCandidateKey(winner));
+      const d = normalizeDirectorToken(winner);
+      if (d) seenDirectors.add(d);
+      for (const g of extractShortlistGenreKeys(winner)) seenGenres.add(g);
+      const yr = extractCandidateYear(winner);
+      if (yr !== null) seenDecades.add(Math.floor(yr / 10) * 10);
+    }
+  }
+
+  // Top up any remaining slots below shortlistLimit from fullRanked in rankerProbability order
+  if (selected.length < Math.min(shortlistLimit, fullRanked.length)) {
+    for (const c of fullRanked) {
+      const k = getShortlistCandidateKey(c);
+      if (selectedKeys.has(k)) continue;
+      selected.push(c);
+      selectedKeys.add(k);
+      if (selected.length >= shortlistLimit) break;
+    }
+  }
+
+  return selected.slice(0, shortlistLimit);
+}
+
 /**
  * Fits L2-regularized pairwise logistic regression weights shrunk toward priorWeights (never toward zero).
  */

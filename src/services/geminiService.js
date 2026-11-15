@@ -16,7 +16,11 @@ import {
     getFallbackPoster as getTmdbFallbackPoster,
     isSeriesVaultItem
 } from "./tmdbService.js";
-import { DEFAULT_RANKER_WEIGHTS, rankCandidatePool } from "./rankerService.js";
+import {
+    DEFAULT_RANKER_WEIGHTS,
+    rankCandidatePool,
+    buildDiversifiedGeminiShortlist
+} from "./rankerService.js";
 import { derivePersonalizedRankerWeights, sanitizeFeatureSnapshot } from "./onlineLearningService.js";
 import {
     DEFAULT_RECOMMENDATION_COUNT,
@@ -1889,7 +1893,7 @@ function buildRankerFallbackResponse(
  */
 async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options = {}) {
     const targetCount = Math.max(1, Number(options.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
-    const shortlistLimit = Math.max(targetCount, options.topK || 30);
+    const shortlistLimit = Math.max(targetCount, options.topK || (ai ? 39 : 30));
     const moodFilters = normalizeMoodFilters(options.moodFilters);
     const explicitMood = isExplicitMoodActive(mood, moodFilters);
     const reserveConfig =
@@ -1916,14 +1920,22 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         userProviders: options.userProviders
     };
 
-    let topCandidates = rankCandidatePool(
-        candidates,
-        rankerContext,
-        options.rankerWeights,
-        shortlistLimit,
-        options.rankerOptions,
-        reserveConfig
-    );
+    let topCandidates = ai
+        ? buildDiversifiedGeminiShortlist(
+            candidates,
+            rankerContext,
+            options.rankerWeights,
+            { ...(options.rankerOptions || {}), shortlistLimit },
+            reserveConfig
+        )
+        : rankCandidatePool(
+            candidates,
+            rankerContext,
+            options.rankerWeights,
+            shortlistLimit,
+            options.rankerOptions,
+            reserveConfig
+        );
 
     // Exhaustion guard: if session refresh exclusions shrunk the pool below targetCount,
     // keep unseen items at the front and pad from the broader ranked pool.

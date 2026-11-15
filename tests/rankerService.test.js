@@ -9,7 +9,8 @@ import {
   computeDisplayMatchScore,
   extractCandidateFeatures,
   scoreCandidate,
-  rankCandidatePool
+  rankCandidatePool,
+  buildDiversifiedGeminiShortlist
 } from "../src/services/rankerService.js";
 import { extractTasteProfile } from "../src/services/tmdbService.js";
 
@@ -437,4 +438,195 @@ test("derivePersonalizedRankerWeights ignores already_seen actions and legacy Al
 
   const derived = derivePersonalizedRankerWeights(events, [], DEFAULT_RANKER_WEIGHTS);
   assert.deepEqual(derived, DEFAULT_RANKER_WEIGHTS, "already_seen must never supply negative training examples");
+});
+
+test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 cold 2024-2026 + 6 diverse outliers) while rankCandidatePool stays pure math", () => {
+  const coreNolan = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1,
+    tmdbId: i + 1,
+    title: `Core SciFi ${i + 1}`,
+    year: String(2010 + (i % 10)),
+    release_date: `${2010 + (i % 10)}-06-01`,
+    director: "Christopher Nolan",
+    genre: "Sci-Fi",
+    tmdbGenreIds: [878],
+    genre_ids: [878],
+    vote_average: 8.3,
+    vote_count: 4500,
+    collabSim: 0.9 - i * 0.01
+  }));
+
+  const coldRecent = Array.from({ length: 8 }, (_, i) => ({
+    id: 31 + i,
+    tmdbId: 31 + i,
+    title: `Fresh Cold Gem ${i + 1}`,
+    year: String(2024 + (i % 3)),
+    release_date: `${2024 + (i % 3)}-05-01`,
+    director: `Indie Director ${i + 1}`,
+    genre: "Drama, Mystery",
+    tmdbGenreIds: [18, 9648],
+    genre_ids: [18, 9648],
+    vote_average: 7.4,
+    vote_count: 320,
+    collabSim: 0
+  }));
+
+  const coldJunk = [
+    {
+      id: 39,
+      tmdbId: 39,
+      title: "Low Rated Cold Trash",
+      year: "2025",
+      release_date: "2025-03-01",
+      director: "Bad Director",
+      genre: "Thriller",
+      tmdbGenreIds: [53],
+      genre_ids: [53],
+      vote_average: 4.5,
+      vote_count: 800,
+      collabSim: 0
+    },
+    {
+      id: 40,
+      tmdbId: 40,
+      title: "Tiny Vote Cold Outlier",
+      year: "2025",
+      release_date: "2025-04-01",
+      director: "Obscure Director",
+      genre: "Drama",
+      tmdbGenreIds: [18],
+      genre_ids: [18],
+      vote_average: 8.2,
+      vote_count: 15,
+      collabSim: 0
+    }
+  ];
+
+  const diverseGenres = [16, 35, 10749, 36, 10402, 14, 37, 99, 80, 12];
+  const diverseYears = ["1954", "1962", "1974", "1988", "1994", "2001", "1946", "1979", "1999", "2005"];
+  const diverseOutliers = Array.from({ length: 10 }, (_, i) => ({
+    id: 41 + i,
+    tmdbId: 41 + i,
+    title: `Diverse Classic ${i + 1}`,
+    year: diverseYears[i],
+    release_date: `${diverseYears[i]}-08-15`,
+    director: `Auteur ${i + 1}`,
+    genre: `Genre ${diverseGenres[i]}`,
+    tmdbGenreIds: [diverseGenres[i]],
+    genre_ids: [diverseGenres[i]],
+    vote_average: 8.1,
+    vote_count: 2000,
+    collabSim: 0.15 - i * 0.005
+  }));
+
+  const pool = [...coreNolan, ...coldRecent, ...coldJunk, ...diverseOutliers];
+  const context = {
+    profile: { lovedGenreIds: [878], hatedKeywordIds: [] },
+    collabSimMap: new Map(
+      [...coreNolan, ...diverseOutliers, ...Array.from({ length: 15 }, (_, j) => ({ tmdbId: 500 + j, collabSim: 0.05 }))]
+        .map((c) => [c.tmdbId, c.collabSim])
+    )
+  };
+
+  const shortlist = buildDiversifiedGeminiShortlist(pool, context, DEFAULT_RANKER_WEIGHTS);
+  assert.equal(shortlist.length, 39, "Default shortlist returns 39 diversified candidates");
+
+  const ids = new Set(shortlist.map((c) => c.tmdbId));
+  for (let id = 1; id <= 25; id++) {
+    assert.ok(ids.has(id), `Expected core #${id} in first 25 slots`);
+  }
+  for (let id = 31; id <= 38; id++) {
+    assert.ok(ids.has(id), `Expected quality cold 2024-2026 #${id} in shortlist`);
+  }
+  assert.equal(ids.has(39), false, "Must reject 4.5★ cold junk");
+  assert.equal(ids.has(40), false, "Must reject <40-vote cold item");
+
+  const outlierCount = shortlist.filter((c) => c.tmdbId >= 41 && c.tmdbId <= 50).length;
+  assert.equal(outlierCount, 6, "Expected 6 diverse director/genre/decade outliers");
+
+  const pureMathTop30 = rankCandidatePool(pool, context, DEFAULT_RANKER_WEIGHTS, 30);
+  assert.deepEqual(
+    pureMathTop30.map((c) => c.tmdbId),
+    Array.from({ length: 30 }, (_, i) => i + 1),
+    "rankCandidatePool remains pure mathematical ordering untouched"
+  );
+});
+
+test("buildDiversifiedGeminiShortlist fires onDiagnostics at most once and never re-introduces mood-gate or provider-rejected items", () => {
+  const comfortWarm = Array.from({ length: 28 }, (_, i) => ({
+    id: 200 + i,
+    tmdbId: 200 + i,
+    title: `Warm Comedy ${i + 1}`,
+    year: "2018",
+    release_date: "2018-04-01",
+    director: "Warm Director",
+    genre: "Comedy, Family",
+    tmdbGenreIds: [35, 10751],
+    genre_ids: [35, 10751],
+    vote_average: 7.5,
+    vote_count: 900,
+    streamProviders: [{ id: 8, name: "Netflix" }],
+    collabSim: 0.4 - i * 0.005
+  }));
+  const rejectedColdHorror = {
+    id: 301,
+    tmdbId: 301,
+    title: "Slasher 2025",
+    year: "2025",
+    release_date: "2025-05-01",
+    director: "Scary Director",
+    genre: "Horror, Thriller",
+    tmdbGenreIds: [27, 53],
+    genre_ids: [27, 53],
+    vote_average: 8.0,
+    vote_count: 600,
+    streamProviders: [{ id: 8, name: "Netflix" }],
+    collabSim: 0
+  };
+  const wrongProviderCold = {
+    id: 302,
+    tmdbId: 302,
+    title: "Wrong Streamer 2025",
+    year: "2025",
+    release_date: "2025-05-01",
+    director: "Other Director",
+    genre: "Comedy",
+    tmdbGenreIds: [35],
+    genre_ids: [35],
+    vote_average: 8.2,
+    vote_count: 500,
+    streamProviders: [{ id: 15, name: "Hulu" }],
+    collabSim: 0
+  };
+  const validColdComedy = {
+    id: 303,
+    tmdbId: 303,
+    title: "Cozy Cold 2025",
+    year: "2025",
+    release_date: "2025-05-01",
+    director: "Cozy Auteur",
+    genre: "Comedy, Family",
+    tmdbGenreIds: [35, 10751],
+    genre_ids: [35, 10751],
+    vote_average: 7.7,
+    vote_count: 450,
+    streamProviders: [{ id: 8, name: "Netflix" }],
+    collabSim: 0
+  };
+
+  let diagCalls = 0;
+  let lastDiag = null;
+  const shortlist = buildDiversifiedGeminiShortlist(
+    [...comfortWarm, rejectedColdHorror, wrongProviderCold, validColdComedy],
+    { mood: "comfort-watch", userProviders: [8], profile: { lovedGenreIds: [35] } },
+    DEFAULT_RANKER_WEIGHTS,
+    { onDiagnostics: (d) => { diagCalls++; lastDiag = d; } },
+    null
+  );
+
+  assert.equal(diagCalls, 1, "onDiagnostics must fire at most once (fullRanked must not double-fire)");
+  assert.equal(lastDiag?.targetCount, 25, "Diagnostic targetCount reflects core pass, not pool.length");
+  assert.ok(!shortlist.some((c) => c.tmdbId === 301), "Must never re-introduce comfort-watch gate-rejected Horror film");
+  assert.ok(!shortlist.some((c) => c.tmdbId === 302), "Must respect userProviders filtering cleanly");
+  assert.ok(shortlist.some((c) => c.tmdbId === 303), "Includes valid cold comfort-watch film on matching provider");
 });

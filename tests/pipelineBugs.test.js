@@ -1224,3 +1224,87 @@ test("applyDetailsToCandidate and mergeBackfilledMovieMetadata preserve cast, wr
     assert.equal(backfilled.tagline, details.tagline);
 });
 
+test("getMovieRecommendations shortlists 39 diversified candidates to Gemini when pool >= 55", async () => {
+    const prevGKey = process.env.VITE_GEMINI_KEY;
+    process.env.VITE_GEMINI_KEY = "TEST_KEY";
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+
+    let promptCandidateCount = 0;
+    const mockAi = {
+        models: {
+            generateContent: async ({ contents }) => {
+                const match = String(contents).match(/PRE-RANKED CANDIDATE MOVIES \(Top (\d+)\)/);
+                if (match) promptCandidateCount = Number(match[1]);
+                return {
+                    text: JSON.stringify({
+                        tasteProfile: { favoriteGenres: ["Comedy"], preferredEra: "2010s", ratingStyle: "Warm" },
+                        recommendations: []
+                    }),
+                    usageMetadata: { totalTokenCount: 10 }
+                };
+            }
+        }
+    };
+
+    try {
+        const pool55 = [
+            ...Array.from({ length: 30 }, (_, i) => ({
+                id: 5000 + i,
+                tmdbId: 5000 + i,
+                title: `Warm Core ${i}`,
+                year: "2016",
+                release_date: "2016-05-01",
+                director: "Repeating Director",
+                genre: "Comedy, Family",
+                tmdbGenreIds: [35, 10751],
+                genre_ids: [35, 10751],
+                vote_average: 7.8,
+                vote_count: 2000,
+                collabSim: 0.7 - i * 0.01
+            })),
+            ...Array.from({ length: 8 }, (_, i) => ({
+                id: 5100 + i,
+                tmdbId: 5100 + i,
+                title: `Fresh Cozy ${i}`,
+                year: "2025",
+                release_date: "2025-02-01",
+                director: `Fresh Director ${i}`,
+                genre: "Comedy",
+                tmdbGenreIds: [35],
+                genre_ids: [35],
+                vote_average: 7.2,
+                vote_count: 300,
+                collabSim: 0
+            })),
+            ...Array.from({ length: 17 }, (_, i) => ({
+                id: 5200 + i,
+                tmdbId: 5200 + i,
+                title: `Classic Warm ${i}`,
+                year: String(1975 + i),
+                release_date: `${1975 + i}-09-01`,
+                director: `Classic Director ${i}`,
+                genre: "Comedy, Romance",
+                tmdbGenreIds: [35, 10749],
+                genre_ids: [35, 10749],
+                vote_average: 7.9,
+                vote_count: 1400,
+                collabSim: 0.1
+            }))
+        ];
+
+        const res = await getMovieRecommendations(
+            [{ id: 1, tmdbId: 1, title: "Seed Comedy", userRating: 9, tmdbGenreIds: [35] }],
+            [],
+            null,
+            { mood: "comfort-watch", candidates: pool55, embeddingIndex: null, aiClient: mockAi }
+        );
+
+        assert.equal(promptCandidateCount, 39, "Expected Gemini shortlist widened to 39 diversified candidates");
+        assert.equal(res.recommendations.length, 10);
+    } finally {
+        if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
+        else process.env.VITE_GEMINI_KEY = prevGKey;
+    }
+});
+
