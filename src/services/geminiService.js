@@ -1489,7 +1489,7 @@ function buildExtendedVaultContextSections({
     maxSeries = 12
 } = {}) {
     const broaderFavoriteLines = broaderFavoriteEntries.map((m) => (
-        `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${formatSeriesTag(m)}`
+        `- "${cleanStr(m.title || m.Title || "")}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${formatSeriesTag(m)}`
     ));
 
     const alreadyPrintedNoteRefs = [
@@ -1579,7 +1579,13 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
     const parsedMoodFilters = normalizeMoodFilters(context.moodFilters);
 
     // 1. Top Anchor Films (up to 10 primary anchors, plus up to 15 additional non-series favorites for ranks 11..25)
-    const allFavorites = selectMoodStratifiedAnchors(watched, profile, preset, parsedMoodFilters, 40);
+    const allFavorites = selectMoodStratifiedAnchors(
+        watched,
+        profile,
+        preset,
+        parsedMoodFilters,
+        Math.max(40, watched.length)
+    );
     const anchorEntries = allFavorites.slice(0, 10);
     const broaderFavoriteEntries = allFavorites
         .slice(10)
@@ -1986,8 +1992,9 @@ export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {
 
     const resolvedStubs = [];
     const seenStubIds = new Set();
+    const lookupBudget = Math.min(rawWildcards.length, maxWildcards * 2);
 
-    for (const pick of rawWildcards.slice(0, maxWildcards)) {
+    for (const pick of rawWildcards.slice(0, lookupBudget)) {
         if (!pick || typeof pick !== "object") continue;
         const title = cleanStr(pick.title || "");
         if (!title || isSeriesVaultItem(pick)) continue;
@@ -2093,18 +2100,24 @@ export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {
         if (explicitMood && !matchesMoodCandidateGate(fullCand, mood, moodFilters)) continue;
 
         verifiedEntries.push({ pick, cand: fullCand });
+        if (verifiedEntries.length >= maxWildcards) break;
     }
 
     if (verifiedEntries.length === 0) return [];
 
     const verifiedCandList = verifiedEntries.map((v) => v.cand);
     const mergedContentSimMap = new Map(context?.contentSimMap instanceof Map ? context.contentSimMap : []);
-    if (contentIndex || verifiedCandList.length > 0) {
+    const needsDenseScan = !(context?.contentSimMap instanceof Map && context.contentSimMap.size > 0);
+    const idfBase = Array.isArray(context?.allCandidates) && context.allCandidates.length > 0
+        ? context.allCandidates
+        : existingCandidates;
+    const idfCorpus = idfBase.length > 0 ? [...idfBase, ...verifiedCandList] : verifiedCandList;
+    if (needsDenseScan ? (contentIndex || verifiedCandList.length > 0) : verifiedCandList.length > 0) {
         try {
             const coldContent = buildContentSimMap(
                 profile?.weightedRatings || [],
-                contentIndex,
-                verifiedCandList,
+                needsDenseScan ? contentIndex : null,
+                idfCorpus,
                 {
                     collabIndex: embeddingIndex,
                     collabSimMap,
@@ -2113,7 +2126,9 @@ export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {
                 }
             );
             for (const [k, val] of coldContent.entries()) {
-                mergedContentSimMap.set(k, val);
+                if (!mergedContentSimMap.has(k)) {
+                    mergedContentSimMap.set(k, val);
+                }
             }
         } catch (_) {}
     }
@@ -2567,6 +2582,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
                     watchlist: options.watchlist,
                     excludeIds: options.excludeIds,
                     existingCandidates: topCandidates,
+                    allCandidates: candidates,
                     profile,
                     mood,
                     moodFilters,

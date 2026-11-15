@@ -751,8 +751,11 @@ export function buildDiversifiedGeminiShortlist(
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
   const cfg = { ...DEFAULT_SHORTLIST_DIVERSITY_CONFIG, ...(options || {}) };
-  const shortlistLimit = Math.max(1, Number(options?.shortlistLimit ?? options?.topK ?? cfg.shortlistLimit));
-  const coreLimit = Math.min(Math.max(1, Number(cfg.coreLimit)), shortlistLimit);
+  const rawShortlistLimit = Number(options?.shortlistLimit ?? options?.topK ?? cfg.shortlistLimit);
+  const shortlistLimit = Number.isFinite(rawShortlistLimit) && rawShortlistLimit > 0
+    ? Math.floor(rawShortlistLimit)
+    : cfg.shortlistLimit;
+  const coreLimit = Math.min(Math.max(1, Number(cfg.coreLimit) || 25), shortlistLimit);
   const coldLimit = Math.max(0, Number(cfg.coldLimit));
   const outlierLimit = Math.max(0, Number(cfg.outlierLimit));
   const coldMinYear = Number(cfg.coldMinYear);
