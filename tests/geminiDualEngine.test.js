@@ -1780,3 +1780,126 @@ test("verifyAndScoreWildcardPicks and mergeGeminiExplanationsWithRanker preserve
     assert.equal(godfatherEntry?.collectionId, 230);
     assert.equal(godfatherEntry?.collectionName, "The Godfather Collection");
 });
+
+test("mergeGeminiExplanationsWithRanker and offline fallback enforce soft max-1-per-collectionId cap with underflow backfill", async () => {
+    const rankedCandidates = [
+        { id: 201, tmdbId: 201, title: "John Wick: Chapter 2", year: "2017", director: "Dir A", genre: "Action", collectionId: 404609, collectionName: "John Wick Collection", matchScore: 95 },
+        { id: 202, tmdbId: 202, title: "John Wick: Chapter 3", year: "2019", director: "Dir B", genre: "Action", collectionId: 404609, collectionName: "John Wick Collection", matchScore: 93 },
+        { id: 203, tmdbId: 203, title: "Standalone Pick 1", year: "2021", director: "Dir C", genre: "Action", matchScore: 90 },
+        { id: 204, tmdbId: 204, title: "Standalone Pick 2", year: "2022", director: "Dir D", genre: "Action", matchScore: 88 }
+    ];
+
+    const capped = mergeGeminiExplanationsWithRanker(
+        {
+            tasteProfile: { favoriteGenres: ["Action"], preferredEra: "2020s", ratingStyle: "Bold" },
+            recommendations: [
+                { tmdbId: 201, title: "John Wick: Chapter 2", anchorTitles: [], reason: "Pick 1" },
+                { tmdbId: 202, title: "John Wick: Chapter 3", anchorTitles: [], reason: "Pick 2" },
+                { tmdbId: 203, title: "Standalone Pick 1", anchorTitles: [], reason: "Pick 3" }
+            ]
+        },
+        rankedCandidates,
+        { lovedGenreNames: ["Action"] },
+        {},
+        3
+    );
+
+    assert.equal(capped.recommendations.length, 3);
+    assert.equal(
+        capped.recommendations.filter((r) => r.collectionId === 404609).length,
+        1,
+        "Only 1 film from collectionId 404609 should remain when standalone alternatives exist"
+    );
+    assert.ok(capped.recommendations.some((r) => r.tmdbId === 204), "Backfills from standalone candidate #4");
+
+    // Underflow protection: if entire pool shares the same collectionId, overflow backfills to targetCount
+    const allSameCollection = rankedCandidates.slice(0, 3).map((c) => ({ ...c, collectionId: 404609, collectionName: "John Wick Collection" }));
+    const underflowRes = mergeGeminiExplanationsWithRanker(
+        {
+            tasteProfile: { favoriteGenres: ["Action"], preferredEra: "2020s", ratingStyle: "Bold" },
+            recommendations: allSameCollection.map((c) => ({ tmdbId: c.tmdbId, title: c.title, anchorTitles: [], reason: "Same col" }))
+        },
+        allSameCollection,
+        { lovedGenreNames: ["Action"] },
+        {},
+        3
+    );
+    assert.equal(underflowRes.recommendations.length, 3, "Must backfill overflow so targetCount is met without underflow");
+
+    // Offline local ranker fallback also enforces max-1-per-collectionId when alternatives exist
+    const prevGKey = process.env.VITE_GEMINI_KEY;
+    delete process.env.VITE_GEMINI_KEY;
+    try {
+        const fallbackCandidates = [
+            ...Array.from({ length: 4 }, (_, i) => ({
+                id: 300 + i,
+                tmdbId: 300 + i,
+                title: `Franchise Entry ${i + 1}`,
+                year: "2020",
+                release_date: "2020-05-01",
+                director: `Franchise Dir ${i}`,
+                genre: "Action",
+                tmdbGenreIds: [28],
+                genre_ids: [28],
+                collectionId: 9090,
+                collectionName: "Mega Franchise",
+                vote_average: 8.5 - i * 0.05,
+                vote_count: 4000,
+                collabSim: 0.9 - i * 0.02
+            })),
+            ...Array.from({ length: 10 }, (_, i) => ({
+                id: 400 + i,
+                tmdbId: 400 + i,
+                title: `Unique Movie ${i + 1}`,
+                year: "2021",
+                release_date: "2021-06-01",
+                director: `Unique Dir ${i}`,
+                genre: "Action",
+                tmdbGenreIds: [28],
+                genre_ids: [28],
+                vote_average: 7.5 - i * 0.05,
+                vote_count: 1500,
+                collabSim: 0.5 - i * 0.02
+            }))
+        ];
+        const offline = await getMovieRecommendations(
+            [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [28] }],
+            [],
+            null,
+            { candidates: fallbackCandidates, embeddingIndex: null }
+        );
+        assert.equal(offline.recommendations.length, 10);
+        assert.equal(
+            offline.recommendations.filter((r) => r.collectionId === 9090).length,
+            1,
+            "Offline fallback enforces soft max-1-per-collectionId cap"
+        );
+    } finally {
+        if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
+        else process.env.VITE_GEMINI_KEY = prevGKey;
+    }
+});
+
+test("buildGeminiReRankPrompt includes franchise sequel guardrail and Collection tag when collectionName is present", () => {
+    const prompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Action"], topDirectors: ["Chad Stahelski"] },
+        "any",
+        [
+            {
+                id: 603692,
+                tmdbId: 603692,
+                title: "John Wick: Chapter 4",
+                year: "2023",
+                director: "Chad Stahelski",
+                genre: "Action",
+                collectionId: 404609,
+                collectionName: "John Wick Collection",
+                overview: "With the price on his head ever increasing, John Wick uncovers a path to defeating The High Table."
+            }
+        ],
+        { watched: [] }
+    );
+
+    assert.ok(prompt.includes("Collection: John Wick Collection"), "Prompt must surface Collection metadata tag");
+    assert.ok(prompt.includes("Franchise rule:"), "Prompt must include Franchise sequel guardrail rule");
+});

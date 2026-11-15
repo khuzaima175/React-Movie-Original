@@ -1702,6 +1702,10 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         const taglineText = taglineLimit > 0 && rawTagline && rawTagline !== "N/A"
             ? rawTagline.slice(0, taglineLimit)
             : "";
+        const rawCollectionName = cleanStr(c.collectionName || "");
+        const collectionText = plotLimit >= 80 && rawCollectionName && rawCollectionName !== "N/A"
+            ? rawCollectionName.slice(0, 60)
+            : "";
         const rawPlot = cleanStr(c.overview || c.plot || "");
         const plotText = plotLimit > 0 && rawPlot && rawPlot !== "N/A"
             ? rawPlot.slice(0, plotLimit)
@@ -1711,6 +1715,7 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
             castList.length > 0 ? `Cast: ${castList.join(", ")}` : "",
             themeList.length > 0 ? `Themes: ${themeList.join(", ")}` : "",
             taglineText ? `Tagline: "${taglineText}"` : "",
+            collectionText ? `Collection: ${collectionText}` : "",
             plotText ? `Plot: ${plotText}` : "",
         ].filter(Boolean);
 
@@ -1758,6 +1763,7 @@ TASK:
 Perform a diversity pass over these top candidates and select ${targetCount} distinct films.
 - Curate openly: Every listed candidate already cleared availability and safety filters. Judge picks across the full list equally on tone, pacing, directorial voice, plots, user notes, and diversity.
 - Keep directors varied (max 2 picks per director unless deeply core).${explicitMood ? `\n- CRITICAL MOOD RULE: Every pick MUST genuinely fit the "${preset.label}" mood and any custom vibe constraints above — prioritize true mood matches over off-tone vault staples.` : ""}
+- Franchise rule: Prefer max 1 film per franchise/collection, and never recommend a numbered sequel/Part 2+ unless an earlier installment in that franchise appears in the user's Vault.
 Write a bespoke 1-sentence upright editorial reason explaining how each pick fits their requested vibe and favorite anchors, user notes, directors, themes, or pacing (never generic plot summary).
 CRITICAL STYLE RULES FOR "reason" AND OUTPUT:
 - Write clean, human cinema prose (1 sentence, plain statement).
@@ -1904,21 +1910,42 @@ function normalizeDirectorCapKey(entry, candidate = null) {
     return "";
 }
 
-function selectWithSoftDirectorCap(items = [], desiredTotal = DEFAULT_RECOMMENDATION_COUNT, maxPerDirector = 2) {
+function normalizeCollectionCapKey(entry, candidate = null) {
+    const colId = Number(entry?.collectionId ?? candidate?.collectionId ?? 0);
+    return Number.isSafeInteger(colId) && colId > 0 ? `col:${colId}` : "";
+}
+
+function buildPoolCapItem(entry, candidate = null) {
+    return {
+        entry,
+        dirKey: normalizeDirectorCapKey(entry, candidate),
+        collectionKey: normalizeCollectionCapKey(entry, candidate)
+    };
+}
+
+function selectWithSoftVarietyCaps(
+    items = [],
+    desiredTotal = DEFAULT_RECOMMENDATION_COUNT,
+    { maxPerDirector = 2, maxPerCollection = 1 } = {}
+) {
     const selected = [];
     const overflow = [];
-    const counts = new Map();
+    const dirCounts = new Map();
+    const collectionCounts = new Map();
 
     for (const item of items) {
         if (selected.length >= desiredTotal) break;
         const dirKey = item.dirKey || "";
-        const count = dirKey ? (counts.get(dirKey) || 0) : 0;
-        if (dirKey && count >= maxPerDirector) {
+        const collectionKey = item.collectionKey || "";
+        const dirCount = dirKey ? (dirCounts.get(dirKey) || 0) : 0;
+        const colCount = collectionKey ? (collectionCounts.get(collectionKey) || 0) : 0;
+        if ((dirKey && dirCount >= maxPerDirector) || (collectionKey && colCount >= maxPerCollection)) {
             overflow.push(item);
             continue;
         }
         selected.push(item);
-        if (dirKey) counts.set(dirKey, count + 1);
+        if (dirKey) dirCounts.set(dirKey, dirCount + 1);
+        if (collectionKey) collectionCounts.set(collectionKey, colCount + 1);
     }
 
     for (const item of overflow) {
@@ -2246,10 +2273,7 @@ export function mergeGeminiExplanationsWithRanker(
             profile,
             { reason, anchorTitles, anchorIds }
         );
-        wildcardPoolItems.push({
-            entry,
-            dirKey: normalizeDirectorCapKey(entry, wc)
-        });
+        wildcardPoolItems.push(buildPoolCapItem(entry, wc));
     }
 
     for (const rec of result.recommendations) {
@@ -2273,10 +2297,7 @@ export function mergeGeminiExplanationsWithRanker(
             anchorTitles,
             anchorIds
         });
-        geminiPoolItems.push({
-            entry,
-            dirKey: normalizeDirectorCapKey(entry, candidate)
-        });
+        geminiPoolItems.push(buildPoolCapItem(entry, candidate));
     }
 
     for (const cand of rankedCandidates) {
@@ -2287,15 +2308,15 @@ export function mergeGeminiExplanationsWithRanker(
         const entry = buildRecommendationEntry(cand, {}, profile, {
             reason: "Selected by your calibrated taste profile and current mood filter."
         });
-        backfillPoolItems.push({
-            entry,
-            dirKey: normalizeDirectorCapKey(entry, cand)
-        });
+        backfillPoolItems.push(buildPoolCapItem(entry, cand));
     }
 
     const poolItems = [...wildcardPoolItems, ...geminiPoolItems, ...backfillPoolItems];
     const desiredTotal = Math.min(effectiveTarget, poolItems.length > 0 ? poolItems.length : effectiveTarget);
-    const enriched = selectWithSoftDirectorCap(poolItems, desiredTotal, 2);
+    const enriched = selectWithSoftVarietyCaps(poolItems, desiredTotal, {
+        maxPerDirector: 2,
+        maxPerCollection: 1
+    });
     enriched.sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
 
     return {
@@ -2358,13 +2379,13 @@ function buildRankerFallbackResponse(
     moodShortfall = null
 ) {
     const limit = Math.max(1, Number(targetCount) || DEFAULT_RECOMMENDATION_COUNT);
-    const capped = selectWithSoftDirectorCap(
+    const capped = selectWithSoftVarietyCaps(
         (topCandidates || []).map((cand) => {
             const entry = buildRecommendationEntry(cand, {}, profile, { reason });
-            return { entry, dirKey: normalizeDirectorCapKey(entry, cand) };
+            return buildPoolCapItem(entry, cand);
         }),
         Math.min(limit, (topCandidates || []).length),
-        2
+        { maxPerDirector: 2, maxPerCollection: 1 }
     );
     capped.sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
     return {
