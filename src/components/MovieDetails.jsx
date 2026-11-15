@@ -28,7 +28,7 @@ import {
   shouldLoadRabbitHoleForMovie
 } from "../services/rabbitHoleService";
 import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
-import { findMatchingMovie } from "../services/movieIdentity";
+import { findMatchingMovie, isSameMovie } from "../services/movieIdentity";
 import {
   extractMovieCreditPeople,
   buildPersonProfileRoute,
@@ -78,7 +78,8 @@ import {
   ExternalLink,
   SlidersHorizontal,
   MessageSquare,
-  CheckCircle2
+  CheckCircle2,
+  GitCompareArrows
 } from "lucide-react";
 
 // Cache enriched detail objects for this session
@@ -95,7 +96,13 @@ export default function MovieDetails({
   watchlist = []
 }) {
   const navigate = useNavigate();
-  const { userRegion, addToWatchlist: contextAddToWatchlist, deleteWatchlist: contextDeleteWatchlist } = useApp();
+  const {
+    userRegion,
+    addToWatchlist: contextAddToWatchlist,
+    deleteWatchlist: contextDeleteWatchlist,
+    compareItems = [],
+    toggleCompare
+  } = useApp();
   const [movie, setMovie] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -653,6 +660,7 @@ export default function MovieDetails({
 
   const activeDisplayRating = hoverRating || userRating || 0;
   const currentTier = getRatingTier(activeDisplayRating);
+  const isInCompare = Boolean(movie && compareItems.some((item) => isSameMovie(item, movie)));
 
   return (
     <div className="netflix-detail-modal" aria-label={`Movie details for ${movie?.title || "Film"}`}>
@@ -686,6 +694,25 @@ export default function MovieDetails({
               </button>
 
               <div className="movie-hero-nav-actions">
+                <button
+                  type="button"
+                  className={`btn-hero-compare glassmorphic-btn ${isInCompare ? "is-active" : ""}`}
+                  onClick={() => toggleCompare(movie)}
+                  aria-pressed={isInCompare}
+                  aria-label={
+                    isInCompare
+                      ? `Remove ${movie.title} from Compare`
+                      : `Add ${movie.title} to Compare`
+                  }
+                >
+                  {isInCompare ? (
+                    <Check size={15} aria-hidden="true" />
+                  ) : (
+                    <GitCompareArrows size={15} aria-hidden="true" />
+                  )}
+                  <span>{isInCompare ? `In Compare (${compareItems.length}/3)` : "+ Compare"}</span>
+                </button>
+
                 <button
                   type="button"
                   className="btn-hero-discuss glassmorphic-btn"

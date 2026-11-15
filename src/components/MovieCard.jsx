@@ -1,7 +1,9 @@
 import { motion } from "framer-motion";
-import { Star, Plus, Check, Info, Trash2, CheckSquare, Square } from "lucide-react";
+import { Star, Plus, Check, Info, Trash2, CheckSquare, Square, GitCompareArrows } from "lucide-react";
 import PosterImage from "./PosterImage";
+import { useOptionalApp } from "../context/AppContext";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
+import { isSameMovie } from "../services/movieIdentity";
 import { useScrollReveal } from "../hooks/useScrollReveal";
 
 export default function MovieCard({
@@ -10,6 +12,9 @@ export default function MovieCard({
   onQuickAdd,
   onAddWatched,
   onDeleteMovie,
+  onToggleCompare,
+  isInCompare,
+  showCompareButton = true,
   isWatched = false,
   isManageMode = false,
   isSelected = false,
@@ -19,6 +24,7 @@ export default function MovieCard({
   revealIndex = 0,
   className = ""
 }) {
+  const appCtx = useOptionalApp();
   const [revealRef, isRevealed] = useScrollReveal({
     rootMargin: "120px 0px 40px 0px",
     threshold: 0,
@@ -26,6 +32,12 @@ export default function MovieCard({
   });
 
   if (!movie) return null;
+
+  const resolvedToggleCompare = onToggleCompare || appCtx?.toggleCompare || null;
+  const resolvedIsInCompare =
+    typeof isInCompare === "boolean"
+      ? isInCompare
+      : Boolean(appCtx?.compareItems?.some((item) => isSameMovie(item, movie)));
 
   const id = movie.imdbID || movie.id;
   const title = movie.Title || movie.title || "Movie";
@@ -146,6 +158,26 @@ export default function MovieCard({
                   aria-label={`Remove ${title}`}
                 >
                   <Trash2 size={14} aria-hidden="true" />
+                </button>
+              )}
+
+              {!isManageMode && showCompareButton && resolvedToggleCompare && (
+                <button
+                  type="button"
+                  className={`btn-card-action ${resolvedIsInCompare ? "added" : "ghost"}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    resolvedToggleCompare(movie);
+                  }}
+                  title={resolvedIsInCompare ? "Remove from Compare" : "Add to Compare"}
+                  aria-pressed={resolvedIsInCompare}
+                  aria-label={resolvedIsInCompare ? `Remove ${title} from Compare` : `Add ${title} to Compare`}
+                >
+                  {resolvedIsInCompare ? (
+                    <Check size={14} aria-hidden="true" />
+                  ) : (
+                    <GitCompareArrows size={14} aria-hidden="true" />
+                  )}
                 </button>
               )}
 

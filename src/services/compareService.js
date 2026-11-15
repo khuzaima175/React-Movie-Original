@@ -1,3 +1,4 @@
+import { fetchOmdbJson, hasOmdbBackend, hasTmdbBackend } from "./apiTransport.js";
 import { computeUserEmbedding } from "./embeddingService.js";
 import {
   extractTmdbNumericId,
@@ -6,6 +7,13 @@ import {
   normalizeYearKey
 } from "./movieIdentity.js";
 import { computeZScoredWeights } from "./scoringUtils.js";
+import {
+  fetchTmdbMovieDetails,
+  findTmdbByImdbId,
+  findTmdbByTitleAndYear,
+  getFallbackPoster,
+  TMDB_GENRE_MAP
+} from "./tmdbService.js";
 import { getCanonicalMovieKey } from "./vaultSyncService.js";
 
 export const COMPARE_MAX_ITEMS = 3;
@@ -561,5 +569,159 @@ export function buildCompareMatrix(
     rows,
     leaders,
     overlap
+  };
+}
+
+/**
+ * Resolves a human-readable genre name (e.g. "Sci-Fi") to its TMDB numeric genre ID.
+ */
+export function resolveExploreGenreId(genreName = "") {
+  const key = String(genreName || "").trim().toLowerCase();
+  return key && TMDB_GENRE_MAP[key] ? TMDB_GENRE_MAP[key] : null;
+}
+
+/**
+ * Concurrently hydrates a Compare slot (bare ID string or lightweight card stub)
+ * from TMDB + OMDb while preserving core identity fields cleanly.
+ */
+export async function hydrateCompareMovieSlot(rawIdOrStub, options = {}) {
+  if (!rawIdOrStub) return null;
+
+  const {
+    userRegion = "US",
+    signal,
+    fetchTmdbDetails = hasTmdbBackend() ? fetchTmdbMovieDetails : null,
+    findByImdb = hasTmdbBackend() ? findTmdbByImdbId : null,
+    findByTitleYear = hasTmdbBackend() ? findTmdbByTitleAndYear : null,
+    fetchOmdb = hasOmdbBackend() ? fetchOmdbJson : null
+  } = options;
+
+  const isObj = typeof rawIdOrStub === "object";
+  const stub = isObj ? rawIdOrStub : null;
+  const rawIdStr = String(
+    isObj ? (rawIdOrStub.imdbID || rawIdOrStub.id || (rawIdOrStub.tmdbId ? `tmdb_${rawIdOrStub.tmdbId}` : "")) : rawIdOrStub
+  ).trim();
+  const isImdb = /^tt\d+$/i.test(rawIdStr);
+  const imdbIdCandidate = isImdb
+    ? rawIdStr.toLowerCase()
+    : (stub?.imdbID && /^tt\d+$/i.test(stub.imdbID) ? String(stub.imdbID).toLowerCase() : null);
+  const tmdbNum = isObj
+    ? extractTmdbNumericId(stub.tmdbId ?? stub.id ?? stub.imdbID)
+    : extractTmdbNumericId(rawIdStr);
+
+  const safeCall = async (fn, ...args) => {
+    if (typeof fn !== "function") return null;
+    try {
+      return await fn(...args);
+    } catch (err) {
+      if (err?.name === "AbortError" || signal?.aborted) throw err;
+      return null;
+    }
+  };
+
+  let tmdbData = null;
+  let omdbData = null;
+
+  if (tmdbNum) {
+    const tmdbPromise = safeCall(fetchTmdbDetails, tmdbNum, userRegion);
+    const omdbEarlyPromise = imdbIdCandidate
+      ? safeCall(fetchOmdb, { i: imdbIdCandidate }, { signal })
+      : Promise.resolve(null);
+    const [tmdbRes, omdbEarly] = await Promise.all([tmdbPromise, omdbEarlyPromise]);
+    tmdbData = tmdbRes;
+    omdbData = omdbEarly && omdbEarly.Response === "True" ? omdbEarly : null;
+
+    if (!omdbData && tmdbData?.imdbID) {
+      const lateOmdb = await safeCall(fetchOmdb, { i: tmdbData.imdbID }, { signal });
+      if (lateOmdb?.Response === "True") omdbData = lateOmdb;
+    }
+  } else if (imdbIdCandidate) {
+    const omdbPromise = safeCall(fetchOmdb, { i: imdbIdCandidate }, { signal });
+    const tmdbPromise = (async () => {
+      const found = await safeCall(findByImdb, imdbIdCandidate, { signal });
+      if (found?.tmdbId) return safeCall(fetchTmdbDetails, found.tmdbId, userRegion);
+      return null;
+    })();
+    const [omdbRes, tmdbRes] = await Promise.all([omdbPromise, tmdbPromise]);
+    omdbData = omdbRes && omdbRes.Response === "True" ? omdbRes : null;
+    tmdbData = tmdbRes;
+
+    if (!tmdbData && omdbData?.Title && findByTitleYear) {
+      const fallbackFound = await safeCall(findByTitleYear, omdbData.Title, omdbData.Year, { strict: true });
+      if (fallbackFound?.tmdbId) {
+        tmdbData = await safeCall(fetchTmdbDetails, fallbackFound.tmdbId, userRegion);
+      }
+    }
+  }
+
+  if (!tmdbData && !omdbData) {
+    if (stub?.title) {
+      return { ...stub, _partial: true };
+    }
+    return { id: rawIdStr, _notFound: true };
+  }
+
+  const title = tmdbData?.title || omdbData?.Title || stub?.title || "Untitled Film";
+  const year =
+    tmdbData?.year && tmdbData.year !== "N/A"
+      ? tmdbData.year
+      : normalizeYearKey(omdbData?.Year || stub?.year || "") || "N/A";
+  const poster =
+    tmdbData?.poster ||
+    (omdbData?.Poster && omdbData.Poster !== "N/A" ? omdbData.Poster : null) ||
+    stub?.poster ||
+    getFallbackPoster(title);
+
+  const rawGenre = tmdbData?.genre || (omdbData?.Genre && omdbData.Genre !== "N/A" ? omdbData.Genre : null) || stub?.genre || "";
+  const imdbRating =
+    omdbData?.imdbRating && omdbData.imdbRating !== "N/A"
+      ? omdbData.imdbRating
+      : tmdbData?.vote_average
+        ? String(tmdbData.vote_average)
+        : stub?.imdbRating || null;
+  const imdbVotes = omdbData?.imdbVotes && omdbData.imdbVotes !== "N/A" ? omdbData.imdbVotes : null;
+  const tmdbRating = tmdbData?.vote_average ?? null;
+  const tmdbVotes = tmdbData?.vote_count || null;
+  const metascore = omdbData?.Metascore && omdbData.Metascore !== "N/A" ? omdbData.Metascore : null;
+  const rottenTomatoes =
+    omdbData?.Ratings?.find((r) => r.Source === "Rotten Tomatoes")?.Value || null;
+
+  const fallbackActors = !tmdbData?.castDetails?.length && omdbData?.Actors && omdbData.Actors !== "N/A"
+    ? omdbData.Actors.split(",").map((name) => ({ id: null, name: name.trim(), character: "Starring", profile: null }))
+    : [];
+
+  return {
+    ...(stub || {}),
+    id: omdbData?.imdbID || tmdbData?.imdbID || stub?.id || rawIdStr,
+    imdbID: omdbData?.imdbID || tmdbData?.imdbID || imdbIdCandidate || stub?.imdbID || (tmdbData?.tmdbId ? `tmdb_${tmdbData.tmdbId}` : null),
+    tmdbId: tmdbData?.tmdbId || tmdbNum || stub?.tmdbId || null,
+    title,
+    year,
+    poster,
+    backdrop: tmdbData?.backdrop || stub?.backdrop || null,
+    genre: rawGenre,
+    runtime: tmdbData?.runtime && tmdbData.runtime !== "N/A" ? tmdbData.runtime : (omdbData?.Runtime || stub?.runtime || "N/A"),
+    runtimeMinutes: tmdbData?.runtimeMinutes || parseRuntimeMins(omdbData?.Runtime || stub?.runtime) || null,
+    rated: tmdbData?.mpaaRating || (omdbData?.Rated && omdbData.Rated !== "N/A" ? omdbData.Rated : null),
+    imdbRating,
+    imdbVotes,
+    tmdbRating,
+    tmdbVotes,
+    metascore,
+    rottenTomatoes,
+    budget: tmdbData?.budget || null,
+    revenue: tmdbData?.revenue || (omdbData?.BoxOffice && omdbData.BoxOffice !== "N/A" ? omdbData.BoxOffice : null),
+    originCountry: tmdbData?.originCountry || (omdbData?.Country && omdbData.Country !== "N/A" ? omdbData.Country : null),
+    spokenLanguages: tmdbData?.spokenLanguages || (omdbData?.Language && omdbData.Language !== "N/A" ? omdbData.Language : null),
+    directorDetails: tmdbData?.directorDetails || [],
+    writerDetails: tmdbData?.writerDetails || [],
+    cinematographerDetails: tmdbData?.cinematographerDetails || [],
+    composerDetails: tmdbData?.composerDetails || [],
+    castDetails: tmdbData?.castDetails?.length ? tmdbData.castDetails : fallbackActors,
+    keywordItems: tmdbData?.keywordItems || [],
+    keywordNames: tmdbData?.keywordNames || [],
+    streamProviders: tmdbData?.streamProviders || [],
+    buyRentProviders: tmdbData?.buyRentProviders || [],
+    freeProviders: tmdbData?.freeProviders || []
   };
 }

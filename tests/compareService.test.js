@@ -11,7 +11,9 @@ import {
   parseCompareUrlIds,
   computeCompareOverlap,
   buildCompareMatrix,
-  parseStoredCompareItems
+  parseStoredCompareItems,
+  hydrateCompareMovieSlot,
+  resolveExploreGenreId
 } from "../src/services/compareService.js";
 
 test("toggleCompareItem deduplicates IMDb/TMDB identities and enforces 3-film limit", () => {
@@ -206,4 +208,76 @@ test("parseStoredCompareItems safely handles corrupt JSON, deduplicates identiti
     recovered.map((m) => m.tmdbId),
     [157336, 27205, 155]
   );
+});
+
+test("hydrateCompareMovieSlot hydrates lightweight stubs and bare URL IDs concurrently and resolveExploreGenreId maps genres", async () => {
+  assert.equal(resolveExploreGenreId("Sci-Fi"), 878);
+  assert.equal(resolveExploreGenreId("Drama"), 18);
+  assert.equal(resolveExploreGenreId("MadeUpGenre"), null);
+
+  // Stub from MovieCard (has imdbID but lacks tmdbId/runtime/budget/rt)
+  const stubRes = await hydrateCompareMovieSlot(
+    { id: "tt0816692", imdbID: "tt0816692", title: "Interstellar" },
+    {
+      userRegion: "US",
+      findByImdb: async (imdbId) => (imdbId === "tt0816692" ? { tmdbId: 157336 } : null),
+      fetchTmdbDetails: async (tmdbId) => ({
+        tmdbId,
+        imdbID: "tt0816692",
+        title: "Interstellar",
+        year: "2014",
+        runtime: "169 min",
+        budget: "$165,000,000",
+        revenue: "$701,729,206",
+        vote_average: 8.4,
+        castDetails: [{ id: 10297, name: "Matthew McConaughey", character: "Cooper" }],
+        directorDetails: [{ id: 525, name: "Christopher Nolan" }],
+        keywordItems: [{ id: 4379, name: "time travel" }],
+        streamProviders: [{ id: 8, name: "Netflix", logo: "/netflix.png" }]
+      }),
+      fetchOmdb: async () => ({
+        Response: "True",
+        imdbID: "tt0816692",
+        imdbRating: "8.7",
+        Metascore: "74",
+        Ratings: [{ Source: "Rotten Tomatoes", Value: "73%" }]
+      })
+    }
+  );
+  assert.equal(stubRes.tmdbId, 157336);
+  assert.equal(stubRes.rottenTomatoes, "73%");
+  assert.equal(stubRes.metascore, "74");
+  assert.equal(stubRes.budget, "$165,000,000");
+
+  // Bare URL ID "tmdb_27205" with fresh sessionStorage
+  const tmdbRes = await hydrateCompareMovieSlot("tmdb_27205", {
+    userRegion: "US",
+    fetchTmdbDetails: async (tmdbId) => ({
+      tmdbId: Number(tmdbId),
+      imdbID: "tt1375666",
+      title: "Inception",
+      year: "2010",
+      runtime: "148 min",
+      budget: "$160,000,000",
+      revenue: "$836,800,000"
+    }),
+    fetchOmdb: async ({ i }) => ({
+      Response: "True",
+      imdbID: i,
+      imdbRating: "8.8",
+      Metascore: "74",
+      Ratings: [{ Source: "Rotten Tomatoes", Value: "87%" }]
+    })
+  });
+  assert.equal(tmdbRes.imdbID, "tt1375666");
+  assert.equal(tmdbRes.title, "Inception");
+  assert.equal(tmdbRes.rottenTomatoes, "87%");
+
+  // Unresolvable bare URL ID returns _notFound flag cleanly
+  const missing = await hydrateCompareMovieSlot("tt9999999", {
+    findByImdb: async () => null,
+    fetchTmdbDetails: async () => null,
+    fetchOmdb: async () => ({ Response: "False" })
+  });
+  assert.equal(missing._notFound, true);
 });
