@@ -34,6 +34,8 @@ test("buildExploreRoute and parseExploreSearchParams round-trip complex multi-fa
     page: 3
   });
 
+  assert.equal(/%2520/.test(route), false, "route query must not double-encode spaces as %2520");
+
   const parsed = parseExploreSearchParams(route.split("?")[1], "US");
   assert.deepEqual(parsed.genres, [878, 53]);
   assert.equal(parsed.genreMode, "or");

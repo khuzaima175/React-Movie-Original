@@ -191,9 +191,14 @@ function parseKeywordList(rawValue) {
   return out;
 }
 
+function escapeTokenValue(raw, escapeComma = false) {
+  const withPct = String(raw || "").replace(/%/g, "%25");
+  return escapeComma ? withPct.replace(/,/g, "%2C") : withPct;
+}
+
 function encodeKeywordList(keywords = []) {
   return parseKeywordList(keywords)
-    .map((k) => `${k.id}:${encodeURIComponent(k.name)}`)
+    .map((k) => `${k.id}:${escapeTokenValue(k.name, true)}`)
     .join(",");
 }
 
@@ -317,7 +322,7 @@ export function buildExploreSearchParams(filters = {}) {
   if (keywordsEncoded) sp.set("keywords", keywordsEncoded);
 
   const person = parsePersonParam(filters.person);
-  if (person) sp.set("person", `${person.id}:${encodeURIComponent(person.name)}`);
+  if (person) sp.set("person", `${person.id}:${escapeTokenValue(person.name)}`);
 
   const providers = parseIntIdList(filters.providers);
   if (providers.length > 0) sp.set("providers", providers.join(","));
