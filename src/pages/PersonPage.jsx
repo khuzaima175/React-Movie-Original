@@ -134,11 +134,13 @@ export default function PersonPage({ onQuickRate }) {
   }, [credits, watched, watchlist]);
 
   function handleDepartmentChange(nextDept) {
+    const next = new URLSearchParams(searchParams);
     if (!nextDept || nextDept === "all") {
-      setSearchParams({}, { replace: true });
+      next.delete("dept");
     } else {
-      setSearchParams({ dept: nextDept }, { replace: true });
+      next.set("dept", nextDept);
     }
+    setSearchParams(next, { replace: true });
   }
 
   function handleGoBack() {

@@ -392,7 +392,15 @@ export function computePersonVaultStats(annotatedCredits = []) {
       if (Number.isFinite(rating) && rating > 0) {
         ratingSum += rating;
         ratedCount += 1;
-        if (!highestRatedFilm || rating > Number(highestRatedFilm.userRating)) {
+        const bestRating = highestRatedFilm ? Number(highestRatedFilm.userRating) : -1;
+        const isHigherRating = rating > bestRating;
+        const isBetterTie =
+          rating === bestRating &&
+          highestRatedFilm &&
+          ((Number(credit.popularity) || 0) > (Number(highestRatedFilm.popularity) || 0) ||
+            ((Number(credit.popularity) || 0) === (Number(highestRatedFilm.popularity) || 0) &&
+              (Number(credit.voteCount) || 0) > (Number(highestRatedFilm.voteCount) || 0)));
+        if (!highestRatedFilm || isHigherRating || isBetterTie) {
           highestRatedFilm = credit;
         }
       }

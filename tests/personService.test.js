@@ -202,6 +202,12 @@ test("annotateCreditsWithVaultState & computePersonVaultStats match mixed IDs an
     averageVaultRating: 8.5,
     highestRatedFilm: annotated[0]
   });
+
+  const tiedStats = computePersonVaultStats([
+    { tmdbId: 10, title: "Lesser Tie", vaultStatus: "watched", userRating: 9, popularity: 12, voteCount: 400 },
+    { tmdbId: 20, title: "Canonical Tie", vaultStatus: "watched", userRating: 9, popularity: 68, voteCount: 15000 }
+  ]);
+  assert.equal(tiedStats.highestRatedFilm.tmdbId, 20, "tied ratings break deterministically by popularity/votes");
 });
 
 test("filterAndSortPersonCredits & resolvePersonDefaultDepartment filter by department, vault status, query, and sort order", () => {

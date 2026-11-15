@@ -293,7 +293,7 @@ export default function MovieDetails({
   // ESC key listener to close
   useEffect(() => {
     function callback(e) {
-      if (e.code !== "Escape") return;
+      if (e.key !== "Escape" && e.code !== "Escape") return;
       const hasOpenDialog = Boolean(document.querySelector('[role="dialog"]'));
       if (shouldCloseMovieDetailOnEscape({ activePerson, hasOpenDialog })) {
         onCloseMovie();
