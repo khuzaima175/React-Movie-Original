@@ -139,12 +139,28 @@ export function findEmbeddingNeighborsForMovie(tmdbId, index, { excludeIds = new
   }
 
   scored.sort((a, b) => b.sim - a.sim);
-  return scored.slice(0, Math.max(0, Number(limit) || 16));
+  const parsedLimit = Number(limit);
+  const maxItems = Number.isFinite(parsedLimit) ? Math.max(0, Math.floor(parsedLimit)) : 16;
+  return scored.slice(0, maxItems);
 }
 
 function getCardTmdbId(card) {
   const id = Number(card?.tmdbId ?? card?.id);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function pickPreferredImdbId(tmdbId, ...candidates) {
+  const canonical = candidates.find((id) => id && !String(id).startsWith("tmdb_"));
+  if (canonical) return canonical;
+  const fallback = candidates.find(Boolean);
+  return fallback || `tmdb_${tmdbId}`;
+}
+
+/**
+ * Guard against stale-movie Rabbit Hole requests while React commits a route transition.
+ */
+export function shouldLoadRabbitHoleForMovie(movie, selectedId) {
+  return Boolean(movie?.tmdbId && movie?.loadedForSelectedId === selectedId);
 }
 
 /**
@@ -163,7 +179,8 @@ export function buildHybridSimilarFilms({
 } = {}) {
   const watchedList = Array.isArray(watched) ? watched : [];
   const watchlistList = Array.isArray(watchlist) ? watchlist : [];
-  const maxItems = Math.max(0, Number(limit) || 14);
+  const parsedLimit = Number(limit);
+  const maxItems = Number.isFinite(parsedLimit) ? Math.max(0, Math.floor(parsedLimit)) : 14;
   if (maxItems === 0) return [];
 
   const simById = new Map();
@@ -201,7 +218,12 @@ export function buildHybridSimilarFilms({
       const vecCard = vectorById.get(id);
       hybridEntries.push({
         id,
-        card: { ...(vecCard || {}), ...card, tmdbId: id, imdbID: card.imdbID || vecCard?.imdbID || `tmdb_${id}` },
+        card: {
+          ...(vecCard || {}),
+          ...card,
+          tmdbId: id,
+          imdbID: pickPreferredImdbId(id, card.imdbID, vecCard?.imdbID)
+        },
         matchOrigin: "hybrid",
         similarityScore: simById.get(id) ?? null
       });

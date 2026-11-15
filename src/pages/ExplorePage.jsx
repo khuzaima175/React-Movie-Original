@@ -34,7 +34,9 @@ import {
   buildExploreSearchParams,
   buildTmdbDiscoverParams,
   filterExploreResults,
-  getActiveFilterChips
+  getActiveFilterChips,
+  deriveExploreViewState,
+  mergeYearDraftIntoFilters
 } from "../services/exploreService";
 
 const VOTE_FLOOR_OPTIONS = [
@@ -44,8 +46,8 @@ const VOTE_FLOOR_OPTIONS = [
   { value: 0, label: "All Films (0+ votes)" }
 ];
 
-function serializeFilterSignature(filters) {
-  const sp = buildExploreSearchParams({ ...filters, page: 1 });
+function serializeFilterSignature(filters, defaultRegion) {
+  const sp = buildExploreSearchParams({ ...filters, page: 1 }, { defaultRegion });
   sp.delete("page");
   return sp.toString();
 }
@@ -67,7 +69,10 @@ export default function ExplorePage({ onQuickRate }) {
     [searchParams, defaultRegion]
   );
 
-  const filterSignature = useMemo(() => serializeFilterSignature(filters), [filters]);
+  const filterSignature = useMemo(
+    () => serializeFilterSignature(filters, defaultRegion),
+    [filters, defaultRegion]
+  );
 
   const [rawPagesState, setRawPagesState] = useState({
     signature: "",
@@ -79,6 +84,7 @@ export default function ExplorePage({ onQuickRate }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [retryNonce, setRetryNonce] = useState(0);
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [showExcludeGenres, setShowExcludeGenres] = useState(() => filters.withoutGenres.length > 0);
 
@@ -90,14 +96,21 @@ export default function ExplorePage({ onQuickRate }) {
   const [personQuery, setPersonQuery] = useState("");
   const [personSuggestions, setPersonSuggestions] = useState([]);
   const [isSearchingPerson, setIsSearchingPerson] = useState(false);
+  const [isPersonMenuOpen, setIsPersonMenuOpen] = useState(false);
 
   const [keywordQuery, setKeywordQuery] = useState("");
   const [keywordSuggestions, setKeywordSuggestions] = useState([]);
   const [isSearchingKeywords, setIsSearchingKeywords] = useState(false);
+  const [isKeywordMenuOpen, setIsKeywordMenuOpen] = useState(false);
 
   const requestSeqRef = useRef(0);
   const rawStateRef = useRef(rawPagesState);
   rawStateRef.current = rawPagesState;
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const yearDebounceTimerRef = useRef(null);
+  const personMenuRef = useRef(null);
+  const keywordMenuRef = useRef(null);
 
   useEffect(() => {
     setYearFromDraft(filters.yearFrom);
@@ -114,35 +127,58 @@ export default function ExplorePage({ onQuickRate }) {
     document.title = "Explore Catalog | CinemaVault";
   }, []);
 
-  // Close mobile filter sheet with Escape
+  // Dismiss autocomplete popovers cleanly on outside click
+  useEffect(() => {
+    function handleOutsidePointerDown(e) {
+      if (personMenuRef.current && !personMenuRef.current.contains(e.target)) {
+        setIsPersonMenuOpen(false);
+      }
+      if (keywordMenuRef.current && !keywordMenuRef.current.contains(e.target)) {
+        setIsKeywordMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, []);
+
+  // Close mobile filter sheet with Escape unless a higher-priority modal sits above it
   useEffect(() => {
     if (!isMobileFiltersOpen) return undefined;
     function onKeyDown(e) {
-      if (e.key === "Escape") setIsMobileFiltersOpen(false);
+      if (e.key === "Escape" && !document.querySelector('[aria-modal="true"]:not(.explore-mobile-backdrop)')) {
+        setIsMobileFiltersOpen(false);
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMobileFiltersOpen]);
 
   function updateFilters(patch, { resetPage = true, replace = false } = {}) {
+    const { __fromYearTimer, ...cleanPatch } = patch || {};
+    if (!__fromYearTimer && yearDebounceTimerRef.current) {
+      clearTimeout(yearDebounceTimerRef.current);
+      yearDebounceTimerRef.current = null;
+    }
+    const baseFilters = filtersRef.current;
     const next = {
-      ...filters,
-      ...patch,
-      page: resetPage ? 1 : (patch.page ?? filters.page)
+      ...baseFilters,
+      ...cleanPatch,
+      page: resetPage ? 1 : (cleanPatch.page ?? baseFilters.page)
     };
-    const nextParams = buildExploreSearchParams(next);
+    const nextParams = buildExploreSearchParams(next, { defaultRegion });
     setSearchParams(nextParams, { replace });
   }
 
   function toggleArrayFilter(key, id) {
-    const current = Array.isArray(filters[key]) ? filters[key] : [];
+    const currentFilters = filtersRef.current;
+    const current = Array.isArray(currentFilters[key]) ? currentFilters[key] : [];
     const exists = current.includes(id);
     const updated = exists ? current.filter((x) => x !== id) : [...current, id];
     const oppositeKey = key === "genres" ? "withoutGenres" : key === "withoutGenres" ? "genres" : null;
-    if (oppositeKey && !exists && Array.isArray(filters[oppositeKey])) {
+    if (oppositeKey && !exists && Array.isArray(currentFilters[oppositeKey])) {
       updateFilters({
         [key]: updated,
-        [oppositeKey]: filters[oppositeKey].filter((x) => x !== id)
+        [oppositeKey]: currentFilters[oppositeKey].filter((x) => x !== id)
       });
       return;
     }
@@ -150,34 +186,57 @@ export default function ExplorePage({ onQuickRate }) {
   }
 
   function handleResetFilters() {
+    if (yearDebounceTimerRef.current) {
+      clearTimeout(yearDebounceTimerRef.current);
+      yearDebounceTimerRef.current = null;
+    }
+    setYearFromDraft("");
+    setYearToDraft("");
     setPersonQuery("");
     setPersonSuggestions([]);
+    setIsPersonMenuOpen(false);
     setKeywordQuery("");
     setKeywordSuggestions([]);
-    setSearchParams(buildExploreSearchParams({ ...DEFAULT_EXPLORE_FILTERS, region: defaultRegion }));
+    setIsKeywordMenuOpen(false);
+    setSearchParams(
+      buildExploreSearchParams({ ...DEFAULT_EXPLORE_FILTERS, region: defaultRegion }, { defaultRegion })
+    );
   }
 
   function applyYearDrafts(nextFrom, nextTo) {
-    const cleanFrom = /^\d{4}$/.test(String(nextFrom || "").trim()) ? String(nextFrom).trim() : "";
-    const cleanTo = /^\d{4}$/.test(String(nextTo || "").trim()) ? String(nextTo).trim() : "";
-    if (cleanFrom !== filters.yearFrom || cleanTo !== filters.yearTo) {
-      updateFilters({ yearFrom: cleanFrom, yearTo: cleanTo }, { replace: true });
+    if (yearDebounceTimerRef.current) {
+      clearTimeout(yearDebounceTimerRef.current);
+      yearDebounceTimerRef.current = null;
+    }
+    const merged = mergeYearDraftIntoFilters(filtersRef.current, nextFrom, nextTo);
+    if (merged.yearFrom !== filtersRef.current.yearFrom || merged.yearTo !== filtersRef.current.yearTo) {
+      updateFilters({ yearFrom: merged.yearFrom, yearTo: merged.yearTo, __fromYearTimer: true }, { replace: true });
     }
   }
 
-  // Sync debounced 4-digit year edits automatically
+  // Sync debounced 4-digit year edits automatically against latest filter state
   useEffect(() => {
     const trimmedFrom = String(yearFromDraft || "").trim();
     const trimmedTo = String(yearToDraft || "").trim();
     const validFrom = trimmedFrom === "" || /^\d{4}$/.test(trimmedFrom);
     const validTo = trimmedTo === "" || /^\d{4}$/.test(trimmedTo);
     if (!validFrom || !validTo) return undefined;
-    if (trimmedFrom === filters.yearFrom && trimmedTo === filters.yearTo) return undefined;
+    if (trimmedFrom === filtersRef.current.yearFrom && trimmedTo === filtersRef.current.yearTo) return undefined;
 
-    const timer = setTimeout(() => {
-      updateFilters({ yearFrom: trimmedFrom, yearTo: trimmedTo }, { replace: true });
+    yearDebounceTimerRef.current = setTimeout(() => {
+      yearDebounceTimerRef.current = null;
+      const merged = mergeYearDraftIntoFilters(filtersRef.current, trimmedFrom, trimmedTo);
+      if (merged.yearFrom !== filtersRef.current.yearFrom || merged.yearTo !== filtersRef.current.yearTo) {
+        updateFilters({ yearFrom: merged.yearFrom, yearTo: merged.yearTo, __fromYearTimer: true }, { replace: true });
+      }
     }, 350);
-    return () => clearTimeout(timer);
+
+    return () => {
+      if (yearDebounceTimerRef.current) {
+        clearTimeout(yearDebounceTimerRef.current);
+        yearDebounceTimerRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yearFromDraft, yearToDraft]);
 
@@ -262,7 +321,7 @@ export default function ExplorePage({ onQuickRate }) {
       });
 
     return () => controller.abort();
-  }, [filters, filterSignature]);
+  }, [filters, filterSignature, retryNonce]);
 
   // Debounced Person search autocomplete
   useEffect(() => {
@@ -344,9 +403,21 @@ export default function ExplorePage({ onQuickRate }) {
     [rawPagesState.items, watched, watchlist, filters.hideWatched]
   );
 
-  const hiddenWatchedCount = Math.max(0, rawPagesState.items.length - filteredResults.length);
+  const viewState = useMemo(
+    () =>
+      deriveExploreViewState({
+        rawPagesState,
+        filterSignature,
+        filteredResults,
+        isLoading,
+        isLoadingMore,
+        errorMsg
+      }),
+    [rawPagesState, filterSignature, filteredResults, isLoading, isLoadingMore, errorMsg]
+  );
+
   const activeChips = useMemo(() => getActiveFilterChips(filters), [filters]);
-  const hasMorePages = filters.page < rawPagesState.totalPages;
+  const hasMorePages = filters.page < viewState.displayTotalPages;
 
   // Auto-advance once if hideWatched hides everything on page 1 cleanly
   useEffect(() => {
@@ -355,18 +426,18 @@ export default function ExplorePage({ onQuickRate }) {
       !isLoadingMore &&
       !errorMsg &&
       filters.hideWatched &&
-      rawPagesState.signature === filterSignature &&
+      viewState.hasFreshData &&
       rawPagesState.items.length > 0 &&
-      filteredResults.length === 0 &&
+      viewState.visibleItems.length === 0 &&
       hasMorePages &&
       filters.page < 3
     ) {
       updateFilters({ page: filters.page + 1 }, { resetPage: false, replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page, rawPagesState.signature, rawPagesState.items.length, filteredResults.length, hasMorePages, filterSignature]);
+  }, [isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page, viewState.hasFreshData, rawPagesState.items.length, viewState.visibleItems.length, hasMorePages, filterSignature]);
 
-  function renderFilterControls() {
+  function renderFilterControls(idPrefix = "desktop") {
     return (
       <div className="explore-filter-stack">
         {/* Quick Era / Decade Presets */}
@@ -566,9 +637,9 @@ export default function ExplorePage({ onQuickRate }) {
             aria-label="Minimum IMDb rating"
           />
           <div className="explore-select-field">
-            <label htmlFor="explore-min-votes">Minimum Vote Count</label>
+            <label htmlFor={`${idPrefix}-explore-min-votes`}>Minimum Vote Count</label>
             <select
-              id="explore-min-votes"
+              id={`${idPrefix}-explore-min-votes`}
               value={filters.minVotes}
               onChange={(e) => updateFilters({ minVotes: Number(e.target.value) })}
             >
@@ -612,18 +683,29 @@ export default function ExplorePage({ onQuickRate }) {
               </button>
             </div>
           ) : (
-            <div className="explore-autocomplete">
+            <div className="explore-autocomplete" ref={personMenuRef}>
               <div className="explore-search-input-wrap">
                 <Search size={14} aria-hidden="true" />
                 <input
                   type="search"
                   placeholder="e.g. Denis Villeneuve, Cillian Murphy"
                   value={personQuery}
-                  onChange={(e) => setPersonQuery(e.target.value)}
+                  onFocus={() => setIsPersonMenuOpen(true)}
+                  onChange={(e) => {
+                    setPersonQuery(e.target.value);
+                    setIsPersonMenuOpen(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape" && isPersonMenuOpen) {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setIsPersonMenuOpen(false);
+                    }
+                  }}
                   aria-label="Filter by director or actor"
                 />
               </div>
-              {(personSuggestions.length > 0 || isSearchingPerson) && (
+              {isPersonMenuOpen && (personSuggestions.length > 0 || isSearchingPerson) && (
                 <ul className="explore-autocomplete-list" role="listbox">
                   {isSearchingPerson && <li className="explore-autocomplete-status">Searching cast &amp; crew…</li>}
                   {personSuggestions.map((p) => (
@@ -634,6 +716,7 @@ export default function ExplorePage({ onQuickRate }) {
                           updateFilters({ person: { id: p.id, name: p.name } });
                           setPersonQuery("");
                           setPersonSuggestions([]);
+                          setIsPersonMenuOpen(false);
                         }}
                       >
                         <span className="suggestion-name">{p.name}</span>
@@ -681,18 +764,29 @@ export default function ExplorePage({ onQuickRate }) {
               ))}
             </div>
           )}
-          <div className="explore-autocomplete">
+          <div className="explore-autocomplete" ref={keywordMenuRef}>
             <div className="explore-search-input-wrap">
               <Sparkles size={14} aria-hidden="true" />
               <input
                 type="search"
                 placeholder="Search theme: time loop, neo noir..."
                 value={keywordQuery}
-                onChange={(e) => setKeywordQuery(e.target.value)}
+                onFocus={() => setIsKeywordMenuOpen(true)}
+                onChange={(e) => {
+                  setKeywordQuery(e.target.value);
+                  setIsKeywordMenuOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && isKeywordMenuOpen) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setIsKeywordMenuOpen(false);
+                  }
+                }}
                 aria-label="Filter by cinematic motif or keyword"
               />
             </div>
-            {(keywordSuggestions.length > 0 || isSearchingKeywords) && (
+            {isKeywordMenuOpen && (keywordSuggestions.length > 0 || isSearchingKeywords) && (
               <ul className="explore-autocomplete-list" role="listbox">
                 {isSearchingKeywords && <li className="explore-autocomplete-status">Searching motifs…</li>}
                 {keywordSuggestions.map((kw) => (
@@ -705,6 +799,7 @@ export default function ExplorePage({ onQuickRate }) {
                         }
                         setKeywordQuery("");
                         setKeywordSuggestions([]);
+                        setIsKeywordMenuOpen(false);
                       }}
                     >
                       <span className="suggestion-name">#{kw.name}</span>
@@ -721,9 +816,9 @@ export default function ExplorePage({ onQuickRate }) {
           <h3 className="explore-facet-title">Language &amp; Region</h3>
           <div className="explore-select-pair">
             <div className="explore-select-field">
-              <label htmlFor="explore-language">Language</label>
+              <label htmlFor={`${idPrefix}-explore-language`}>Language</label>
               <select
-                id="explore-language"
+                id={`${idPrefix}-explore-language`}
                 value={filters.language}
                 onChange={(e) => updateFilters({ language: e.target.value })}
               >
@@ -735,9 +830,9 @@ export default function ExplorePage({ onQuickRate }) {
               </select>
             </div>
             <div className="explore-select-field">
-              <label htmlFor="explore-country">Country</label>
+              <label htmlFor={`${idPrefix}-explore-country`}>Country</label>
               <select
-                id="explore-country"
+                id={`${idPrefix}-explore-country`}
                 value={filters.country}
                 onChange={(e) => updateFilters({ country: e.target.value })}
               >
@@ -821,7 +916,7 @@ export default function ExplorePage({ onQuickRate }) {
               </button>
             )}
           </div>
-          {renderFilterControls()}
+          {renderFilterControls("desktop")}
         </aside>
 
         {/* Main Results Workbench */}
@@ -831,12 +926,12 @@ export default function ExplorePage({ onQuickRate }) {
               <div className="explore-kicker">Precision Catalog Workbench</div>
               <h1 className="explore-title">Explore Films</h1>
               <p className="explore-subtitle tabular-num">
-                {isLoading && rawPagesState.items.length === 0
+                {!viewState.hasFreshData && isLoading
                   ? "Querying TMDB catalog…"
-                  : `${rawPagesState.totalResults.toLocaleString()} matching ${
-                      rawPagesState.totalResults === 1 ? "film" : "films"
+                  : `${viewState.displayTotalResults.toLocaleString()} matching ${
+                      viewState.displayTotalResults === 1 ? "film" : "films"
                     }`}
-                {hiddenWatchedCount > 0 && ` · ${hiddenWatchedCount} watched hidden`}
+                {viewState.hiddenWatchedCount > 0 && ` · ${viewState.hiddenWatchedCount} watched hidden`}
               </p>
             </div>
 
@@ -898,14 +993,14 @@ export default function ExplorePage({ onQuickRate }) {
           {errorMsg && (
             <div className="explore-state-card error" role="alert">
               <p>{errorMsg}</p>
-              <Button variant="secondary" onClick={() => updateFilters({}, { resetPage: false })}>
+              <Button variant="secondary" onClick={() => setRetryNonce((n) => n + 1)}>
                 Retry
               </Button>
             </div>
           )}
 
           {/* Loading Skeleton */}
-          {isLoading && filteredResults.length === 0 ? (
+          {viewState.showSkeleton ? (
             <div className="explore-grid" aria-busy="true">
               {Array.from({ length: 12 }).map((_, idx) => (
                 <div key={idx} className="explore-skeleton-card">
@@ -915,17 +1010,17 @@ export default function ExplorePage({ onQuickRate }) {
                 </div>
               ))}
             </div>
-          ) : !errorMsg && filteredResults.length === 0 ? (
+          ) : viewState.showEmptyState ? (
             <div className="explore-state-card">
               <Film size={32} className="explore-empty-icon" aria-hidden="true" />
               <h3>No matching films found</h3>
               <p>
-                {hiddenWatchedCount > 0 && hasMorePages
-                  ? `All ${hiddenWatchedCount} matches from this page are already in your Vault.`
+                {viewState.hiddenWatchedCount > 0 && hasMorePages
+                  ? `All ${viewState.hiddenWatchedCount} matches from this page are already in your Vault.`
                   : "Try widening your score threshold, removing a motif, or relaxing genre filters."}
               </p>
               <div className="explore-empty-actions">
-                {hiddenWatchedCount > 0 && hasMorePages && (
+                {viewState.hiddenWatchedCount > 0 && hasMorePages && (
                   <Button
                     variant="primary"
                     onClick={() => updateFilters({ page: filters.page + 1 }, { resetPage: false })}
@@ -938,10 +1033,10 @@ export default function ExplorePage({ onQuickRate }) {
                 </Button>
               </div>
             </div>
-          ) : (
+          ) : viewState.showGrid ? (
             <>
               <div className="explore-grid">
-                {filteredResults.map((movie) => {
+                {viewState.visibleItems.map((movie) => {
                   const id = movie.imdbID || movie.id || `tmdb_${movie.tmdbId}`;
                   return (
                     <div key={id} className="explore-card-wrap">
@@ -974,7 +1069,7 @@ export default function ExplorePage({ onQuickRate }) {
                 </div>
               )}
             </>
-          )}
+          ) : null}
         </section>
       </div>
 
@@ -1013,13 +1108,13 @@ export default function ExplorePage({ onQuickRate }) {
                 </button>
               </div>
             </div>
-            <div className="explore-mobile-sheet-body">{renderFilterControls()}</div>
+            <div className="explore-mobile-sheet-body">{renderFilterControls("mobile")}</div>
             <div className="explore-mobile-sheet-foot">
               <Button
                 variant="primary"
                 onClick={() => setIsMobileFiltersOpen(false)}
               >
-                Show {rawPagesState.totalResults.toLocaleString()} Films
+                Show {viewState.displayTotalResults.toLocaleString()} Films
               </Button>
             </div>
           </div>

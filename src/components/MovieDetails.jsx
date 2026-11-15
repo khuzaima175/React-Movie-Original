@@ -24,7 +24,8 @@ import { buildExploreRoute } from "../services/exploreService";
 import {
   normalizeCollectionTimeline,
   findEmbeddingNeighborsForMovie,
-  buildHybridSimilarFilms
+  buildHybridSimilarFilms,
+  shouldLoadRabbitHoleForMovie
 } from "../services/rabbitHoleService";
 import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
 import { findMatchingMovie } from "../services/movieIdentity";
@@ -129,7 +130,7 @@ export default function MovieDetails({
     setHydratedEmbeddingCards([]);
     setTmdbRecs([]);
 
-    if (!movie?.tmdbId) {
+    if (!shouldLoadRabbitHoleForMovie(movie, selectedId)) {
       setCollectionLoading(false);
       setSimilarLoading(false);
       return undefined;
@@ -297,7 +298,10 @@ export default function MovieDetails({
     if (!selectedId) return;
 
     if (enrichedDetailsSessionCache.has(selectedId)) {
-      setMovie(enrichedDetailsSessionCache.get(selectedId));
+      setMovie({
+        ...enrichedDetailsSessionCache.get(selectedId),
+        loadedForSelectedId: selectedId
+      });
       setIsLoading(false);
       return;
     }
@@ -394,6 +398,7 @@ export default function MovieDetails({
         const resolvedType = omdbData?.Type || watchedItem?.Type || (tmdbData ? "movie" : undefined);
 
         const combinedData = {
+          loadedForSelectedId: selectedId,
           imdbID: omdbData?.imdbID || tmdbData?.imdbID || selectedId,
           tmdbId: tmdbData?.tmdbId || null,
           ...(resolvedType ? { Type: resolvedType } : {}),

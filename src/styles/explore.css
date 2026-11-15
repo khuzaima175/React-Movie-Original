@@ -541,6 +541,12 @@
   font-size: 1.1rem;
   font-weight: 600;
   pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+
+.explore-card-wrap:hover .explore-watchlist-badge,
+.explore-card-wrap:focus-within .explore-watchlist-badge {
+  opacity: 0;
 }
 
 .explore-pagination {

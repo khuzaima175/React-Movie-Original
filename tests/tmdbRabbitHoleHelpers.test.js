@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   formatTmdbMovieDetails,
+  normalizeTmdbItem,
   fetchCollectionTimeline,
   fetchTmdbMovieRecommendations,
   searchTmdbKeywords
@@ -177,4 +178,37 @@ test("searchTmdbKeywords skips blank queries and returns trimmed { id, name } re
     { id: 4379, name: "time travel" },
     { id: 99, name: "time loop" }
   ]);
+});
+
+test("normalizeTmdbItem populates imdbRating from vote_average and Rabbit Hole helpers silence AbortError warnings", async () => {
+  const card = normalizeTmdbItem({
+    id: 155,
+    title: "The Dark Knight",
+    release_date: "2008-07-16",
+    vote_average: 8.52
+  });
+  assert.equal(card.imdbRating, 8.5);
+  assert.equal(card.vote_average, 8.5);
+
+  const warned = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => warned.push(args.join(" "));
+  try {
+    const abortErr = new Error("Aborted");
+    abortErr.name = "AbortError";
+    const failingFetch = async () => {
+      throw abortErr;
+    };
+    const [col, recs, kws] = await Promise.all([
+      fetchCollectionTimeline(263, { apiKey: "test-tmdb-key", fetchFn: failingFetch }),
+      fetchTmdbMovieRecommendations(155, { apiKey: "test-tmdb-key", fetchFn: failingFetch }),
+      searchTmdbKeywords("time", { apiKey: "test-tmdb-key", fetchFn: failingFetch })
+    ]);
+    assert.equal(col, null);
+    assert.deepEqual(recs, []);
+    assert.deepEqual(kws, []);
+    assert.equal(warned.length, 0, "AbortError must not pollute console.warn");
+  } finally {
+    console.warn = origWarn;
+  }
 });

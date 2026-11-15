@@ -275,8 +275,9 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
 /**
  * Serialize Explore filters into URLSearchParams for shareable deep links.
  */
-export function buildExploreSearchParams(filters = {}) {
+export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT_EXPLORE_FILTERS.region } = {}) {
   const sp = new URLSearchParams();
+  const effectiveDefaultRegion = normalizeRegion(defaultRegion, DEFAULT_EXPLORE_FILTERS.region);
 
   const genres = parseIntIdList(filters.genres);
   if (genres.length > 0) sp.set("genres", genres.join(","));
@@ -328,7 +329,7 @@ export function buildExploreSearchParams(filters = {}) {
   if (providers.length > 0) sp.set("providers", providers.join(","));
 
   const region = String(filters.region || "").trim().toUpperCase();
-  if (region && region !== DEFAULT_EXPLORE_FILTERS.region) sp.set("region", region);
+  if (region && region !== effectiveDefaultRegion) sp.set("region", region);
 
   if (filters.sortBy && VALID_SORT_SET.has(filters.sortBy) && filters.sortBy !== DEFAULT_EXPLORE_FILTERS.sortBy) {
     sp.set("sortBy", filters.sortBy);
@@ -345,13 +346,59 @@ export function buildExploreSearchParams(filters = {}) {
 /**
  * Build a full "/explore?..." route from partial Explore filter overrides.
  */
-export function buildExploreRoute(partialFilters = {}) {
+export function buildExploreRoute(partialFilters = {}, options = {}) {
   const merged = {
     ...DEFAULT_EXPLORE_FILTERS,
     ...(partialFilters && typeof partialFilters === "object" ? partialFilters : {})
   };
-  const qs = buildExploreSearchParams(merged).toString();
+  const qs = buildExploreSearchParams(merged, options).toString();
   return qs ? `/explore?${qs}` : "/explore";
+}
+
+/**
+ * Validate and merge debounced year drafts onto the latest filter snapshot cleanly.
+ */
+export function mergeYearDraftIntoFilters(filters = {}, yearFromDraft = "", yearToDraft = "") {
+  const trimmedFrom = String(yearFromDraft ?? "").trim();
+  const trimmedTo = String(yearToDraft ?? "").trim();
+  return {
+    ...filters,
+    yearFrom: /^\d{4}$/.test(trimmedFrom) ? trimmedFrom : "",
+    yearTo: /^\d{4}$/.test(trimmedTo) ? trimmedTo : "",
+    page: 1
+  };
+}
+
+/**
+ * Derive glitch-free grid, empty-state, and loading visibility from current query signature.
+ */
+export function deriveExploreViewState({
+  rawPagesState,
+  filterSignature,
+  filteredResults = [],
+  isLoading = false,
+  isLoadingMore = false,
+  errorMsg = ""
+} = {}) {
+  const hasFreshData = Boolean(rawPagesState && rawPagesState.signature === filterSignature);
+  const visibleItems = hasFreshData && Array.isArray(filteredResults) ? filteredResults : [];
+  const displayTotalResults = hasFreshData ? (Number(rawPagesState?.totalResults) || 0) : 0;
+  const displayTotalPages = hasFreshData ? Math.max(1, Number(rawPagesState?.totalPages) || 1) : 1;
+  const hiddenWatchedCount = hasFreshData
+    ? Math.max(0, (rawPagesState?.items?.length || 0) - visibleItems.length)
+    : 0;
+  const isFetching = Boolean(isLoading || isLoadingMore);
+
+  return {
+    hasFreshData,
+    visibleItems,
+    displayTotalResults,
+    displayTotalPages,
+    hiddenWatchedCount,
+    showSkeleton: !errorMsg && isFetching && visibleItems.length === 0,
+    showEmptyState: !errorMsg && !isFetching && hasFreshData && visibleItems.length === 0,
+    showGrid: !errorMsg && visibleItems.length > 0
+  };
 }
 
 /**

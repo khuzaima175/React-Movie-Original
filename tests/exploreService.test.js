@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_EXPLORE_FILTERS,
   buildExploreRoute,
+  buildExploreSearchParams,
   parseExploreSearchParams,
   buildTmdbDiscoverParams,
   filterExploreResults,
-  getActiveFilterChips
+  getActiveFilterChips,
+  deriveExploreViewState,
+  mergeYearDraftIntoFilters
 } from "../src/services/exploreService.js";
 
 test("buildExploreRoute and parseExploreSearchParams round-trip complex multi-facet filters including special keyword characters", () => {
@@ -132,4 +135,50 @@ test("getActiveFilterChips generates removable chip summaries for non-default fi
   assert.ok(chips.some((c) => /1990/.test(c.label)));
   assert.ok(chips.some((c) => /time travel/i.test(c.label)));
   assert.ok(chips.some((c) => c.key === "hideWatched" && c.clearPatch.hideWatched === false));
+});
+
+test("buildExploreSearchParams preserves explicit region=US for non-US defaults and deriveExploreViewState prevents stale grids/flashes", () => {
+  const sp = buildExploreSearchParams(
+    { ...DEFAULT_EXPLORE_FILTERS, region: "US", genres: [878] },
+    { defaultRegion: "GB" }
+  );
+  assert.equal(sp.get("region"), "US");
+  assert.equal(parseExploreSearchParams(sp.toString(), "GB").region, "US");
+
+  // Stale signature when switching filters must suppress old items & counts
+  const staleDuringSwitch = deriveExploreViewState({
+    rawPagesState: { signature: "genres=28", items: [{ tmdbId: 1 }], loadedPage: 1, totalResults: 500, totalPages: 25 },
+    filterSignature: "genres=878",
+    filteredResults: [{ tmdbId: 1 }],
+    isLoading: true,
+    isLoadingMore: false,
+    errorMsg: ""
+  });
+  assert.equal(staleDuringSwitch.hasFreshData, false);
+  assert.equal(staleDuringSwitch.visibleItems.length, 0);
+  assert.equal(staleDuringSwitch.displayTotalResults, 0);
+  assert.equal(staleDuringSwitch.showSkeleton, true);
+  assert.equal(staleDuringSwitch.showEmptyState, false);
+
+  // Auto-advancing page 2 while hideWatched cleared page 1 must show skeleton, not empty-state flash
+  const autoAdvancing = deriveExploreViewState({
+    rawPagesState: { signature: "hideWatched=1", items: [{ tmdbId: 1 }], loadedPage: 1, totalResults: 100, totalPages: 5 },
+    filterSignature: "hideWatched=1",
+    filteredResults: [],
+    isLoading: false,
+    isLoadingMore: true,
+    errorMsg: ""
+  });
+  assert.equal(autoAdvancing.showSkeleton, true);
+  assert.equal(autoAdvancing.showEmptyState, false);
+
+  // Debounced year commit merges onto latest filter snapshot (not stale genres)
+  const merged = mergeYearDraftIntoFilters(
+    { ...DEFAULT_EXPLORE_FILTERS, genres: [878] },
+    "2010",
+    "2019"
+  );
+  assert.deepEqual(merged.genres, [878]);
+  assert.equal(merged.yearFrom, "2010");
+  assert.equal(merged.yearTo, "2019");
 });

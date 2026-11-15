@@ -1071,6 +1071,7 @@ export function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQue
     .filter(Boolean);
 
   const yearClean = m.release_date ? m.release_date.slice(0, 4) : "N/A";
+  const voteAvg = m.vote_average ? Number(m.vote_average.toFixed(1)) : null;
 
   return {
     id: m.id,
@@ -1079,7 +1080,8 @@ export function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQue
     year: yearClean,
     release_date: m.release_date,
     overview: m.overview,
-    vote_average: m.vote_average ? Number(m.vote_average.toFixed(1)) : null,
+    imdbRating: m.imdbRating != null && m.imdbRating !== "" ? m.imdbRating : voteAvg,
+    vote_average: voteAvg,
     vote_count: m.vote_count || 0,
     popularity: m.popularity || 0,
     genre_ids: m.genre_ids || [],
@@ -1345,6 +1347,7 @@ export async function fetchCollectionTimeline(collectionId, options = {}) {
       parts: Array.isArray(data.parts) ? data.parts : []
     };
   } catch (err) {
+    if (err?.name === "AbortError") return null;
     console.warn("Failed to fetch TMDB collection timeline:", err);
     return null;
   }
@@ -1384,6 +1387,7 @@ export async function fetchTmdbMovieRecommendations(tmdbId, options = {}) {
     }
     return Array.from(dedupeMap.values());
   } catch (err) {
+    if (err?.name === "AbortError") return [];
     console.warn("Failed to fetch TMDB recommendations:", err);
     return [];
   }
@@ -1408,6 +1412,7 @@ export async function searchTmdbKeywords(query = "", options = {}) {
       .slice(0, limit)
       .map((k) => ({ id: Number(k.id), name: String(k.name).trim() }));
   } catch (err) {
+    if (err?.name === "AbortError") return [];
     console.warn("Failed to search TMDB keywords:", err);
     return [];
   }

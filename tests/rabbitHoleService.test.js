@@ -4,7 +4,8 @@ import { encodeEmbeddingBinary, parseEmbeddingBinary } from "../src/services/emb
 import {
   normalizeCollectionTimeline,
   findEmbeddingNeighborsForMovie,
-  buildHybridSimilarFilms
+  buildHybridSimilarFilms,
+  shouldLoadRabbitHoleForMovie
 } from "../src/services/rabbitHoleService.js";
 
 test("normalizeCollectionTimeline sorts parts chronologically, places TBA last, and tracks Vault completion", () => {
@@ -94,4 +95,34 @@ test("buildHybridSimilarFilms deduplicates dual sources, prioritizes overlapping
   assert.equal(res.find((m) => m.tmdbId === 300)?.isWatched, true);
   assert.equal(res.find((m) => m.tmdbId === 300)?.matchOrigin, "vault-vector");
   assert.equal(res.find((m) => m.tmdbId === 400)?.matchOrigin, "tmdb");
+});
+
+test("buildHybridSimilarFilms preserves real tt IMDb IDs over synthetic tmdb_ stubs, honors limit=0, and gates stale movie loads", () => {
+  const merged = buildHybridSimilarFilms({
+    currentMovie: { tmdbId: 100 },
+    embeddingNeighbors: [{ tmdbId: 200, sim: 0.9 }],
+    hydratedEmbeddingCards: [{ tmdbId: 200, imdbID: "tt0468569", title: "The Dark Knight" }],
+    tmdbRecommendations: [{ tmdbId: 200, imdbID: "tmdb_200", title: "The Dark Knight" }],
+    limit: 5
+  });
+  assert.equal(merged[0].imdbID, "tt0468569");
+
+  assert.deepEqual(
+    buildHybridSimilarFilms({
+      currentMovie: { tmdbId: 100 },
+      tmdbRecommendations: [{ tmdbId: 200, imdbID: "tmdb_200", title: "Film" }],
+      limit: 0
+    }),
+    []
+  );
+
+  const buf = encodeEmbeddingBinary([
+    { tmdbId: 10, vector: [1, 0, 0] },
+    { tmdbId: 20, vector: [0.9, 0.1, 0] }
+  ]);
+  const index = parseEmbeddingBinary(buf);
+  assert.deepEqual(findEmbeddingNeighborsForMovie(10, index, { limit: 0 }), []);
+
+  assert.equal(shouldLoadRabbitHoleForMovie({ tmdbId: 155, loadedForSelectedId: "tmdb_155" }, "tt0816692"), false);
+  assert.equal(shouldLoadRabbitHoleForMovie({ tmdbId: 157336, loadedForSelectedId: "tt0816692" }, "tt0816692"), true);
 });
