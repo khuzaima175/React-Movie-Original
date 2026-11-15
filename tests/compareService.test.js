@@ -10,7 +10,8 @@ import {
   buildCompareUrl,
   parseCompareUrlIds,
   computeCompareOverlap,
-  buildCompareMatrix
+  buildCompareMatrix,
+  parseStoredCompareItems
 } from "../src/services/compareService.js";
 
 test("toggleCompareItem deduplicates IMDb/TMDB identities and enforces 3-film limit", () => {
@@ -186,4 +187,23 @@ test("buildCompareUrl and parseCompareUrlIds round-trip canonical IDs capped at 
     "tmdb_155"
   ]);
   assert.equal(buildCompareUrl([]), "/compare");
+});
+
+test("parseStoredCompareItems safely handles corrupt JSON, deduplicates identities, and caps at 3", () => {
+  assert.deepEqual(parseStoredCompareItems("{not valid json"), []);
+  assert.deepEqual(parseStoredCompareItems(null), []);
+  const recovered = parseStoredCompareItems(
+    JSON.stringify([
+      { imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar" },
+      { tmdbId: 157336, title: "Interstellar" },
+      { tmdbId: 27205, title: "Inception" },
+      { tmdbId: 155, title: "The Dark Knight" },
+      { tmdbId: 999, title: "Overflow Fourth" }
+    ])
+  );
+  assert.equal(recovered.length, COMPARE_MAX_ITEMS);
+  assert.deepEqual(
+    recovered.map((m) => m.tmdbId),
+    [157336, 27205, 155]
+  );
 });

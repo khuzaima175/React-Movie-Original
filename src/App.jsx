@@ -10,6 +10,7 @@ import BackupManagerModal from "./components/BackupManagerModal";
 import QuickRateModal from "./components/QuickRateModal";
 import TasteDeckModal from "./components/TasteDeckModal";
 import CloudSyncModal from "./components/CloudSyncModal";
+import CompareDock from "./components/CompareDock";
 import DashboardPage from "./pages/DashboardPage";
 import ExplorePage from "./pages/ExplorePage";
 import MoviePage from "./pages/MoviePage";
@@ -159,6 +160,8 @@ function AppContent() {
         isOpen={isCloudSyncOpen}
         onClose={() => setIsCloudSyncOpen(false)}
       />
+
+      <CompareDock />
 
       <main className="flex-1 w-full">
         <Routes>

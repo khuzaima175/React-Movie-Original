@@ -88,6 +88,28 @@ export function toggleCompareItem(currentList = [], movie) {
 }
 
 /**
+ * Safely parses stored sessionStorage JSON into up to 3 deduplicated Compare stubs.
+ */
+export function parseStoredCompareItems(rawJson) {
+  if (!rawJson || typeof rawJson !== "string") return [];
+  try {
+    const parsed = JSON.parse(rawJson);
+    if (!Array.isArray(parsed)) return [];
+    let next = [];
+    for (const entry of parsed) {
+      const res = toggleCompareItem(next, entry);
+      if (res.action === "added") {
+        next = res.items;
+      }
+      if (next.length >= COMPARE_MAX_ITEMS) break;
+    }
+    return next;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Parses currency strings like "$165,000,000" or numbers into positive USD numbers.
  */
 export function parseCurrencyUsd(raw) {

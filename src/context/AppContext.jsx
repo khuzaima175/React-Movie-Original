@@ -19,6 +19,11 @@ import {
 import { getSupabaseClient, hasSupabaseConfig } from "../services/supabaseClient.js";
 import { normalizeTasteRules } from "../services/tasteRulesService.js";
 import {
+  COMPARE_STORAGE_KEY,
+  parseStoredCompareItems,
+  toggleCompareItem
+} from "../services/compareService.js";
+import {
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
   pullAndSyncCloudVault
@@ -181,6 +186,16 @@ export function AppProvider({ children }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchType, setSearchType] = useState("");
 
+  const [compareItems, setCompareItems] = useState(() => {
+    try {
+      return parseStoredCompareItems(sessionStorage.getItem(COMPARE_STORAGE_KEY));
+    } catch {
+      return [];
+    }
+  });
+  const [isCompareOpen, setIsCompareOpen] = useState(false);
+  const [compareNotice, setCompareNotice] = useState("");
+
   const [hasCloudConfig] = useState(() => hasSupabaseConfig());
   const [cloudUser, setCloudUser] = useState(null);
   const [cloudSyncStatus, setCloudSyncStatus] = useState("idle");
@@ -189,6 +204,8 @@ export function AppProvider({ children }) {
 
   const watchedRef = useRef(watched);
   const watchlistRef = useRef(watchlist);
+  const compareItemsRef = useRef(compareItems);
+  const compareNoticeTimerRef = useRef(null);
   const userRegionRef = useRef(userRegion);
   const userWatchProvidersRef = useRef(userWatchProviders);
   const cloudUserRef = useRef(null);
@@ -208,6 +225,17 @@ export function AppProvider({ children }) {
     watchlistRef.current = watchlist || [];
     safeSetItem("watchlist", watchlist || []);
   }, [watchlist]);
+
+  useEffect(() => {
+    compareItemsRef.current = compareItems || [];
+    try {
+      sessionStorage.setItem(COMPARE_STORAGE_KEY, JSON.stringify(compareItems || []));
+    } catch (_) {}
+  }, [compareItems]);
+
+  useEffect(() => () => {
+    if (compareNoticeTimerRef.current) clearTimeout(compareNoticeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     userRegionRef.current = userRegion || "GLOBAL";
@@ -1034,6 +1062,57 @@ export function AppProvider({ children }) {
     );
   }, []);
 
+  const showCompareNotice = useCallback((message) => {
+    if (compareNoticeTimerRef.current) {
+      clearTimeout(compareNoticeTimerRef.current);
+    }
+    setCompareNotice(message);
+    if (message) {
+      compareNoticeTimerRef.current = setTimeout(() => {
+        setCompareNotice("");
+      }, 3500);
+    }
+  }, []);
+
+  const clearCompareNotice = useCallback(() => showCompareNotice(""), [showCompareNotice]);
+
+  const toggleCompare = useCallback(
+    (movie) => {
+      const current = compareItemsRef.current || [];
+      const result = toggleCompareItem(current, movie);
+      if (result.action === "full") {
+        showCompareNotice("Compare tray full (max 3 films). Remove a slot first.");
+        return result;
+      }
+      if (result.action === "added" || result.action === "removed") {
+        compareItemsRef.current = result.items;
+        setCompareItems(result.items);
+        showCompareNotice("");
+      }
+      return result;
+    },
+    [showCompareNotice]
+  );
+
+  const removeCompareItem = useCallback(
+    (idOrMovie) => {
+      const { nextList } = removeMovieEntries(compareItemsRef.current || [], idOrMovie);
+      compareItemsRef.current = nextList;
+      setCompareItems(nextList);
+      showCompareNotice("");
+    },
+    [showCompareNotice]
+  );
+
+  const clearCompare = useCallback(() => {
+    compareItemsRef.current = [];
+    setCompareItems([]);
+    showCompareNotice("");
+  }, [showCompareNotice]);
+
+  const openCompareModal = useCallback(() => setIsCompareOpen(true), []);
+  const closeCompareModal = useCallback(() => setIsCompareOpen(false), []);
+
   return (
     <AppContext.Provider
       value={{
@@ -1081,6 +1160,15 @@ export function AppProvider({ children }) {
         setSearchQuery,
         searchType,
         setSearchType,
+        compareItems: compareItems || [],
+        compareNotice,
+        clearCompareNotice,
+        toggleCompare,
+        removeCompareItem,
+        clearCompare,
+        isCompareOpen,
+        openCompareModal,
+        closeCompareModal
       }}
     >
       {children}
