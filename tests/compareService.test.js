@@ -1,0 +1,189 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { encodeEmbeddingBinary, parseEmbeddingBinary } from "../src/services/embeddingService.js";
+import {
+  COMPARE_MAX_ITEMS,
+  toCompareStub,
+  toggleCompareItem,
+  parseCurrencyUsd,
+  parseRuntimeMins,
+  buildCompareUrl,
+  parseCompareUrlIds,
+  computeCompareOverlap,
+  buildCompareMatrix
+} from "../src/services/compareService.js";
+
+test("toggleCompareItem deduplicates IMDb/TMDB identities and enforces 3-film limit", () => {
+  let state = [];
+  const first = toggleCompareItem(state, { imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar", year: "2014" });
+  assert.equal(first.action, "added");
+  state = first.items;
+  assert.equal(state.length, 1);
+
+  // Same movie by tmdbId alone removes cleanly instead of duplicating
+  const removed = toggleCompareItem(state, { tmdbId: 157336, title: "Interstellar" });
+  assert.equal(removed.action, "removed");
+  assert.equal(removed.items.length, 0);
+
+  // Fill 3 slots then block 4th cleanly
+  for (const id of [1, 2, 3]) {
+    state = toggleCompareItem(state, { tmdbId: id, title: `Movie ${id}`, year: "2020" }).items;
+  }
+  const fourth = toggleCompareItem(state, { tmdbId: 4, title: "Movie 4", year: "2021" });
+  assert.equal(fourth.action, "full");
+  assert.equal(fourth.items.length, COMPARE_MAX_ITEMS);
+});
+
+test("toCompareStub extracts compact normalized identity without polluting vault fields", () => {
+  const stub = toCompareStub({
+    imdbID: "tt0816692",
+    tmdbId: "157336",
+    title: "Interstellar",
+    year: "2014-11-05",
+    imdbRating: "8.7",
+    runtime: "169 min"
+  });
+  assert.deepEqual(stub, {
+    id: "tt0816692",
+    imdbID: "tt0816692",
+    tmdbId: 157336,
+    title: "Interstellar",
+    year: "2014",
+    poster: null,
+    imdbRating: "8.7",
+    genre: null,
+    runtime: "169 min"
+  });
+});
+
+test("parseCurrencyUsd and parseRuntimeMins safely reject N/A and zero budgets", () => {
+  assert.equal(parseCurrencyUsd("$165,000,000"), 165000000);
+  assert.equal(parseCurrencyUsd("N/A"), null);
+  assert.equal(parseCurrencyUsd("$0"), null);
+  assert.equal(parseCurrencyUsd(0), null);
+  assert.equal(parseRuntimeMins("169 min"), 169);
+  assert.equal(parseRuntimeMins(148), 148);
+  assert.equal(parseRuntimeMins("N/A"), null);
+  assert.equal(parseRuntimeMins("0 min"), null);
+});
+
+test("computeCompareOverlap finds shared actors/crew with personIds, shared genres/keywords, and vector similarity", () => {
+  const buf = encodeEmbeddingBinary([
+    { tmdbId: 10, vector: [1, 0, 0] },
+    { tmdbId: 20, vector: [0.8, 0.6, 0] },
+    { tmdbId: 30, vector: [0.8, 0.6, 0] }
+  ]);
+  const idx = parseEmbeddingBinary(buf);
+  // Shrink row for tmdbId 30 (sumSq = 0.25 < 0.98) to exercise non-unit magnitude normalization
+  const row30 = idx.idToIndex.get(30) * idx.dim;
+  for (let d = 0; d < idx.dim; d++) idx.vectors[row30 + d] *= 0.5;
+  const overlap = computeCompareOverlap([
+    {
+      tmdbId: 10,
+      title: "Film A",
+      genre: "Sci-Fi, Thriller",
+      directorDetails: [{ id: 525, name: "Christopher Nolan" }],
+      composerDetails: [{ id: 947, name: "Hans Zimmer" }],
+      castDetails: [{ id: 2037, name: "Cillian Murphy", character: "Fischer" }],
+      keywords: ["dream", "heist"]
+    },
+    {
+      tmdbId: 20,
+      title: "Film B",
+      genre: "Drama, Sci-Fi",
+      directorDetails: [{ id: 525, name: "Christopher Nolan" }],
+      composerDetails: [{ id: 947, name: "Hans Zimmer" }],
+      castDetails: [{ id: 2037, name: "Cillian Murphy", character: "Oppenheimer" }],
+      keywordItems: [{ id: 4379, name: "time travel" }, { id: 1568, name: "dream" }]
+    },
+    {
+      tmdbId: 30,
+      title: "Film C",
+      genre: "Sci-Fi, Action",
+      castDetails: [{ id: 2037, name: "Cillian Murphy", character: "Scarecrow" }],
+      keywords: ["dream"]
+    }
+  ], idx);
+
+  assert.equal(overlap.sharedCrew[0].id, 525);
+  assert.ok(overlap.sharedCrew.some((p) => p.id === 947 && p.rolesByMovie.length === 2));
+  assert.equal(overlap.sharedActors[0].id, 2037);
+  assert.equal(overlap.sharedActors[0].rolesByMovie.length, 3);
+  assert.deepEqual(overlap.sharedGenres, ["Sci-Fi"]);
+  const dreamKw = overlap.sharedKeywords.find((k) => k.name.toLowerCase() === "dream");
+  assert.ok(dreamKw);
+  assert.equal(dreamKw.id, 1568);
+  assert.equal(overlap.pairVectorSims.find((p) => p.aTitle === "Film A" && p.bTitle === "Film B").similarityPct, 80);
+  assert.equal(overlap.pairVectorSims.find((p) => p.aTitle === "Film A" && p.bTitle === "Film C").similarityPct, 80);
+});
+
+test("buildCompareMatrix identifies column winners, preserves Vault metadata, computes Taste Fit, and handles missing financials", () => {
+  const buf = encodeEmbeddingBinary([
+    { tmdbId: 99, vector: [1, 0, 0] },
+    { tmdbId: 10, vector: [0.8, 0.6, 0] },
+    { tmdbId: 20, vector: [-0.2, 0.98, 0] }
+  ]);
+  const idx = parseEmbeddingBinary(buf);
+
+  const matrix = buildCompareMatrix(
+    [
+      {
+        tmdbId: 10,
+        imdbID: "tt1375666",
+        title: "Inception",
+        imdbRating: "8.8",
+        rottenTomatoes: "87%",
+        metascore: "74",
+        tmdbRating: 8.4,
+        runtime: "148 min",
+        budget: "$160,000,000",
+        revenue: "$800,000,000"
+      },
+      {
+        tmdbId: 20,
+        title: "B",
+        imdbRating: "8.1",
+        rottenTomatoes: "92%",
+        metascore: "74",
+        tmdbRating: 7.9,
+        runtime: "120 min",
+        budget: "N/A",
+        revenue: "$200,000,000"
+      }
+    ],
+    {
+      watched: [
+        { tmdbId: 99, userRating: 10 },
+        { imdbID: "tt1375666", userRating: 9, userNote: "Mind-bending favorite" }
+      ],
+      watchlist: [{ tmdbId: 20, title: "B" }],
+      embeddingIndex: idx
+    }
+  );
+
+  assert.deepEqual(matrix.leaders.imdb, [0]);
+  assert.deepEqual(matrix.leaders.rt, [1]);
+  assert.deepEqual(matrix.leaders.metascore, [0, 1]);
+  assert.deepEqual(matrix.leaders.runtimeShortest, [1]);
+  assert.deepEqual(matrix.leaders.revenue, [0]);
+  assert.equal(matrix.items[0].roiLabel, "5.0×");
+  assert.equal(matrix.items[1].roiLabel, "—");
+  assert.equal(matrix.items[0].vaultRating, 9);
+  assert.equal(matrix.items[0].vaultNote, "Mind-bending favorite");
+  assert.equal(matrix.items[1].inWatchlist, true);
+  assert.ok(Number.isInteger(matrix.items[0].vaultMatchPct));
+  assert.ok(matrix.items[0].vaultMatchPct > matrix.items[1].vaultMatchPct);
+  assert.deepEqual(matrix.leaders.vaultMatch, [0]);
+});
+
+test("buildCompareUrl and parseCompareUrlIds round-trip canonical IDs capped at 3 and ignore invalid tokens", () => {
+  const url = buildCompareUrl([{ imdbID: "tt0816692" }, { tmdbId: 27205 }]);
+  assert.equal(url, "/compare?ids=tt0816692%2Ctmdb_27205");
+  assert.deepEqual(parseCompareUrlIds(url.split("?")[1]), ["tt0816692", "tmdb_27205"]);
+  assert.deepEqual(parseCompareUrlIds("?ids=tt0816692,badToken,tmdb_27205,155,tt9999999"), [
+    "tt0816692",
+    "tmdb_27205",
+    "tmdb_155"
+  ]);
+  assert.equal(buildCompareUrl([]), "/compare");
+});
