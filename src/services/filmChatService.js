@@ -8,7 +8,7 @@ import { getCanonicalMovieKey } from "./vaultSyncService.js";
 
 export const FILM_CHAT_CACHE_PREFIX = "cinemavault_film_chat_focus_v1:";
 
-function sanitizeLine(raw, maxLen = 200) {
+export function sanitizeLine(raw, maxLen = 200) {
   if (raw === null || raw === undefined) return "";
   const cleaned = String(raw)
     .replace(/[\r\n\t]+/g, " ")
@@ -16,6 +16,8 @@ function sanitizeLine(raw, maxLen = 200) {
     .trim();
   return cleaned.length > maxLen ? `${cleaned.slice(0, maxLen - 1)}…` : cleaned;
 }
+
+export { sanitizeLine as sanitizePromptLine };
 
 function getStorage(explicitStorage) {
   if (explicitStorage !== undefined) return explicitStorage;
@@ -59,7 +61,9 @@ export function parseAiPageParams(searchString = "") {
   const rawTmdb = params.get("tmdbId");
   const parsedTmdb = extractTmdbNumericId(rawTmdb) ?? extractTmdbNumericId(rawMovie);
   const imdbMatch = /^tt\d+$/i.test(rawMovie) ? rawMovie : null;
-  const tab = rawTab === "chat" || Boolean(rawMovie || parsedTmdb) ? "chat" : "recs";
+  const tab = rawTab === "recs"
+    ? "recs"
+    : (rawTab === "chat" || Boolean(rawMovie || parsedTmdb) ? "chat" : "recs");
 
   return {
     tab,
@@ -127,7 +131,7 @@ export function serializeFilmDossierForPrompt(
     plot ? `Synopsis: ${plot}` : null,
     `User Vault Status: ${vaultStatusLine}`,
     spoilerSafe
-      ? "Spoiler Policy: SPOILER-SAFE MODE ACTIVE — do not reveal major endings or twists unless the user explicitly toggles spoilers on or directly asks for spoilers."
+      ? "Spoiler Policy: SPOILER-SAFE MODE ACTIVE — strictly never reveal major plot twists, endings, or late-act surprises under any phrasing; if the user asks for spoilers, instruct them to click 'Spoilers: Allowed' in the film focus bar first."
       : "Spoiler Policy: Deep analysis enabled — you may discuss plot twists, symbolism, and the ending directly."
   ].filter(Boolean);
 
@@ -145,7 +149,7 @@ export function buildMovieChatStarterPrompts(
   const title = sanitizeLine(movie.title || movie.Title || "this film", 60);
   const director = sanitizeLine(movie.director || movie.Director || "", 40);
 
-  if (isWatched || !spoilerSafe) {
+  if (!spoilerSafe) {
     return [
       `Analyze the ending & hidden symbolism of ${title}`,
       `Best behind-the-scenes trivia for ${title}`,

@@ -5,6 +5,7 @@ import {
   extractTmdbNumericId,
   findMatchingMovie,
   isSameMovie,
+  mergeMovieEntryFields,
   removeMovieEntries,
   upsertMovieEntry
 } from "../services/movieIdentity.js";
@@ -826,13 +827,21 @@ export function AppProvider({ children }) {
       [existingWatched, ...(removedWatchlist || [])],
       updatedAt
     );
-    const mergedEntry = {
-      ...(existingWatched || {}),
-      ...normalizedMovie,
-      ...(resolvedRecSource ? { recSource: resolvedRecSource } : {})
-    };
+    const clearStudioKeys = ["ratingBreakdown", "watchMeta"].filter(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(normalizedMovie, key) &&
+        (normalizedMovie[key] === null || normalizedMovie[key] === undefined)
+    );
+    const mergedEntry = mergeMovieEntryFields(
+      existingWatched || {},
+      {
+        ...normalizedMovie,
+        ...(resolvedRecSource ? { recSource: resolvedRecSource } : {})
+      },
+      clearStudioKeys
+    );
 
-    setWatched((prev) => upsertMovieEntry(prev, mergedEntry));
+    setWatched((prev) => upsertMovieEntry(prev, mergedEntry, { clearKeys: clearStudioKeys }));
     setWatchlist((prev) => removeMovieEntries(prev, mergedEntry).nextList);
     if (Number(movie.userRating) > 0) {
       setAiFeedbackLog((prev) => recordRatedMovieConversion(mergedEntry, prev, aiRecommendations, 500));

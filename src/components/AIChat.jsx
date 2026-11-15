@@ -196,6 +196,7 @@ function buildThreadWelcomeMessage(focusedMovie, isWatched, spoilerSafe) {
 export default function AIChat({
   watched = [],
   watchlist: watchlistProp = null,
+  focusKey = null,
   focusedMovie = null,
   onClearFocusedMovie = null
 }) {
@@ -203,13 +204,14 @@ export default function AIChat({
   const activeWatchlist = watchlistProp || contextWatchlist || [];
 
   const focusedKey = useMemo(() => {
+    if (focusKey) return focusKey;
     if (!focusedMovie || typeof focusedMovie !== "object") return null;
     return (
       getCanonicalMovieKey(focusedMovie) ||
       focusedMovie.imdbID ||
       (focusedMovie.tmdbId ? `tmdb_${focusedMovie.tmdbId}` : focusedMovie.title || null)
     );
-  }, [focusedMovie]);
+  }, [focusKey, focusedMovie]);
 
   const vaultEntry = useMemo(
     () => (focusedMovie ? findMatchingMovie(watched, focusedMovie) : null),
@@ -229,9 +231,7 @@ export default function AIChat({
 
   const threadKey = focusedKey || "__general__";
 
-  const [threadsByKey, setThreadsByKey] = useState(() => ({
-    [threadKey]: [buildThreadWelcomeMessage(focusedMovie, focusedIsWatched, spoilerSafe)]
-  }));
+  const [threadsByKey, setThreadsByKey] = useState({});
 
   const messages = useMemo(() => {
     if (Array.isArray(threadsByKey[threadKey]) && threadsByKey[threadKey].length > 0) {

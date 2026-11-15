@@ -9,6 +9,7 @@ import {
   normalizeWatchMeta,
   buildWatchedRatingPayload
 } from "../src/services/ratingStudioService.js";
+import { upsertMovieEntry } from "../src/services/movieIdentity.js";
 
 test("computeVaultCalibration handles empty or unrated vaults cleanly", () => {
   const res = computeVaultCalibration([], 8);
@@ -101,4 +102,45 @@ test("buildWatchedRatingPayload preserves base fields, merges breakdown/watchMet
   assert.equal(cleared.updatedAt, "2026-11-15T12:00:00.000Z");
   assert.equal("ratingBreakdown" in cleared, false);
   assert.equal("watchMeta" in cleared, false);
+});
+
+test("buildWatchedRatingPayload({ markCleared: true }) clears existing ratingBreakdown and watchMeta across upsertMovieEntry", () => {
+  const existingList = [
+    {
+      imdbID: "tt0133093",
+      tmdbId: 603,
+      title: "The Matrix",
+      year: "1999",
+      userRating: 9,
+      ratingBreakdown: { story: 5, direction: 5 },
+      watchMeta: { format: "imax", rewatchCount: 2, containsSpoilers: true },
+      updatedAt: "2026-11-10T00:00:00.000Z"
+    }
+  ];
+
+  const studioPayload = buildWatchedRatingPayload({
+    movie: { imdbID: "tt0133093", tmdbId: 603, title: "The Matrix", year: "1999" },
+    baseWatchedItem: existingList[0],
+    userRating: 8,
+    userNote: "Cleared craft & watch log",
+    ratingBreakdown: null,
+    watchMeta: null,
+    markCleared: true,
+    nowIso: "2026-11-15T14:00:00.000Z"
+  });
+
+  const nextList = upsertMovieEntry(existingList, studioPayload);
+  assert.equal(nextList.length, 1);
+  assert.equal(nextList[0].userRating, 8);
+  assert.equal("ratingBreakdown" in nextList[0], false);
+  assert.equal("watchMeta" in nextList[0], false);
+
+  // Partial QuickRate update omitting those keys must still preserve them
+  const partialList = upsertMovieEntry(existingList, {
+    imdbID: "tt0133093",
+    userRating: 10,
+    updatedAt: "2026-11-15T15:00:00.000Z"
+  });
+  assert.deepEqual(partialList[0].ratingBreakdown, { story: 5, direction: 5 });
+  assert.deepEqual(partialList[0].watchMeta, { format: "imax", rewatchCount: 2, containsSpoilers: true });
 });

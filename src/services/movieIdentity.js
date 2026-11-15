@@ -148,26 +148,48 @@ export function findMatchingMovie(list, target) {
   return list.find((item) => isSameMovie(item, target)) || null;
 }
 
+const OPTIONAL_CLEARABLE_FIELDS = ["ratingBreakdown", "watchMeta"];
+
+/**
+ * Merges incoming movie fields onto an existing item while stripping explicitly
+ * nulled/cleared optional studio sub-objects so stale values do not resurrect.
+ */
+export function mergeMovieEntryFields(base = {}, incoming = {}, clearKeys = []) {
+  const next = { ...(base || {}), ...(incoming || {}) };
+  const keysToInspect = new Set([...OPTIONAL_CLEARABLE_FIELDS, ...(Array.isArray(clearKeys) ? clearKeys : [])]);
+  for (const key of keysToInspect) {
+    const incomingHasKey = Boolean(incoming && Object.prototype.hasOwnProperty.call(incoming, key));
+    if (
+      (Array.isArray(clearKeys) && clearKeys.includes(key) && (!incomingHasKey || incoming[key] == null)) ||
+      (incomingHasKey && (incoming[key] === null || incoming[key] === undefined))
+    ) {
+      delete next[key];
+    }
+  }
+  return next;
+}
+
 /**
  * Replaces and deduplicates any matching entry in `list`, or appends `movie` if absent.
  */
-export function upsertMovieEntry(list, movie) {
+export function upsertMovieEntry(list, movie, options = {}) {
   const items = Array.isArray(list) ? list : [];
   if (!movie) return items;
 
+  const clearKeys = Array.isArray(options?.clearKeys) ? options.clearKeys : [];
   let replaced = false;
   const next = [];
   for (const item of items) {
     if (isSameMovie(item, movie)) {
       if (!replaced) {
-        next.push({ ...item, ...movie });
+        next.push(mergeMovieEntryFields(item, movie, clearKeys));
         replaced = true;
       }
     } else {
       next.push(item);
     }
   }
-  if (!replaced) next.push(movie);
+  if (!replaced) next.push(mergeMovieEntryFields({}, movie, clearKeys));
   return next;
 }
 

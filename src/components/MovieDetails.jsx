@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
@@ -47,7 +47,6 @@ import {
   Play,
   Tv,
   Sparkles,
-  DollarSign,
   Globe,
   Calendar,
   Clock,
@@ -142,8 +141,15 @@ export default function MovieDetails({
     }
   }
 
-  // Sync state when watched item changes or opens
+  // Sync state when movie changes or watched item hydrates while not actively editing
+  const lastSyncedSelectedIdRef = useRef(null);
+  const isEditingRef = useRef(isEditing);
+  isEditingRef.current = isEditing;
+
   useEffect(() => {
+    const switchedMovie = lastSyncedSelectedIdRef.current !== selectedId;
+    lastSyncedSelectedIdRef.current = selectedId;
+    if (!switchedMovie && isEditingRef.current) return;
     syncDraftFromWatchedItem(watchedItem);
   }, [watchedItem, selectedId]);
 
@@ -428,9 +434,13 @@ export default function MovieDetails({
     const numericRating = Number(userRating);
     if (!movie || !Number.isFinite(numericRating) || numericRating < 1) return;
 
-    const customDateWatched = isDateDirty && dateWatchedInput
-      ? new Date(`${dateWatchedInput}T12:00:00.000Z`).toISOString()
-      : null;
+    let customDateWatched = null;
+    if (isDateDirty && /^\d{4}-\d{2}-\d{2}$/.test(dateWatchedInput)) {
+      const parsedMs = Date.parse(`${dateWatchedInput}T12:00:00.000Z`);
+      if (Number.isFinite(parsedMs)) {
+        customDateWatched = new Date(parsedMs).toISOString();
+      }
+    }
 
     const savedMovie = buildWatchedRatingPayload({
       movie: { ...movie, imdbID: movie.imdbID || selectedId },
@@ -439,14 +449,16 @@ export default function MovieDetails({
       userNote,
       ratingBreakdown,
       watchMeta,
-      customDateWatched
+      customDateWatched,
+      markCleared: true
     });
 
     if (!savedMovie) return;
-    onAddWatched(savedMovie);
+    isEditingRef.current = false;
     setIsEditing(false);
     setOpenDrawer(null);
     setIsDateDirty(false);
+    onAddWatched(savedMovie);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
   }
@@ -902,7 +914,7 @@ export default function MovieDetails({
                               <input
                                 type="number"
                                 min="1"
-                                max="99"
+                                max="999"
                                 placeholder="1"
                                 className="watchlog-rewatch-input"
                                 value={watchMeta?.rewatchCount || ""}

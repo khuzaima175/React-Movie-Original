@@ -173,6 +173,7 @@ export function buildWatchedRatingPayload({
   ratingBreakdown,
   watchMeta,
   customDateWatched = null,
+  markCleared = false,
   nowIso = new Date().toISOString()
 } = {}) {
   const numericRating = Number(userRating);
@@ -227,6 +228,8 @@ export function buildWatchedRatingPayload({
     : normalizeRatingBreakdown(ratingBreakdown);
   if (nextBreakdown) {
     payload.ratingBreakdown = nextBreakdown;
+  } else if (markCleared && ratingBreakdown !== undefined) {
+    payload.ratingBreakdown = null;
   } else {
     delete payload.ratingBreakdown;
   }
@@ -236,6 +239,8 @@ export function buildWatchedRatingPayload({
     : normalizeWatchMeta(watchMeta);
   if (nextWatchMeta) {
     payload.watchMeta = nextWatchMeta;
+  } else if (markCleared && watchMeta !== undefined) {
+    payload.watchMeta = null;
   } else {
     delete payload.watchMeta;
   }

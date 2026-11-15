@@ -45,7 +45,7 @@ function normalizeResolvedFocusMovie(rawMovie, parsedParams = {}) {
     genre: Array.isArray(source.genres) ? source.genres.join(", ") : (source.genre || source.Genre || ""),
     runtime: source.runtime || source.Runtime || "",
     imdbRating: source.imdbRating ?? null,
-    plot: source.plot || source.Plot || source.overview || "",
+    plot: source.plot || source.Plot || source.overview || source.shortPlot || "",
     cast: castArr,
     keywords: keywordsArr
   };
@@ -72,17 +72,19 @@ export default function AIPage({ onOpenTasteDeck }) {
     return parsedParams.imdbID || (parsedParams.tmdbId ? `tmdb_${parsedParams.tmdbId}` : parsedParams.movieKey);
   }, [aiSection, parsedParams]);
 
-  const [fetchedFocus, setFetchedFocus] = useState(null);
+  const [fetchedFocusState, setFetchedFocusState] = useState({ key: null, movie: null });
+  const fetchedFocus = fetchedFocusState?.key === lookupKey ? fetchedFocusState.movie : null;
 
   useEffect(() => {
     if (!lookupKey) {
-      setFetchedFocus(null);
+      setFetchedFocusState({ key: null, movie: null });
       return;
     }
 
-    const cached = loadFilmFocusCache(lookupKey);
+    const activeKey = lookupKey;
+    const cached = loadFilmFocusCache(activeKey);
     if (cached && cached.plot && (cached.director || cached.cast?.length)) {
-      setFetchedFocus(cached);
+      setFetchedFocusState({ key: activeKey, movie: cached });
       return;
     }
 
@@ -97,11 +99,17 @@ export default function AIPage({ onOpenTasteDeck }) {
     });
 
     if (cached) {
-      setFetchedFocus(cached);
+      setFetchedFocusState({ key: activeKey, movie: cached });
     } else if (vaultFallback) {
-      setFetchedFocus(normalizeResolvedFocusMovie(vaultFallback, parsedParams));
+      setFetchedFocusState({
+        key: activeKey,
+        movie: normalizeResolvedFocusMovie(vaultFallback, parsedParams)
+      });
     } else {
-      setFetchedFocus(normalizeResolvedFocusMovie(null, parsedParams));
+      setFetchedFocusState({
+        key: activeKey,
+        movie: normalizeResolvedFocusMovie(null, parsedParams)
+      });
     }
 
     let cancelled = false;
@@ -130,7 +138,7 @@ export default function AIPage({ onOpenTasteDeck }) {
             ...(tmdbData || {}),
             imdbID: tmdbData?.imdbID || validOmdb?.imdbID || parsedParams.imdbID || vaultFallback?.imdbID || null,
             tmdbId: tmdbData?.tmdbId || resolvedTmdbId || vaultFallback?.tmdbId || null,
-            plot: tmdbData?.plot || validOmdb?.Plot || cached?.plot || "",
+            plot: tmdbData?.plot || validOmdb?.Plot || cached?.plot || vaultFallback?.shortPlot || "",
             director: (tmdbData?.director && tmdbData.director !== "Unknown") ? tmdbData.director : (validOmdb?.Director || cached?.director || ""),
             writers: tmdbData?.writers || validOmdb?.Writer || cached?.writers || "",
             poster: tmdbData?.poster || (validOmdb?.Poster && validOmdb.Poster !== "N/A" ? validOmdb.Poster : null) || cached?.poster || vaultFallback?.poster || null,
@@ -143,7 +151,7 @@ export default function AIPage({ onOpenTasteDeck }) {
 
         if (!cancelled && merged) {
           saveFilmFocusCache(merged);
-          setFetchedFocus(merged);
+          setFetchedFocusState({ key: activeKey, movie: merged });
         }
       } catch (err) {
         console.warn("Focused film hydration failed:", err);
@@ -184,7 +192,7 @@ export default function AIPage({ onOpenTasteDeck }) {
   }
 
   function handleClearFocusedMovie() {
-    setFetchedFocus(null);
+    setFetchedFocusState({ key: null, movie: null });
     setSearchParams({ tab: "chat" });
   }
 
@@ -245,6 +253,7 @@ export default function AIPage({ onOpenTasteDeck }) {
             <AIChat
               watched={watched}
               watchlist={watchlist}
+              focusKey={lookupKey}
               focusedMovie={focusedMovie}
               onClearFocusedMovie={handleClearFocusedMovie}
             />

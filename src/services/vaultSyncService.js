@@ -79,7 +79,7 @@ export function mapLocalMovieToDbRow(
   const movieKey = getCanonicalMovieKey(movie);
   const metadata = {};
   for (const [k, v] of Object.entries(movie)) {
-    if (!CORE_SQL_FIELDS.has(k) && v !== undefined) {
+    if (!CORE_SQL_FIELDS.has(k) && v !== undefined && v !== null) {
       metadata[k] = v;
     }
   }
@@ -197,7 +197,11 @@ export function mergeLocalAndCloudVault({
       (localMs === 0 && localRating > 0 && (cloudRating === 0 || localRating !== cloudRating));
 
     if (localHasNewerRating) {
-      const enrichedLocal = { ...mapDbRowToLocalMovie(cloudRow), ...localMovie };
+      const cloudBase = mapDbRowToLocalMovie(cloudRow);
+      delete cloudBase.ratingBreakdown;
+      delete cloudBase.watchMeta;
+      delete cloudBase.userNote;
+      const enrichedLocal = { ...cloudBase, ...localMovie };
       resolvedWatchedMap.set(key, enrichedLocal);
       toUpsertMap.set(key, mapLocalMovieToDbRow(enrichedLocal, "watched", userId, nowIso));
     } else {

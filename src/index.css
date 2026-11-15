@@ -6865,16 +6865,16 @@
 }
 
 .btn-hero-discuss {
-  border-color: rgba(229, 184, 75, 0.28);
+  border-color: var(--hairline-strong);
   color: var(--text-1);
 }
 
 .btn-hero-discuss svg {
-  color: var(--accent);
+  color: var(--text-2);
 }
 
 .btn-hero-discuss:hover {
-  border-color: rgba(229, 184, 75, 0.55);
+  border-color: rgba(255, 255, 255, 0.34);
   background: rgba(20, 22, 27, 0.78);
 }
 
@@ -6920,7 +6920,7 @@
   gap: 0.7rem;
   padding: 0.8rem 1.2rem;
   background: var(--surface-2);
-  border: 1px solid rgba(229, 184, 75, 0.28);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--r-sm);
   color: var(--text-1);
   font-size: 1.3rem;
@@ -6930,13 +6930,13 @@
 }
 
 .btn-discuss-film-deck svg {
-  color: var(--accent);
+  color: var(--text-2);
   flex-shrink: 0;
 }
 
 .btn-discuss-film-deck:hover {
   background: var(--surface-3);
-  border-color: rgba(229, 184, 75, 0.56);
+  border-color: rgba(255, 255, 255, 0.32);
   transform: translateY(-1px);
 }
 
@@ -7074,8 +7074,8 @@
 }
 
 .calibration-anchor-btn:hover {
-  border-color: rgba(229, 184, 75, 0.45);
-  color: var(--accent);
+  border-color: var(--hairline-strong);
+  color: var(--text-1);
   background: var(--surface-3);
 }
 
@@ -7103,7 +7103,7 @@
 }
 
 .quick-tags-expand-btn:hover {
-  color: var(--accent);
+  color: var(--text-1);
 }
 
 .studio-drawers-wrap {
@@ -7145,12 +7145,13 @@
 }
 
 .studio-drawer-tab.is-open {
-  border-color: rgba(229, 184, 75, 0.45);
+  border-color: rgba(255, 255, 255, 0.28);
   color: var(--text-1);
 }
 
 .studio-drawer-tab.has-data {
-  color: var(--accent);
+  color: var(--text-1);
+  border-color: var(--hairline-strong);
 }
 
 .studio-drawer-panel {
@@ -7280,9 +7281,9 @@
 }
 
 .watchlog-pill-btn.is-active {
-  background: rgba(229, 184, 75, 0.16);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--surface-3);
+  border-color: var(--hairline-strong);
+  color: var(--text-1);
 }
 
 .watchlog-inline-controls {

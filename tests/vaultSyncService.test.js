@@ -296,3 +296,55 @@ test("pullAndSyncCloudVault aborts without merging or upserting when page 2 fail
   assert.equal(onMergedCalls, 0, "must skip updating local state on any page error");
   assert.equal(client.upsertCalls.length, 0, "must skip all cloud upserts on any page error");
 });
+
+test("mergeLocalAndCloudVault never resurrects cleared ratingBreakdown or watchMeta from older cloudRow and skips null metadata", () => {
+  const localNewer = {
+    imdbID: "tt0816692",
+    tmdbId: 157336,
+    title: "Interstellar",
+    userRating: 9,
+    userNote: "",
+    updatedAt: "2026-11-15T14:00:00.000Z"
+  };
+
+  const olderCloudRow = {
+    user_id: "u1",
+    movie_key: "tt0816692",
+    status: "watched",
+    title: "Interstellar",
+    user_rating: 9,
+    user_note: "Old note",
+    updated_at: "2026-11-10T10:00:00.000Z",
+    metadata: {
+      imdbID: "tt0816692",
+      tmdbId: 157336,
+      director: "Christopher Nolan",
+      ratingBreakdown: { story: 5, visuals: 5 },
+      watchMeta: { format: "imax", containsSpoilers: true }
+    }
+  };
+
+  const { mergedWatched, toUpsertCloud } = mergeLocalAndCloudVault({
+    localWatched: [localNewer],
+    localWatchlist: [],
+    cloudRows: [olderCloudRow],
+    userId: "u1",
+    nowIso: "2026-11-15T14:01:00.000Z"
+  });
+
+  assert.equal(mergedWatched.length, 1);
+  assert.equal(mergedWatched[0].director, "Christopher Nolan");
+  assert.equal(mergedWatched[0].userNote, "");
+  assert.equal("ratingBreakdown" in mergedWatched[0], false);
+  assert.equal("watchMeta" in mergedWatched[0], false);
+  assert.equal("ratingBreakdown" in toUpsertCloud[0].metadata, false);
+  assert.equal("watchMeta" in toUpsertCloud[0].metadata, false);
+
+  const nullStrippedRow = mapLocalMovieToDbRow(
+    { ...localNewer, ratingBreakdown: null, watchMeta: undefined },
+    "watched",
+    "u1"
+  );
+  assert.equal("ratingBreakdown" in nullStrippedRow.metadata, false);
+  assert.equal("watchMeta" in nullStrippedRow.metadata, false);
+});

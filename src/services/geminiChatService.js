@@ -1,7 +1,7 @@
 import { FAST_INTERACTIVE_CASCADE, executeCascade, createGeminiClient } from "./geminiService.js";
 import { resolveGeminiKey } from "./apiTransport.js";
 import { compileActiveTasteRules } from "./tasteRulesService.js";
-import { serializeFilmDossierForPrompt } from "./filmChatService.js";
+import { sanitizePromptLine, serializeFilmDossierForPrompt } from "./filmChatService.js";
 
 /**
  * Constructs the full Film Companion prompt string, optionally grounded around
@@ -43,7 +43,7 @@ export function buildChatPromptPayload(
     }
 
     const focusGuideline = focusBlock
-        ? `\n    6.  **Focused Film Companion**: Keep this film (${activeMovieContext.title || "selected film"}) central unless the user pivots to comparisons or next watches. Respect the Spoiler Policy above strictly.`
+        ? `\n    6.  **Focused Film Companion**: Keep this film (${sanitizePromptLine(activeMovieContext.title, 120) || "selected film"}) central unless the user pivots to comparisons or next watches. Respect the Spoiler Policy above strictly.`
         : "";
 
     const systemInstruction = `
