@@ -426,3 +426,85 @@ test("selectTopKWithColdQuota keys strictly on collabSim === 0 (ignoring release
   assert.equal(stats.coldRecall10, 1.0);
   assert.equal(stats.warmRecall10, 1.0);
 });
+
+test("evaluateBucketEPoolCohort slices Bucket E top-K before catalog lookup, ranks mapped pool via rankCandidatePool, and compares K against K=30", async () => {
+  const { evaluateBucketEPoolCohort } = await import("../scripts/experiments/bucket_e_pool_eval.mjs");
+  const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+
+  const items = [
+    { tmdbId: 101, vector: [1, 0, 0, 0] },
+    { tmdbId: 102, vector: [0, 1, 0, 0] },
+    { tmdbId: 201, vector: [0.99, 0, 0, 0.1] },
+    { tmdbId: 202, vector: [0.73, 0, 0, Math.sqrt(1 - 0.73 * 0.73)] }, // ranks ~37 in index (enters between K=30 and K=60)
+    { tmdbId: 203, vector: [0.1, 0, 0, 0.99] }
+  ];
+  for (let i = 0; i < 65; i++) {
+    const x = i < 35 ? 0.98 - i * 0.007 : 0.70 - (i - 35) * 0.01;
+    const w = Math.sqrt(Math.max(0, 1 - x * x));
+    items.push({ tmdbId: 500 + i, vector: [x, 0, 0, w] });
+  }
+  const emb = parseEmbeddingBinary(encodeEmbeddingBinary(items));
+
+  const mkCat = (tid, genreIds, voteAvg, voteCnt, director = "Director X", crewId = 111, kw = [42]) => ({
+    id: tid,
+    tmdbId: tid,
+    title: `Movie ${tid}`,
+    year: "2010",
+    release_date: "2010-01-01",
+    genre: genreIds.includes(878) ? "Sci-Fi" : "Drama",
+    tmdbGenreIds: genreIds,
+    genre_ids: genreIds,
+    tmdbKeywords: kw,
+    castIds: [],
+    crewPersonId: crewId,
+    director,
+    vote_average: voteAvg,
+    vote_count: voteCnt,
+    popularity: 20,
+    streamProviders: []
+  });
+
+  // Omit some top-60 neighbors (500..504) from catalogByTmdb to verify top-K window is taken on 25k index first
+  const catalogByTmdb = new Map([
+    [101, mkCat(101, [878], 8.5, 5000, "Director X", 111, [42])],
+    [102, mkCat(102, [27], 5.0, 500, "Director Z", 999, [])],
+    [201, mkCat(201, [878], 8.5, 4000, "Director X", 111, [42])],
+    [202, mkCat(202, [878], 8.9, 9000, "Director X", 111, [42])], // strong Sci-Fi + director + keyword + quality lifts into Top-10 once K>=60 retrieves it
+    [203, mkCat(203, [878], 7.5, 1000, "Director X", 111, [42])]
+  ]);
+  for (let i = 5; i < 65; i++) {
+    catalogByTmdb.set(500 + i, mkCat(500 + i, [18], 3.0, 10000, "Director Y", 888, []));
+  }
+
+  const trainRatings = Array.from({ length: 12 }, (_, idx) => {
+    const tid = idx === 0 ? 101 : idx === 1 ? 102 : 700 + idx;
+    return {
+      ...(catalogByTmdb.get(tid) || mkCat(tid, [18], 6.0, 500, "Director Y", 888, [])),
+      id: tid,
+      tmdbId: tid,
+      userRating: idx === 0 ? 10 : idx === 1 ? 2 : 6,
+      dateWatched: `2026-01-${String(idx + 1).padStart(2, "0")}`
+    };
+  });
+  const holdoutRatings = [
+    { ...catalogByTmdb.get(201), userRating: 9, dateWatched: "2026-02-01" },
+    { ...catalogByTmdb.get(202), userRating: 9, dateWatched: "2026-02-02" },
+    { ...catalogByTmdb.get(203), userRating: 9, dateWatched: "2026-02-03" },
+    ...Array.from({ length: 7 }, (_, i) => ({
+      ...mkCat(9900 + i, [18], 7.0, 200),
+      userRating: 8,
+      dateWatched: `2026-02-${String(i + 4).padStart(2, "0")}`
+    }))
+  ];
+  const user = { uid: "u1", ratings: [...trainRatings, ...holdoutRatings] };
+
+  const report = await evaluateBucketEPoolCohort([user], catalogByTmdb, emb, 8, [30, 60, 80]);
+  assert.equal(report.validUsers, 1);
+  assert.equal(report.summaryByK[30].meanMappedPoolSize, 25); // 5 items in top-30 omitted from catalogByTmdb
+  assert.equal(report.summaryByK[30].meanPosInPool, 1);
+  assert.ok(report.summaryByK[60].meanPosInPool === 2);
+  assert.ok(report.summaryByK[60].meanRecall10 > report.summaryByK[30].meanRecall10);
+  assert.ok(report.summaryByK[60].meanNDCG10 > report.summaryByK[30].meanNDCG10);
+  assert.equal(report.summaryByK[30].deltaVsK30, null);
+  assert.equal(report.summaryByK[60].deltaVsK30.recall10.n, 1);
+});

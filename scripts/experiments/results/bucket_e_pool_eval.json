@@ -1,0 +1,332 @@
+{
+  "generatedAt": "2026-11-15T04:26:36.637Z",
+  "indexPath": ".data/item_embeddings_clean2_f16.bin",
+  "kGrid": [
+    30,
+    60,
+    80
+  ],
+  "elapsedSeconds": 210.608,
+  "cohorts": [
+    {
+      "cohortLabel": "328 >=8★",
+      "minPos": 8,
+      "baseK": 30,
+      "kGrid": [
+        30,
+        60,
+        80
+      ],
+      "validUsers": 328,
+      "totalHoldoutPos": 3280,
+      "summaryByK": {
+        "30": {
+          "k": 30,
+          "validUsers": 328,
+          "totalHoldoutPos": 3280,
+          "meanMappedPoolSize": 29.801829268292682,
+          "meanPosInPool": 1.649390243902439,
+          "meanPoolCeiling": 0.16493902439024402,
+          "meanNDCG10": 0.09144785534554985,
+          "meanRecall10": 0.08140243902439033,
+          "hitRate10": 0.4969512195121951,
+          "deltaVsK30": null
+        },
+        "60": {
+          "k": 60,
+          "validUsers": 328,
+          "totalHoldoutPos": 3280,
+          "meanMappedPoolSize": 59.53048780487805,
+          "meanPosInPool": 2.524390243902439,
+          "meanPoolCeiling": 0.2524390243902437,
+          "meanNDCG10": 0.09078556357297296,
+          "meanRecall10": 0.08018292682926838,
+          "hitRate10": 0.4878048780487805,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 328,
+              "meanDelta": -0.0006622917725769082,
+              "ciLo": -0.0018117327595621121,
+              "ciHi": 0.00044288104100425094,
+              "sig": false
+            },
+            "recall10": {
+              "n": 328,
+              "meanDelta": -0.0012195121951219512,
+              "ciLo": -0.0033536585365853654,
+              "ciHi": 0.0006097560975609757,
+              "sig": false
+            }
+          }
+        },
+        "80": {
+          "k": 80,
+          "validUsers": 328,
+          "totalHoldoutPos": 3280,
+          "meanMappedPoolSize": 79.32621951219512,
+          "meanPosInPool": 2.932926829268293,
+          "meanPoolCeiling": 0.2932926829268292,
+          "meanNDCG10": 0.09093029437838837,
+          "meanRecall10": 0.08048780487804888,
+          "hitRate10": 0.4878048780487805,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 328,
+              "meanDelta": -0.0005175609671614802,
+              "ciLo": -0.0017349207127287482,
+              "ciHi": 0.0005704578047050964,
+              "sig": false
+            },
+            "recall10": {
+              "n": 328,
+              "meanDelta": -0.0009146341463414636,
+              "ciLo": -0.002743902439024391,
+              "ciHi": 0.0009146341463414636,
+              "sig": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "cohortLabel": "328 >=9★",
+      "minPos": 9,
+      "baseK": 30,
+      "kGrid": [
+        30,
+        60,
+        80
+      ],
+      "validUsers": 304,
+      "totalHoldoutPos": 3000,
+      "summaryByK": {
+        "30": {
+          "k": 30,
+          "validUsers": 304,
+          "totalHoldoutPos": 3000,
+          "meanMappedPoolSize": 29.842105263157894,
+          "meanPosInPool": 1.7828947368421053,
+          "meanPoolCeiling": 0.18246788847117812,
+          "meanNDCG10": 0.11436119905123941,
+          "meanRecall10": 0.09770128446115296,
+          "hitRate10": 0.5394736842105263,
+          "deltaVsK30": null
+        },
+        "60": {
+          "k": 60,
+          "validUsers": 304,
+          "totalHoldoutPos": 3000,
+          "meanMappedPoolSize": 59.608552631578945,
+          "meanPosInPool": 2.7565789473684212,
+          "meanPoolCeiling": 0.2804472117794484,
+          "meanNDCG10": 0.1147087096522293,
+          "meanRecall10": 0.09770128446115293,
+          "hitRate10": 0.5394736842105263,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 304,
+              "meanDelta": 0.00034751060098985135,
+              "ciLo": -0.0011030949934167642,
+              "ciHi": 0.0020920891661167893,
+              "sig": false
+            },
+            "recall10": {
+              "n": 304,
+              "meanDelta": 3.6520494231090674e-19,
+              "ciLo": -0.0019736842105263154,
+              "ciHi": 0.0019736842105263163,
+              "sig": false
+            }
+          }
+        },
+        "80": {
+          "k": 80,
+          "validUsers": 304,
+          "totalHoldoutPos": 3000,
+          "meanMappedPoolSize": 79.41776315789474,
+          "meanPosInPool": 3.2828947368421053,
+          "meanPoolCeiling": 0.3334482038429404,
+          "meanNDCG10": 0.11455501810625952,
+          "meanRecall10": 0.09770128446115293,
+          "hitRate10": 0.5394736842105263,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 304,
+              "meanDelta": 0.0001938190550200524,
+              "ciLo": -0.0011174028875348774,
+              "ciHi": 0.001909135206984251,
+              "sig": false
+            },
+            "recall10": {
+              "n": 304,
+              "meanDelta": 3.6520494231090674e-19,
+              "ciLo": -0.0019736842105263154,
+              "ciHi": 0.0019736842105263163,
+              "sig": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "cohortLabel": "fresh_300 >=8★",
+      "minPos": 8,
+      "baseK": 30,
+      "kGrid": [
+        30,
+        60,
+        80
+      ],
+      "validUsers": 300,
+      "totalHoldoutPos": 3000,
+      "summaryByK": {
+        "30": {
+          "k": 30,
+          "validUsers": 300,
+          "totalHoldoutPos": 3000,
+          "meanMappedPoolSize": 29.54,
+          "meanPosInPool": 1.59,
+          "meanPoolCeiling": 0.15900000000000034,
+          "meanNDCG10": 0.07598873530696053,
+          "meanRecall10": 0.07566666666666666,
+          "hitRate10": 0.44666666666666666,
+          "deltaVsK30": null
+        },
+        "60": {
+          "k": 60,
+          "validUsers": 300,
+          "totalHoldoutPos": 3000,
+          "meanMappedPoolSize": 59.03333333333333,
+          "meanPosInPool": 2.45,
+          "meanPoolCeiling": 0.24500000000000038,
+          "meanNDCG10": 0.07749683713113567,
+          "meanRecall10": 0.07666666666666667,
+          "hitRate10": 0.45,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 300,
+              "meanDelta": 0.0015081018241751805,
+              "ciLo": -0.0005652343958535135,
+              "ciHi": 0.004133854248983176,
+              "sig": false
+            },
+            "recall10": {
+              "n": 300,
+              "meanDelta": 0.001,
+              "ciLo": -0.0010000000000000002,
+              "ciHi": 0.0029999999999999996,
+              "sig": false
+            }
+          }
+        },
+        "80": {
+          "k": 80,
+          "validUsers": 300,
+          "totalHoldoutPos": 3000,
+          "meanMappedPoolSize": 78.61333333333333,
+          "meanPosInPool": 2.87,
+          "meanPoolCeiling": 0.287,
+          "meanNDCG10": 0.07816038830585906,
+          "meanRecall10": 0.07733333333333334,
+          "hitRate10": 0.45,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 300,
+              "meanDelta": 0.002171652998898566,
+              "ciLo": -0.0002578152681744911,
+              "ciHi": 0.005139384891854696,
+              "sig": false
+            },
+            "recall10": {
+              "n": 300,
+              "meanDelta": 0.0016666666666666666,
+              "ciLo": -0.0006666666666666669,
+              "ciHi": 0.004000000000000001,
+              "sig": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "cohortLabel": "fresh_300 >=9★",
+      "minPos": 9,
+      "baseK": 30,
+      "kGrid": [
+        30,
+        60,
+        80
+      ],
+      "validUsers": 284,
+      "totalHoldoutPos": 2814,
+      "summaryByK": {
+        "30": {
+          "k": 30,
+          "validUsers": 284,
+          "totalHoldoutPos": 2814,
+          "meanMappedPoolSize": 29.58450704225352,
+          "meanPosInPool": 1.9683098591549295,
+          "meanPoolCeiling": 0.19909456740442685,
+          "meanNDCG10": 0.12375595706036062,
+          "meanRecall10": 0.10176056338028175,
+          "hitRate10": 0.602112676056338,
+          "deltaVsK30": null
+        },
+        "60": {
+          "k": 60,
+          "validUsers": 284,
+          "totalHoldoutPos": 2814,
+          "meanMappedPoolSize": 59.12323943661972,
+          "meanPosInPool": 2.8943661971830985,
+          "meanPoolCeiling": 0.2917002012072434,
+          "meanNDCG10": 0.12271522727565852,
+          "meanRecall10": 0.10000000000000009,
+          "hitRate10": 0.5950704225352113,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 284,
+              "meanDelta": -0.0010407297847020848,
+              "ciLo": -0.002334620949578426,
+              "ciHi": 0.00042222282933203337,
+              "sig": false
+            },
+            "recall10": {
+              "n": 284,
+              "meanDelta": -0.0017605633802816902,
+              "ciLo": -0.003873239436619719,
+              "ciHi": 0.00035211267605633767,
+              "sig": false
+            }
+          }
+        },
+        "80": {
+          "k": 80,
+          "validUsers": 284,
+          "totalHoldoutPos": 2814,
+          "meanMappedPoolSize": 78.75352112676056,
+          "meanPosInPool": 3.464788732394366,
+          "meanPoolCeiling": 0.3494215291750505,
+          "meanNDCG10": 0.12237587580850656,
+          "meanRecall10": 0.09929577464788741,
+          "hitRate10": 0.5950704225352113,
+          "deltaVsK30": {
+            "ndcg10": {
+              "n": 284,
+              "meanDelta": -0.001380081251854034,
+              "ciLo": -0.0028364748182825444,
+              "ciHi": 0.0001642049459492883,
+              "sig": false
+            },
+            "recall10": {
+              "n": 284,
+              "meanDelta": -0.002464788732394366,
+              "ciLo": -0.004929577464788734,
+              "ciHi": -2.9319270016509415e-19,
+              "sig": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}
