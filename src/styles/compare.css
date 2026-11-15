@@ -187,9 +187,9 @@
   outline-offset: 2px;
 }
 
-/* Lift dock safely above Vault Manage Mode Bulk Bar when active */
+/* Lift dock safely above Vault Manage Mode Bulk Bar (including wrapped rows) */
 body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
-  bottom: 9.2rem;
+  bottom: 13.8rem;
 }
 
 @media (max-width: 900px) {
@@ -199,7 +199,7 @@ body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
   }
 
   body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
-    bottom: calc(14rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(18.5rem + env(safe-area-inset-bottom, 0px));
   }
 
   .compare-dock-pill {
@@ -390,7 +390,8 @@ body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
 }
 
 .compare-back-link {
-  display: inline-flex;
+  display: flex;
+  width: fit-content;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
