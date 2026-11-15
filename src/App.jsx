@@ -12,6 +12,7 @@ import TasteDeckModal from "./components/TasteDeckModal";
 import CloudSyncModal from "./components/CloudSyncModal";
 import DashboardPage from "./pages/DashboardPage";
 import MoviePage from "./pages/MoviePage";
+import PersonPage from "./pages/PersonPage";
 import VaultPage from "./pages/VaultPage";
 import AIPage from "./pages/AIPage";
 import {
@@ -169,7 +170,8 @@ function AppContent() {
               />
             }
           />
-          <Route path="/movie/:id" element={<MoviePage />} />
+          <Route path="/movie/:id" element={<MoviePage onQuickRate={(m) => setQuickRateTarget(m)} />} />
+          <Route path="/person/:id" element={<PersonPage onQuickRate={(m) => setQuickRateTarget(m)} />} />
           <Route
             path="/vault"
             element={

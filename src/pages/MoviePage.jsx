@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import MovieDetails from "../components/MovieDetails";
 
-export default function MoviePage() {
+export default function MoviePage({ onQuickRate }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const { watched, watchlist, addWatched, addToWatchlist, deleteWatchlist } = useApp();
@@ -36,6 +36,7 @@ export default function MoviePage() {
         onAddWatched={handleAddWatched}
         onAddToWatchlist={handleAddToWatchlist}
         onRemoveWatchlist={handleRemoveWatchlist}
+        onQuickRate={onQuickRate}
         watched={watched}
         watchlist={watchlist}
       />

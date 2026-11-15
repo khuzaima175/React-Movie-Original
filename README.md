@@ -12,7 +12,7 @@
 [![Local ML CVEM v1](https://img.shields.io/badge/Local_ML-CVEM_v1_25k_f16-e5b84b?style=flat-square)](./LOCAL_MODEL_GUIDE.md)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-Resilient_Cascade-8e75ff?style=flat-square&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Supabase Cloud Sync](https://img.shields.io/badge/Supabase-Auth_%26_RLS_Sync-3ecf8e?style=flat-square&logo=supabase&logoColor=black)](./supabase/migrations/20261114000000_init_cinemavault_schema.sql)
-[![Tests 249/249](https://img.shields.io/badge/Tests-249%2F249-46d369?style=flat-square)](#development--testing)
+[![Tests 274/274](https://img.shields.io/badge/Tests-274%2F274-46d369?style=flat-square)](#development--testing)
 [![License MIT](https://img.shields.io/badge/License-MIT-e5b84b?style=flat-square)](#license)
 
 [Features](#features) · [Recommendation Pipeline](#recommendation-pipeline) · [Project Structure](#project-structure) · [Getting Started](#getting-started) · [Tech Stack](#tech-stack)
@@ -35,7 +35,7 @@
 - **Film Oracle & Companion (`/ai`):**
   - **Picks:** 3x2 Mood Matrix, free-text vibe matching, and collapsed region/streaming availability filters across **12 platforms** and **15 regions** — ranked locally (`50–99%` match scores + deterministic match badges) and curated by Gemini with offline ranker fallback.
   - **Film Companion:** Conversational cinema assistant with inline clickable movie cards parsed directly from recommendations.
-- **Movie Details (`/movie/:id`) & Quick Notes:** Backdrop hero banner, synchronized 10-star & 1–10 numeric Rating Deck, dynamic taste anchor tiers, shared 1-click praise & critique quick review tags (`quickReviewTags.js`, also inside `QuickRateModal` up to `200` chars), unified IMDb / Rotten Tomatoes / Metacritic / TMDB ratings, cast & crew credits, regional watch providers, and official trailer launcher.
+- **Movie Details (`/movie/:id`) & Quick Notes:** Backdrop hero banner, synchronized 10-star & 1–10 numeric Rating Deck, dynamic taste anchor tiers, shared 1-click praise & critique quick review tags (`quickReviewTags.js`, also inside `QuickRateModal` up to `200` chars), unified IMDb / Rotten Tomatoes / Metacritic / TMDB ratings, interactive clickable Cast & Creative Credits (`PersonFilmographyModal` + full `/person/:id` filmography route via `personService.js` with personal Vault stats, filters & quick rating), regional watch providers, and official trailer launcher.
 - **Command Search & Night Picker:** Instant `Cmd/Ctrl + K` (or `/`) dual-engine TMDB + OMDb split search modal plus a Night Picker for fast queue decisions.
 - **Hardened Portability, Safe Backfill & Opt-In Cloud Sync:** Full JSON v2 backups, bidirectional Letterboxd CSV and IMDb import/export (calendar validation, clustered bulk-import suppression, diary rewatch deduplication, and cross-ID `tmdb_...`/`tt...` duplicate collapsing), safe lazy background TMDB vault backfill (strict title/year match + TV series guard preserving cast, writers, tagline, runtime, language, origin, and keywords), and optional passwordless Email OTP sync via Supabase Auth & Postgres Row-Level Security.
 
@@ -75,10 +75,10 @@ movie-ratings/
 │   ├── components/              # Feature components, modals (Search, CloudSync, TasteDeck, Backup) & ui/ primitives
 │   ├── context/                 # AppContext vault state, local persistence & cloud sync orchestration
 │   ├── hooks/                   # Custom React hooks (scroll reveal, debouncing)
-│   ├── pages/                   # DashboardPage (/), VaultPage (/vault), AIPage (/ai), MoviePage (/movie/:id)
-│   ├── services/                # Scoring, CVEM embeddings, TMDB 5-bucket retrieval, ranker, CSV import, quickReviewTags & Gemini cascades
-│   └── styles/                  # Editorial design tokens, primitives, discover, vault & oracle stylesheets
-└── tests/                       # 29 automated suites using Node built-in test runner (249/249 passing)
+│   ├── pages/                   # DashboardPage (/), VaultPage (/vault), AIPage (/ai), MoviePage (/movie/:id), PersonPage (/person/:id)
+│   ├── services/                # Scoring, CVEM embeddings, TMDB 5-bucket retrieval, personService, ranker, CSV import, quickReviewTags & Gemini cascades
+│   └── styles/                  # Editorial design tokens, primitives, discover, vault, oracle & person stylesheets
+└── tests/                       # 31 automated suites using Node built-in test runner (274/274 passing)
 ```
 
 ---
@@ -125,7 +125,7 @@ OMDB_API_KEY=your_omdb_api_key_here
 # Start local Vite dev server (http://localhost:3000)
 npm start
 
-# Run all 249 offline unit & integration tests (29 files)
+# Run all 274 offline unit & integration tests (31 files)
 npm test
 
 # Run built-in offline recommender benchmark
@@ -149,7 +149,7 @@ npm run serve
 | **On-Device ML** | Custom `CVEM v1` 25k × 64 float16 collaborative embeddings + 11-feature logistic ranker |
 | **AI & Catalog APIs** | `@google/genai` (Gemini cascade), TMDB API v3, OMDb API |
 | **Optional Cloud Sync** | `@supabase/supabase-js` v2 with Email OTP auth and Postgres Row-Level Security |
-| **Testing** | Node built-in test runner (`node --test`) across 29 test suites (`249/249` passing) |
+| **Testing** | Node built-in test runner (`node --test`) across 31 test suites (`274/274` passing) |
 
 ---
 

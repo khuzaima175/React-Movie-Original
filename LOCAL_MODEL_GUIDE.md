@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
 **Last Updated:** November 15, 2026 (`main`)  
-**Status:** Production-ready on `main` · **`249 / 249` unit tests passing** across **29** suites · Production build green (**`2303` modules**)
+**Status:** Production-ready on `main` · **`274 / 274` unit tests passing** across **31** suites · Production build green (**`2309` modules**)
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -228,12 +228,12 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 
 Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 
-### Check 1: Run All 249 Unit Tests (~0.8s, Offline)
+### Check 1: Run All 274 Unit Tests (~0.8s, Offline)
 ```bash
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with **`tests 249 | pass 249 | fail 0 | skipped 0`** across all **29** suites:
+- Exits `0` with **`tests 274 | pass 274 | fail 0 | skipped 0`** across all **31** suites:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/contentSim.test.js`
@@ -251,6 +251,7 @@ npm test
   - `tests/movieIdentity.test.js`
   - `tests/navHelpers.test.js`
   - `tests/oracleViewHelpers.test.js`
+  - `tests/personService.test.js`
   - `tests/pipelineBugs.test.js`
   - `tests/quickReviewTags.test.js`
   - `tests/rankerService.test.js`
@@ -260,6 +261,7 @@ npm test
   - `tests/scoringUtils.test.js`
   - `tests/searchService.test.js`
   - `tests/tasteDeckService.test.js`
+  - `tests/tasteRulesService.test.js`
   - `tests/vaultPortability.test.js`
   - `tests/vaultStats.test.js`
   - `tests/vaultSyncService.test.js`

@@ -1,12 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
+import PersonFilmographyModal from "./PersonFilmographyModal";
 import { useApp } from "../context/AppContext";
 import { findTmdbByImdbId, findTmdbByTitleAndYear, fetchTmdbMovieDetails, getFallbackPoster, isSeriesVaultItem } from "../services/tmdbService";
 import { fetchOmdbJson } from "../services/apiTransport";
 import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
 import { findMatchingMovie } from "../services/movieIdentity";
+import {
+  extractMovieCreditPeople,
+  buildPersonProfileRoute,
+  shouldCloseMovieDetailOnEscape
+} from "../services/personService";
 import {
   QUICK_REVIEW_TAGS,
   hasQuickTagInNote,
@@ -14,6 +21,7 @@ import {
 } from "../services/quickReviewTags";
 import {
   ArrowLeft,
+  ChevronRight,
   Star,
   Bookmark,
   Plus,
@@ -48,9 +56,11 @@ export default function MovieDetails({
   onAddWatched,
   onAddToWatchlist,
   onRemoveWatchlist,
+  onQuickRate,
   watched = [],
   watchlist = []
 }) {
+  const navigate = useNavigate();
   const { userRegion, addToWatchlist: contextAddToWatchlist, deleteWatchlist: contextDeleteWatchlist } = useApp();
   const [movie, setMovie] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,6 +70,13 @@ export default function MovieDetails({
   const [userNote, setUserNote] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [activePerson, setActivePerson] = useState(null);
+
+  const creditPeople = useMemo(() => extractMovieCreditPeople(movie), [movie]);
+
+  useEffect(() => {
+    setActivePerson(null);
+  }, [selectedId]);
 
   // Match across tmdb_<id>, numeric tmdbId, imdbID, and title+year variants
   const movieIdentity = useMemo(
@@ -178,7 +195,7 @@ export default function MovieDetails({
 
         const castDetails = tmdbData?.castDetails?.length > 0
           ? tmdbData.castDetails
-          : (omdbData?.Actors ? omdbData.Actors.split(",").map((name, i) => ({ id: i, name: name.trim(), character: "Starring", profile: null })) : []);
+          : (omdbData?.Actors ? omdbData.Actors.split(",").map((name) => ({ id: null, name: name.trim(), character: "Starring", profile: null })) : []);
 
         // Scores Matrix
         const imdbRating = omdbData?.imdbRating && omdbData.imdbRating !== "N/A"
@@ -212,6 +229,10 @@ export default function MovieDetails({
           writers,
           cinematographer,
           composer,
+          directorDetails: tmdbData?.directorDetails || [],
+          writerDetails: tmdbData?.writerDetails || [],
+          cinematographerDetails: tmdbData?.cinematographerDetails || [],
+          composerDetails: tmdbData?.composerDetails || [],
           genres,
           castDetails,
           actors: tmdbData?.cast || omdbData?.Actors || "",
@@ -272,13 +293,15 @@ export default function MovieDetails({
   // ESC key listener to close
   useEffect(() => {
     function callback(e) {
-      if (e.code === "Escape") {
+      if (e.code !== "Escape") return;
+      const hasOpenDialog = Boolean(document.querySelector('[role="dialog"]'));
+      if (shouldCloseMovieDetailOnEscape({ activePerson, hasOpenDialog })) {
         onCloseMovie();
       }
     }
     document.addEventListener("keydown", callback);
     return () => document.removeEventListener("keydown", callback);
-  }, [onCloseMovie]);
+  }, [onCloseMovie, activePerson]);
 
   // Save to Vault
   function handleSave() {
@@ -839,12 +862,23 @@ export default function MovieDetails({
               </div>
 
               {/* Cast & Characters Gallery with Headshots */}
-              {movie.castDetails?.length > 0 && (
+              {creditPeople.cast.length > 0 && (
                 <div className="cast-gallery-section">
                   <h3 className="section-subtitle">Starring Cast & Characters</h3>
                   <div className="cast-gallery-grid">
-                    {movie.castDetails.slice(0, 8).map((actor) => (
-                      <div key={actor.id || actor.name} className="cast-actor-card">
+                    {creditPeople.cast.slice(0, 8).map((actor) => (
+                      <button
+                        key={actor.id || actor.name}
+                        type="button"
+                        onClick={() => setActivePerson({
+                          id: actor.id,
+                          name: actor.name,
+                          roleHint: actor.roleHint,
+                          profile: actor.profile
+                        })}
+                        className="cast-actor-card cast-actor-card--interactive"
+                        title={`View ${actor.name} filmography`}
+                      >
                         <div className="cast-avatar-wrap">
                           {actor.profile ? (
                             <img
@@ -865,7 +899,8 @@ export default function MovieDetails({
                             <span className="cast-character-name">{actor.character}</span>
                           )}
                         </div>
-                      </div>
+                        <ChevronRight size={14} className="cast-card-chevron" aria-hidden="true" />
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -873,41 +908,42 @@ export default function MovieDetails({
 
               {/* Creative Credits Matrix */}
               <div className="netflix-credits-grid luxury-credits-grid">
-                {movie.director && movie.director !== "N/A" && (
-                  <div className="credit-item">
-                    <span className="credit-label">
-                      <Clapperboard size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Director
-                    </span>
-                    <span className="credit-value">{movie.director}</span>
-                  </div>
-                )}
-
-                {movie.writers && movie.writers !== "N/A" && (
-                  <div className="credit-item">
-                    <span className="credit-label">
-                      <Film size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Screenplay & Writers
-                    </span>
-                    <span className="credit-value">{movie.writers}</span>
-                  </div>
-                )}
-
-                {movie.cinematographer && (
-                  <div className="credit-item">
-                    <span className="credit-label">
-                      <Camera size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Cinematography (DoP)
-                    </span>
-                    <span className="credit-value">{movie.cinematographer}</span>
-                  </div>
-                )}
-
-                {movie.composer && (
-                  <div className="credit-item">
-                    <span className="credit-label">
-                      <Music size={14} className="text-[var(--text-3)]" aria-hidden="true" /> Original Score
-                    </span>
-                    <span className="credit-value">{movie.composer}</span>
-                  </div>
-                )}
+                {[
+                  { key: "directors", label: "Director", Icon: Clapperboard, people: creditPeople.directors },
+                  { key: "writers", label: "Screenplay & Writers", Icon: Film, people: creditPeople.writers },
+                  { key: "cinematographers", label: "Cinematography (DoP)", Icon: Camera, people: creditPeople.cinematographers },
+                  { key: "composers", label: "Original Score", Icon: Music, people: creditPeople.composers }
+                ]
+                  .filter((row) => row.people.length > 0)
+                  .map(({ key, label, Icon, people }) => (
+                    <div key={key} className="credit-item">
+                      <span className="credit-label">
+                        <Icon size={14} className="text-[var(--text-3)]" aria-hidden="true" /> {label}
+                      </span>
+                      <div className="credit-value credit-person-list">
+                        {people.map((person, idx) => (
+                          <span key={person.id || `${person.name}-${idx}`}>
+                            <button
+                              type="button"
+                              onClick={() => setActivePerson({
+                                id: person.id,
+                                name: person.name,
+                                roleHint: person.roleHint,
+                                profile: null
+                              })}
+                              className="credit-person-btn"
+                              title={`View ${person.name} filmography`}
+                            >
+                              {person.name}
+                            </button>
+                            {idx < people.length - 1 && (
+                              <span className="credit-person-separator" aria-hidden="true">,</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
               </div>
 
               {/* Financial & Studio Production Intel */}
@@ -953,6 +989,24 @@ export default function MovieDetails({
           </div>
         </div>
       ) : null}
+
+      <PersonFilmographyModal
+        personTarget={activePerson}
+        watched={watched}
+        watchlist={watchlist}
+        onClose={() => setActivePerson(null)}
+        onSelectMovie={(credit) => {
+          setActivePerson(null);
+          navigate(`/movie/${credit.tmdbId}`);
+        }}
+        onQuickRate={onQuickRate}
+        onAddToWatchlist={onAddToWatchlist || contextAddToWatchlist}
+        onOpenFullProfile={(personId, dept) => {
+          const route = buildPersonProfileRoute(personId, dept);
+          setActivePerson(null);
+          if (route) navigate(route);
+        }}
+      />
     </div>
   );
 }

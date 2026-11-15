@@ -12,7 +12,7 @@
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-4_Hydrogen_Cascade-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-Smooth_Physics-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
-[![Tests 249/249](https://img.shields.io/badge/Tests-249%2F249_Passing-46d369?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md#6-how-to-check-everything-yourself-ez-verification-commands)
+[![Tests 274/274](https://img.shields.io/badge/Tests-274%2F274_Passing-46d369?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md#6-how-to-check-everything-yourself-ez-verification-commands)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
 
 [Explore Features](#-standout-features-showcase) • [Why CinemaVault?](#-the-problem-why-cinemavault) • [How It Works](#-the-magic-under-the-hood) • [Local ML & Bugs Fixed](#-on-device-local-ml--provenance-highlights) • [Quick Start](#-quickstart-guide)
@@ -155,6 +155,7 @@ CinemaVault replaces clunky dropdowns with a **synchronized dual rating interfac
   - **7★ Good Watch**: Solid craft baseline & director tally (Cyan).
   - **$\le$ 3★ Disliked/Flawed**: Extracts negative micro-keywords (e.g. *"slapstick"*, *"found-footage"*) and triggers embedding repulsion to steer away from similar disappointments.
 - **Review Notes & Contextual Quick Tags ([quickReviewTags.js](./src/services/quickReviewTags.js), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx))**: Write 1–2 lines explaining *why* you loved or bounced off a film (up to `200` chars in Quick Rate, unbounded in Movie Details — fed directly to Gemini up to `180` chars) with 1-click praise and critique chips (`#Masterpiece`, `#SmartPlot`, `#TightPacing`, `#SlowPacing`, `#WeakEnding`, `#TooBleak`).
+- **Clickable Cast, Director & Crew Filmography ([personService.js](./src/services/personService.js), [PersonFilmographyModal.jsx](./src/components/PersonFilmographyModal.jsx), [PersonPage.jsx](./src/pages/PersonPage.jsx))**: Click any actor card or Director/Writer/Cinematographer/Composer credit in `MovieDetails` to open a non-destructive Filmography Overlay (`Watched`, `Avg ★`, & `Watchlist` affinity stats, department tabs, status filters, `+ Save`, & `★ Rate`) or launch the dedicated `/person/:id` full profile page.
 
 ---
 
@@ -244,7 +245,7 @@ Everything about the local machine learning stack and engineering fixes is docum
   - **4-Vault Human Benchmark (`--benchmark .data/benchmark_vaults.json`):** `>= 8★` rolling mean reaches **`NDCG@10 = 0.1776`**, `Recall@20 = 0.2500`, `Precision@10 = 0.1667`, `withinUserAuc(>=9v<=7) = 0.7265`, `withinUserAuc(>=8v<=7) = 0.6422` (`+0.0160` NDCG@10 vs `post_fixes`); `>= 9★` (`3` eligible vaults) reaches **`NDCG@10 = 0.2258` (`+0.0345`)**, `Recall@20 = 0.3333`, `Precision@10 = 0.2167`, `withinUserAuc(>=9v<=7) = 0.6817` (`+0.0938`).
   - **328-User MovieLens Tune Cohort (`clean2`):** `>= 8★` lifts **`NDCG@10 = 0.0909`** (`+0.0061`, 95% CI `[+0.0000, +0.0126]`, significant), `Recall@20 = 0.1256`, `Precision@10 = 0.0805`, `withinUserAuc(>=9v<=7) = 0.7335` (`+0.0285*`), `withinUserAuc(>=8v<=7) = 0.6994` (`+0.0240*`); `>= 9★` (`n=304`) lifts **`NDCG@10 = 0.1145` (`+0.0095*`)**, `Recall@20 = 0.1448` (`+0.0082*`), `Precision@10 = 0.0947` (`+0.0076*`), `withinUserAuc(>=9v<=7) = 0.7458` (`+0.0301*`).
   - **Strictly Held-Out `fresh_300` Cohort (`clean2`):** `>= 8★` cuts `NegHit@20` to **`0.0032` (`-0.0018*`)** and lifts `withinUserAuc(>=9v<=7) = 0.7218` (`+0.0338*`) & `withinUserAuc(>=8v<=7) = 0.6788` (`+0.0256*`); `>= 9★` (`n=284`) lifts **`NDCG@10 = 0.1227` (`+0.0067*`)**, `Recall@20 = 0.1581`, **`Precision@10 = 0.0986` (`+0.0077*`)**, `withinUserAuc(>=9v<=7) = 0.7407` (`+0.0302*`), `withinUserAuc(>=8v<=7) = 0.6926` (`+0.0230*`).
-- **100% Test Coverage of Critical Pipelines:** **`249 / 249` unit tests pass** across all **29** test suites (`npm test`), covering float16 codec, relative cutoff, smooth `[0, 0.02]` damping & `catalog-max` invariance, mass-weighted persona mixture (`beta=20`) + `64×64` Ridge fold-in (`lambda=20`), reserve slot math, CSV rollover/cluster/rewatch logic, Schema v2 duplicate-safe portability, series-guarded lazy TMDB vault backfill (`cast`, `tagline`, `language`, `runtime`, `keywords`, overview) + HTTP `429` abort handling, cross-ID `movieIdentity`, Discover collision filtering, Rapid Taste Deck & contextual `quickReviewTags.js`, canonical mood policy + strict mood ranker rebalancing, generous-rater `>= 7★` negative-suppression guards, 39-pick stratified shortlist (`25+8+6`) + 10-pick soft director cap + auto-backfill + open `<= 20,000`-char / top-25 favorite / all-note / `LOVED SERIES / ANIME` Gemini curation + TMDB-verified `wildcardPicks` & refresh rotation, serverless `/api/*` proxies (including `/api/tmdb-batch`, `PROXY_RATE_LIMIT`, and `Sec-Fetch-Site` checks), H1 Gemini error classification/cooldowns + `45s` cascade deadline, online feedback weight updates, Supabase lossless keyset-paginated cloud sync, session `.bin` negative-caching + documented `coldOnly` fallback, and rolling evaluation.
+- **100% Test Coverage of Critical Pipelines:** **`274 / 274` unit tests pass** across all **31** test suites (`npm test`), covering float16 codec, relative cutoff, smooth `[0, 0.02]` damping & `catalog-max` invariance, mass-weighted persona mixture (`beta=20`) + `64×64` Ridge fold-in (`lambda=20`), reserve slot math, CSV rollover/cluster/rewatch logic, Schema v2 duplicate-safe portability, series-guarded lazy TMDB vault backfill (`cast`, `tagline`, `language`, `runtime`, `keywords`, overview) + HTTP `429` abort handling, cross-ID `movieIdentity`, Discover collision filtering, Rapid Taste Deck & contextual `quickReviewTags.js`, canonical mood policy + strict mood ranker rebalancing, generous-rater `>= 7★` negative-suppression guards, 39-pick stratified shortlist (`25+8+6`) + 10-pick soft director/collection caps + auto-backfill + open `<= 20,000`-char / top-25 favorite / all-note / `LOVED SERIES / ANIME` Gemini curation + TMDB-verified `wildcardPicks` & refresh rotation, steerable Taste Rules (`tasteRulesService.js`), interactive Person Filmography & Vault stats (`personService.js`), serverless `/api/*` proxies (including `/api/tmdb-batch`, `PROXY_RATE_LIMIT`, and `Sec-Fetch-Site` checks), H1 Gemini error classification/cooldowns + `45s` cascade deadline, online feedback weight updates, Supabase lossless keyset-paginated cloud sync, session `.bin` negative-caching + documented `coldOnly` fallback, and rolling evaluation.
 
 ---
 
@@ -253,7 +254,7 @@ Everything about the local machine learning stack and engineering fixes is docum
 | Layer | Technology | Why It Was Chosen |
 | :--- | :--- | :--- |
 | **Framework** | **React 18.3** | Declarative UI, Context API state management (`safeSetItem`), and modern component hooks. |
-| **Build & Tooling** | **Vite 5.4** | Instant Hot Module Replacement (HMR) and optimized Rollup production builds (**`2303`** modules). |
+| **Build & Tooling** | **Vite 5.4** | Instant Hot Module Replacement (HMR) and optimized Rollup production builds (**`2309`** modules). |
 | **On-Device ML** | **`CVEM v1` Float16 + Ridge & Logistic Ranker** | `3.15 MB` 25k-film collaborative index, mass-weighted K-Means mixture (`beta=20`) + `0.25` Ridge fold-in (`lambda=20`), `catalog-max` scaling, smoothstep damping, `moodPolicy.js` & 2 reserve slots. |
 | **AI Engine** | **Gemini 4 Hydrogen & Flash H1 Cascade** | `HIGH`-thinking `<= 20,000`-char 10-pick open curation over 39 stratified candidates, top-25 favorites, all `userNote`s, `LOVED SERIES / ANIME`, optional TMDB-verified `wildcardPicks`, anchor pairing & explanations, `FAST` interactive chat/vibe parsing, `35s` timeouts & error-specific cooldowns. |
 | **Serverless Security** | **Vercel Functions (`api/*.js`) + `apiTransport.js`** | Isolates `GEMINI_API_KEY`, `TMDB_API_KEY`, and `OMDB_API_KEY` server-side behind strict allowlists with zero secret leakage in `build/`. |
@@ -262,7 +263,7 @@ Everything about the local machine learning stack and engineering fixes is docum
 | **Motion** | **Framer Motion 12** | Spring physics, portal-based hover expansions, and `prefers-reduced-motion` accessibility. |
 | **Movie Data** | **TMDB API v3 & OMDb API** | 5-bucket retrieval (`A/B/C/D/E`), trailers, `13` watch-provider alias families across 15 regions, IMDb/RT/Metacritic scores. |
 | **Storage & Import** | **LocalStorage + `csvImport.js` + `vaultPortability.js`** | 100% guest-first persistence with `500KB` LRU cache (`v4`), deduplicated Schema v2 JSON export, hardened Letterboxd CSV importer, & lazy TMDB vault backfill. |
-| **Verification** | **`node --test` + `scripts/run_eval.mjs`** | **`249` offline unit tests** across **29** suites + rolling temporal cross-validation CLI harness. |
+| **Verification** | **`node --test` + `scripts/run_eval.mjs`** | **`274` offline unit tests** across **31** suites + rolling temporal cross-validation CLI harness. |
 
 ---
 
@@ -305,7 +306,7 @@ OMDB_API_KEY=your_omdb_api_key_here
 ### 3. Launch, Test, Evaluate & Build
 ```bash
 npm start                                 # Dev server at http://localhost:3000
-npm test                                  # Run all 249 offline unit tests across 29 suites (~0.8s)
+npm test                                  # Run all 274 offline unit tests across 31 suites (~0.8s)
 node scripts/run_eval.mjs --synthetic     # Run built-in offline recommender benchmark
 npm run build                             # Production bundle into build/
 npm run serve                             # Preview production build locally
@@ -326,8 +327,8 @@ npm run serve                             # Preview production build locally
 
 ## 📄 Documentation & License
 
-- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)** — Complete plain-English walkthrough of the local 25k `CVEM v1` model, provenance & zero-leakage proof, Phases A–J + Step 2/3B ablations, all 17 errors & fixes, and EZ verification commands (`249 / 249` across 29 suites).
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Full technical & mathematical specification (v5.0): z-scores, relative cutoff, mass-weighted persona mixture + 64×64 Ridge fold-in, `catalog-max` + smooth damping, 5-bucket retrieval + `moodPolicy.js` + Reserve Lane, `PROVIDER_FAMILY_MAP`, H1 `gemini-4-hydrogen` cascade (stratified 39-pick shortlist, `<= 20,000`-char unbiased open curation, top-25 favorites, all notes, `LOVED SERIES / ANIME`, & verified `wildcardPicks`), Smart Cache v4 & refresh rotation, serverless `/api/*` proxies, CSV & v2 portability, Supabase RLS schema, and 29-suite test map.
+- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)** — Complete plain-English walkthrough of the local 25k `CVEM v1` model, provenance & zero-leakage proof, Phases A–J + Step 2/3B ablations, all 17 errors & fixes, and EZ verification commands (`274 / 274` across 31 suites).
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Full technical & mathematical specification (v5.1): z-scores, relative cutoff, mass-weighted persona mixture + 64×64 Ridge fold-in, `catalog-max` + smooth damping, 5-bucket retrieval + `moodPolicy.js` + Reserve Lane, `PROVIDER_FAMILY_MAP`, H1 `gemini-4-hydrogen` cascade (stratified 39-pick shortlist, `<= 20,000`-char unbiased open curation, top-25 favorites, all notes, `LOVED SERIES / ANIME`, & verified `wildcardPicks`), Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`), interactive Actor/Director/Crew Filmography (`personService.js` + `/person/:id`), Smart Cache v4 & refresh rotation, serverless `/api/*` proxies, CSV & v2 portability, Supabase RLS schema, and 31-suite test map.
 - **[SPEC.md](./SPEC.md)** — Streaming-grade Frontend Overhaul UI/UX design tokens & component specification (v1.2 + v4.x + v5.0 Section 7 extensions).
 - **[README.md](./README.md)** — Quickstart repository README & overview.
 - Built and designed with precision by **[Khuzaima](https://github.com/khuzaima175)**.
