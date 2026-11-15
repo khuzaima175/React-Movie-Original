@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractTasteProfile, buildBucketAParams } from "../src/services/tmdbService.js";
+import { extractTasteProfile, buildBucketAParams, applyDetailsToCandidate, mergeBackfilledMovieMetadata } from "../src/services/tmdbService.js";
 import {
   DEFAULT_RECOMMENDATION_COUNT,
   MIN_VALID_CACHE_COUNT,
@@ -1186,5 +1186,41 @@ test("generateProfileHash invalidates when userNote changes while keeping empty-
     assert.equal(generateProfileHash({}, [], "any", [], null, "US", baseWatched), generateProfileHash({}, [], "any", [], null, "US", withEmptyNote));
     assert.notEqual(generateProfileHash({}, [], "any", [], null, "US", baseWatched), generateProfileHash({}, [], "any", [], null, "US", withNoteA));
     assert.notEqual(generateProfileHash({}, [], "any", [], null, "US", withNoteA), generateProfileHash({}, [], "any", [], null, "US", withNoteB));
+});
+
+test("applyDetailsToCandidate and mergeBackfilledMovieMetadata preserve cast, writers, tagline, runtime, language, origin, keywords, and overview fallback", () => {
+    const candidate = { id: 9001, tmdbId: 9001, title: "Cold Gem", overview: "" };
+    // Matches real formatTmdbMovieDetails output shape (strings for cast/writers/spokenLanguages/originCountry, array for keywordNames)
+    const details = {
+        director: "Denis Villeneuve",
+        cast: "Amy Adams, Jeremy Renner, Forest Whitaker",
+        writers: "Eric Heisserer",
+        tagline: "Why are they here?",
+        originCountry: "US",
+        spokenLanguages: "English, Mandarin",
+        mpaaRating: "PG-13",
+        runtimeMinutes: 116,
+        keywordNames: ["first contact", "linguistics", "non-linear timeline"],
+        plot: "A linguist works with the military to communicate with alien lifeforms.",
+    };
+    const merged = applyDetailsToCandidate(candidate, details);
+    assert.equal(merged.cast, details.cast);
+    assert.equal(merged.writers, details.writers);
+    assert.equal(merged.tagline, details.tagline);
+    assert.equal(merged.spokenLanguages, details.spokenLanguages);
+    assert.equal(merged.originCountry, details.originCountry);
+    assert.equal(merged.mpaaRating, "PG-13");
+    assert.equal(merged.runtimeMinutes, 116);
+    assert.deepEqual(merged.keywordNames, details.keywordNames);
+    assert.equal(merged.overview, details.plot);
+
+    const vaultItem = { title: "Cold Gem", userRating: 9, userNote: "Keep my note" };
+    const backfilled = mergeBackfilledMovieMetadata(vaultItem, 9001, details, null);
+    assert.equal(backfilled.userNote, "Keep my note");
+    assert.equal(backfilled.cast, details.cast);
+    assert.deepEqual(backfilled.keywordNames, details.keywordNames);
+    assert.equal(backfilled.runtimeMinutes, 116);
+    assert.equal(backfilled.spokenLanguages, details.spokenLanguages);
+    assert.equal(backfilled.tagline, details.tagline);
 });
 

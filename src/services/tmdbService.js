@@ -1081,6 +1081,7 @@ export function normalizeTmdbItem(m, sourceBucket = "TMDB", providerMatchedByQue
     poster_path: m.poster_path,
     poster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
     backdrop: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : null,
+    spokenLanguages: m.original_language ? String(m.original_language).trim() : null,
     sourceBucket,
     providerMatchedByQuery: Boolean(providerMatchedByQuery)
   };
@@ -1511,7 +1512,47 @@ async function fetchBatchFormattedDetailsMap(ids = [], userRegion = "US", option
   return resultMap;
 }
 
-function applyDetailsToCandidate(existing, details) {
+function pickRichValue(detailsVal, existingVal, maxArrayItems = null) {
+  const normalize = (val) => {
+    if (Array.isArray(val)) {
+      return val.length > 0 ? (maxArrayItems ? val.slice(0, maxArrayItems) : val) : null;
+    }
+    if (typeof val === "string") {
+      const cleaned = val.trim();
+      return cleaned && !/^n\/a$/i.test(cleaned) ? cleaned : null;
+    }
+    return null;
+  };
+  return normalize(detailsVal) ?? normalize(existingVal);
+}
+
+function pickEnrichedDetails(existing = {}, details = {}) {
+  const cast = pickRichValue(details.cast, existing.cast, 5);
+  const writers = pickRichValue(details.writers, existing.writers, 3);
+  const keywordNames = pickRichValue(details.keywordNames, existing.keywordNames);
+  const spokenLanguages = pickRichValue(details.spokenLanguages, existing.spokenLanguages);
+  const originCountry = pickRichValue(details.originCountry, existing.originCountry);
+  const tagline = pickRichValue(details.tagline, existing.tagline);
+  const mpaaRating = pickRichValue(details.mpaaRating, existing.mpaaRating);
+  const rawRuntime = Number(details.runtimeMinutes);
+  const existingRuntime = Number(existing.runtimeMinutes);
+  const runtimeMinutes = Number.isFinite(rawRuntime) && rawRuntime > 0
+    ? rawRuntime
+    : (Number.isFinite(existingRuntime) && existingRuntime > 0 ? existingRuntime : null);
+
+  return {
+    ...(cast ? { cast } : {}),
+    ...(writers ? { writers } : {}),
+    ...(keywordNames ? { keywordNames } : {}),
+    ...(spokenLanguages ? { spokenLanguages } : {}),
+    ...(originCountry ? { originCountry } : {}),
+    ...(tagline ? { tagline } : {}),
+    ...(mpaaRating ? { mpaaRating } : {}),
+    runtimeMinutes
+  };
+}
+
+export function applyDetailsToCandidate(existing, details) {
   if (!details) {
     return {
       ...existing,
@@ -1524,6 +1565,8 @@ function applyDetailsToCandidate(existing, details) {
   }
   return {
     ...existing,
+    ...pickEnrichedDetails(existing, details),
+    overview: existing.overview || details.plot || details.overview || "",
     director: details.director || existing.director,
     crewPersonId: details.crewPersonId ?? existing.crewPersonId ?? null,
     castIds: Array.isArray(details.castIds) ? details.castIds : (existing.castIds || []),
@@ -1538,7 +1581,6 @@ function applyDetailsToCandidate(existing, details) {
       ...(existing.features || {}),
       hydrated: true
     },
-    runtimeMinutes: details.runtimeMinutes ?? existing.runtimeMinutes ?? null,
     imdbID: details.imdbID ?? existing.imdbID ?? null,
     sourceBucket: existing.sourceBucket,
     providerMatchedByQuery: existing.providerMatchedByQuery,
@@ -1706,6 +1748,7 @@ export async function fetchEmbeddingCandidates(
           backdrop: details.backdrop || null,
           streamProviders: details.streamProviders || [],
           freeProviders: details.freeProviders || [],
+          ...pickEnrichedDetails({}, details),
           providersHydrated: true,
           hydrated: true,
           features: { hydrated: true },
@@ -1775,7 +1818,7 @@ export function getVaultBackfillItemKey(item) {
   return rawId ? `raw:${rawId}` : "";
 }
 
-function mergeBackfilledMovieMetadata(item, tmdbId, details, stub) {
+export function mergeBackfilledMovieMetadata(item, tmdbId, details, stub) {
   const existingImdb = String(item.imdbID || "").trim();
   const safeImdbId = /^tt\d+$/i.test(existingImdb)
     ? existingImdb
@@ -1802,6 +1845,7 @@ function mergeBackfilledMovieMetadata(item, tmdbId, details, stub) {
   };
 
   if (details) {
+    Object.assign(next, pickEnrichedDetails(next, details));
     if (Array.isArray(details.tmdbGenreIds)) next.tmdbGenreIds = details.tmdbGenreIds;
     if (Array.isArray(details.tmdbKeywords)) next.tmdbKeywords = details.tmdbKeywords;
     if (Array.isArray(details.castIds)) next.castIds = details.castIds;
