@@ -12,7 +12,7 @@
 [![Local ML CVEM v1](https://img.shields.io/badge/Local_ML-CVEM_v1_25k_f16-e5b84b?style=flat-square)](./LOCAL_MODEL_GUIDE.md)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-Resilient_Cascade-8e75ff?style=flat-square&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Supabase Cloud Sync](https://img.shields.io/badge/Supabase-Auth_%26_RLS_Sync-3ecf8e?style=flat-square&logo=supabase&logoColor=black)](./supabase/migrations/20261114000000_init_cinemavault_schema.sql)
-[![Tests 225/225](https://img.shields.io/badge/Tests-225%2F225-46d369?style=flat-square)](#development--testing)
+[![Tests 229/229](https://img.shields.io/badge/Tests-229%2F229-46d369?style=flat-square)](#development--testing)
 [![License MIT](https://img.shields.io/badge/License-MIT-e5b84b?style=flat-square)](#license)
 
 [Features](#features) · [Recommendation Pipeline](#recommendation-pipeline) · [Project Structure](#project-structure) · [Getting Started](#getting-started) · [Tech Stack](#tech-stack)
@@ -78,7 +78,7 @@ movie-ratings/
 │   ├── pages/                   # DashboardPage (/), VaultPage (/vault), AIPage (/ai), MoviePage (/movie/:id)
 │   ├── services/                # Scoring, CVEM embeddings, TMDB 5-bucket retrieval, ranker, CSV import & Gemini cascades
 │   └── styles/                  # Editorial design tokens, primitives, discover, vault & oracle stylesheets
-└── tests/                       # 28 automated suites using Node built-in test runner (225/225 passing)
+└── tests/                       # 28 automated suites using Node built-in test runner (229/229 passing)
 ```
 
 ---
@@ -125,7 +125,7 @@ OMDB_API_KEY=your_omdb_api_key_here
 # Start local Vite dev server (http://localhost:3000)
 npm start
 
-# Run all 225 offline unit & integration tests (28 files)
+# Run all 229 offline unit & integration tests (28 files)
 npm test
 
 # Run built-in offline recommender benchmark

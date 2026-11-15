@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
 **Last Updated:** November 15, 2026 (`main`)  
-**Status:** Production-ready on `main` · **`225 / 225` unit tests passing** across **28** suites · Production build green (**`2302` modules**)
+**Status:** Production-ready on `main` · **`229 / 229` unit tests passing** across **28** suites · Production build green (**`2302` modules**)
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -225,12 +225,12 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 
 Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 
-### Check 1: Run All 225 Unit Tests (~0.8s, Offline)
+### Check 1: Run All 229 Unit Tests (~0.8s, Offline)
 ```bash
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with **`tests 225 | pass 225 | fail 0 | skipped 0`** across all **28** suites:
+- Exits `0` with **`tests 229 | pass 229 | fail 0 | skipped 0`** across all **28** suites:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/contentSim.test.js`
@@ -291,6 +291,10 @@ node scripts/run_eval.mjs --benchmark .data/benchmark_vaults.json --embeddings p
 - `ml-user-561`: `Recall@20 = 0.000`, `NDCG@10 = 0.000`, `Novelty = 2.458`
 - `ml-user-89`: `Recall@20 = 0.000`, `NDCG@10 = 0.000`, `Novelty = 1.911` (`vault emb cov 60/98`)
 - **4-vault mean:** **`NDCG@10 = 0.178`, `Recall@20 = 0.250`, `Novelty = 2.206`** (with `clean2` `>= 8★` rolling mean `NDCG@10 = 0.1776`, `AUC9v7 = 0.7265`, and `>= 9★` `NDCG@10 = 0.2258`, `Recall@20 = 0.3333`) — clearing the earlier Nov 11 32M milestone (`0.143 / 0.242 / 2.24`) and well above the `9.6k` small baseline (`0.062 / 0.083 / 1.48`).
+
+**Additional evaluation-only experiment scripts (no production defaults changed):**
+- **Warm vs. cold partial-mask harness:** `scripts/experiments/run_ablation.mjs` accepts `--mask-frac <0..1>` and `--mask-seed <int>` (powered by `scripts/experiments/mask_eval_utils.mjs`) to mask candidate-side `collabSimMap` / `repulsionMap` entries after building full-index user taste vectors so masked films take the `coldOnly` structured fallback; run the full sweep via `node scripts/experiments/run_partial_mask_eval.mjs` -> `scripts/experiments/results/partial_mask_eval.{json,md}`.
+- **Isolated Bucket E recall sweep:** `node scripts/experiments/bucket_e_recall.mjs` evaluates `retrieveAlignedEmbeddingNeighbors` across `topK ∈ {15, 30, 45, 60, 80, 100, 150}` against `328` and `fresh_300` (`>=8★` and `>=9★`) in isolation (without TMDB Buckets A–D) and writes `scripts/experiments/results/bucket_e_recall.{json,md}`.
 
 ### Check 5: Retrain or Regenerate the Local `.bin` Model (Only When Updating MovieLens Data)
 ```bash

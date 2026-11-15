@@ -1,0 +1,385 @@
+{
+  "generatedAt": "2026-11-15T03:20:01.766Z",
+  "embeddingIndexPath": ".data/item_embeddings_clean2_f16.bin",
+  "topKGrid": [
+    15,
+    30,
+    45,
+    60,
+    80,
+    100,
+    150
+  ],
+  "caveat": "SCOPE CAVEAT: This standalone script measures Bucket E (retrieveAlignedEmbeddingNeighbors) in isolation against the 25k embedding index. Because the offline harness does not execute live TMDB Buckets A-D, these numbers CANNOT measure how much additional value larger Bucket E injection sizes (e.g., 30->60) add beyond candidates that Buckets A-D already retrieve. Production defaults (maxNeighbors=30 under 'any', 15 under explicit mood in src/services/geminiService.js) remain unchanged.",
+  "productionDefaultsUnchanged": {
+    "anyVibeMaxNeighbors": 30,
+    "explicitMoodMaxNeighbors": 15,
+    "retrieveTopK": 80
+  },
+  "datasets": [
+    {
+      "label": "328 >=8★",
+      "validUsers": 328,
+      "totalUsers": 328,
+      "minPos": 8,
+      "totalHoldoutPos": 3280,
+      "indexedHoldoutPos": 3235,
+      "indexCeilingMicro": 0.9862804878048781,
+      "indexCeilingMacro": 0.9862804878048775,
+      "byK": [
+        {
+          "topK": 15,
+          "totalHits": 344,
+          "recallMacro": 0.10487804878048787,
+          "recallMicro": 0.1048780487804878,
+          "indexedRecallMacro": 0.10592818428184289,
+          "indexedRecallMicro": 0.1063369397217929,
+          "perUserHitRate": 0.5304878048780488,
+          "usersWithHit": 174
+        },
+        {
+          "topK": 30,
+          "totalHits": 541,
+          "recallMacro": 0.16493902439024402,
+          "recallMicro": 0.1649390243902439,
+          "indexedRecallMacro": 0.16653116531165327,
+          "indexedRecallMicro": 0.16723338485316847,
+          "perUserHitRate": 0.6737804878048781,
+          "usersWithHit": 221
+        },
+        {
+          "topK": 45,
+          "totalHits": 701,
+          "recallMacro": 0.21371951219512195,
+          "recallMicro": 0.21371951219512195,
+          "indexedRecallMacro": 0.21580284552845527,
+          "indexedRecallMicro": 0.21669242658423493,
+          "perUserHitRate": 0.7378048780487805,
+          "usersWithHit": 242
+        },
+        {
+          "topK": 60,
+          "totalHits": 828,
+          "recallMacro": 0.2524390243902437,
+          "recallMicro": 0.2524390243902439,
+          "indexedRecallMacro": 0.2548949864498643,
+          "indexedRecallMicro": 0.2559505409582689,
+          "perUserHitRate": 0.7896341463414634,
+          "usersWithHit": 259
+        },
+        {
+          "topK": 80,
+          "totalHits": 962,
+          "recallMacro": 0.2932926829268292,
+          "recallMicro": 0.29329268292682925,
+          "indexedRecallMacro": 0.29696331784746427,
+          "indexedRecallMicro": 0.2973724884080371,
+          "perUserHitRate": 0.8475609756097561,
+          "usersWithHit": 278
+        },
+        {
+          "topK": 100,
+          "totalHits": 1098,
+          "recallMacro": 0.33475609756097535,
+          "recallMicro": 0.33475609756097563,
+          "indexedRecallMacro": 0.338833236546651,
+          "indexedRecallMicro": 0.33941267387944357,
+          "perUserHitRate": 0.8689024390243902,
+          "usersWithHit": 285
+        },
+        {
+          "topK": 150,
+          "totalHits": 1343,
+          "recallMacro": 0.40945121951219515,
+          "recallMicro": 0.4094512195121951,
+          "indexedRecallMacro": 0.4147224641889277,
+          "indexedRecallMicro": 0.4151468315301391,
+          "perUserHitRate": 0.9115853658536586,
+          "usersWithHit": 299
+        }
+      ],
+      "marginal30to60": {
+        "marginalHits": 287,
+        "marginalHitsPerUser": 0.875,
+        "hitRateGain": 0.11585365853658536,
+        "usersUnlockedFromZero": 38,
+        "recallMacroGain": 0.08749999999999966,
+        "recallMicroGain": 0.0875,
+        "indexedRecallMacroGain": 0.08836382113821104
+      }
+    },
+    {
+      "label": "328 >=9★",
+      "validUsers": 304,
+      "totalUsers": 328,
+      "minPos": 9,
+      "totalHoldoutPos": 3000,
+      "indexedHoldoutPos": 2967,
+      "indexCeilingMicro": 0.989,
+      "indexCeilingMacro": 0.989144736842105,
+      "byK": [
+        {
+          "topK": 15,
+          "totalHits": 344,
+          "recallMacro": 0.11634163533834598,
+          "recallMicro": 0.11466666666666667,
+          "indexedRecallMacro": 0.11760521094402684,
+          "indexedRecallMicro": 0.11594202898550725,
+          "perUserHitRate": 0.5526315789473685,
+          "usersWithHit": 168
+        },
+        {
+          "topK": 30,
+          "totalHits": 542,
+          "recallMacro": 0.18246788847117812,
+          "recallMicro": 0.18066666666666667,
+          "indexedRecallMacro": 0.1844206871345032,
+          "indexedRecallMicro": 0.18267610380856084,
+          "perUserHitRate": 0.7236842105263158,
+          "usersWithHit": 220
+        },
+        {
+          "topK": 45,
+          "totalHits": 692,
+          "recallMacro": 0.2322433688387636,
+          "recallMicro": 0.23066666666666666,
+          "indexedRecallMacro": 0.23460735171261496,
+          "indexedRecallMicro": 0.23323222109875294,
+          "perUserHitRate": 0.8125,
+          "usersWithHit": 247
+        },
+        {
+          "topK": 60,
+          "totalHits": 838,
+          "recallMacro": 0.2804472117794484,
+          "recallMicro": 0.2793333333333333,
+          "indexedRecallMacro": 0.2831127297410191,
+          "indexedRecallMicro": 0.2824401752612066,
+          "perUserHitRate": 0.8651315789473685,
+          "usersWithHit": 263
+        },
+        {
+          "topK": 80,
+          "totalHits": 998,
+          "recallMacro": 0.3334482038429404,
+          "recallMicro": 0.33266666666666667,
+          "indexedRecallMacro": 0.3367024331662487,
+          "indexedRecallMicro": 0.33636670037074484,
+          "perUserHitRate": 0.9078947368421053,
+          "usersWithHit": 276
+        },
+        {
+          "topK": 100,
+          "totalHits": 1135,
+          "recallMacro": 0.37932722431077687,
+          "recallMicro": 0.37833333333333335,
+          "indexedRecallMacro": 0.38324718045112777,
+          "indexedRecallMicro": 0.382541287495787,
+          "perUserHitRate": 0.944078947368421,
+          "usersWithHit": 287
+        },
+        {
+          "topK": 150,
+          "totalHits": 1372,
+          "recallMacro": 0.45846647869674173,
+          "recallMicro": 0.4573333333333333,
+          "indexedRecallMacro": 0.4631252610693399,
+          "indexedRecallMicro": 0.46241995281429055,
+          "perUserHitRate": 0.9736842105263158,
+          "usersWithHit": 296
+        }
+      ],
+      "marginal30to60": {
+        "marginalHits": 296,
+        "marginalHitsPerUser": 0.9736842105263158,
+        "hitRateGain": 0.14144736842105265,
+        "usersUnlockedFromZero": 43,
+        "recallMacroGain": 0.0979793233082703,
+        "recallMicroGain": 0.09866666666666665,
+        "indexedRecallMacroGain": 0.0986920426065159
+      }
+    },
+    {
+      "label": "fresh_300 >=8★",
+      "validUsers": 300,
+      "totalUsers": 300,
+      "minPos": 8,
+      "totalHoldoutPos": 3000,
+      "indexedHoldoutPos": 2999,
+      "indexCeilingMicro": 0.9996666666666667,
+      "indexCeilingMacro": 0.9996666666666666,
+      "byK": [
+        {
+          "topK": 15,
+          "totalHits": 294,
+          "recallMacro": 0.09800000000000011,
+          "recallMicro": 0.098,
+          "indexedRecallMacro": 0.09800000000000011,
+          "indexedRecallMicro": 0.09803267755918639,
+          "perUserHitRate": 0.5566666666666666,
+          "usersWithHit": 167
+        },
+        {
+          "topK": 30,
+          "totalHits": 477,
+          "recallMacro": 0.15900000000000034,
+          "recallMicro": 0.159,
+          "indexedRecallMacro": 0.15900000000000034,
+          "indexedRecallMicro": 0.15905301767255753,
+          "perUserHitRate": 0.7033333333333334,
+          "usersWithHit": 211
+        },
+        {
+          "topK": 45,
+          "totalHits": 623,
+          "recallMacro": 0.207666666666667,
+          "recallMicro": 0.20766666666666667,
+          "indexedRecallMacro": 0.207666666666667,
+          "indexedRecallMicro": 0.20773591197065688,
+          "perUserHitRate": 0.7833333333333333,
+          "usersWithHit": 235
+        },
+        {
+          "topK": 60,
+          "totalHits": 735,
+          "recallMacro": 0.24500000000000038,
+          "recallMicro": 0.245,
+          "indexedRecallMacro": 0.24500000000000038,
+          "indexedRecallMicro": 0.245081693897966,
+          "perUserHitRate": 0.8333333333333334,
+          "usersWithHit": 250
+        },
+        {
+          "topK": 80,
+          "totalHits": 861,
+          "recallMacro": 0.287,
+          "recallMicro": 0.287,
+          "indexedRecallMacro": 0.287,
+          "indexedRecallMicro": 0.2870956985661887,
+          "perUserHitRate": 0.8666666666666667,
+          "usersWithHit": 260
+        },
+        {
+          "topK": 100,
+          "totalHits": 999,
+          "recallMacro": 0.3330000000000002,
+          "recallMicro": 0.333,
+          "indexedRecallMacro": 0.3330000000000002,
+          "indexedRecallMicro": 0.33311103701233746,
+          "perUserHitRate": 0.9166666666666666,
+          "usersWithHit": 275
+        },
+        {
+          "topK": 150,
+          "totalHits": 1213,
+          "recallMacro": 0.4043333333333335,
+          "recallMicro": 0.4043333333333333,
+          "indexedRecallMacro": 0.4043333333333335,
+          "indexedRecallMicro": 0.40446815605201736,
+          "perUserHitRate": 0.9466666666666667,
+          "usersWithHit": 284
+        }
+      ],
+      "marginal30to60": {
+        "marginalHits": 258,
+        "marginalHitsPerUser": 0.86,
+        "hitRateGain": 0.13,
+        "usersUnlockedFromZero": 39,
+        "recallMacroGain": 0.08600000000000005,
+        "recallMicroGain": 0.086,
+        "indexedRecallMacroGain": 0.08600000000000005
+      }
+    },
+    {
+      "label": "fresh_300 >=9★",
+      "validUsers": 284,
+      "totalUsers": 300,
+      "minPos": 9,
+      "totalHoldoutPos": 2814,
+      "indexedHoldoutPos": 2813,
+      "indexCeilingMicro": 0.9996446339729922,
+      "indexCeilingMacro": 0.9996478873239436,
+      "byK": [
+        {
+          "topK": 15,
+          "totalHits": 343,
+          "recallMacro": 0.12265258215962462,
+          "recallMicro": 0.12189054726368159,
+          "indexedRecallMacro": 0.12265258215962462,
+          "indexedRecallMicro": 0.12193387842161393,
+          "perUserHitRate": 0.6690140845070423,
+          "usersWithHit": 190
+        },
+        {
+          "topK": 30,
+          "totalHits": 559,
+          "recallMacro": 0.19909456740442685,
+          "recallMicro": 0.19864960909737028,
+          "indexedRecallMacro": 0.19909456740442685,
+          "indexedRecallMicro": 0.19872022751510843,
+          "perUserHitRate": 0.8204225352112676,
+          "usersWithHit": 233
+        },
+        {
+          "topK": 45,
+          "totalHits": 703,
+          "recallMacro": 0.24979879275653932,
+          "recallMicro": 0.2498223169864961,
+          "indexedRecallMacro": 0.24979879275653932,
+          "indexedRecallMicro": 0.24991112691077141,
+          "perUserHitRate": 0.8732394366197183,
+          "usersWithHit": 248
+        },
+        {
+          "topK": 60,
+          "totalHits": 822,
+          "recallMacro": 0.2917002012072434,
+          "recallMicro": 0.2921108742004264,
+          "indexedRecallMacro": 0.2917002012072434,
+          "indexedRecallMicro": 0.29221471738357624,
+          "perUserHitRate": 0.926056338028169,
+          "usersWithHit": 263
+        },
+        {
+          "topK": 80,
+          "totalHits": 984,
+          "recallMacro": 0.3494215291750505,
+          "recallMicro": 0.34968017057569295,
+          "indexedRecallMacro": 0.3494215291750505,
+          "indexedRecallMicro": 0.3498044792036971,
+          "perUserHitRate": 0.9471830985915493,
+          "usersWithHit": 269
+        },
+        {
+          "topK": 100,
+          "totalHits": 1101,
+          "recallMacro": 0.3907696177062376,
+          "recallMicro": 0.39125799573560766,
+          "indexedRecallMacro": 0.3907696177062376,
+          "indexedRecallMicro": 0.3913970849626733,
+          "perUserHitRate": 0.971830985915493,
+          "usersWithHit": 276
+        },
+        {
+          "topK": 150,
+          "totalHits": 1322,
+          "recallMacro": 0.46979376257545286,
+          "recallMicro": 0.46979388770433544,
+          "indexedRecallMacro": 0.46979376257545286,
+          "indexedRecallMicro": 0.4699608958407394,
+          "perUserHitRate": 0.9823943661971831,
+          "usersWithHit": 279
+        }
+      ],
+      "marginal30to60": {
+        "marginalHits": 263,
+        "marginalHitsPerUser": 0.926056338028169,
+        "hitRateGain": 0.10563380281690138,
+        "usersUnlockedFromZero": 30,
+        "recallMacroGain": 0.09260563380281653,
+        "recallMicroGain": 0.09346126510305613,
+        "indexedRecallMacroGain": 0.09260563380281653
+      }
+    }
+  ]
+}

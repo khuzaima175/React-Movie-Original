@@ -217,3 +217,67 @@ test("computeWarmColdBreakdown and aggregateWarmColdBreakdowns split warm, maske
   assert.equal(agg.totalWarmHits, 1);
   assert.equal(agg.microMaskedRecall20, 0.5);
 });
+
+test("evaluateBucketECohort computes isolated Bucket E recall, index ceiling, indexed-only recall, hit rate, and 30->60 marginals", async () => {
+  const { evaluateBucketECohort, retrieveBucketENeighborsForTrainVault } = await import(
+    "../scripts/experiments/bucket_e_recall.mjs"
+  );
+  const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+
+  // Build synthetic index of 70 items: 101 (loved in train), 102 (disliked in train),
+  // holdout items 201 (rank <= 30), 202 (rank 31..60), 203 (rank > 60), 9999 (unindexed),
+  // plus filler items 500..564 sorted smoothly by alignment with [1, 0, 0, 0].
+  const items = [
+    { tmdbId: 101, vector: [1, 0, 0, 0] },
+    { tmdbId: 102, vector: [0, 1, 0, 0] },
+    { tmdbId: 201, vector: [0.99, 0, 0, 0.1] },
+    { tmdbId: 202, vector: [0.65, 0, 0, 0.76] },
+    { tmdbId: 203, vector: [0.1, 0, 0, 0.99] }
+  ];
+  // Top 35 fillers strictly better than 202 ([0.65, 0, 0, 0.76]) so 202 lands around rank 37 (in 30..60)
+  for (let i = 0; i < 65; i++) {
+    const x = i < 35 ? 0.98 - i * 0.008 : 0.6 - (i - 35) * 0.01;
+    const w = Math.sqrt(Math.max(0, 1 - x * x));
+    items.push({ tmdbId: 500 + i, vector: [x, 0, 0, w] });
+  }
+  const emb = parseEmbeddingBinary(encodeEmbeddingBinary(items));
+
+  const trainRatings = Array.from({ length: 12 }, (_, idx) => ({
+    id: idx === 0 ? 101 : idx === 1 ? 102 : 700 + idx,
+    tmdbId: idx === 0 ? 101 : idx === 1 ? 102 : 700 + idx,
+    userRating: idx === 0 ? 10 : idx === 1 ? 2 : 6,
+    dateWatched: `2026-01-${String(idx + 1).padStart(2, "0")}`
+  }));
+  const holdoutRatings = [
+    { id: 201, tmdbId: 201, userRating: 9, dateWatched: "2026-02-01" },
+    { id: 202, tmdbId: 202, userRating: 9, dateWatched: "2026-02-02" },
+    { id: 203, tmdbId: 203, userRating: 9, dateWatched: "2026-02-03" },
+    ...Array.from({ length: 7 }, (_, i) => ({
+      id: 9900 + i,
+      tmdbId: 9900 + i,
+      userRating: 8,
+      dateWatched: `2026-02-${String(i + 4).padStart(2, "0")}`
+    }))
+  ];
+  const user = { uid: "u1", ratings: [...trainRatings, ...holdoutRatings] };
+
+  // Prefix invariance check: slice(0, 30) matches calling with maxK=30
+  const n30 = await retrieveBucketENeighborsForTrainVault(trainRatings, null, emb, 30);
+  const n60 = await retrieveBucketENeighborsForTrainVault(trainRatings, null, emb, 60);
+  assert.deepEqual(n60.slice(0, 30).map(x => x.tmdbId), n30.map(x => x.tmdbId));
+  assert.equal(n30.some(x => x.tmdbId === 101), false, "train vault item must be excluded");
+
+  const report = await evaluateBucketECohort([user], emb, 8, [15, 30, 60, 150]);
+  assert.equal(report.validUsers, 1);
+  assert.equal(report.totalHoldoutPos, 10);
+  assert.equal(report.indexedHoldoutPos, 3);
+  assert.equal(report.indexCeilingMicro, 0.3);
+
+  const row30 = report.byK.find(r => r.topK === 30);
+  const row60 = report.byK.find(r => r.topK === 60);
+  assert.equal(row30.totalHits, 1);
+  assert.equal(row30.recallMicro, 0.1);
+  assert.ok(Math.abs(row30.indexedRecallMicro - 1 / 3) < 1e-9);
+  assert.equal(row60.totalHits, 2);
+  assert.equal(report.marginal30to60.marginalHits, 1);
+});
