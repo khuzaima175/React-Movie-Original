@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
 **Last Updated:** November 15, 2026 (`main`)  
-**Status:** Production-ready on `main` · **`234 / 234` unit tests passing** across **28** suites · Production build green (**`2302` modules**)
+**Status:** Production-ready on `main` · **`241 / 241` unit tests passing** across **29** suites · Production build green (**`2303` modules**)
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -98,9 +98,9 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
    │
    └─► 5. geminiService.js + apiTransport.js (H1 Cascade -> 10 Picks + Rotation + Smart Cache v4)
           • Calls `/api/gemini` proxy in production (zero client keys) or direct key in local dev
-          • Sends up to Top 30 + <=10 mood-stratified anchors + `6–7★` `NEAR MISSES` + disliked/dismissed (`already_seen`-exempt) guardrails to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
-          • Uses per-model AbortController timeouts (35s Hydrogen, 15s Flash curation models)
-          • Selects 10 diverse winners (`DEFAULT_RECOMMENDATION_COUNT = 10`) with two-pass soft max-2-per-director cap, deterministic top-up backfill, & session Refresh rotation (`120` IDs, pages `1..5`)
+          • Sends `userStats`, `topDirectors`, <=10 anchors (`[Series]` + `userNote` <=180 chars), <=5 disliked/dismissed (nested `{ movie, weight, zScore }` lookup), <=3 recent (`120`-char notes), `6–7★` `NEAR MISSES`, <=8 `USER'S WATCHLIST`, & Top 30 compact candidates (`Specs`, top 3 `Cast`, top 5 `Themes`, `Tagline` <=70, `Plot` <=250, bounded `< 18,000` chars) to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
+          • Uses per-model AbortController timeouts (35s Hydrogen, 15s Flash curation models) & balanced `#1–#15` default vs `#16–#30` promotion/veto curation rules
+          • Selects 10 diverse winners (`DEFAULT_RECOMMENDATION_COUNT = 10`) with two-pass soft max-2-per-director cap, deterministic top-up backfill, note-aware profile cache hashing, & session Refresh rotation (`120` IDs, pages `1..5`)
           • If every cloud model fails or key/proxy is absent, falls back cleanly to Top 10 from ranker!
 ```
 
@@ -219,6 +219,7 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 | **13** | **"Match Vibe" failed offline & Refresh repeated the exact same 6 cards** | Free-text parser returned `null` offline/keyless and closure state lagged in React; refresh re-ran the identical TMDB page `1` with no exclusions and capped output at `6` | Added `parseFreeTextMoodFallback`, override args in `handleGetRecommendations`, **`DEFAULT_RECOMMENDATION_COUNT = 10`**, `MIN_VALID_CACHE_COUNT = 7` in `cinemavault_smart_cache_v4`, & `nextRefreshExcludeState` (`120` IDs, pages `1..5`) + exhaustion padding guard | [oracleViewHelpers.js](./src/services/oracleViewHelpers.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx) |
 | **14** | **Client production bundle risked exposing API secrets & cross-ID duplicates skipped Vault collision checks** | Vite `VITE_*` vars embed in `build/assets/*.js`; `tmdb_123` vs `tt...` caused Hero/Home/Vault duplicates & silent `5★`/`7★` fake CSV ratings | Added `/api/{gemini,tmdb,omdb}` Vercel proxies + `apiTransport.js`, canonical `movieIdentity.js` (`isSameMovie`), `vaultPortability.js` (`0` rating preservation), & opt-in Supabase RLS sync | [api/](./api), [apiTransport.js](./src/services/apiTransport.js), [movieIdentity.js](./src/services/movieIdentity.js), [vaultPortability.js](./src/services/vaultPortability.js) |
 | **15** | **Pre-2024 OMDb/CSV movies lacked `tmdbId` & keywords (hiding indexed favorites from embeddings), TV shows risked movie-ID collision, & `tmdb_...`/`tt...` imports duplicated entries** | Legacy imports saved only `imdbID` (or un-enriched Quick Rate entries); untyped series (`2017–2020`) lacked `/3/find` TV guards; `summarizeImportDiff` used single-key maps & batch fetches looped past `429` | Added series-guarded `backfillMissingTmdbIds` (`maxItems: 40`, `maxLookups: 15`, strict `±1`-year lookup, `tv_results` skip, `"N/A"` poster guard), `AppContext` deferred mount backfill + `addWatched` hydration, `MovieDetails` `isSeriesVaultItem` guard, `apiTransport` `429` stop, & `isSameMovie` dedupe in `summarizeImportDiff` | [tmdbService.js](./src/services/tmdbService.js), [AppContext.jsx](./src/context/AppContext.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx), [vaultPortability.js](./src/services/vaultPortability.js), [apiTransport.js](./src/services/apiTransport.js) |
+| **16** | **Gemini curation dropped `5★` relative dislikes (e.g., *Parasite*, *Spirited Away*), ignored `userNote` cache updates, omitted `userStats`/`topDirectors`/`Watchlist`/candidate themes & cast, and truncated plots at 140 chars** | `buildMovieIdentityLookup` checked flat `item.tmdbId` instead of nested `weightedRatings[].movie`, `buildWatchedHashSegment` excluded `userNote`, `mergeBackfilledMovieMetadata` dropped `cast`/`tagline`/`language`/`runtime`, & candidate formatter omitted hydrated TMDB fields | Fixed nested `{ movie, weight, zScore }` lookup, hashed `userNote` into `vlt_` cache keys, preserved `cast`/`writers`/`tagline`/`originCountry`/`spokenLanguages`/`mpaaRating`/`runtimeMinutes`/`keywordNames`/`overview`, wired `userStats`+`topDirectors`+`[Series]`+`USER'S WATCHLIST`+`180`-char notes, added `< 18,000`-char compact candidate blocks + `#1–#15`/`#16–#30` balance rules, & shared praise/critique `quickReviewTags.js` across `QuickRateModal` (`maxLength=200`) & `MovieDetails` | [geminiService.js](./src/services/geminiService.js), [tmdbService.js](./src/services/tmdbService.js), [quickReviewTags.js](./src/services/quickReviewTags.js), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx) |
 
 ---
 
@@ -226,12 +227,12 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 
 Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 
-### Check 1: Run All 234 Unit Tests (~0.8s, Offline)
+### Check 1: Run All 241 Unit Tests (~0.8s, Offline)
 ```bash
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with **`tests 234 | pass 234 | fail 0 | skipped 0`** across all **28** suites:
+- Exits `0` with **`tests 241 | pass 241 | fail 0 | skipped 0`** across all **29** suites:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/contentSim.test.js`
@@ -250,6 +251,7 @@ npm test
   - `tests/navHelpers.test.js`
   - `tests/oracleViewHelpers.test.js`
   - `tests/pipelineBugs.test.js`
+  - `tests/quickReviewTags.test.js`
   - `tests/rankerService.test.js`
   - `tests/rankerStep2.test.js`
   - `tests/ratingTiers.test.js`
@@ -266,7 +268,7 @@ npm test
 npm run build
 ```
 **What "healthy" looks like:**
-- Exits `0`, transforms **`2302 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- Exits `0`, transforms **`2303 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
 - When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
 ### Check 3: Inspect the Active `.bin` Model Header & Exact Byte Count
