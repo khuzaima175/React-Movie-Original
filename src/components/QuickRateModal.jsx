@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Bookmark, Check, Flame, Star } from "lucide-react";
 import { Modal } from "./ui/Modal";
 import PosterImage from "./PosterImage";
+import StarRatingStage from "./StarRatingStage";
 import { buildSeenCollisionSet } from "../services/dashboardService";
 import {
   getRatingTier,
@@ -99,59 +100,14 @@ export default function QuickRateModal({
         </div>
 
         <div className="quick-rate-picker">
-          <div className="quick-rate-picker-head">
-            <span className="quick-rate-picker-label">
-              <Flame size={15} className="text-[var(--text-3)]" aria-hidden="true" />
-              Your Rating (1–10)
-            </span>
-            <span
-              className="quick-rate-tier-pill"
-              style={{
-                color: activeTier.color,
-                background: activeTier.bg,
-                borderColor: activeTier.border
-              }}
-            >
-              {activeRating > 0 ? `${activeRating}/10 • ${activeTier.icon} ${activeTier.label.split("(")[0].trim()}` : "Tap a score"}
-            </span>
-          </div>
-
-          <div
-            className="quick-rate-number-grid"
-            role="radiogroup"
-            aria-label={`Rate ${title} out of 10`}
-            onMouseLeave={() => setHoverRating(0)}
-          >
-            {Array.from({ length: 10 }, (_, idx) => {
-              const score = idx + 1;
-              const isSelected = selectedRating === score;
-              const isHovered = hoverRating === score;
-              const scoreTier = getRatingTier(score);
-              return (
-                <button
-                  key={score}
-                  type="button"
-                  role="radio"
-                  aria-checked={isSelected}
-                  aria-label={`Rate ${score} out of 10`}
-                  className={`quick-rate-pill-btn ${isSelected ? "is-selected" : ""} ${isHovered ? "is-hovered" : ""}`}
-                  style={
-                    isSelected
-                      ? {
-                          background: scoreTier.bg,
-                          borderColor: scoreTier.border,
-                          color: scoreTier.color
-                        }
-                      : undefined
-                  }
-                  onMouseEnter={() => setHoverRating(score)}
-                  onClick={() => setSelectedRating(score)}
-                >
-                  {score}
-                </button>
-              );
-            })}
-          </div>
+          <StarRatingStage
+            compact
+            value={selectedRating || 0}
+            hoverValue={hoverRating}
+            onChange={setSelectedRating}
+            onHoverChange={setHoverRating}
+            ariaLabel={`Rate ${title} out of 10`}
+          />
 
           <div className="quick-tags-row" aria-label="Quick review tags">
             {quickTags.map(({ id: tag }) => {

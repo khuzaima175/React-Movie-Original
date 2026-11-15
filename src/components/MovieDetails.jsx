@@ -6,6 +6,7 @@ import PosterImage from "./PosterImage";
 import PersonFilmographyModal from "./PersonFilmographyModal";
 import CollectionTimeline from "./CollectionTimeline";
 import SimilarFilmsStrip from "./SimilarFilmsStrip";
+import StarRatingStage from "./StarRatingStage";
 import { useApp } from "../context/AppContext";
 import {
   TMDB_GENRE_MAP,
@@ -538,30 +539,6 @@ export default function MovieDetails({
     setWatchMeta((prev) => ({ ...(prev || {}), ...patch }));
   }
 
-  function handleDialKeyDown(event, num) {
-    const key = event.key;
-    let nextScore = null;
-    if (key === "ArrowRight" || key === "ArrowUp") {
-      nextScore = num >= 10 ? 1 : num + 1;
-    } else if (key === "ArrowLeft" || key === "ArrowDown") {
-      nextScore = num <= 1 ? 10 : num - 1;
-    } else if (key === "Home") {
-      nextScore = 1;
-    } else if (key === "End") {
-      nextScore = 10;
-    } else if (key >= "1" && key <= "9") {
-      nextScore = Number(key);
-    } else if (key === "0") {
-      nextScore = 10;
-    }
-    if (!nextScore) return;
-    event.preventDefault();
-    setUserRating(nextScore);
-    setHoverRating(0);
-    const radios = event.currentTarget.parentElement?.querySelectorAll('[role="radio"]');
-    radios?.[nextScore - 1]?.focus();
-  }
-
   function handleDiscussFilm() {
     if (!movie) return;
     const castNames = Array.isArray(movie.cast)
@@ -795,7 +772,8 @@ export default function MovieDetails({
                               <span className="vault-score-denom">/ 10</span>
                             </div>
                             <div className="vault-tier-pill" style={{ background: savedTier.bg, borderColor: savedTier.border, color: savedTier.color }}>
-                              <span>{savedTier.icon} {savedTier.label.split("(")[0]}</span>
+                              <Star size={13} fill="currentColor" aria-hidden="true" />
+                              <span>{savedTier.shortLabel || savedTier.label.split("(")[0].trim()}</span>
                             </div>
                           </>
                         ) : (
@@ -866,87 +844,21 @@ export default function MovieDetails({
                   </div>
                 ) : (
                   <div className="interactive-rating-module rating-studio-card">
-                    <div className="rating-module-header">
-                      <div className="rating-module-title-wrap">
-                        <SlidersHorizontal size={16} className="text-[var(--text-3)]" aria-hidden="true" />
-                        <h4 className="rating-module-title">{isWatched ? "Update Vault Entry" : "Rating Studio"}</h4>
-                      </div>
-                      <span className="rating-score-badge-preview" style={{ color: currentTier.color, borderColor: currentTier.border, background: currentTier.bg }}>
-                        {activeDisplayRating > 0 ? `${activeDisplayRating} / 10` : "— / 10"}
-                      </span>
-                    </div>
-
-                    {/* Obsidian Tier Banner */}
-                    <div
-                      className="rating-tier-banner"
-                      style={{
-                        background: currentTier.bg,
-                        borderColor: currentTier.border
+                    <StarRatingStage
+                      value={userRating}
+                      hoverValue={hoverRating}
+                      onChange={(val) => {
+                        setUserRating(val);
+                        setHoverRating(0);
                       }}
-                    >
-                      <span className="tier-icon">{currentTier.icon}</span>
-                      <div className="tier-text-wrap">
-                        <span className="tier-name" style={{ color: currentTier.color }}>{currentTier.label}</span>
-                        <span className="tier-desc">{currentTier.desc}</span>
-                      </div>
-                    </div>
-
-                    {/* Unified 1 to 10 Studio Calibration Rail */}
-                    <div
-                      className="rating-studio-dial"
-                      role="radiogroup"
-                      aria-label="Rate this film from 1 to 10"
-                      onMouseLeave={() => setHoverRating(0)}
-                    >
-                      {Array.from({ length: 10 }, (_, i) => {
-                        const num = i + 1;
-                        const isSelected = userRating === num;
-                        const isFilled = num <= activeDisplayRating;
-                        const isHovered = hoverRating === num;
-                        const isTabStop = isSelected || (userRating === 0 && num === 1);
-                        return (
-                          <button
-                            key={num}
-                            type="button"
-                            role="radio"
-                            aria-checked={isSelected}
-                            tabIndex={isTabStop ? 0 : -1}
-                            className={`studio-dial-seg ${isFilled ? "is-filled" : ""} ${isSelected ? "is-selected" : ""} ${isHovered ? "is-hovered" : ""}`}
-                            onClick={() => {
-                              setUserRating(num);
-                              setHoverRating(0);
-                            }}
-                            onMouseEnter={() => setHoverRating(num)}
-                            onKeyDown={(e) => handleDialKeyDown(e, num)}
-                            aria-label={`Rate ${num} out of 10`}
-                          >
-                            <span className="studio-dial-num">{num}</span>
-                            <span className={`studio-dial-pip ${isFilled ? "is-lit" : ""}`} aria-hidden="true" />
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Live Vault Calibration Strip & Anchor Links */}
-                    <div className="rating-calibration-bar">
-                      <span className="calibration-summary-text">{vaultCalibration.summaryText}</span>
-                      {vaultCalibration.anchorMovies.length > 0 && (
-                        <div className="calibration-anchors-row">
-                          <span className="calibration-anchors-prefix">Same tier:</span>
-                          {vaultCalibration.anchorMovies.map((anchor) => (
-                            <button
-                              key={anchor.imdbID || anchor.title}
-                              type="button"
-                              className="calibration-anchor-btn"
-                              onClick={() => anchor.imdbID && navigate(`/movie/${encodeURIComponent(anchor.imdbID)}`)}
-                              title={`Inspect ${anchor.title} (${anchor.userRating}/10)`}
-                            >
-                              {anchor.title} ({anchor.userRating}/10)
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                      onHoverChange={setHoverRating}
+                      calibration={vaultCalibration}
+                      onSelectAnchor={(anchor) =>
+                        anchor?.imdbID && navigate(`/movie/${encodeURIComponent(anchor.imdbID)}`)
+                      }
+                      titleLabel={isWatched ? "Update Vault Entry" : "Rating Studio"}
+                      ariaLabel="Rate this film from 1 to 10"
+                    />
 
                     {/* Progressive Quick Review Tags */}
                     <div className="quick-tags-section">
