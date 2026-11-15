@@ -16,12 +16,26 @@ import {
 } from "../services/personService";
 import {
   QUICK_REVIEW_TAGS,
+  getContextualQuickTags,
   hasQuickTagInNote,
   toggleQuickTagInNote
 } from "../services/quickReviewTags";
 import {
+  CRAFT_ASPECTS,
+  WATCH_FORMATS,
+  computeVaultCalibration,
+  computeCraftAverage,
+  buildWatchedRatingPayload
+} from "../services/ratingStudioService";
+import {
+  buildFilmChatRoute,
+  saveFilmFocusCache
+} from "../services/filmChatService";
+import {
   ArrowLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Star,
   Bookmark,
   Plus,
@@ -43,7 +57,8 @@ import {
   Tag,
   Edit3,
   ExternalLink,
-  Flame,
+  SlidersHorizontal,
+  MessageSquare,
   CheckCircle2
 } from "lucide-react";
 
@@ -68,6 +83,12 @@ export default function MovieDetails({
   const [userRating, setUserRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [userNote, setUserNote] = useState("");
+  const [ratingBreakdown, setRatingBreakdown] = useState(null);
+  const [watchMeta, setWatchMeta] = useState(null);
+  const [dateWatchedInput, setDateWatchedInput] = useState("");
+  const [isDateDirty, setIsDateDirty] = useState(false);
+  const [showAllTags, setShowAllTags] = useState(false);
+  const [openDrawer, setOpenDrawer] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [activePerson, setActivePerson] = useState(null);
@@ -97,17 +118,33 @@ export default function MovieDetails({
   const isWatched = Boolean(watchedItem);
   const isWatchlist = Boolean(watchlistItem);
 
-  // Sync state when watched item changes or opens
-  useEffect(() => {
-    if (watchedItem) {
-      const existingRating = Number(watchedItem.userRating);
+  function syncDraftFromWatchedItem(item) {
+    if (item) {
+      const existingRating = Number(item.userRating);
       setUserRating(Number.isFinite(existingRating) && existingRating > 0 ? existingRating : 0);
-      setUserNote(watchedItem.userNote || "");
+      setUserNote(item.userNote || "");
+      setRatingBreakdown(item.ratingBreakdown || null);
+      setWatchMeta(item.watchMeta || null);
+      setDateWatchedInput(item.dateWatched ? String(item.dateWatched).slice(0, 10) : "");
+      setIsDateDirty(false);
+      setOpenDrawer(null);
+      setShowAllTags(false);
     } else {
       setUserRating(0);
       setUserNote("");
+      setRatingBreakdown(null);
+      setWatchMeta(null);
+      setDateWatchedInput("");
+      setIsDateDirty(false);
+      setOpenDrawer(null);
+      setShowAllTags(false);
       setIsEditing(false);
     }
+  }
+
+  // Sync state when watched item changes or opens
+  useEffect(() => {
+    syncDraftFromWatchedItem(watchedItem);
   }, [watchedItem, selectedId]);
 
   // Main Data Loading Pipeline: Concurrent TMDB + OMDb Hybrid Extraction
@@ -248,8 +285,11 @@ export default function MovieDetails({
           buyRentProviders: tmdbData?.buyRentProviders || [],
           freeProviders: tmdbData?.freeProviders || [],
           keywords: tmdbData?.keywordNames || [],
+          keywordItems: tmdbData?.keywordItems || [],
           tmdbKeywords: tmdbData?.tmdbKeywords || [],
           tmdbGenreIds: tmdbData?.tmdbGenreIds || [],
+          collectionId: tmdbData?.collectionId ?? null,
+          collectionName: tmdbData?.collectionName ?? null,
           castIds: tmdbData?.castIds || [],
           crewPersonId: tmdbData?.crewPersonId || null,
           budget: tmdbData?.budget || null,
@@ -303,42 +343,106 @@ export default function MovieDetails({
     return () => document.removeEventListener("keydown", callback);
   }, [onCloseMovie, activePerson]);
 
+  const calibrationRating = hoverRating || userRating || Number(watchedItem?.userRating) || 0;
+
+  const vaultCalibration = useMemo(
+    () => computeVaultCalibration(watched, calibrationRating, movie || { imdbID: selectedId }),
+    [watched, calibrationRating, movie, selectedId]
+  );
+
+  const craftAverage = useMemo(() => computeCraftAverage(ratingBreakdown), [ratingBreakdown]);
+  const savedCraftAverage = useMemo(
+    () => computeCraftAverage(watchedItem?.ratingBreakdown),
+    [watchedItem]
+  );
+
+  const displayedQuickTags = useMemo(() => {
+    if (showAllTags) return QUICK_REVIEW_TAGS;
+    const contextual = getContextualQuickTags(calibrationRating);
+    const activeExtras = QUICK_REVIEW_TAGS.filter(
+      (tag) => hasQuickTagInNote(userNote, tag.id) && !contextual.some((c) => c.id === tag.id)
+    );
+    return [...contextual, ...activeExtras];
+  }, [calibrationRating, showAllTags, userNote]);
+
+  function handleCraftToggle(aspectId, pipValue) {
+    setRatingBreakdown((prev) => {
+      const next = { ...(prev || {}) };
+      if (next[aspectId] === pipValue) {
+        delete next[aspectId];
+      } else {
+        next[aspectId] = pipValue;
+      }
+      return Object.keys(next).length > 0 ? next : null;
+    });
+  }
+
+  function handleWatchMetaPatch(patch) {
+    setWatchMeta((prev) => ({ ...(prev || {}), ...patch }));
+  }
+
+  function handleDialKeyDown(event, num) {
+    const key = event.key;
+    let nextScore = null;
+    if (key === "ArrowRight" || key === "ArrowUp") {
+      nextScore = num >= 10 ? 1 : num + 1;
+    } else if (key === "ArrowLeft" || key === "ArrowDown") {
+      nextScore = num <= 1 ? 10 : num - 1;
+    } else if (key === "Home") {
+      nextScore = 1;
+    } else if (key === "End") {
+      nextScore = 10;
+    } else if (key >= "1" && key <= "9") {
+      nextScore = Number(key);
+    } else if (key === "0") {
+      nextScore = 10;
+    }
+    if (!nextScore) return;
+    event.preventDefault();
+    setUserRating(nextScore);
+    setHoverRating(0);
+    const radios = event.currentTarget.parentElement?.querySelectorAll('[role="radio"]');
+    radios?.[nextScore - 1]?.focus();
+  }
+
+  function handleDiscussFilm() {
+    if (!movie) return;
+    const focusPayload = {
+      ...movie,
+      imdbID: movie.imdbID || selectedId,
+      isWatched,
+      isWatchlist,
+      userRating: watchedItem?.userRating ?? (Number(userRating) || null),
+      userNote: watchedItem?.userNote ?? userNote.trim()
+    };
+    saveFilmFocusCache(focusPayload);
+    navigate(buildFilmChatRoute(focusPayload));
+  }
+
   // Save to Vault
   function handleSave() {
     const numericRating = Number(userRating);
     if (!movie || !Number.isFinite(numericRating) || numericRating < 1) return;
-    const shortPlot = movie.plot ? movie.plot.split(" ").slice(0, 18).join(" ") + "..." : "";
 
-    const rawImdb = Number(movie.imdbRating) || Number(movie.tmdbRating);
-    const savedMovie = {
-      imdbID: movie.imdbID || selectedId,
-      tmdbId: movie.tmdbId || null,
-      ...(movie.Type ? { Type: movie.Type } : {}),
-      title: movie.title,
-      year: movie.year,
-      poster: movie.poster,
-      backdrop: movie.backdrop,
-      imdbRating: Number.isFinite(rawImdb) && rawImdb > 0 ? rawImdb : null,
-      runtime: Number(movie.runtimeMinutes) || (typeof movie.runtime === "string" ? parseInt(movie.runtime) : 120) || 120,
-      userRating: Math.min(10, Math.max(1, Math.round(numericRating))),
-      userNote: userNote.trim(),
-      director: movie.director,
-      cinematographer: movie.cinematographer,
-      composer: movie.composer,
-      writers: movie.writers,
-      genre: Array.isArray(movie.genres) ? movie.genres.join(", ") : (movie.genre || "Cinema"),
-      shortPlot,
-      castIds: movie.castIds || [],
-      crewPersonId: movie.crewPersonId || null,
-      tmdbKeywords: movie.tmdbKeywords || [],
-      tmdbGenreIds: movie.tmdbGenreIds || [],
-      trailerKey: movie.trailerKey || null,
-      streamProviders: movie.streamProviders || [],
-      dateWatched: watchedItem?.dateWatched || new Date().toISOString()
-    };
+    const customDateWatched = isDateDirty && dateWatchedInput
+      ? new Date(`${dateWatchedInput}T12:00:00.000Z`).toISOString()
+      : null;
 
+    const savedMovie = buildWatchedRatingPayload({
+      movie: { ...movie, imdbID: movie.imdbID || selectedId },
+      baseWatchedItem: watchedItem || null,
+      userRating: numericRating,
+      userNote,
+      ratingBreakdown,
+      watchMeta,
+      customDateWatched
+    });
+
+    if (!savedMovie) return;
     onAddWatched(savedMovie);
     setIsEditing(false);
+    setOpenDrawer(null);
+    setIsDateDirty(false);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
   }
@@ -421,23 +525,35 @@ export default function MovieDetails({
                 <span>Back</span>
               </button>
 
-              {(movie.trailerKey || movie.title) && (
-                <a
-                  href={
-                    movie.trailerKey
-                      ? `https://www.youtube.com/watch?v=${movie.trailerKey}`
-                      : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} ${movie.year || ""} official trailer`)}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-hero-trailer-play"
-                  aria-label={`Watch official trailer for ${movie.title} on YouTube (opens in new tab)`}
+              <div className="movie-hero-nav-actions">
+                <button
+                  type="button"
+                  className="btn-hero-discuss glassmorphic-btn"
+                  onClick={handleDiscussFilm}
+                  aria-label={`Discuss ${movie.title} with AI Film Companion`}
                 >
-                  <Play size={16} fill="currentColor" aria-hidden="true" />
-                  <span>Watch Trailer</span>
-                  <ExternalLink size={14} aria-hidden="true" />
-                </a>
-              )}
+                  <MessageSquare size={15} aria-hidden="true" />
+                  <span>Discuss This Film</span>
+                </button>
+
+                {(movie.trailerKey || movie.title) && (
+                  <a
+                    href={
+                      movie.trailerKey
+                        ? `https://www.youtube.com/watch?v=${movie.trailerKey}`
+                        : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} ${movie.year || ""} official trailer`)}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-hero-trailer-play"
+                    aria-label={`Watch official trailer for ${movie.title} on YouTube (opens in new tab)`}
+                  >
+                    <Play size={16} fill="currentColor" aria-hidden="true" />
+                    <span>Watch Trailer</span>
+                    <ExternalLink size={14} aria-hidden="true" />
+                  </a>
+                )}
+              </div>
             </div>
 
             {/* Hero Title & Tagline Overlay */}
@@ -503,6 +619,36 @@ export default function MovieDetails({
                       })()}
                     </div>
 
+                    {(savedCraftAverage || watchedItem?.watchMeta || watchedItem?.dateWatched) && (
+                      <div className="vault-saved-meta-pills">
+                        {savedCraftAverage && (
+                          <span className="vault-meta-chip">
+                            Craft {savedCraftAverage}/5★
+                          </span>
+                        )}
+                        {watchedItem?.watchMeta?.format && (
+                          <span className="vault-meta-chip">
+                            {WATCH_FORMATS.find((f) => f.id === watchedItem.watchMeta.format)?.label || watchedItem.watchMeta.format}
+                          </span>
+                        )}
+                        {Number(watchedItem?.watchMeta?.rewatchCount) >= 2 && (
+                          <span className="vault-meta-chip">
+                            {watchedItem.watchMeta.rewatchCount}× Watches
+                          </span>
+                        )}
+                        {watchedItem?.watchMeta?.containsSpoilers && (
+                          <span className="vault-meta-chip is-warning">
+                            Spoiler Note
+                          </span>
+                        )}
+                        {watchedItem?.dateWatched && (
+                          <span className="vault-meta-chip">
+                            {String(watchedItem.dateWatched).slice(0, 10)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {watchedItem?.userNote && (
                       <div className="vault-saved-notes-box">
                         <p className="vault-saved-notes-text">"{watchedItem.userNote}"</p>
@@ -511,6 +657,7 @@ export default function MovieDetails({
 
                     <div className="vault-saved-actions">
                       <button
+                        type="button"
                         className="btn-edit-vault-rating"
                         onClick={() => setIsEditing(true)}
                         aria-label="Edit vault rating and personal notes"
@@ -518,27 +665,36 @@ export default function MovieDetails({
                         <Edit3 size={15} aria-hidden="true" />
                         <span>Edit Rating / Review</span>
                       </button>
+
+                      <button
+                        type="button"
+                        className="btn-discuss-film-deck"
+                        onClick={handleDiscussFilm}
+                        aria-label={`Discuss ${movie.title} with AI Film Companion`}
+                      >
+                        <MessageSquare size={15} aria-hidden="true" />
+                        <span>Discuss This Film</span>
+                      </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="interactive-rating-module">
+                  <div className="interactive-rating-module rating-studio-card">
                     <div className="rating-module-header">
                       <div className="rating-module-title-wrap">
-                        <Flame size={16} className="text-[var(--text-3)]" aria-hidden="true" />
-                        <h4 className="rating-module-title">{isWatched ? "Update Vault Entry" : "Rate & Save to Vault"}</h4>
+                        <SlidersHorizontal size={16} className="text-[var(--text-3)]" aria-hidden="true" />
+                        <h4 className="rating-module-title">{isWatched ? "Update Vault Entry" : "Rating Studio"}</h4>
                       </div>
                       <span className="rating-score-badge-preview" style={{ color: currentTier.color, borderColor: currentTier.border, background: currentTier.bg }}>
                         {activeDisplayRating > 0 ? `${activeDisplayRating} / 10` : "— / 10"}
                       </span>
                     </div>
 
-                    {/* Dynamic Cinematic Tier Banner */}
+                    {/* Obsidian Tier Banner */}
                     <div
                       className="rating-tier-banner"
                       style={{
                         background: currentTier.bg,
-                        borderColor: currentTier.border,
-                        boxShadow: currentTier.glow
+                        borderColor: currentTier.border
                       }}
                     >
                       <span className="tier-icon">{currentTier.icon}</span>
@@ -548,76 +704,77 @@ export default function MovieDetails({
                       </div>
                     </div>
 
-                    {/* 10 Glowing Interactive Stars */}
+                    {/* Unified 1 to 10 Studio Calibration Rail */}
                     <div
-                      className="glowing-stars-bar"
+                      className="rating-studio-dial"
                       role="radiogroup"
-                      aria-label="Rating out of 10 stars"
-                      onMouseLeave={() => setHoverRating(0)}
-                    >
-                      {Array.from({ length: 10 }, (_, i) => {
-                        const starNum = i + 1;
-                        const isFilled = starNum <= activeDisplayRating;
-                        return (
-                          <button
-                            key={starNum}
-                            type="button"
-                            className={`star-touch-btn ${isFilled ? "is-filled" : ""}`}
-                            onClick={() => {
-                              setUserRating(starNum);
-                              setHoverRating(0);
-                            }}
-                            onMouseEnter={() => setHoverRating(starNum)}
-                            aria-label={`Rate ${starNum} out of 10 stars`}
-                          >
-                            <Star
-                              size={20}
-                              className={`star-svg-icon ${isFilled ? "star-active-glow" : ""}`}
-                              fill={isFilled ? currentTier.color : "transparent"}
-                              stroke={isFilled ? currentTier.color : "#4a4d55"}
-                            />
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* 1 to 10 Numeric Dial Strip */}
-                    <div
-                      className="rating-numeric-dial"
+                      aria-label="Rate this film from 1 to 10"
                       onMouseLeave={() => setHoverRating(0)}
                     >
                       {Array.from({ length: 10 }, (_, i) => {
                         const num = i + 1;
                         const isSelected = userRating === num;
+                        const isFilled = num <= activeDisplayRating;
                         const isHovered = hoverRating === num;
+                        const isTabStop = isSelected || (userRating === 0 && num === 1);
                         return (
                           <button
                             key={num}
                             type="button"
-                            className={`dial-pill ${isSelected ? "dial-selected" : ""} ${isHovered ? "dial-hovered" : ""}`}
+                            role="radio"
+                            aria-checked={isSelected}
+                            tabIndex={isTabStop ? 0 : -1}
+                            className={`studio-dial-seg ${isFilled ? "is-filled" : ""} ${isSelected ? "is-selected" : ""} ${isHovered ? "is-hovered" : ""}`}
                             onClick={() => {
                               setUserRating(num);
                               setHoverRating(0);
                             }}
                             onMouseEnter={() => setHoverRating(num)}
-                            style={
-                              isSelected
-                                ? { background: currentTier.bg, borderColor: currentTier.border, color: currentTier.color, boxShadow: currentTier.glow }
-                                : {}
-                            }
-                            aria-label={`Select ${num}`}
+                            onKeyDown={(e) => handleDialKeyDown(e, num)}
+                            aria-label={`Rate ${num} out of 10`}
                           >
-                            {num}
+                            <span className="studio-dial-num">{num}</span>
+                            <span className={`studio-dial-pip ${isFilled ? "is-lit" : ""}`} aria-hidden="true" />
                           </button>
                         );
                       })}
                     </div>
 
-                    {/* Quick Cinephile Tag Pills */}
+                    {/* Live Vault Calibration Strip & Anchor Links */}
+                    <div className="rating-calibration-bar">
+                      <span className="calibration-summary-text">{vaultCalibration.summaryText}</span>
+                      {vaultCalibration.anchorMovies.length > 0 && (
+                        <div className="calibration-anchors-row">
+                          <span className="calibration-anchors-prefix">Same tier:</span>
+                          {vaultCalibration.anchorMovies.map((anchor) => (
+                            <button
+                              key={anchor.imdbID || anchor.title}
+                              type="button"
+                              className="calibration-anchor-btn"
+                              onClick={() => anchor.imdbID && navigate(`/movie/${encodeURIComponent(anchor.imdbID)}`)}
+                              title={`Inspect ${anchor.title} (${anchor.userRating}/10)`}
+                            >
+                              {anchor.title} ({anchor.userRating}/10)
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Progressive Quick Review Tags */}
                     <div className="quick-tags-section">
-                      <span className="quick-tags-label"><Tag size={12} aria-hidden="true" /> Quick Review Tags:</span>
+                      <div className="quick-tags-header-row">
+                        <span className="quick-tags-label"><Tag size={12} aria-hidden="true" /> Quick Review Tags</span>
+                        <button
+                          type="button"
+                          className="quick-tags-expand-btn"
+                          onClick={() => setShowAllTags((prev) => !prev)}
+                        >
+                          {showAllTags ? "Fewer tags" : `More tags (+${Math.max(0, QUICK_REVIEW_TAGS.length - displayedQuickTags.length)})`}
+                        </button>
+                      </div>
                       <div className="quick-tags-row">
-                        {QUICK_REVIEW_TAGS.map(({ id: tag }) => {
+                        {displayedQuickTags.map(({ id: tag }) => {
                           const isTagActive = hasQuickTagInNote(userNote, tag);
                           return (
                             <button
@@ -631,6 +788,139 @@ export default function MovieDetails({
                           );
                         })}
                       </div>
+                    </div>
+
+                    {/* Optional Collapsed Studio Drawers: Craft Breakdown & Watch Log */}
+                    <div className="studio-drawers-wrap">
+                      <div className="studio-drawers-tabs">
+                        <button
+                          type="button"
+                          className={`studio-drawer-tab ${openDrawer === "craft" ? "is-open" : ""} ${craftAverage ? "has-data" : ""}`}
+                          onClick={() => setOpenDrawer((prev) => (prev === "craft" ? null : "craft"))}
+                          aria-expanded={openDrawer === "craft"}
+                        >
+                          <span>Craft Breakdown{craftAverage ? ` · ${craftAverage}★` : ""}</span>
+                          {openDrawer === "craft" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
+                        </button>
+
+                        <button
+                          type="button"
+                          className={`studio-drawer-tab ${openDrawer === "watchlog" ? "is-open" : ""} ${(watchMeta?.format || watchMeta?.containsSpoilers || Number(watchMeta?.rewatchCount) >= 1 || isDateDirty) ? "has-data" : ""}`}
+                          onClick={() => setOpenDrawer((prev) => (prev === "watchlog" ? null : "watchlog"))}
+                          aria-expanded={openDrawer === "watchlog"}
+                        >
+                          <span>Watch Log{watchMeta?.format ? ` · ${WATCH_FORMATS.find((f) => f.id === watchMeta.format)?.label}` : ""}</span>
+                          {openDrawer === "watchlog" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
+                        </button>
+                      </div>
+
+                      {openDrawer === "craft" && (
+                        <div className="studio-drawer-panel craft-drawer-panel">
+                          <div className="craft-panel-header">
+                            <span className="craft-panel-hint">Optional 1–5 aspect scores</span>
+                            {ratingBreakdown && (
+                              <button
+                                type="button"
+                                className="studio-drawer-clear-btn"
+                                onClick={() => setRatingBreakdown(null)}
+                              >
+                                Clear craft
+                              </button>
+                            )}
+                          </div>
+                          <div className="craft-rows-list">
+                            {CRAFT_ASPECTS.map((aspect) => {
+                              const currentVal = Number(ratingBreakdown?.[aspect.id]) || 0;
+                              return (
+                                <div key={aspect.id} className="craft-aspect-row">
+                                  <span className="craft-aspect-label">{aspect.label}</span>
+                                  <div className="craft-pips-group" role="group" aria-label={`${aspect.label} score out of 5`}>
+                                    {[1, 2, 3, 4, 5].map((pip) => {
+                                      const lit = pip <= currentVal;
+                                      return (
+                                        <button
+                                          key={pip}
+                                          type="button"
+                                          className={`craft-pip-btn ${lit ? "is-lit" : ""}`}
+                                          onClick={() => handleCraftToggle(aspect.id, pip)}
+                                          aria-pressed={currentVal === pip}
+                                          aria-label={`${aspect.label} ${pip} out of 5`}
+                                        >
+                                          {pip}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {openDrawer === "watchlog" && (
+                        <div className="studio-drawer-panel watchlog-drawer-panel">
+                          <div className="watchlog-field-group">
+                            <span className="watchlog-field-label">Format</span>
+                            <div className="watchlog-formats-row">
+                              {WATCH_FORMATS.map((fmt) => {
+                                const isFmtActive = watchMeta?.format === fmt.id;
+                                return (
+                                  <button
+                                    key={fmt.id}
+                                    type="button"
+                                    className={`watchlog-pill-btn ${isFmtActive ? "is-active" : ""}`}
+                                    onClick={() => handleWatchMetaPatch({ format: isFmtActive ? undefined : fmt.id })}
+                                  >
+                                    {fmt.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="watchlog-inline-controls">
+                            <label className="watchlog-field-group">
+                              <span className="watchlog-field-label">Date Watched</span>
+                              <input
+                                type="date"
+                                className="watchlog-date-input"
+                                value={dateWatchedInput}
+                                onChange={(e) => {
+                                  setDateWatchedInput(e.target.value);
+                                  setIsDateDirty(true);
+                                }}
+                              />
+                            </label>
+
+                            <label className="watchlog-field-group">
+                              <span className="watchlog-field-label">Watch Count</span>
+                              <input
+                                type="number"
+                                min="1"
+                                max="99"
+                                placeholder="1"
+                                className="watchlog-rewatch-input"
+                                value={watchMeta?.rewatchCount || ""}
+                                onChange={(e) => {
+                                  const parsed = parseInt(e.target.value, 10);
+                                  handleWatchMetaPatch({ rewatchCount: Number.isFinite(parsed) && parsed >= 1 ? parsed : undefined });
+                                }}
+                              />
+                            </label>
+                          </div>
+
+                          <button
+                            type="button"
+                            className={`watchlog-spoiler-toggle ${watchMeta?.containsSpoilers ? "is-active" : ""}`}
+                            onClick={() => handleWatchMetaPatch({ containsSpoilers: !watchMeta?.containsSpoilers })}
+                            aria-pressed={Boolean(watchMeta?.containsSpoilers)}
+                          >
+                            <ShieldAlert size={13} aria-hidden="true" />
+                            <span>{watchMeta?.containsSpoilers ? "Marked: Contains spoilers" : "Flag review as containing spoilers"}</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Personal Notes Textarea */}
@@ -678,7 +968,10 @@ export default function MovieDetails({
                         <button
                           type="button"
                           className="btn-cancel-edit"
-                          onClick={() => setIsEditing(false)}
+                          onClick={() => {
+                            syncDraftFromWatchedItem(watchedItem);
+                            setIsEditing(false);
+                          }}
                         >
                           Cancel Editing
                         </button>
@@ -715,6 +1008,16 @@ export default function MovieDetails({
                           )}
                         </>
                       )}
+
+                      <button
+                        type="button"
+                        className="btn-discuss-film-deck"
+                        onClick={handleDiscussFilm}
+                        aria-label={`Discuss ${movie.title} with AI Film Companion`}
+                      >
+                        <MessageSquare size={15} aria-hidden="true" />
+                        <span>Discuss This Film</span>
+                      </button>
                     </div>
                   </div>
                 )}

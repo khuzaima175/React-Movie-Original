@@ -6851,3 +6851,493 @@
     gap: 1rem;
   }
 }
+
+/* ============================================================
+   CINEMAVAULT — EDITORIAL RATING STUDIO & FILM CHAT CTA
+   ============================================================ */
+
+.movie-hero-nav-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.btn-hero-discuss {
+  border-color: rgba(229, 184, 75, 0.28);
+  color: var(--text-1);
+}
+
+.btn-hero-discuss svg {
+  color: var(--accent);
+}
+
+.btn-hero-discuss:hover {
+  border-color: rgba(229, 184, 75, 0.55);
+  background: rgba(20, 22, 27, 0.78);
+}
+
+.vault-saved-meta-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.2rem;
+}
+
+.vault-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+}
+
+.vault-meta-chip.is-warning {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.vault-saved-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  width: 100%;
+}
+
+.btn-discuss-film-deck {
+  width: 100%;
+  min-height: 4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 0.8rem 1.2rem;
+  background: var(--surface-2);
+  border: 1px solid rgba(229, 184, 75, 0.28);
+  border-radius: var(--r-sm);
+  color: var(--text-1);
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.btn-discuss-film-deck svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.btn-discuss-film-deck:hover {
+  background: var(--surface-3);
+  border-color: rgba(229, 184, 75, 0.56);
+  transform: translateY(-1px);
+}
+
+.btn-discuss-film-deck:focus-visible,
+.btn-hero-discuss:focus-visible,
+.studio-dial-seg:focus-visible,
+.calibration-anchor-btn:focus-visible,
+.studio-drawer-tab:focus-visible,
+.craft-pip-btn:focus-visible,
+.watchlog-pill-btn:focus-visible,
+.watchlog-spoiler-toggle:focus-visible,
+.quick-tags-expand-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rating-studio-card .rating-tier-banner {
+  box-shadow: none;
+  border-radius: var(--r-sm);
+}
+
+.rating-studio-dial {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 0.35rem;
+  width: 100%;
+  margin-bottom: 1.1rem;
+  box-sizing: border-box;
+}
+
+.studio-dial-seg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 0;
+  height: 4.1rem;
+  padding: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.studio-dial-seg:hover,
+.studio-dial-seg.is-hovered {
+  background: var(--surface-3);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--text-1);
+}
+
+.studio-dial-seg.is-filled {
+  background: rgba(229, 184, 75, 0.08);
+  border-color: rgba(229, 184, 75, 0.28);
+  color: var(--text-1);
+}
+
+.studio-dial-seg.is-selected {
+  background: rgba(229, 184, 75, 0.18);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.studio-dial-num {
+  line-height: 1;
+}
+
+.studio-dial-pip {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.studio-dial-pip.is-lit {
+  background: var(--accent);
+}
+
+.studio-dial-seg.is-selected .studio-dial-pip.is-lit {
+  transform: scale(1.25);
+}
+
+.rating-calibration-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1.4rem;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+
+.calibration-summary-text {
+  font-size: 1.15rem;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.calibration-anchors-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.calibration-anchors-prefix {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.calibration-anchor-btn {
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+  font-size: 1.08rem;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.calibration-anchor-btn:hover {
+  border-color: rgba(229, 184, 75, 0.45);
+  color: var(--accent);
+  background: var(--surface-3);
+}
+
+.quick-tags-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.quick-tags-header-row .quick-tags-label {
+  margin-bottom: 0;
+}
+
+.quick-tags-expand-btn {
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0.4rem;
+  color: var(--text-3);
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.quick-tags-expand-btn:hover {
+  color: var(--accent);
+}
+
+.studio-drawers-wrap {
+  margin-bottom: 1.3rem;
+}
+
+.studio-drawers-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.studio-drawer-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: 1.15rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.studio-drawer-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-drawer-tab:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.studio-drawer-tab.is-open {
+  border-color: rgba(229, 184, 75, 0.45);
+  color: var(--text-1);
+}
+
+.studio-drawer-tab.has-data {
+  color: var(--accent);
+}
+
+.studio-drawer-panel {
+  margin-top: 0.65rem;
+  padding: 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.craft-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.craft-panel-hint {
+  font-size: 1.1rem;
+  color: var(--text-3);
+}
+
+.studio-drawer-clear-btn {
+  background: transparent;
+  border: none;
+  padding: 0.15rem 0.4rem;
+  color: var(--text-3);
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.studio-drawer-clear-btn:hover {
+  color: var(--text-1);
+}
+
+.craft-rows-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.craft-aspect-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.craft-aspect-label {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.craft-pips-group {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.craft-pip-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  color: var(--text-3);
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.craft-pip-btn:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--text-1);
+}
+
+.craft-pip-btn.is-lit {
+  background: rgba(229, 184, 75, 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.watchlog-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.watchlog-field-label {
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.watchlog-formats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.watchlog-pill-btn {
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+  font-size: 1.15rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+
+.watchlog-pill-btn:hover {
+  color: var(--text-1);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.watchlog-pill-btn.is-active {
+  background: rgba(229, 184, 75, 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.watchlog-inline-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr);
+  gap: 0.7rem;
+}
+
+.watchlog-date-input,
+.watchlog-rewatch-input {
+  width: 100%;
+  height: 3.2rem;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 1.2rem;
+  color-scheme: dark;
+}
+
+.watchlog-spoiler-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  color: var(--text-2);
+  font-size: 1.15rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.watchlog-spoiler-toggle.is-active {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
+@media (max-width: 540px) {
+  .rating-studio-dial {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .studio-dial-seg {
+    height: 3.8rem;
+  }
+
+  .studio-drawers-tabs,
+  .watchlog-inline-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
