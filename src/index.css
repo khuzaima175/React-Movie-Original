@@ -5,6 +5,7 @@
 @import "./styles/vault.css";
 @import "./styles/oracle.css";
 @import "./styles/person.css";
+@import "./styles/explore.css";
 
 /* Tailwind v4 @theme Binding */
 @theme {

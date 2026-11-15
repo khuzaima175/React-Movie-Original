@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { SlidersHorizontal } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import HeroBillboard from "../components/HeroBillboard";
 import MovieCarouselRow from "../components/MovieCarouselRow";
@@ -85,6 +86,19 @@ export default function DashboardPage({ onOpenTasteDeck }) {
             seeAllLink="/vault"
           />
         )}
+
+        <div className="page-rail">
+          <div className="dashboard-explore-banner">
+            <div className="dashboard-explore-copy">
+              <h3>Research &amp; Filter the Full Catalog</h3>
+              <p>Dial in exact genres, motifs, runtime, acclaim floor, directors, and streaming hubs.</p>
+            </div>
+            <Link to="/explore" className="dashboard-explore-link">
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              <span>Open Deep Filter &rarr;</span>
+            </Link>
+          </div>
+        </div>
 
         <HomePosterGrid
           rows={feeds.rows}

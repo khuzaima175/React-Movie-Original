@@ -58,6 +58,13 @@ export default function NavBar({
               </NavLink>
 
               <NavLink
+                to="/explore"
+                className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
+              >
+                Explore
+              </NavLink>
+
+              <NavLink
                 to="/vault"
                 className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
               >
@@ -151,6 +158,14 @@ export default function NavBar({
         >
           <Film size={18} aria-hidden="true" />
           <span>Discover</span>
+        </NavLink>
+
+        <NavLink
+          to="/explore"
+          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
+        >
+          <SlidersHorizontal size={18} aria-hidden="true" />
+          <span>Explore</span>
         </NavLink>
 
         <NavLink
