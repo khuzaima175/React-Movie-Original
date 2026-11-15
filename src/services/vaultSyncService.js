@@ -250,3 +250,100 @@ export function mergeLocalAndCloudVault({
     toUpsertCloud: [...toUpsertMap.values()]
   };
 }
+
+/**
+ * Fetches all cloud vault rows for the user via keyset pagination on `id`
+ * until an empty page is returned. Throws immediately if any page errors so
+ * callers skip merging and upserting on partial pulls.
+ */
+export async function fetchAllVaultRows(client, userIdOrOptions = null, maybeOptions = {}) {
+  if (!client || typeof client.from !== "function") {
+    throw new Error("Invalid Supabase client provided to fetchAllVaultRows.");
+  }
+
+  const opts =
+    userIdOrOptions && typeof userIdOrOptions === "object"
+      ? userIdOrOptions
+      : maybeOptions || {};
+  const userId =
+    typeof userIdOrOptions === "string" || typeof userIdOrOptions === "number"
+      ? userIdOrOptions
+      : opts.userId ?? null;
+  const pageSize = Math.max(1, Number(opts.pageSize) || 1000);
+
+  const rows = [];
+  let lastId = 0;
+
+  while (true) {
+    let query = client.from("user_vault_items").select("*");
+    if (userId !== null && userId !== undefined && userId !== "") {
+      query = query.eq("user_id", userId);
+    }
+
+    const { data, error } = await query
+      .order("id", { ascending: true })
+      .gt("id", lastId)
+      .limit(pageSize);
+
+    if (error) {
+      throw error instanceof Error
+        ? error
+        : new Error(error?.message || "Failed to fetch cloud vault rows.");
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      break;
+    }
+
+    rows.push(...data);
+    const tailId = data[data.length - 1]?.id;
+    if (tailId === undefined || tailId === null || tailId <= lastId) {
+      break;
+    }
+    lastId = tailId;
+  }
+
+  return rows;
+}
+
+/**
+ * Pulls all cloud vault rows via keyset pagination, merges with local state, and
+ * upserts dirty local entries. Any page error aborts before merging or upserting.
+ */
+export async function pullAndSyncCloudVault(
+  client,
+  {
+    userId,
+    localWatched = [],
+    localWatchlist = [],
+    nowIso = new Date().toISOString(),
+    pageSize = 1000,
+    mergeFn = mergeLocalAndCloudVault,
+    onMerged = null
+  } = {}
+) {
+  const cloudRows = await fetchAllVaultRows(client, userId, { pageSize });
+
+  const merged = mergeFn({
+    localWatched,
+    localWatchlist,
+    cloudRows,
+    userId,
+    nowIso
+  });
+
+  if (typeof onMerged === "function") {
+    onMerged(merged);
+  }
+
+  const toUpsertCloud = Array.isArray(merged?.toUpsertCloud) ? merged.toUpsertCloud : [];
+  for (let i = 0; i < toUpsertCloud.length; i += 100) {
+    const chunk = toUpsertCloud.slice(i, i + 100);
+    const { error: upsertError } = await client
+      .from("user_vault_items")
+      .upsert(chunk, { onConflict: "user_id,movie_key" });
+    if (upsertError) throw upsertError;
+  }
+
+  return merged;
+}

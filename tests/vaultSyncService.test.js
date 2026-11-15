@@ -4,7 +4,9 @@ import {
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
   mapDbRowToLocalMovie,
-  mergeLocalAndCloudVault
+  mergeLocalAndCloudVault,
+  fetchAllVaultRows,
+  pullAndSyncCloudVault
 } from "../src/services/vaultSyncService.js";
 
 test("mapLocalMovieToDbRow and mapDbRowToLocalMovie round-trip ratings, notes, and recommendation metadata losslessly", () => {
@@ -161,4 +163,136 @@ test("vaultSyncService preserves recSource provenance in metadata JSONB and acro
     userId: "user-1"
   });
   assert.deepEqual(merged.mergedWatched[0].recSource, recSource);
+});
+
+function createKeysetVaultMockClient(totalRows = 2300, { failOnPage = null } = {}) {
+  const allDbRows = Array.from({ length: totalRows }, (_, i) => {
+    const id = i + 1;
+    const tmdbId = 100000 + id;
+    return {
+      id,
+      user_id: "user-123",
+      movie_key: `tmdb_${tmdbId}`,
+      status: "watched",
+      user_rating: (id % 10) + 1,
+      title: `Film ${id}`,
+      year: "2020",
+      tmdb_id: tmdbId,
+      poster: "N/A",
+      updated_at: "2026-11-01T00:00:00.000Z"
+    };
+  });
+
+  const pageQueries = [];
+  const upsertCalls = [];
+
+  const client = {
+    pageQueries,
+    upsertCalls,
+    from(table) {
+      assert.equal(table, "user_vault_items");
+      const queryState = { userId: null, orderCol: null, ascending: null, gtCol: null, gtVal: null, limitVal: null };
+
+      const builder = {
+        select(cols) {
+          assert.equal(cols, "*");
+          return builder;
+        },
+        eq(col, val) {
+          if (col === "user_id") queryState.userId = val;
+          return builder;
+        },
+        order(col, opts) {
+          queryState.orderCol = col;
+          queryState.ascending = opts?.ascending;
+          return builder;
+        },
+        gt(col, val) {
+          queryState.gtCol = col;
+          queryState.gtVal = val;
+          return builder;
+        },
+        limit(val) {
+          queryState.limitVal = val;
+          const pageIndex = pageQueries.length + 1;
+          pageQueries.push({ pageIndex, ...queryState });
+
+          if (failOnPage === pageIndex) {
+            return Promise.resolve({
+              data: null,
+              error: new Error(`Simulated Supabase failure on page ${pageIndex}`)
+            });
+          }
+
+          assert.equal(queryState.orderCol, "id");
+          assert.equal(queryState.ascending, true);
+          assert.equal(queryState.gtCol, "id");
+          assert.equal(queryState.limitVal, 1000);
+
+          const filtered = allDbRows
+            .filter((r) => (queryState.userId ? r.user_id === queryState.userId : true) && r.id > queryState.gtVal)
+            .slice(0, queryState.limitVal);
+
+          return Promise.resolve({ data: filtered, error: null });
+        },
+        upsert(chunk, opts) {
+          upsertCalls.push({ chunk, opts });
+          return Promise.resolve({ data: chunk, error: null });
+        }
+      };
+
+      return builder;
+    }
+  };
+
+  return client;
+}
+
+test("fetchAllVaultRows paginates 2,300 rows using id keyset pagination until an empty page", async () => {
+  const client = createKeysetVaultMockClient(2300);
+
+  const rows = await fetchAllVaultRows(client, "user-123");
+  assert.equal(rows.length, 2300);
+  assert.equal(rows[0].id, 1);
+  assert.equal(rows[2299].id, 2300);
+  assert.deepEqual(
+    client.pageQueries.map((q) => q.gtVal),
+    [0, 1000, 2000, 2300],
+    "must pull pages 1..3 (1000, 1000, 300) and stop on empty page 4"
+  );
+
+  // Also works when called directly as fetchAllVaultRows(client) without userId
+  const clientDirect = createKeysetVaultMockClient(2300);
+  const directRows = await fetchAllVaultRows(clientDirect);
+  assert.equal(directRows.length, 2300);
+  assert.equal(directRows[0].id, 1);
+  assert.equal(directRows[2299].id, 2300);
+});
+
+test("pullAndSyncCloudVault aborts without merging or upserting when page 2 fails", async () => {
+  const client = createKeysetVaultMockClient(2300, { failOnPage: 2 });
+  let mergeCalls = 0;
+  let onMergedCalls = 0;
+
+  await assert.rejects(
+    () =>
+      pullAndSyncCloudVault(client, {
+        userId: "user-123",
+        localWatched: [{ imdbID: "tmdb_1", tmdbId: 1, userRating: 9, title: "Local Film" }],
+        localWatchlist: [],
+        mergeFn: (...args) => {
+          mergeCalls += 1;
+          return mergeLocalAndCloudVault(...args);
+        },
+        onMerged: () => {
+          onMergedCalls += 1;
+        }
+      }),
+    /Simulated Supabase failure on page 2/
+  );
+
+  assert.equal(client.pageQueries.length, 2, "must halt pagination on page 2 error");
+  assert.equal(mergeCalls, 0, "must skip mergeLocalAndCloudVault on any page error");
+  assert.equal(onMergedCalls, 0, "must skip updating local state on any page error");
+  assert.equal(client.upsertCalls.length, 0, "must skip all cloud upserts on any page error");
 });

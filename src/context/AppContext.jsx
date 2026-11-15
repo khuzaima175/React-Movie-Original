@@ -10,7 +10,7 @@ import { getSupabaseClient, hasSupabaseConfig } from "../services/supabaseClient
 import {
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
-  mergeLocalAndCloudVault
+  pullAndSyncCloudVault
 } from "../services/vaultSyncService.js";
 
 const AppContext = createContext(null);
@@ -358,35 +358,19 @@ export function AppProvider({ children }) {
         );
       if (profileError) throw profileError;
 
-      const { data: cloudRows, error: fetchError } = await supabase
-        .from("user_vault_items")
-        .select("*")
-        .eq("user_id", userObj.id)
-        .order("updated_at", { ascending: false });
-
-      if (fetchError) throw fetchError;
-
       const nowIso = new Date().toISOString();
-      const { mergedWatched, mergedWatchlist, toUpsertCloud } = mergeLocalAndCloudVault({
+      await pullAndSyncCloudVault(supabase, {
+        userId: userObj.id,
         localWatched: watchedRef.current || [],
         localWatchlist: watchlistRef.current || [],
-        cloudRows: cloudRows || [],
-        userId: userObj.id,
-        nowIso
+        nowIso,
+        onMerged: ({ mergedWatched, mergedWatchlist }) => {
+          watchedRef.current = mergedWatched;
+          watchlistRef.current = mergedWatchlist;
+          setWatched(mergedWatched);
+          setWatchlist(mergedWatchlist);
+        }
       });
-
-      watchedRef.current = mergedWatched;
-      watchlistRef.current = mergedWatchlist;
-      setWatched(mergedWatched);
-      setWatchlist(mergedWatchlist);
-
-      for (let i = 0; i < toUpsertCloud.length; i += 100) {
-        const chunk = toUpsertCloud.slice(i, i + 100);
-        const { error: upsertError } = await supabase
-          .from("user_vault_items")
-          .upsert(chunk, { onConflict: "user_id,movie_key" });
-        if (upsertError) throw upsertError;
-      }
 
       const syncedTimestamp = new Date().toISOString();
       lastAutoSyncedUserIdRef.current = userObj.id;
