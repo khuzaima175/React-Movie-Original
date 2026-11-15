@@ -1123,3 +1123,59 @@ test("selectMoodStratifiedAnchors and selectDislikedOrDismissedFilms support run
     assert.ok(prompt.includes('"Relative Letdown Five" (2022) [5/10]'), "Must surface rating 5 with zScore < -0.4 from nested movie shape");
     assert.ok(prompt.indexOf('"Time Decayed Recent"') < prompt.indexOf('"Generous Pick A"'), "Must sort anchors using runtime weight (9.8 > 8.2)");
 });
+
+test("buildGeminiReRankPrompt handles real extractTasteProfile shapes, notes on dislikes/near-misses, [Series], and watchlist", () => {
+    const watched = [
+        {
+            tmdbId: 1,
+            title: "Dark",
+            year: "2017–2020",
+            Type: "series",
+            userRating: 10,
+            director: "Baran bo Odar",
+            genre: "Sci-Fi, Mystery",
+            userNote: "Tight puzzle-box time travel where every clue pays off cleanly without filler."
+        },
+        {
+            tmdbId: 2,
+            title: "Parasite",
+            year: "2019",
+            userRating: 5,
+            genre: "Thriller, Drama",
+            userNote: "Great filmmaking craft but hated the grim bleak tone"
+        },
+        {
+            tmdbId: 3,
+            title: "Tenet",
+            year: "2020",
+            userRating: 7,
+            director: "Christopher Nolan",
+            genre: "Sci-Fi, Action",
+            userNote: "Cool premise but cold characters and muddy audio"
+        },
+    ];
+    const profile = {
+        lovedGenreNames: ["Sci-Fi", "Thriller"],
+        topDirectors: ["Christopher Nolan", "Denis Villeneuve"],
+        userStats: { mean: 8.1, std: 1.4, count: 120 },
+        weightedRatings: [
+            { movie: watched[0], rating: 10, zScore: 1.3, weight: 10.5 },
+            { movie: watched[1], rating: 5, zScore: -2.2, weight: 2.0 },
+            { movie: watched[2], rating: 7, zScore: -0.7, weight: 6.4 },
+        ],
+    };
+    const watchlist = [{ tmdbId: 90, title: "Severance", year: "2022", mediaType: "tv" }];
+    const candidates = [{ tmdbId: 500, id: 500, title: "Coherence", year: "2013", genre: "Sci-Fi", overview: "Dinner party anomaly." }];
+
+    const prompt = buildGeminiReRankPrompt(profile, "mind-bending", candidates, { watched, watchlist });
+
+    assert.ok(prompt.includes('"Dark" (2017–2020) [10/10] [Series]'), "Anchor keeps [10/10] immediately after year and adds [Series]");
+    assert.ok(prompt.includes("Tight puzzle-box time travel where every clue pays off cleanly without filler."), "Anchor preserves 180-char userNote");
+    assert.ok(prompt.includes('"Parasite" (2019) [5/10]'), "Dislike keeps [5/10] contract");
+    assert.ok(prompt.includes("hated the grim bleak tone"), "Dislike includes userNote");
+    assert.ok(prompt.includes('"Tenet" (2020) [7/10'), "Near Miss keeps [7/10 contract");
+    assert.ok(prompt.includes("cold characters and muddy audio"), "Near Miss includes userNote");
+    assert.ok(prompt.includes("8.1/10"), "Rating baseline from real userStats.mean");
+    assert.ok(prompt.includes("Christopher Nolan, Denis Villeneuve"), "Handles string[] topDirectors from extractTasteProfile");
+    assert.ok(prompt.includes("Severance"), "Watchlist signal included when non-empty");
+});

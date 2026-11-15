@@ -13,7 +13,8 @@ import {
     fetchEmbeddingCandidates,
     enrichCandidatePoolMetadata,
     getRecentReleaseDateFloor,
-    getFallbackPoster as getTmdbFallbackPoster
+    getFallbackPoster as getTmdbFallbackPoster,
+    isSeriesVaultItem
 } from "./tmdbService.js";
 import { DEFAULT_RANKER_WEIGHTS, rankCandidatePool } from "./rankerService.js";
 import { derivePersonalizedRankerWeights, sanitizeFeatureSnapshot } from "./onlineLearningService.js";
@@ -1223,6 +1224,23 @@ function selectMoodStratifiedAnchors(watched = [], profile = {}, preset = {}, mo
     return [...moodMatched, ...overallFallback].slice(0, maxAnchors).map((entry) => entry.movie);
 }
 
+function formatSeriesTag(item) {
+    return isSeriesVaultItem(item) ? " [Series]" : "";
+}
+
+function formatNoteSuffix(item, maxLen = 180) {
+    const note = cleanStr(item?.userNote || item?.notes || "").slice(0, maxLen).trim();
+    return note ? ` - Note: "${note}"` : "";
+}
+
+function extractDirectorNames(rawDirectors = []) {
+    if (!Array.isArray(rawDirectors)) return [];
+    return rawDirectors
+        .map((d) => (typeof d === "string" ? cleanStr(d) : cleanStr(d?.name || "")))
+        .filter((name) => name && !/^unknown$/i.test(name) && !/^n\/a$/i.test(name))
+        .slice(0, 4);
+}
+
 function selectDislikedOrDismissedFilms(
     watched = [],
     profile = {},
@@ -1248,7 +1266,7 @@ function selectDislikedOrDismissedFilms(
             const tag = reasonNote ? `dismissed: ${reasonNote}` : "dismissed";
             return {
                 ref: entry,
-                line: `- "${cleanStr(entry.title)}" (${yr}) [${tag}]`
+                line: `- "${cleanStr(entry.title)}" (${yr}) [${tag}]${formatSeriesTag(entry)}${formatNoteSuffix(entry, 180)}`
             };
         });
 
@@ -1268,7 +1286,7 @@ function selectDislikedOrDismissedFilms(
             zScore: Number.isFinite(zScore) ? zScore : rating - 7,
             dateMs: parseSortDateMs(movie),
             title: cleanStr(movie.title || movie.Title || ""),
-            line: `- "${cleanStr(movie.title || movie.Title || "")}" (${movie.year || movie.Year || "N/A"}) [${rating}/10]`
+            line: `- "${cleanStr(movie.title || movie.Title || "")}" (${movie.year || movie.Year || "N/A"}) [${rating}/10]${formatSeriesTag(movie)}${formatNoteSuffix(movie, 180)}`
         });
     }
 
@@ -1428,7 +1446,7 @@ function selectNearMissFilms(watched = [], profile = {}, embeddingIndex = null, 
         const yr = movie.year || movie.Year || "N/A";
         const rawGenre = cleanStr(movie.genre || movie.Genre || "");
         const genreNote = rawGenre && rawGenre !== "N/A" ? ` • ${rawGenre.split(",").slice(0, 2).map(s => s.trim()).join(", ")}` : "";
-        return `- "${title}" (${yr}) [${rating}/10${genreNote}]`;
+        return `- "${title}" (${yr}) [${rating}/10${genreNote}]${formatSeriesTag(movie)}${formatNoteSuffix(movie, 180)}`;
     });
 }
 
@@ -1437,6 +1455,7 @@ function selectNearMissFilms(watched = [], profile = {}, embeddingIndex = null, 
  */
 export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], context = {}) {
     const watched = Array.isArray(context.watched) ? context.watched : [];
+    const watchlist = Array.isArray(context.watchlist) ? context.watchlist : [];
     const feedbackLog = Array.isArray(context.feedbackLog) ? context.feedbackLog : [];
     const targetCount = Math.max(1, Number(context.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const { effectiveMood, preset, explicitMood, vibeConstraints } = buildMoodPromptSummary(mood, context.moodFilters);
@@ -1445,8 +1464,15 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
     // 1. Top Anchor Films (rated >= 8★, up to 10 films, mood-stratified with deterministic overall backfill)
     const anchorEntries = selectMoodStratifiedAnchors(watched, profile, preset, parsedMoodFilters, 10);
     const anchorFilms = anchorEntries.map(m => {
-        const note = m.userNote || m.notes ? ` - "${cleanStr(m.userNote || m.notes).slice(0, 80)}"` : "";
-        return `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${note}`;
+        const dirName = cleanStr(m.director || m.Director || "");
+        const dirPart = dirName && dirName !== "Unknown" && dirName !== "N/A" ? `Dir: ${dirName}` : "";
+        const rawGenre = cleanStr(m.genre || m.Genre || "");
+        const genrePart = rawGenre && rawGenre !== "N/A"
+            ? rawGenre.split(",").slice(0, 2).map(s => s.trim()).filter(Boolean).join(", ")
+            : "";
+        const metaParts = [dirPart, genrePart].filter(Boolean);
+        const metaTag = metaParts.length > 0 ? ` (${metaParts.join(" | ")})` : "";
+        return `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${formatSeriesTag(m)}${metaTag}${formatNoteSuffix(m, 180)}`;
     });
 
     // 1b. Disliked / Dismissed Tonal Guardrails (up to 5 films rated <= 4★, negative z-score, or dismissed)
@@ -1457,10 +1483,38 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         .filter(m => typeof m.userRating === "number" && m.userRating >= 6 && m.dateWatched)
         .sort((a, b) => new Date(b.dateWatched) - new Date(a.dateWatched))
         .slice(0, 3)
-        .map(m => `- "${cleanStr(m.title)}" (${m.year || "N/A"}) [${m.userRating}/10]`);
+        .map(m => `- "${cleanStr(m.title)}" (${m.year || m.Year || "N/A"}) [${m.userRating}/10]${formatSeriesTag(m)}${formatNoteSuffix(m, 120)}`);
 
     // 2b. Near Misses (6-7★ films closest to 9-10★ favorites, excluding disliked items)
     const nearMisses = selectNearMissFilms(watched, profile, context.embeddingIndex || null, dislikedFilms, 4);
+
+    // 2c. Stated future interest from Watchlist (excluded from recommendations)
+    const watchlistLines = [];
+    const seenWatchlist = [];
+    for (const m of watchlist) {
+        if (!m || watchlistLines.length >= 8) continue;
+        const title = cleanStr(m.title || m.Title || "");
+        if (!title || seenWatchlist.some((prev) => isSameMovie(prev, m))) continue;
+        seenWatchlist.push(m);
+        watchlistLines.push(`- "${title}" (${m.year || m.Year || "N/A"})${formatSeriesTag(m)}`);
+    }
+
+    const lovedGenres = Array.isArray(profile?.lovedGenreNames) && profile.lovedGenreNames.length > 0
+        ? profile.lovedGenreNames
+        : (Array.isArray(profile?.genres) ? profile.genres.map(g => (typeof g === "string" ? g : g?.name || "")).filter(Boolean) : []);
+    const ratingStats = profile?.userStats || profile?.ratingStats;
+    const ratingCount = Number(ratingStats?.count ?? profile?.totalRated ?? watched.length) || 0;
+    const directorNames = extractDirectorNames(profile?.topDirectors);
+    const tasteLines = [
+        `- Favorite Genres: ${lovedGenres.join(", ") || "Diverse / Open"}`,
+        directorNames.length > 0 ? `- Favorite Directors: ${directorNames.join(", ")}` : "",
+        ratingStats && Number.isFinite(Number(ratingStats.mean)) && Number(ratingStats.count) > 0
+            ? `- Rating Baseline: Avg ${Number(ratingStats.mean).toFixed(1)}/10 across ${ratingCount} ratings (treat <=5/10 as strong dislikes)`
+            : "",
+        `- Selected Mood / Vibe: "${cleanStr(effectiveMood)}" (${preset.label})`,
+        `- Mood Directive: ${preset.promptDirective}`,
+        vibeConstraints.length > 0 ? `- Custom Vibe Constraints: ${vibeConstraints.join(" | ")}` : ""
+    ].filter(Boolean);
 
     // 3. Candidate Movies formatting with director, badges, vote count, matchScore, and plot snippet
     const candidatesStr = topCandidates.map(c => {
@@ -1482,14 +1536,12 @@ Select a diverse top ${targetCount} from these pre-ranked TMDB candidate movies 
 Do NOT invent scores—each candidate already has a calibrated ranker score.
 
 USER TASTE PROFILE:
-- Favorite Genres: ${(profile.lovedGenreNames || []).join(", ") || "Diverse / Open"}
-- Selected Mood / Vibe: "${cleanStr(effectiveMood)}" (${preset.label})
-- Mood Directive: ${preset.promptDirective}
-${vibeConstraints.length > 0 ? `- Custom Vibe Constraints: ${vibeConstraints.join(" | ")}` : ""}
+${tasteLines.join("\n")}
 ${anchorFilms.length > 0 ? `\nUSER'S FAVORITE ANCHOR FILMS:\n${anchorFilms.join("\n")}` : ""}
 ${dislikedFilms.length > 0 ? `\nUSER'S DISLIKED / DISMISSED FILMS (Avoid similar tone):\n${dislikedFilms.join("\n")}` : ""}
 ${recentStreak.length > 0 ? `\nRECENT WATCH STREAK:\n${recentStreak.join("\n")}` : ""}
 ${nearMisses.length > 0 ? `\nNEAR MISSES (Good but not 9/10 for this user):\n${nearMisses.join("\n")}` : ""}
+${watchlistLines.length > 0 ? `\nUSER'S WATCHLIST (Stated interest — excluded from candidates):\n${watchlistLines.join("\n")}` : ""}
 
 PRE-RANKED CANDIDATE MOVIES (Top ${topCandidates.length}):
 ${candidatesStr}
