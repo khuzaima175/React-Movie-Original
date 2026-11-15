@@ -12,7 +12,7 @@
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-4_Hydrogen_Cascade-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-Smooth_Physics-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
-[![Tests 274/274](https://img.shields.io/badge/Tests-274%2F274_Passing-46d369?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md#6-how-to-check-everything-yourself-ez-verification-commands)
+[![Tests 311/311](https://img.shields.io/badge/Tests-311%2F311_Passing-46d369?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md#6-how-to-check-everything-yourself-ez-verification-commands)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
 
 [Explore Features](#-standout-features-showcase) • [Why CinemaVault?](#-the-problem-why-cinemavault) • [How It Works](#-the-magic-under-the-hood) • [Local ML & Bugs Fixed](#-on-device-local-ml--provenance-highlights) • [Quick Start](#-quickstart-guide)
@@ -31,7 +31,7 @@ We’ve all been there:
 - Your film ratings are scattered across IMDb, Letterboxd, and notes on your phone with zero actionable insights.
 
 ### Enter **CinemaVault**.
-CinemaVault is a modern, privacy-focused, streaming-grade web application designed to be your **definitive personal film vault, on-device 25,000-film mathematical curator, live discovery hub, and cinema concierge** — combining multi-page TMDB Discover carousels, a first-open 30-film Rapid Taste Deck, verified 5-bucket retrieval + `moodPolicy.js` vibe gating, local `CVEM v1` half-precision collaborative embeddings, a calibrated 12-feature logistic ranker (`10` curated picks with refresh rotation), a resilient `gemini-4-hydrogen` multi-model cascade served via key-isolated `/api/*` serverless proxies, and optional multi-user Supabase Cloud Sync with Postgres RLS.
+CinemaVault is a modern, privacy-focused, streaming-grade web application designed to be your **definitive personal film vault, on-device 25,000-film mathematical curator, live discovery & research hub, side-by-side comparison workbench, and cinema concierge** — combining multi-page TMDB Discover carousels, a URL-synced `/explore` Deep Filter Workbench, a first-open 30-film Rapid Taste Deck, Rating Studio 2.0 (live Vault percentile calibration, 4-aspect Craft Breakdown, & Watch Log metadata), Rabbit Hole franchise timelines & hybrid `CVEM v1` + TMDB similarity strips, a 2–3 film Side-by-Side Comparison Matrix (`/compare` + floating `CompareDock`), verified 5-bucket retrieval + `moodPolicy.js` vibe gating, local `CVEM v1` half-precision collaborative embeddings, a calibrated 12-feature logistic ranker (`10` curated picks with refresh rotation), a resilient `gemini-4-hydrogen` multi-model cascade (including spoiler-safe `"Discuss This Film"` contextual AI chat) served via key-isolated `/api/*` serverless proxies, and optional multi-user Supabase Cloud Sync with Postgres RLS.
 
 ---
 
@@ -100,12 +100,13 @@ Most AI movie tools prompt an LLM to invent titles from thin air. CinemaVault ru
 
 ---
 
-### 2. 💬 AI Cinema Concierge & Deep Breakdowns
-> *"An intelligent conversational partner that actually remembers what you've watched."*
+### 2. 💬 AI Cinema Concierge, "Discuss This Film" Mode & Deep Breakdowns
+> *"An intelligent conversational partner that actually remembers what you've watched — and respects spoilers."*
 
 CinemaVault features a dedicated, context-aware AI chat assistant and deep explanation engine built right into the app:
 - **Dual-Speed Routing:** [geminiChatService.js](./src/services/geminiChatService.js) uses **`FAST_INTERACTIVE_CASCADE`** (`gemini-3.5-flash-lite` first for 500 RPD speed, backed by `gemini-4-hydrogen` `MEDIUM` thinking, `3.6-flash`, `3-flash-preview` `MINIMAL`, `2.5-flash`, and `3.8-flash`), while [geminiExplanationService.js](./src/services/geminiExplanationService.js) shares the `HIGH`-thinking curation cascade and `35s` client timeout.
-- **Tailored to You**: Automatically references movies you’ve rated `8★+` and incorporates your notes and reviews.
+- **Tailored to You**: Automatically references movies you’ve rated `8★+` and incorporates your notes, reviews, and active Steerable Taste Rules.
+- **Contextual "Discuss This Film" Deep-Link & Spoiler-Safe Guard ([filmChatService.js](./src/services/filmChatService.js), [AIPage.jsx](./src/pages/AIPage.jsx), [AIChat.jsx](./src/components/AIChat.jsx))**: Click **Discuss with AI** on any movie page to launch `/ai?tab=chat&movie=...` with a pinned Film Context Bar, injection-safe dossier prompt (`serializeFilmDossierForPrompt`), 4 tailored starter prompts (`buildMovieChatStarterPrompts`), and a 1-click **Spoiler-Safe Toggle** (`SPOILER-SAFE MODE` automatically enabled when you haven't watched the film yet).
 - **Strictly Cinema-Focused**: Polite guardrails keep the conversation locked on cinema history, filmmaking styles, and film theory.
 - **Interactive Title Cards**: When the AI suggests a film, it formats it as an interactive card so you can view details, watch trailers, or add it to your Watchlist with a single tap.
 
@@ -143,10 +144,10 @@ Your vault isn't just a list; CinemaVault continuously turns your logged movies 
 
 ---
 
-### 6. ⭐ Luxury 10-Star Rating Studio & Dynamic Anchor Tiers
+### 6. ⭐ Luxury 10-Star Rating Studio 2.0, Dynamic Anchor Tiers & Rabbit Hole Discovery
 > *"Rating a movie should feel as rewarding as watching it."*
 
-CinemaVault replaces clunky dropdowns with a **synchronized dual rating interface** ([MovieDetails.jsx](./src/components/MovieDetails.jsx)):
+CinemaVault replaces clunky dropdowns with a **synchronized dual rating interface** ([MovieDetails.jsx](./src/components/MovieDetails.jsx) & [ratingStudioService.js](./src/services/ratingStudioService.js)):
 - A sleek, 10-star glowing rating bar coupled with an instant 1–10 numeric dial.
 - **Dynamic Taste Feedback**: Every star rating triggers reactive metadata explaining how this score influences your recommendation engine:
   - **10★ Masterpiece**: Sets the primary anchor for spiritual successor keyword matching (Brass Gold).
@@ -154,8 +155,11 @@ CinemaVault replaces clunky dropdowns with a **synchronized dual rating interfac
   - **8★ Great Film**: Accumulates actor (`castIds`) and auteur crew affinities (Emerald).
   - **7★ Good Watch**: Solid craft baseline & director tally (Cyan).
   - **$\le$ 3★ Disliked/Flawed**: Extracts negative micro-keywords (e.g. *"slapstick"*, *"found-footage"*) and triggers embedding repulsion to steer away from similar disappointments.
+- **Live Vault Calibration & Benchmark Anchors (`computeVaultCalibration`)**: Shows your real-time Vault percentile (`Top X% of your Vault`) as you dial `1★–10★` alongside up to 2 recent films you rated the exact same (or nearest) score.
+- **Optional 4-Aspect Craft Breakdown & Watch Session Log (`CRAFT_ASPECTS`, `WATCH_FORMATS`)**: Expandable `1–5` craft bars for **Story & Script**, **Direction**, **Performances**, and **Visuals & Score** (`computeCraftAverage`) plus viewing format (`Streaming`, `Theater`, `IMAX / Dolby`, `4K / Blu-ray`), custom watch date, rewatch counter, and spoiler flag (`buildWatchedRatingPayload`).
 - **Review Notes & Contextual Quick Tags ([quickReviewTags.js](./src/services/quickReviewTags.js), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx))**: Write 1–2 lines explaining *why* you loved or bounced off a film (up to `200` chars in Quick Rate, unbounded in Movie Details — fed directly to Gemini up to `180` chars) with 1-click praise and critique chips (`#Masterpiece`, `#SmartPlot`, `#TightPacing`, `#SlowPacing`, `#WeakEnding`, `#TooBleak`).
 - **Clickable Cast, Director & Crew Filmography ([personService.js](./src/services/personService.js), [PersonFilmographyModal.jsx](./src/components/PersonFilmographyModal.jsx), [PersonPage.jsx](./src/pages/PersonPage.jsx))**: Click any actor card or Director/Writer/Cinematographer/Composer credit in `MovieDetails` to open a non-destructive Filmography Overlay (`Watched`, `Avg ★`, & `Watchlist` affinity stats, department tabs, status filters, `+ Save`, & `★ Rate`) or launch the dedicated `/person/:id` full profile page.
+- **Rabbit Hole Discovery ([rabbitHoleService.js](./src/services/rabbitHoleService.js), [CollectionTimeline.jsx](./src/components/CollectionTimeline.jsx), [SimilarFilmsStrip.jsx](./src/components/SimilarFilmsStrip.jsx))**: Click any genre or `#keyword` motif pill to pivot into `/explore`, track franchise progress in the chronological **Collection Timeline**, and browse the **Hybrid Similar Films Strip** blending local 64-D `CVEM v1` vector neighbors with TMDB `/recommendations` & `/similar`.
 
 ---
 
@@ -217,6 +221,22 @@ CinemaVault was redesigned to eliminate the loud, neon "AI-demo" look in favor o
 
 ---
 
+### 13. 🧭 Deep Filter Workbench (`/explore`) & Shareable Catalog Research ([ExplorePage.jsx](./src/pages/ExplorePage.jsx), [exploreService.js](./src/services/exploreService.js))
+> *"Turn any genre, motif, decade, runtime, or filmmaker into a live, shareable discovery query."*
+
+- **Multi-Facet TMDB Discover Compiler (`buildTmdbDiscoverParams`):** Combine included genres (`AND`/`OR`), excluded genres, decade & year bounds (`DECADE_PRESETS`), runtime presets (`Quick <95m`, `Feature 95–135m`, `Epic 150m+`), minimum IMDb/TMDB rating & vote floors, original language, origin country, debounced TMDB keyword & person autocomplete, regional streaming providers, and `Hide Watched` (auto-advancing when page 1 is already logged).
+- **100% URL-Synced State (`parseExploreSearchParams` / `buildExploreSearchParams`):** Every filter state round-trips cleanly into `/explore?...` query params with removable filter chips (`getActiveFilterChips`) and glitch-free loading transitions (`deriveExploreViewState`).
+
+---
+
+### 14. ⚖️ Side-by-Side Film Comparison Workbench (`/compare` & `CompareDock`) ([CompareWorkbench.jsx](./src/components/CompareWorkbench.jsx), [CompareDock.jsx](./src/components/CompareDock.jsx), [compareService.js](./src/services/compareService.js))
+> *"Compare 2–3 films head-to-head across critical reception, box office ROI, shared collaborators, and your 64-D taste vector."*
+
+- **Floating Compare Tray & Dual Views (`CompareDock.jsx`, `CompareModal.jsx`, `ComparePage.jsx`):** Click `⇄ Compare` on any poster card or detail page to dock up to 3 films in `sessionStorage` (`cinemavault_compare_v1`), inspect them in a quick modal or full `/compare?ids=...` workbench, and copy shareable comparison URLs.
+- **Head-to-Head Matrix & Shared DNA (`buildCompareMatrix`, `computeCompareOverlap`):** Concurrent TMDB + OMDb hydration (`hydrateCompareMovieSlot`) highlights single or tied `Best` leaders across IMDb, Rotten Tomatoes, Metascore, TMDB, shortest runtime, budget, box office revenue, ROI multiple, personal Vault score, and on-device 64-D Taste Resonance (`vaultMatchPct`), while surfacing **Shared Cast & Crew** (clickable into `PersonFilmographyModal`), **Shared Genres & `#keyword` Motifs** (clickable into `/explore`), and **Pairwise 64-D `CVEM v1` Cosine Similarity Bars**.
+
+---
+
 ## 🧠 The Magic Under the Hood
 
 How does CinemaVault deliver accurate, zero-hallucination recommendations *mostly on your own machine* (and securely via `/api/*` proxies in production)?
@@ -245,7 +265,7 @@ Everything about the local machine learning stack and engineering fixes is docum
   - **4-Vault Human Benchmark (`--benchmark .data/benchmark_vaults.json`):** `>= 8★` rolling mean reaches **`NDCG@10 = 0.1776`**, `Recall@20 = 0.2500`, `Precision@10 = 0.1667`, `withinUserAuc(>=9v<=7) = 0.7265`, `withinUserAuc(>=8v<=7) = 0.6422` (`+0.0160` NDCG@10 vs `post_fixes`); `>= 9★` (`3` eligible vaults) reaches **`NDCG@10 = 0.2258` (`+0.0345`)**, `Recall@20 = 0.3333`, `Precision@10 = 0.2167`, `withinUserAuc(>=9v<=7) = 0.6817` (`+0.0938`).
   - **328-User MovieLens Tune Cohort (`clean2`):** `>= 8★` lifts **`NDCG@10 = 0.0909`** (`+0.0061`, 95% CI `[+0.0000, +0.0126]`, significant), `Recall@20 = 0.1256`, `Precision@10 = 0.0805`, `withinUserAuc(>=9v<=7) = 0.7335` (`+0.0285*`), `withinUserAuc(>=8v<=7) = 0.6994` (`+0.0240*`); `>= 9★` (`n=304`) lifts **`NDCG@10 = 0.1145` (`+0.0095*`)**, `Recall@20 = 0.1448` (`+0.0082*`), `Precision@10 = 0.0947` (`+0.0076*`), `withinUserAuc(>=9v<=7) = 0.7458` (`+0.0301*`).
   - **Strictly Held-Out `fresh_300` Cohort (`clean2`):** `>= 8★` cuts `NegHit@20` to **`0.0032` (`-0.0018*`)** and lifts `withinUserAuc(>=9v<=7) = 0.7218` (`+0.0338*`) & `withinUserAuc(>=8v<=7) = 0.6788` (`+0.0256*`); `>= 9★` (`n=284`) lifts **`NDCG@10 = 0.1227` (`+0.0067*`)**, `Recall@20 = 0.1581`, **`Precision@10 = 0.0986` (`+0.0077*`)**, `withinUserAuc(>=9v<=7) = 0.7407` (`+0.0302*`), `withinUserAuc(>=8v<=7) = 0.6926` (`+0.0230*`).
-- **100% Test Coverage of Critical Pipelines:** **`274 / 274` unit tests pass** across all **31** test suites (`npm test`), covering float16 codec, relative cutoff, smooth `[0, 0.02]` damping & `catalog-max` invariance, mass-weighted persona mixture (`beta=20`) + `64×64` Ridge fold-in (`lambda=20`), reserve slot math, CSV rollover/cluster/rewatch logic, Schema v2 duplicate-safe portability, series-guarded lazy TMDB vault backfill (`cast`, `tagline`, `language`, `runtime`, `keywords`, overview) + HTTP `429` abort handling, cross-ID `movieIdentity`, Discover collision filtering, Rapid Taste Deck & contextual `quickReviewTags.js`, canonical mood policy + strict mood ranker rebalancing, generous-rater `>= 7★` negative-suppression guards, 39-pick stratified shortlist (`25+8+6`) + 10-pick soft director/collection caps + auto-backfill + open `<= 20,000`-char / top-25 favorite / all-note / `LOVED SERIES / ANIME` Gemini curation + TMDB-verified `wildcardPicks` & refresh rotation, steerable Taste Rules (`tasteRulesService.js`), interactive Person Filmography & Vault stats (`personService.js`), serverless `/api/*` proxies (including `/api/tmdb-batch`, `PROXY_RATE_LIMIT`, and `Sec-Fetch-Site` checks), H1 Gemini error classification/cooldowns + `45s` cascade deadline, online feedback weight updates, Supabase lossless keyset-paginated cloud sync, session `.bin` negative-caching + documented `coldOnly` fallback, and rolling evaluation.
+- **100% Test Coverage of Critical Pipelines:** **`310 / 310` unit tests pass** across all **37** test suites (`npm test`), covering float16 codec, relative cutoff, smooth `[0, 0.02]` damping & `catalog-max` invariance, mass-weighted persona mixture (`beta=20`) + `64×64` Ridge fold-in (`lambda=20`), reserve slot math, CSV rollover/cluster/rewatch logic, Schema v2 duplicate-safe portability, series-guarded lazy TMDB vault backfill (`cast`, `tagline`, `language`, `runtime`, `keywords`, overview) + HTTP `429` abort handling, cross-ID `movieIdentity`, Discover collision filtering, Rapid Taste Deck & contextual `quickReviewTags.js`, canonical mood policy + strict mood ranker rebalancing, generous-rater `>= 7★` negative-suppression guards, 39-pick stratified shortlist (`25+8+6`) + 10-pick soft director/collection caps + auto-backfill + open `<= 20,000`-char / top-25 favorite / all-note / `LOVED SERIES / ANIME` Gemini curation + TMDB-verified `wildcardPicks` & refresh rotation, steerable Taste Rules (`tasteRulesService.js`), interactive Person Filmography & Vault stats (`personService.js`), Rating Studio 2.0 calibration + Craft Breakdown + Watch Log null-tombstone clearing (`ratingStudioService.js`), spoiler-safe `"Discuss This Film"` dossier & deep-link routing (`filmChatService.js`), `/explore` multi-facet URL & TMDB discover compilation (`exploreService.js`), Rabbit Hole franchise timelines & hybrid `CVEM v1` + TMDB similarity (`rabbitHoleService.js`, `tmdbRabbitHoleHelpers`), 2–3 film Side-by-Side Comparison Matrix + DNA overlap + URL slot synchronization (`compareService.js`), serverless `/api/*` proxies (including `/api/tmdb-batch`, `PROXY_RATE_LIMIT`, and `Sec-Fetch-Site` checks), H1 Gemini error classification/cooldowns + `45s` cascade deadline, online feedback weight updates, Supabase lossless keyset-paginated cloud sync, session `.bin` negative-caching + documented `coldOnly` fallback, and rolling evaluation.
 
 ---
 
@@ -254,16 +274,16 @@ Everything about the local machine learning stack and engineering fixes is docum
 | Layer | Technology | Why It Was Chosen |
 | :--- | :--- | :--- |
 | **Framework** | **React 18.3** | Declarative UI, Context API state management (`safeSetItem`), and modern component hooks. |
-| **Build & Tooling** | **Vite 5.4** | Instant Hot Module Replacement (HMR) and optimized Rollup production builds (**`2309`** modules). |
+| **Build & Tooling** | **Vite 5.4** | Instant Hot Module Replacement (HMR) and optimized Rollup production builds (**`2321`** modules). |
 | **On-Device ML** | **`CVEM v1` Float16 + Ridge & Logistic Ranker** | `3.15 MB` 25k-film collaborative index, mass-weighted K-Means mixture (`beta=20`) + `0.25` Ridge fold-in (`lambda=20`), `catalog-max` scaling, smoothstep damping, `moodPolicy.js` & 2 reserve slots. |
-| **AI Engine** | **Gemini 4 Hydrogen & Flash H1 Cascade** | `HIGH`-thinking `<= 20,000`-char 10-pick open curation over 39 stratified candidates, top-25 favorites, all `userNote`s, `LOVED SERIES / ANIME`, optional TMDB-verified `wildcardPicks`, anchor pairing & explanations, `FAST` interactive chat/vibe parsing, `35s` timeouts & error-specific cooldowns. |
+| **AI Engine** | **Gemini 4 Hydrogen & Flash H1 Cascade** | `HIGH`-thinking `<= 20,000`-char 10-pick open curation over 39 stratified candidates, top-25 favorites, all `userNote`s, `LOVED SERIES / ANIME`, optional TMDB-verified `wildcardPicks`, anchor pairing & explanations, `FAST` interactive chat/vibe parsing (incl. spoiler-safe `"Discuss This Film"` mode), `35s` timeouts & error-specific cooldowns. |
 | **Serverless Security** | **Vercel Functions (`api/*.js`) + `apiTransport.js`** | Isolates `GEMINI_API_KEY`, `TMDB_API_KEY`, and `OMDB_API_KEY` server-side behind strict allowlists with zero secret leakage in `build/`. |
 | **Cloud Sync (Opt-In)** | **Supabase Auth + Postgres 17 RLS** | Optional Email Magic Link auth (`@supabase/supabase-js`) syncing `profiles` & `user_vault_items` with lossless `mergeLocalAndCloudVault`. |
 | **Styling** | **Tailwind CSS v4** | Next-generation `@theme` tokens, pure CSS custom properties, zero runtime overhead. |
 | **Motion** | **Framer Motion 12** | Spring physics, portal-based hover expansions, and `prefers-reduced-motion` accessibility. |
-| **Movie Data** | **TMDB API v3 & OMDb API** | 5-bucket retrieval (`A/B/C/D/E`), trailers, `13` watch-provider alias families across 15 regions, IMDb/RT/Metacritic scores. |
+| **Movie Data** | **TMDB API v3 & OMDb API** | 5-bucket retrieval (`A/B/C/D/E`), `/explore` multi-facet discover, `/compare` dual-source hydration, trailers, `13` watch-provider alias families across 15 regions, IMDb/RT/Metacritic scores. |
 | **Storage & Import** | **LocalStorage + `csvImport.js` + `vaultPortability.js`** | 100% guest-first persistence with `500KB` LRU cache (`v4`), deduplicated Schema v2 JSON export, hardened Letterboxd CSV importer, & lazy TMDB vault backfill. |
-| **Verification** | **`node --test` + `scripts/run_eval.mjs`** | **`274` offline unit tests** across **31** suites + rolling temporal cross-validation CLI harness. |
+| **Verification** | **`node --test` + `scripts/run_eval.mjs`** | **`310` offline unit tests** across **37** suites + rolling temporal cross-validation CLI harness. |
 
 ---
 
@@ -306,7 +326,7 @@ OMDB_API_KEY=your_omdb_api_key_here
 ### 3. Launch, Test, Evaluate & Build
 ```bash
 npm start                                 # Dev server at http://localhost:3000
-npm test                                  # Run all 274 offline unit tests across 31 suites (~0.8s)
+npm test                                  # Run all 311 offline service & API tests across 37 suites (~1.2s)
 node scripts/run_eval.mjs --synthetic     # Run built-in offline recommender benchmark
 npm run build                             # Production bundle into build/
 npm run serve                             # Preview production build locally
@@ -317,19 +337,19 @@ npm run serve                             # Preview production build locally
 ## 🎯 Typical User Journey: An Evening with CinemaVault
 
 1. **Instant Onboarding or Zero-Friction Migration:** New visitors can calibrate taste in under a minute using the **30-film Rapid Taste Deck (`TasteDeckModal`)** — or open **Import / Export Ratings (`BackupManagerModal`)** to preview diffs and drop in a Letterboxd CSV or Schema v2 JSON archive with `Watched Date` priority and zero fake `5★`/`7★` scores.
-2. **Browse Fresh Discover Rows & Quick Search (`Cmd + K` / `/`):** Browse unwatched Hero spotlights and `"All Films"` genre mosaics on **Discover**, or summon race-safe dual-engine search to inspect *Dune: Part Two*, watch the official studio trailer, and add or quick-rate in one tap (with 1-click praise/critique chips and 200-char notes).
-3. **Log, Rate & Optionally Sync (`MovieDetails` + `CloudSyncModal`):** Slide the synchronized dial to **9★ (Exceptional Cinema)**, tap `#SmartPlot` or write a 1–2 line review explaining why it clicked, watch Denis Villeneuve rise in your auteur graph — and optionally sign into Supabase Magic Link Sync to carry your entire Vault across desktop and mobile cleanly.
+2. **Browse Fresh Discover Rows, Deep Explore (`/explore`) & Quick Search (`Cmd + K` / `/`):** Browse unwatched Hero spotlights and `"All Films"` genre mosaics on **Discover**, pivot into **Explore (`/explore`)** to filter by decade, runtime, motif keywords, or streaming service, or summon race-safe dual-engine search to inspect *Dune: Part Two*, watch the official studio trailer, and add or quick-rate in one tap (with 1-click praise/critique chips and 200-char notes).
+3. **Log in Rating Studio 2.0, Discuss with AI & Optionally Sync (`MovieDetails` + `AIChat` + `CloudSyncModal`):** Slide the synchronized dial to **9★ (Exceptional Cinema)** while checking your live Vault percentile & same-score benchmarks, log optional `1–5` Craft Breakdown scores and `IMAX / Dolby` watch format, click **Discuss with AI** for a spoiler-aware breakdown, and optionally sign into Supabase Magic Link Sync to carry your entire Vault across desktop and mobile cleanly.
 4. **Check True `1★–10★` Stats & Contrarian Index:** Jump to **Vault** and see screen time rise to *14 Days, 6 Hours*, inspect full `1★–10★` histogram bins (`vaultStats.js`), and see how your sci-fi ratings compare to IMDb consensus.
 5. **Discover Your Next 10 Watches (`Oracle` + `"Match Vibe"`):** Switch over to **Oracle**, pick *Mind-Bending* or type `"like Drive but quieter"`, filter by *Netflix* or *Max* (matching all ad-tier/channel aliases via `PROVIDER_FAMILY_MAP`), and inspect **10 curated picks** paired with `"Because you rated"` anchor chips and jargon-free reasons — hitting **Refresh** to rotate fresh candidates without duplicates.
-6. **Can't Pick? Spin the Wheel:** Torn between three titles on your watchlist? Open **Pick Random Film**, hit spin, and let CinemaVault decide your movie for the night!
+6. **Compare Contenders Head-to-Head (`CompareDock` / `/compare`) or Spin the Wheel:** Torn between three titles for tonight? Click `⇄ Compare` to inspect their IMDb/RT/Metascore leaders, shortest runtime, shared cast/crew, and 64-D Taste Resonance side-by-side — or open **Pick Random Film**, hit spin, and let CinemaVault decide your movie for the night!
 
 ---
 
 ## 📄 Documentation & License
 
-- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)** — Complete plain-English walkthrough of the local 25k `CVEM v1` model, provenance & zero-leakage proof, Phases A–J + Step 2/3B ablations, all 17 errors & fixes, and EZ verification commands (`274 / 274` across 31 suites).
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Full technical & mathematical specification (v5.1): z-scores, relative cutoff, mass-weighted persona mixture + 64×64 Ridge fold-in, `catalog-max` + smooth damping, 5-bucket retrieval + `moodPolicy.js` + Reserve Lane, `PROVIDER_FAMILY_MAP`, H1 `gemini-4-hydrogen` cascade (stratified 39-pick shortlist, `<= 20,000`-char unbiased open curation, top-25 favorites, all notes, `LOVED SERIES / ANIME`, & verified `wildcardPicks`), Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`), interactive Actor/Director/Crew Filmography (`personService.js` + `/person/:id`), Smart Cache v4 & refresh rotation, serverless `/api/*` proxies, CSV & v2 portability, Supabase RLS schema, and 31-suite test map.
-- **[SPEC.md](./SPEC.md)** — Streaming-grade Frontend Overhaul UI/UX design tokens & component specification (v1.2 + v4.x + v5.0 Section 7 extensions).
+- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)** — Complete plain-English walkthrough of the local 25k `CVEM v1` model, provenance & zero-leakage proof, Phases A–J + Step 2/3B ablations, all 17 errors & fixes, and EZ verification commands (`311 / 311` across 37 suites).
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Full technical & mathematical specification (v5.1–v5.2): z-scores, relative cutoff, mass-weighted persona mixture + 64×64 Ridge fold-in, `catalog-max` + smooth damping, 5-bucket retrieval + `moodPolicy.js` + Reserve Lane, `PROVIDER_FAMILY_MAP`, H1 `gemini-4-hydrogen` cascade (stratified 39-pick shortlist, `<= 20,000`-char unbiased open curation, top-25 favorites, all notes, `LOVED SERIES / ANIME`, & verified `wildcardPicks`), Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`), interactive Actor/Director/Crew Filmography (`personService.js` + `/person/:id`), Rating Studio 2.0 (`ratingStudioService.js`), Contextual Film Chat (`filmChatService.js`), Deep Explore Workbench (`exploreService.js` + `/explore`), Rabbit Hole Discovery (`rabbitHoleService.js`), Side-by-Side Comparison (`compareService.js` + `/compare`), Smart Cache v4 & refresh rotation, serverless `/api/*` proxies, CSV & v2 portability, Supabase RLS schema, and 37-suite test map.
+- **[SPEC.md](./SPEC.md)** — Streaming-grade Frontend Overhaul UI/UX design tokens & component specification (v1.2 + v4.x + v5.0–v5.2 Section 7 extensions).
 - **[README.md](./README.md)** — Quickstart repository README & overview.
 - Built and designed with precision by **[Khuzaima](https://github.com/khuzaima175)**.
 - Licensed under the **MIT License** — free to use, modify, and build upon.

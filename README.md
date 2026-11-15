@@ -12,7 +12,7 @@
 [![Local ML CVEM v1](https://img.shields.io/badge/Local_ML-CVEM_v1_25k_f16-e5b84b?style=flat-square)](./LOCAL_MODEL_GUIDE.md)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-Resilient_Cascade-8e75ff?style=flat-square&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Supabase Cloud Sync](https://img.shields.io/badge/Supabase-Auth_%26_RLS_Sync-3ecf8e?style=flat-square&logo=supabase&logoColor=black)](./supabase/migrations/20261114000000_init_cinemavault_schema.sql)
-[![Tests 274/274](https://img.shields.io/badge/Tests-274%2F274-46d369?style=flat-square)](#development--testing)
+[![Tests 311/311](https://img.shields.io/badge/Tests-311%2F311-46d369?style=flat-square)](#development--testing)
 [![License MIT](https://img.shields.io/badge/License-MIT-e5b84b?style=flat-square)](#license)
 
 [Features](#features) · [Recommendation Pipeline](#recommendation-pipeline) · [Project Structure](#project-structure) · [Getting Started](#getting-started) · [Tech Stack](#tech-stack)
@@ -23,19 +23,21 @@
 
 ## Overview
 
-**CinemaVault** is a film tracking, discovery, and recommendation workspace built with React, Vite, and an editorial dark-mode UI. It pairs instant browser persistence (with optional Supabase cloud sync) and serverless API proxies (`/api/*`) with a local-first recommendation engine powered by a **25,000-film on-device float16 embedding index (`CVEM v1`)**, a calibrated logistic ranker, and a resilient multi-model Gemini cascade.
+**CinemaVault** is a film tracking, discovery, and recommendation workspace built with React, Vite, and an editorial dark-mode UI. It pairs instant browser persistence (with optional Supabase cloud sync) and serverless API proxies (`/api/*`) with a local-first recommendation engine powered by a **25,000-film on-device float16 embedding index (`CVEM v1`)**, an 11-feature logistic ranker, and a resilient multi-model Gemini cascade.
 
 ---
 
 ## Features
 
 - **Discover (`/`):** Compact unwatched spotlight hero, live cross-row deduplicated TMDB carousels, vault highlights, quick-rate dialogs, and a filterable catalog poster wall.
+- **Deep Filter Workbench (`/explore`):** URL-synced multi-facet TMDB discovery workbench (`exploreService.js`) with multi-genre pills, decade presets & custom year ranges, runtime bands, rating floors, sort modes (`>= 150`-vote floor on Highest Rated), language/country selectors, streaming provider chips, live TMDB `#keyword` autocomplete, `Hide Watched` / `Hide Watchlist` toggles (with 3-page auto-advance), and deep-linked `#keyword` chips from Movie Details.
+- **Side-by-Side Film Comparison (`/compare` & `CompareDock`):** Compare up to **3 films** (`compareService.js`) from any `MovieCard` or `MovieDetails` page via a persistent floating dock (`CompareDock.jsx`), quick modal (`CompareModal.jsx`), or shareable `/compare?ids=...` workbench (`ComparePage.jsx`) with automatic column winner highlights (IMDb, RT, Metascore, TMDB, shortest runtime, box office & ROI, Vault score, and 64-D **Personal Taste Match %**) plus shared cast/crew (`PersonFilmographyModal`), shared genres/keywords (`/explore`), and pairwise 64-D vector similarity.
 - **My Vault (`/vault`):** Searchable Watched and Watchlist ledger with genre/sort filters, grid & list layouts, bulk actions, Rating Delta `Insights` (Contrarian Index & score distributions), and `Taste Profile` analytics.
 - **Rapid Taste Deck Onboarding:** 1-click Flashcard and 20-poster multi-genre grid flows to calibrate cold-start vaults cleanly without fabricated ratings.
 - **Film Oracle & Companion (`/ai`):**
-  - **Picks:** 3x2 Mood Matrix, free-text vibe matching, and collapsed region/streaming availability filters across **12 platforms** and **15 regions** — ranked locally (`50–99%` match scores + deterministic match badges) and curated by Gemini with offline ranker fallback.
-  - **Film Companion:** Conversational cinema assistant with inline clickable movie cards parsed directly from recommendations.
-- **Movie Details (`/movie/:id`) & Quick Notes:** Backdrop hero banner, synchronized 10-star & 1–10 numeric Rating Deck, dynamic taste anchor tiers, shared 1-click praise & critique quick review tags (`quickReviewTags.js`, also inside `QuickRateModal` up to `200` chars), unified IMDb / Rotten Tomatoes / Metacritic / TMDB ratings, interactive clickable Cast & Creative Credits (`PersonFilmographyModal` + full `/person/:id` filmography route via `personService.js` with personal Vault stats, filters & quick rating), regional watch providers, and official trailer launcher.
+  - **Picks:** 3x2 Mood Matrix, free-text vibe matching, steerable **Prefer / Avoid Taste Rules** (`tasteRulesService.js`), and collapsed region/streaming availability filters across **12 platforms** and **15 regions** — ranked locally (`50–99%` match scores + deterministic match badges) and curated by Gemini with offline ranker fallback.
+  - **Film Companion & "Discuss This Film":** Conversational cinema assistant with inline clickable movie cards, plus deep-linked movie-focused chat (`/ai?tab=chat&movie=...` via `filmChatService.js`) with a pinned Film Context Banner, **Spoiler-Safe by default** toggle for unwatched films, and 4 tailored starter prompts.
+- **Movie Details (`/movie/:id`), Rating Studio 2.0 & Rabbit Hole Discovery:** Backdrop hero banner, custom-sculpted **10-Star Cinema Stage (`StarRatingStage.jsx`)** with wave-cascade hover physics, synchronized light rail, and **live personal Vault percentile calibration & benchmark anchors** (`ratingStudioService.js`), optional **4-aspect Craft Breakdown** (`Story`, `Direction`, `Performances`, `Visuals` on 1–5) and **Watch Session Log** (`Streaming`/`Theater`/`IMAX`/`Physical`, `Rewatch`, `Watched Date`), dynamic taste anchor tiers (`ratingTiers.js`), shared 1-click praise & critique quick review tags (`quickReviewTags.js`, also inside `QuickRateModal` up to `200` chars), unified IMDb / Rotten Tomatoes / Metacritic / TMDB ratings, interactive clickable Cast & Creative Credits (`PersonFilmographyModal` + full `/person/:id` filmography route via `personService.js` with personal Vault stats, filters & quick rating), **Chronological Franchise Timeline** (`CollectionTimeline.jsx`) & **Hybrid `CVEM v1` + TMDB Similar Films Strip** (`SimilarFilmsStrip.jsx`, `rabbitHoleService.js`), clickable `#keyword` chips routed to `/explore`, regional watch providers, and official trailer launcher.
 - **Command Search & Night Picker:** Instant `Cmd/Ctrl + K` (or `/`) dual-engine TMDB + OMDb split search modal plus a Night Picker for fast queue decisions.
 - **Hardened Portability, Safe Backfill & Opt-In Cloud Sync:** Full JSON v2 backups, bidirectional Letterboxd CSV and IMDb import/export (calendar validation, clustered bulk-import suppression, diary rewatch deduplication, and cross-ID `tmdb_...`/`tt...` duplicate collapsing), safe lazy background TMDB vault backfill (strict title/year match + TV series guard preserving cast, writers, tagline, runtime, language, origin, and keywords), and optional passwordless Email OTP sync via Supabase Auth & Postgres Row-Level Security.
 
@@ -48,8 +50,8 @@ flowchart TD
     V["Vault & Watchlist"] --> T["Taste Model (scoringUtils.js)\nZ-scores + Recency Decay"]
     T --> E["On-Device CVEM v1 Index\n25k x 64-D float16 Embeddings & Personas"]
     T & E --> R["5-Bucket Hybrid Retrieval\nKeywords, Auteurs, Mood, Recent Releases, Embedding Neighbors"]
-    R --> RNK["Calibrated 11-Feature Logistic Ranker\nMatch Scores (50-99%), Badges & Reserve Slots"]
-    RNK --> GEM["Resilient H1 Gemini Cascade\nDiversity Selection & Explanations + Local Math Fallback"]
+    R --> RNK["11-Feature Logistic Ranker\nDisplay Match Scores (50-99%), Badges & Reserve Slots"]
+    RNK --> GEM["Resilient H1 Gemini Cascade\n39-Pick Shortlist Curation & Explanations + Local Math Fallback"]
     GEM --> UI["Film Oracle Picks"]
 ```
 
@@ -72,13 +74,13 @@ movie-ratings/
 ├── scripts/                     # Embedding trainer, content builder & offline eval CLI (run_eval.mjs)
 ├── supabase/migrations/         # Optional Postgres schema & RLS policies for Cloud Vault Sync
 ├── src/
-│   ├── components/              # Feature components, modals (Search, CloudSync, TasteDeck, Backup) & ui/ primitives
+│   ├── components/              # Feature components, modals (Search, CloudSync, TasteDeck, Backup, CompareDock/Modal) & ui/ primitives
 │   ├── context/                 # AppContext vault state, local persistence & cloud sync orchestration
 │   ├── hooks/                   # Custom React hooks (scroll reveal, debouncing)
-│   ├── pages/                   # DashboardPage (/), VaultPage (/vault), AIPage (/ai), MoviePage (/movie/:id), PersonPage (/person/:id)
-│   ├── services/                # Scoring, CVEM embeddings, TMDB 5-bucket retrieval, personService, ranker, CSV import, quickReviewTags & Gemini cascades
-│   └── styles/                  # Editorial design tokens, primitives, discover, vault, oracle & person stylesheets
-└── tests/                       # 31 automated suites using Node built-in test runner (274/274 passing)
+│   ├── pages/                   # DashboardPage (/), ExplorePage (/explore), ComparePage (/compare), VaultPage (/vault), AIPage (/ai), MoviePage (/movie/:id), PersonPage (/person/:id)
+│   ├── services/                # Scoring, CVEM embeddings, TMDB 5-bucket retrieval, exploreService, rabbitHoleService, compareService, ratingStudioService, filmChatService, personService, tasteRulesService, ranker, CSV import, quickReviewTags & Gemini cascades
+│   └── styles/                  # Editorial design tokens, primitives, discover, explore, compare, vault, oracle & person stylesheets
+└── tests/                       # 37 automated service & API suites (311/311 passing)
 ```
 
 ---
@@ -125,7 +127,7 @@ OMDB_API_KEY=your_omdb_api_key_here
 # Start local Vite dev server (http://localhost:3000)
 npm start
 
-# Run all 274 offline unit & integration tests (31 files)
+# Run all 311 offline service & API tests (37 files)
 npm test
 
 # Run built-in offline recommender benchmark
@@ -148,8 +150,8 @@ npm run serve
 | **Build & Hosting** | Vite 5.4, Vercel Serverless Functions (`/api/gemini`, `/api/tmdb`, `/api/tmdb-batch`, `/api/omdb`) |
 | **On-Device ML** | Custom `CVEM v1` 25k × 64 float16 collaborative embeddings + 11-feature logistic ranker |
 | **AI & Catalog APIs** | `@google/genai` (Gemini cascade), TMDB API v3, OMDb API |
-| **Optional Cloud Sync** | `@supabase/supabase-js` v2 with Email OTP auth and Postgres Row-Level Security |
-| **Testing** | Node built-in test runner (`node --test`) across 31 test suites (`274/274` passing) |
+| **Optional Cloud Sync** | `@supabase/supabase-js` v2 with Email OTP auth and Postgres 15+ Row-Level Security |
+| **Testing** | Node built-in test runner (`node --test`) across 37 service & API test suites (`311/311` passing) |
 
 ---
 
@@ -169,4 +171,5 @@ npm run serve
 
 ## License
 
-MIT License — built by [Khuzaima](https://github.com/khuzaima175).
+- **Application Source Code:** MIT License — built by [Khuzaima](https://github.com/khuzaima175).
+- **Research Embedding Artifact (`public/models/item_embeddings_f16.bin`):** Precomputed 64-D SVD item vectors derived from the [GroupLens MovieLens 32M dataset](https://grouplens.org/datasets/movielens/32m/) (F. Maxwell Harper and Joseph A. Konstan, *ACM TIIS*, 2015) for non-commercial academic/portfolio demonstration under the MovieLens research license. Commercial deployments must retrain `item_embeddings_f16.bin` on proprietary interaction logs via `scripts/colab_train_embeddings.py`.

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AnimatedBackground from "./components/AnimatedBackground";
@@ -45,6 +45,15 @@ function AppContent() {
   const [quickRateTarget, setQuickRateTarget] = useState(null);
   const didCheckOnboardingRef = useRef(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    if (typeof document !== "undefined") {
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     if (didCheckOnboardingRef.current) return;

@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
 **Last Updated:** November 15, 2026 (`main`)  
-**Status:** Production-ready on `main` · **`274 / 274` unit tests passing** across **31** suites · Production build green (**`2309` modules**)
+**Status:** Production-ready on `main` · **`311 / 311` service & API tests passing** across **37** suites · Production build green (**`2322` modules**)
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -22,10 +22,10 @@ Your recommendation engine does **85–90% of the intelligence locally on the us
      - Remaining bytes (`25,000 × (4 + 64 × 2) = 3,300,000` B): repeated `[uint32 tmdbId][64 × float16 components]` records (`16 + 3,300,000 = 3,300,016` B total).
    - **How the browser loads it safely:** `loadDefaultEmbeddingIndex` in [src/services/embeddingService.js](./src/services/embeddingService.js#L516-L539) fetches `/models/item_embeddings_f16.bin` lazily once per browser session, rejects SPA `text/html` fallback pages, validates header bounds and exact `byteLength`, decodes IEEE-754 `float16` -> `Float32Array`, and caches the index in memory. If the binary is missing or running inside offline unit tests, it returns `null` safely without crashing.
 
-2. **The Calibrated Local Ranker (`DEFAULT_RANKER_WEIGHTS` in [src/services/rankerService.js](./src/services/rankerService.js#L6-L20))**
+2. **The 11-Feature Local Logistic Ranker (`DEFAULT_RANKER_WEIGHTS` in [src/services/rankerService.js](./src/services/rankerService.js#L6-L20))**
    - Computes **12 normalized features** (`11` active weighted features + optional `dnaSim` gated at `0`) for every movie in the merged TMDB + Embedding candidate pool (`collabSim`, `contentSim`, `genreOverlap`, `keywordOverlap`, `crewMatch`, `castMatch`, `bayesianRatingNorm`, `noveltyBonus`, `negativeKeywordPenalty`, `repulsion`, `providerMatch`, `dnaSim`).
-   - Passes them through a calibrated logistic sigmoid $\sigma(b + w^\top x + \text{moodAdjustment})$ and locks each film's deterministic **50–99% Match Score** plus up to 3 deterministic **Match Reason Badges** (`🎭 <Mood> Fit`, `🧬 High Taste-Twin Match`, `🤝 Collaborative Taste Pick`, `🎬 Favorite Filmmaker`, `🎭 Top Cast Match`, `🎯 Core Theme Match`, `💎 Personal Cult Pick`, `🎪 Genre Bullseye`, `⭐ Critical Acclaim`).
-   - **Zero LLM Hallucination:** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) out of up to **`30`** pre-ranked titles, pair each pick with `1–3` vault `anchorTitles`, and write personalized 1-sentence prose free of scoring jargon (backfilling cleanly from the top ranker picks if Gemini returns fewer than `10`).
+   - Passes them through a temperature-scaled logistic sigmoid $\sigma((b + w^\top x + \text{moodAdjustment}) / \tau)$ (`\tau = 1.45`) and locks each film's order-preserving **50–99% Display Match Score** plus up to 3 deterministic **Match Reason Badges** (`🎭 <Mood> Fit`, `🧬 High Taste-Twin Match`, `🤝 Collaborative Taste Pick`, `🎬 Favorite Filmmaker`, `🎭 Top Cast Match`, `🎯 Core Theme Match`, `💎 Personal Cult Pick`, `🎪 Genre Bullseye`, `⭐ Critical Acclaim`).
+   - **Zero LLM Score Hallucination:** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) out of up to **`39`** stratified pre-ranked candidates (`25` top ranker + `8` cold `2024–2026` + `6` outliers via `buildDiversifiedGeminiShortlist`, plus `0–2` optional TMDB-verified `wildcardPicks`), pair each pick with `1–3` vault `anchorTitles`, and write personalized 1-sentence prose free of scoring jargon (backfilling cleanly from the top ranker picks if Gemini returns fewer than `10`).
 
 3. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)), Content/DNA Builders & Trainer ([scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
    - `public/models/ranker_weights.json` is an offline training/reference JSON (`_source: "v5.0-offline-328-cv"`) exported alongside the Colab trainer and kept synchronized in exact `deepEqual` parity with `DEFAULT_RANKER_WEIGHTS` (`collabSim: 6.4`, `negativeKeywordPenalty: -0.5`, `_metadataDampingFactor: 0.35`, `_displayTemperature: 1.45`). In-app, `onlineLearningService.js` optionally nudges personal weights via bounded `fitRankerWeights` once `>= 10` events (`>= 3` positive, `>= 3` negative) accumulate, while `scripts/build_content_embeddings.mjs` supports building optional `/models/content_embeddings_f16.bin` plot vectors cleanly without metadata leakage.
@@ -198,6 +198,15 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
   - **`4` Benchmark Vaults (`clean2`):** `>= 8★` rolling mean `NDCG@10 = 0.1776 (+0.0160)`, `Recall@20 = 0.2500`, `Precision@10 = 0.1667`, `AUC(>=9v<=7) = 0.7265`; `>= 9★` (`3` eligible vaults) `NDCG@10 = 0.2258 (+0.0345)`, `Recall@20 = 0.3333`, `Precision@10 = 0.2167`, `AUC(>=9v<=7) = 0.6817 (+0.0938)`.
 - **Skipped Step 4 (`eraMatch`):** Diagnostic profiling showed near-zero class separation for release-decade matching (`pos8+ = 0.0003`, `pos9+ = 0.0005` vs `neg<=7 = -0.0018`, `poolNeg = -0.0011`), so `eraMatch` was intentionally omitted to preserve zero-bloat ranker weights (`public/models/ranker_weights.json` parity unchanged).
 
+### Phase v5.2: Rating Studio 2.0, Contextual Film Chat, Deep Explore Workbench (`/explore`), Rabbit Hole Discovery & Side-by-Side Comparison (`/compare`)
+- **Norm-Safe 64-D Vector Neighbors & Hybrid Similar Strip ([src/services/rabbitHoleService.js](./src/services/rabbitHoleService.js), [src/components/SimilarFilmsStrip.jsx](./src/components/SimilarFilmsStrip.jsx), [src/components/CollectionTimeline.jsx](./src/components/CollectionTimeline.jsx)):**
+  - Extended on-device `CVEM v1` (`public/models/item_embeddings_f16.bin`) directly to `MovieDetails.jsx` via `findEmbeddingNeighborsForMovie`, dividing by `normA * normB` so Bayesian-shrunk vectors with sub-unit norms (`[0.30, 1.00]`) compute true cosine similarity without popularity-norm inflation.
+  - `buildHybridSimilarFilms` merges local 64-D vector neighbors with TMDB `/recommendations` (or `/similar` fallback), tags cards with `matchOrigin: "hybrid" | "vault-vector" | "tmdb"`, preserves real `tt...` IMDb IDs, and demotes same-collection sequels already shown in `CollectionTimeline`.
+- **Side-by-Side Film Comparison & 64-D Taste Match ([src/services/compareService.js](./src/services/compareService.js), [src/pages/ComparePage.jsx](./src/pages/ComparePage.jsx), [src/components/CompareDock.jsx](./src/components/CompareDock.jsx), [src/components/CompareModal.jsx](./src/components/CompareModal.jsx)):**
+  - Compares up to 3 films side-by-side (`cinemavault_compare_v1` & `/compare?ids=...`) with column winner badges (`buildCompareMatrix`, preserving `0%` RT & `0` Metascore), shared cast/crew/genres/keywords, **Personal Taste Match %** (`vaultMatchPct` via `computeUserEmbedding` + `scoreItemsByEmbedding`), and pairwise 64-D `CVEM v1` cosine similarity (`pairVectorSims` in `computeCompareOverlap`).
+- **Rating Studio 2.0, Spoiler-Safe Film Chat & Deep Explore Workbench ([src/services/ratingStudioService.js](./src/services/ratingStudioService.js), [src/services/filmChatService.js](./src/services/filmChatService.js), [src/services/exploreService.js](./src/services/exploreService.js), [src/pages/ExplorePage.jsx](./src/pages/ExplorePage.jsx)):**
+  - Added live personal Vault percentile calibration & benchmark anchors (`computeVaultCalibration`), optional 4-aspect Craft Breakdown (`story`, `direction`, `acting`, `visuals`) & Watch Session Log (`format`, `rewatch`, `watchedDate`) with null-tombstone clearing (`buildWatchedRatingPayload({ markCleared: true })`), deep-linked spoiler-safe `"Discuss This Film"` chat (`serializeFilmDossierForPrompt`), and the URL-synced `/explore` filter workbench (`deriveExploreViewState` with 3-page `hideWatched` auto-advance).
+
 ---
 
 ## 5. Every Error / Bug We Hit & How We Resolved It
@@ -221,6 +230,7 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 | **15** | **Pre-2024 OMDb/CSV movies lacked `tmdbId` & keywords (hiding indexed favorites from embeddings), TV shows risked movie-ID collision, & `tmdb_...`/`tt...` imports duplicated entries** | Legacy imports saved only `imdbID` (or un-enriched Quick Rate entries); untyped series (`2017–2020`) lacked `/3/find` TV guards; `summarizeImportDiff` used single-key maps & batch fetches looped past `429` | Added series-guarded `backfillMissingTmdbIds` (`maxItems: 40`, `maxLookups: 15`, strict `±1`-year lookup, `tv_results` skip, `"N/A"` poster guard), `AppContext` deferred mount backfill + `addWatched` hydration, `MovieDetails` `isSeriesVaultItem` guard, `apiTransport` `429` stop, & `isSameMovie` dedupe in `summarizeImportDiff` | [tmdbService.js](./src/services/tmdbService.js), [AppContext.jsx](./src/context/AppContext.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx), [vaultPortability.js](./src/services/vaultPortability.js), [apiTransport.js](./src/services/apiTransport.js) |
 | **16** | **Gemini curation dropped `5★` relative dislikes (e.g., *Parasite*, *Spirited Away*), ignored `userNote` cache updates, omitted `userStats`/`topDirectors`/`Watchlist`/candidate themes & cast, and truncated plots at 140 chars** | `buildMovieIdentityLookup` checked flat `item.tmdbId` instead of nested `weightedRatings[].movie`, `buildWatchedHashSegment` excluded `userNote`, `mergeBackfilledMovieMetadata` dropped `cast`/`tagline`/`language`/`runtime`, & candidate formatter omitted hydrated TMDB fields | Fixed nested `{ movie, weight, zScore }` lookup, hashed `userNote` into `vlt_` cache keys, preserved `cast`/`writers`/`tagline`/`originCountry`/`spokenLanguages`/`mpaaRating`/`runtimeMinutes`/`keywordNames`/`overview`, wired `userStats`+`topDirectors`+`[Series]`+`USER'S WATCHLIST`+`180`-char notes, added `< 18,000`-char compact candidate blocks + `#1–#15`/`#16–#30` balance rules, & shared praise/critique `quickReviewTags.js` across `QuickRateModal` (`maxLength=200`) & `MovieDetails` | [geminiService.js](./src/services/geminiService.js), [tmdbService.js](./src/services/tmdbService.js), [quickReviewTags.js](./src/services/quickReviewTags.js), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx) |
 | **17** | **Gemini curation felt overly restricted (`Match: XX%` & `#1–#15` anchoring, narrow Top-30 pool, <=10 favorites, dropped series/extra notes, and no outside film escape hatch)** | Rank percentages and `#1–#15` wording anchored Gemini to math order; Top-30 cut off diverse/2024–2026 picks; only 10 favs + notes inside anchors were visible; outside picks risked hallucinations | Removed `Match: XX%` and `#1–#15` bias (`"Curate openly"`) while keeping calibrated `matchScore` locking; added 39-pick `buildDiversifiedGeminiShortlist` (`25+8+6`), `buildExtendedVaultContextSections` (`ADDITIONAL TOP FAVORITES` 11–25, `LOVED SERIES / ANIME`, all remaining `userNote`s `<= 20,000` chars), & TMDB/vault/provider/mood-verified 0–2 `wildcardPicks` (`verifyAndScoreWildcardPicks`) with 10/10 auto-backfill | [geminiService.js](./src/services/geminiService.js), [rankerService.js](./src/services/rankerService.js), [tmdbService.js](./src/services/tmdbService.js) |
+| **18** | **v5.2 Research Hub edge cases: shrunk-vector popularity bias in `findEmbeddingNeighborsForMovie`, resurrected Craft Breakdowns in `upsertMovieEntry`/cloud sync, `%2520` keyword routes & `hideWatched` blank page 1 in `/explore`, and `0%` RT / `_notFound` slot bugs in `/compare`** | Bayesian-shrunk `CVEM v1` vectors have norms in `[0.30, 1.00]` so raw dot product favored high-norm blockbusters; shallow spread kept old `ratingBreakdown`/`watchMeta` when cleared; manual `encodeURIComponent` inside `URLSearchParams` double-encoded spaces; `Number("0") \|\| null` dropped `0%` RT/Metascore | Divided by `normA * normB` in `findEmbeddingNeighborsForMovie`; emitted `markCleared: true` `null` tombstones stripped by `upsertMovieEntry` & honored by `mergeLocalAndCloudVault`; removed double encoding & added `deriveExploreViewState` (`autoAdvanceCap = 3`); preserved `0%` RT / `0` Metascore & cross-scheme `removeUrlCompareSlot` in `compareService.js` | [rabbitHoleService.js](./src/services/rabbitHoleService.js), [ratingStudioService.js](./src/services/ratingStudioService.js), [exploreService.js](./src/services/exploreService.js), [compareService.js](./src/services/compareService.js) |
 
 ---
 
@@ -228,14 +238,15 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 
 Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 
-### Check 1: Run All 274 Unit Tests (~0.8s, Offline)
+### Check 1: Run All 311 Service & API Tests (~0.9s, Offline)
 ```bash
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with **`tests 274 | pass 274 | fail 0 | skipped 0`** across all **31** suites:
+- Exits `0` with **`tests 311 | pass 311 | fail 0 | skipped 0`** across all **37** suites:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
+  - `tests/compareService.test.js`
   - `tests/contentSim.test.js`
   - `tests/csvImport.test.js`
   - `tests/dashboardService.test.js`
@@ -244,7 +255,9 @@ npm test
   - `tests/embeddingStep3.test.js`
   - `tests/evalHarness.test.js`
   - `tests/evalRanker.test.js`
+  - `tests/exploreService.test.js`
   - `tests/feedbackLogging.test.js`
+  - `tests/filmChatService.test.js`
   - `tests/geminiDualEngine.test.js`
   - `tests/moodPolicy.test.js`
   - `tests/moodRanker.test.js`
@@ -254,14 +267,17 @@ npm test
   - `tests/personService.test.js`
   - `tests/pipelineBugs.test.js`
   - `tests/quickReviewTags.test.js`
+  - `tests/rabbitHoleService.test.js`
   - `tests/rankerService.test.js`
   - `tests/rankerStep2.test.js`
+  - `tests/ratingStudioService.test.js`
   - `tests/ratingTiers.test.js`
   - `tests/recentReleaseSlots.test.js`
   - `tests/scoringUtils.test.js`
   - `tests/searchService.test.js`
   - `tests/tasteDeckService.test.js`
   - `tests/tasteRulesService.test.js`
+  - `tests/tmdbRabbitHoleHelpers.test.js`
   - `tests/vaultPortability.test.js`
   - `tests/vaultStats.test.js`
   - `tests/vaultSyncService.test.js`
@@ -271,7 +287,7 @@ npm test
 npm run build
 ```
 **What "healthy" looks like:**
-- Exits `0`, transforms **`2303 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- Exits `0`, transforms **`2322 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
 - When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
 ### Check 3: Inspect the Active `.bin` Model Header & Exact Byte Count
