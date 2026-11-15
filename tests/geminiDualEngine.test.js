@@ -27,8 +27,11 @@ import {
     resetModelInfoForTests,
     createGeminiClient,
     buildGeminiReRankPrompt,
-    mergeGeminiExplanationsWithRanker
+    mergeGeminiExplanationsWithRanker,
+    verifyAndScoreWildcardPicks,
+    getMovieRecommendations
 } from "../src/services/geminiService.js";
+import { rankCandidatePool, DEFAULT_RANKER_WEIGHTS } from "../src/services/rankerService.js";
 
 test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.6/3.5/3-curation, MINIMAL to 3-flash fast, and budget:0 to 2.5", () => {
     assert.deepEqual(CURATION_MODEL_CASCADE, [
@@ -1414,4 +1417,286 @@ test("buildGeminiReRankPrompt compresses adversarial 40-candidate + 80-note + 10
     assert.ok(prompt.includes("USER'S DISLIKED / DISMISSED FILMS"), "Disliked guardrails must remain intact");
     assert.ok(prompt.includes("PRE-RANKED CANDIDATE MOVIES (Top 40):"), "All 40 candidates must remain in prompt");
     assert.ok(prompt.includes('ID: 9039 | "Rich Candidate 40"'), "40th candidate line must not be truncated");
+});
+
+test("wildcardPicks schema uses valid Type enums, preserves reason/anchorIds, avoids 1-item collabSim stretching, and sorts by calibrated matchScore", async () => {
+    const prevGKey = process.env.VITE_GEMINI_KEY;
+    process.env.VITE_GEMINI_KEY = "TEST_KEY";
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+
+    try {
+        const watched = [
+            { id: "tt1111111", imdbID: "tt1111111", tmdbId: 101, title: "Anchor Film A", year: "2019", userRating: 10, tmdbGenreIds: [878, 18], director: "Dir Seed" }
+        ];
+        const profile = { lovedGenreIds: [878, 18], lovedGenreNames: ["Sci-Fi", "Drama"], lovedKeywordIds: [701], hatedKeywordIds: [], topCastIds: [], topCrewIds: [], weightedRatings: [] };
+
+        // 60+ entry collabSimMap (catalog max = 0.95) so catalog-max normalization is active
+        const collabEntries = Array.from({ length: 60 }, (_, i) => [600 + i, i === 0 ? 0.95 : 0.35 - i * 0.002]);
+        collabEntries.push([8881, 0.85]);
+        collabEntries.push([8882, 0.20]);
+        const collabSimMap = new Map(collabEntries);
+
+        const shortlistPool = Array.from({ length: 12 }, (_, i) => ({
+            id: 600 + i,
+            tmdbId: 600 + i,
+            title: `Shortlist Pick ${i + 1}`,
+            year: "2020",
+            release_date: "2020-05-01",
+            director: `Shortlist Dir ${i + 1}`,
+            genre: "Drama",
+            tmdbGenreIds: [18],
+            genre_ids: [18],
+            vote_average: 7.4,
+            vote_count: 800,
+            overview: `Overview ${i + 1}`
+        }));
+
+        const wildcardDetails = {
+            8881: {
+                tmdbId: 8881,
+                imdbID: "tt8881001",
+                title: "Wildcard Strong",
+                year: "2021",
+                release_date: "2021-03-01",
+                director: "Wild Dir One",
+                cast: "Star One, Star Two",
+                castIds: [501],
+                crewPersonId: 901,
+                tmdbGenreIds: [878, 18],
+                tmdbKeywords: [701],
+                keywordNames: ["time loop"],
+                genre: "Sci-Fi, Drama",
+                plot: "Strong wildcard sci-fi plot.",
+                vote_average: 8.4,
+                vote_count: 2500,
+                streamProviders: [{ id: 8, name: "Netflix" }],
+                freeProviders: []
+            },
+            8882: {
+                tmdbId: 8882,
+                imdbID: "tt8882002",
+                title: "Wildcard Mild",
+                year: "2023",
+                release_date: "2023-07-01",
+                director: "Wild Dir Two",
+                cast: "Actor B",
+                castIds: [502],
+                crewPersonId: 902,
+                tmdbGenreIds: [18],
+                tmdbKeywords: [],
+                keywordNames: ["family"],
+                genre: "Drama",
+                plot: "Moderate wildcard drama.",
+                vote_average: 7.1,
+                vote_count: 500,
+                streamProviders: [{ id: 8, name: "Netflix" }],
+                freeProviders: []
+            }
+        };
+
+        // Direct check: 1-item verifyAndScoreWildcardPicks must match scoring inside full pool (no single-item collabSim stretch)
+        const rankerCtx = { profile, collabSimMap, contentSimMap: new Map(), repulsionMap: new Map(), dnaSimMap: new Map(), userProviders: [8] };
+        const [expectedMildScored] = rankCandidatePool(
+            [wildcardDetails[8882], ...shortlistPool],
+            rankerCtx,
+            DEFAULT_RANKER_WEIGHTS,
+            15,
+            { collabNormalization: "catalog-max" },
+            null
+        ).filter((c) => c.tmdbId === 8882);
+
+        const directWildcards = await verifyAndScoreWildcardPicks(
+            [
+                { title: "Wildcard Strong", year: "2021", anchorTitles: ["Anchor Film A"], reason: "High Taste-Twin Match Pairs closely with Anchor Film A." },
+                { title: "Wildcard Mild", year: "2023", anchorTitles: ["Anchor Film A"], reason: "Reflective drama echoing your themes." }
+            ],
+            {
+                watched,
+                watchlist: [],
+                existingCandidates: shortlistPool,
+                profile,
+                mood: "any",
+                userProviders: [8],
+                collabSimMap,
+                rankerWeights: DEFAULT_RANKER_WEIGHTS
+            },
+            {
+                wildcardFinder: async (title) => (title === "Wildcard Strong" ? { tmdbId: 8881, title: "Wildcard Strong", year: "2021" } : { tmdbId: 8882, title: "Wildcard Mild", year: "2023" }),
+                detailFetcher: async (id) => wildcardDetails[id] || null
+            }
+        );
+
+        assert.equal(directWildcards.length, 2);
+        assert.equal(directWildcards[0].sourceBucket, "Gemini Wildcard");
+        assert.equal(directWildcards[1].matchScore, expectedMildScored.matchScore, "Wildcard Mild must match full-pool calibrated score without 1-item stretching");
+        assert.ok(Math.abs(directWildcards[1].rankerProbability - expectedMildScored.rankerProbability) < 1e-6);
+
+        let capturedSchema = null;
+        const mockAi = {
+            models: {
+                generateContent: async ({ config }) => {
+                    capturedSchema = config?.responseSchema || null;
+                    return {
+                        text: JSON.stringify({
+                            tasteProfile: { favoriteGenres: ["Sci-Fi", "Drama"], preferredEra: "2010s-2020s", ratingStyle: "Cerebral" },
+                            recommendations: shortlistPool.slice(0, 10).map((c) => ({
+                                tmdbId: c.tmdbId,
+                                title: c.title,
+                                year: c.year,
+                                anchorTitles: ["Anchor Film A"],
+                                reason: `Shortlist pick ${c.title} reason.`
+                            })),
+                            wildcardPicks: [
+                                { title: "Wildcard Strong", year: "2021", anchorTitles: ["Anchor Film A"], reason: "High Taste-Twin Match Pairs closely with Anchor Film A." },
+                                { title: "Wildcard Mild", year: "2023", anchorTitles: ["Anchor Film A"], reason: "Reflective drama echoing your themes." }
+                            ]
+                        }),
+                        usageMetadata: { totalTokenCount: 25 }
+                    };
+                }
+            }
+        };
+
+        const fullRes = await getMovieRecommendations(watched, [], null, {
+            candidates: shortlistPool,
+            embeddingIndex: null,
+            collabSimMap,
+            userProviders: [8],
+            aiClient: mockAi,
+            wildcardFinder: async (title) => (title === "Wildcard Strong" ? { tmdbId: 8881, title: "Wildcard Strong", year: "2021" } : { tmdbId: 8882, title: "Wildcard Mild", year: "2023" }),
+            detailFetcher: async (id) => wildcardDetails[id] || null
+        });
+
+        assert.ok(capturedSchema?.properties?.wildcardPicks, "responseSchema declares optional wildcardPicks");
+        assert.equal(capturedSchema.properties.wildcardPicks.type, "ARRAY");
+        assert.equal(capturedSchema.properties.wildcardPicks.items?.type, "OBJECT");
+        assert.equal(capturedSchema.properties.wildcardPicks.items?.properties?.reason?.type, "STRING");
+        assert.equal(capturedSchema.required.includes("wildcardPicks"), false, "wildcardPicks must be omitted from required");
+
+        assert.equal(fullRes.recommendations.length, 10, "Final result keeps exact 10 picks when 10 shortlist + 2 wildcards returned");
+        const wcRecs = fullRes.recommendations.filter((r) => r.sourceBucket === "Gemini Wildcard");
+        assert.equal(wcRecs.length, 2, "Both verified wildcards reserve slots ahead of shortlist tail slicing");
+        const strongRec = wcRecs.find((r) => r.tmdbId === 8881);
+        assert.ok(strongRec);
+        assert.deepEqual(strongRec.anchorTitles, ["Anchor Film A"]);
+        assert.deepEqual(strongRec.anchorIds, ["tt1111111"], "Resolves wildcard anchorTitles -> watched anchorIds");
+        assert.doesNotMatch(strongRec.reason, /Taste-Twin Match/i, "Sanitizes wildcard prose just like shortlist items");
+        assert.ok(strongRec.reason.includes("Pairs closely with Anchor Film A."));
+
+        for (let i = 1; i < fullRes.recommendations.length; i++) {
+            assert.ok(fullRes.recommendations[i - 1].matchScore >= fullRes.recommendations[i].matchScore, "Calibrated descending matchScore order stays intact (#2 skipped)");
+        }
+    } finally {
+        if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
+        else process.env.VITE_GEMINI_KEY = prevGKey;
+    }
+});
+
+test("verifyAndScoreWildcardPicks rejects watched mixed-IDs, TV series, provider/mood violations, and 429 failures with 10/10 auto-backfill", async () => {
+    const prevGKey = process.env.VITE_GEMINI_KEY;
+    process.env.VITE_GEMINI_KEY = "TEST_KEY";
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+
+    try {
+        const watched = [
+            { id: "tt7770001", imdbID: "tt7770001", title: "Already Watched IMDbOnly", year: "2019", userRating: 9, tmdbGenreIds: [35] }
+        ];
+        const watchlist = [
+            { id: "tmdb_7770002", tmdbId: 7770002, title: "Watchlisted Cozy", year: "2022" }
+        ];
+        const shortlistPool = Array.from({ length: 12 }, (_, i) => ({
+            id: 4000 + i,
+            tmdbId: 4000 + i,
+            title: `Comfort Shortlist ${i + 1}`,
+            year: "2020",
+            release_date: "2020-02-01",
+            director: `Comfort Dir ${i + 1}`,
+            genre: "Comedy, Family",
+            tmdbGenreIds: [35, 10751],
+            genre_ids: [35, 10751],
+            vote_average: 7.5,
+            vote_count: 900,
+            streamProviders: [{ id: 8, name: "Netflix" }],
+            overview: "Warm comedy."
+        }));
+
+        let seriesFinderCalled = 0;
+        const rejectRes = await verifyAndScoreWildcardPicks(
+            [
+                { title: "Dark", year: "2017–2020", reason: "Series should be blocked early." },
+                { title: "Already Watched IMDbOnly", year: "2019", reason: "Duplicate watched." },
+                { title: "Watchlisted Cozy", year: "2022", reason: "Duplicate watchlist." },
+                { title: "Hulu Only Comedy", year: "2023", reason: "Wrong streaming provider." },
+                { title: "Comfort Violating Slasher", year: "2024", reason: "Fails comfort-watch mood gate." }
+            ],
+            {
+                watched,
+                watchlist,
+                excludeIds: ["tmdb_7770003"],
+                existingCandidates: shortlistPool,
+                profile: { lovedGenreIds: [35] },
+                mood: "comfort-watch",
+                userProviders: [8]
+            },
+            {
+                maxWildcards: 10,
+                wildcardFinder: async (title) => {
+                    if (title === "Dark") { seriesFinderCalled++; return { tmdbId: 70523, title: "Dark", year: "2017–2020", Type: "series" }; }
+                    if (title === "Already Watched IMDbOnly") return { tmdbId: 7770001, title: "Already Watched IMDbOnly", year: "2019" };
+                    if (title === "Watchlisted Cozy") return { tmdbId: 7770002, title: "Watchlisted Cozy", year: "2022" };
+                    if (title === "Hulu Only Comedy") return { tmdbId: 7770004, title: "Hulu Only Comedy", year: "2023" };
+                    if (title === "Comfort Violating Slasher") return { tmdbId: 7770005, title: "Comfort Violating Slasher", year: "2024" };
+                    return null;
+                },
+                detailFetcher: async (id) => ({
+                    7770001: { tmdbId: 7770001, imdbID: "tt7770001", title: "Already Watched IMDbOnly", year: "2019", tmdbGenreIds: [35], streamProviders: [{ id: 8 }] },
+                    7770002: { tmdbId: 7770002, imdbID: "tt7770002", title: "Watchlisted Cozy", year: "2022", tmdbGenreIds: [35], streamProviders: [{ id: 8 }] },
+                    7770004: { tmdbId: 7770004, imdbID: "tt7770004", title: "Hulu Only Comedy", year: "2023", tmdbGenreIds: [35], streamProviders: [{ id: 15 }] },
+                    7770005: { tmdbId: 7770005, imdbID: "tt7770005", title: "Comfort Violating Slasher", year: "2024", tmdbGenreIds: [27, 53], streamProviders: [{ id: 8 }] }
+                }[id] || null)
+            }
+        );
+
+        assert.equal(seriesFinderCalled, 0, "Series tagged with range year must be rejected before TMDB lookup");
+        assert.equal(rejectRes.length, 0, "All invalid wildcards rejected cleanly");
+
+        // End-to-end 429 failure in wildcard lookup must NOT abort Gemini's 10 shortlist picks or trigger fallback
+        const mockAi = {
+            models: {
+                generateContent: async () => ({
+                    text: JSON.stringify({
+                        tasteProfile: { favoriteGenres: ["Comedy"], preferredEra: "2020s", ratingStyle: "Warm" },
+                        recommendations: shortlistPool.slice(0, 8).map((c) => ({
+                            tmdbId: c.tmdbId,
+                            title: c.title,
+                            year: c.year,
+                            anchorTitles: ["Already Watched IMDbOnly"],
+                            reason: "Cozy shortlist selection."
+                        })),
+                        wildcardPicks: [
+                            { title: "Rate Limited Film", year: "2025", anchorTitles: ["Already Watched IMDbOnly"], reason: "Wildcard that triggers 429." }
+                        ]
+                    }),
+                    usageMetadata: { totalTokenCount: 20 }
+                })
+            }
+        };
+
+        const endToEnd = await getMovieRecommendations(watched, watchlist, null, {
+            mood: "comfort-watch",
+            userProviders: [8],
+            candidates: shortlistPool,
+            embeddingIndex: null,
+            aiClient: mockAi,
+            wildcardFinder: async () => { throw new Error("429 Too Many Requests"); }
+        });
+
+        assert.equal(endToEnd.recommendations.length, 10, "Backfills cleanly to 10 picks when Gemini outputs 8 shortlist + 1 failed wildcard");
+        assert.equal(endToEnd.modelInfo?.pipeline, "gemini-curation", "429 in wildcard lookup must not abort Gemini curation into ranker fallback");
+    } finally {
+        if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
+        else process.env.VITE_GEMINI_KEY = prevGKey;
+    }
 });

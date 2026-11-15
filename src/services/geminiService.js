@@ -12,6 +12,9 @@ import {
     fetchCandidatePool,
     fetchEmbeddingCandidates,
     enrichCandidatePoolMetadata,
+    findTmdbByTitleAndYear,
+    fetchBatchFormattedDetailsMap,
+    matchesWatchProviders,
     getRecentReleaseDateFloor,
     getFallbackPoster as getTmdbFallbackPoster,
     isSeriesVaultItem
@@ -29,6 +32,7 @@ import {
     extractGenreIdsFromCandidate,
     getMoodPreset,
     isExplicitMoodActive,
+    matchesMoodCandidateGate,
     normalizeMoodFilters
 } from "./moodPolicy.js";
 import { isSameMovie, normalizeTitleKey, normalizeYearKey } from "./movieIdentity.js";
@@ -1914,6 +1918,266 @@ function selectWithSoftDirectorCap(items = [], desiredTotal = DEFAULT_RECOMMENDA
     return selected.map((x) => x.entry);
 }
 
+export const MAX_WILDCARD_PICKS = 2;
+
+function sanitizeGeminiReasonText(raw) {
+    if (!raw || typeof raw !== "string") return "";
+    return raw
+        .replace(/\b\d{2,3}%\s*(High\s*)?Taste-?Twin\s*Match\b/gi, "")
+        .replace(/\b(High\s*)?(Taste-?Twin Match|Core Theme Match|Genre Bullseye|Cult Classic Overlap)\b/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .replace(/^[\s,.:;-]+/, "")
+        .trim();
+}
+
+function resolveGeminiExplanationFields(
+    pick = {},
+    watchedList = [],
+    defaultReason = "Pairs closely with your top-rated films."
+) {
+    const fallbackText = typeof pick?.reason === "string" && pick.reason.trim() ? pick.reason.trim() : "";
+    const reason = sanitizeGeminiReasonText(pick?.reason) || fallbackText || defaultReason;
+    const anchorTitles = Array.isArray(pick?.anchorTitles)
+        ? pick.anchorTitles.filter((t) => typeof t === "string" && t.trim())
+        : [];
+    const anchorIds = anchorTitles
+        .map((t) => watchedList.find((w) => (w.title || w.Title || "").toLowerCase() === t.toLowerCase()))
+        .filter(Boolean)
+        .map((w) => w.imdbID || w.id || (w.tmdbId ? `tmdb_${w.tmdbId}` : null))
+        .filter(Boolean);
+    return { reason, anchorTitles, anchorIds };
+}
+
+/**
+ * Resolves, filters, hydrates, and deterministically scores Gemini's optional 1-2 outside
+ * wildcardPicks against strict TMDB movie matching, vault/watchlist/pool exclusions,
+ * active streaming providers, and mood gates — dropping failures silently for backfill.
+ */
+export async function verifyAndScoreWildcardPicks(rawWildcards = [], context = {}, options = {}) {
+    if (!Array.isArray(rawWildcards) || rawWildcards.length === 0) return [];
+
+    const maxWildcards = Math.max(0, Number(options?.maxWildcards ?? MAX_WILDCARD_PICKS));
+    if (maxWildcards === 0) return [];
+
+    const watched = Array.isArray(context?.watched) ? context.watched : [];
+    const watchlist = Array.isArray(context?.watchlist) ? context.watchlist : [];
+    const excludeIds = Array.isArray(context?.excludeIds) ? context.excludeIds : [];
+    const existingCandidates = Array.isArray(context?.existingCandidates) ? context.existingCandidates : [];
+    const profile = context?.profile || {};
+    const mood = context?.mood ?? "any";
+    const moodFilters = normalizeMoodFilters(context?.moodFilters);
+    const explicitMood = isExplicitMoodActive(mood, moodFilters);
+    const userRegion = context?.userRegion || options?.userRegion || "US";
+    const userProviders = context?.userProviders ?? options?.userProviders ?? [];
+    const hasProviderFilter = Array.isArray(userProviders) && userProviders.length > 0;
+    const collabSimMap = context?.collabSimMap ?? null;
+    const repulsionMap = context?.repulsionMap ?? null;
+    const embeddingIndex = context?.embeddingIndex ?? null;
+    const contentIndex = context?.contentIndex ?? null;
+    const dnaIndex = context?.dnaIndex ?? null;
+    const rankerWeights = context?.rankerWeights ?? options?.rankerWeights ?? DEFAULT_RANKER_WEIGHTS;
+    const rankerOptions = context?.rankerOptions ?? options?.rankerOptions ?? {};
+
+    const isExcludedOrSeen = (item) =>
+        excludeIds.some((ex) => isSameMovie(item, ex)) ||
+        watched.some((w) => isSameMovie(item, w)) ||
+        watchlist.some((w) => isSameMovie(item, w)) ||
+        existingCandidates.some((c) => isSameMovie(item, c));
+
+    const resolvedStubs = [];
+    const seenStubIds = new Set();
+
+    for (const pick of rawWildcards.slice(0, maxWildcards)) {
+        if (!pick || typeof pick !== "object") continue;
+        const title = cleanStr(pick.title || "");
+        if (!title || isSeriesVaultItem(pick)) continue;
+
+        let stub = null;
+        try {
+            stub = typeof options?.wildcardFinder === "function"
+                ? await options.wildcardFinder(title, pick.year, { ...options, userRegion, strict: true })
+                : await findTmdbByTitleAndYear(title, pick.year, {
+                    strict: true,
+                    fetchFn: options?.fetchFn,
+                    apiKey: options?.apiKey,
+                    forceProxy: options?.forceProxy,
+                    signal: options?.signal
+                });
+        } catch (_) {
+            stub = null;
+        }
+        if (!stub) continue;
+
+        const tmdbId = Number(stub.tmdbId ?? stub.id ?? 0);
+        if (!Number.isSafeInteger(tmdbId) || tmdbId <= 0 || seenStubIds.has(tmdbId)) continue;
+        if (isSeriesVaultItem(stub) || isExcludedOrSeen(stub)) continue;
+
+        seenStubIds.add(tmdbId);
+        resolvedStubs.push({ pick, stub, tmdbId });
+    }
+
+    if (resolvedStubs.length === 0) return [];
+
+    let detailsMap = new Map();
+    if (typeof options?.detailFetcher === "function") {
+        await Promise.all(
+            resolvedStubs.map(async ({ tmdbId }) => {
+                try {
+                    const details = await options.detailFetcher(tmdbId, userRegion);
+                    if (details) detailsMap.set(tmdbId, details);
+                } catch (_) {}
+            })
+        );
+    } else {
+        try {
+            detailsMap = await fetchBatchFormattedDetailsMap(
+                resolvedStubs.map((s) => s.tmdbId),
+                userRegion,
+                {
+                    fetchFn: options?.fetchFn,
+                    apiKey: options?.apiKey,
+                    forceProxy: options?.forceProxy,
+                    cacheStore: options?.cacheStore,
+                    indexedDB: options?.indexedDB,
+                    bypassCache: options?.bypassCache,
+                    signal: options?.signal
+                }
+            );
+        } catch (_) {
+            detailsMap = new Map();
+        }
+    }
+
+    const verifiedEntries = [];
+    for (const { pick, stub, tmdbId } of resolvedStubs) {
+        const details = detailsMap.get(tmdbId);
+        if (!details && !stub.hydrated) continue;
+
+        const fullCand = {
+            ...stub,
+            ...(details || {}),
+            id: details?.tmdbId || tmdbId,
+            tmdbId: details?.tmdbId || tmdbId,
+            imdbID: details?.imdbID ?? stub.imdbID ?? null,
+            title: details?.title || stub.title,
+            year: details?.year || stub.year || "N/A",
+            release_date: details?.release_date || stub.release_date || "",
+            overview: details?.plot || details?.overview || stub.overview || "",
+            genre: details?.genre || stub.genre || "Cinema",
+            tmdbGenreIds: Array.isArray(details?.tmdbGenreIds)
+                ? details.tmdbGenreIds
+                : (stub.tmdbGenreIds || stub.genre_ids || []),
+            tmdbKeywords: Array.isArray(details?.tmdbKeywords)
+                ? details.tmdbKeywords
+                : (stub.tmdbKeywords || []),
+            keywordNames: Array.isArray(details?.keywordNames)
+                ? details.keywordNames
+                : (stub.keywordNames || []),
+            castIds: Array.isArray(details?.castIds) ? details.castIds : (stub.castIds || []),
+            crewPersonId: details?.crewPersonId ?? stub.crewPersonId ?? null,
+            streamProviders: Array.isArray(details?.streamProviders)
+                ? details.streamProviders
+                : (stub.streamProviders || []),
+            freeProviders: Array.isArray(details?.freeProviders)
+                ? details.freeProviders
+                : (stub.freeProviders || []),
+            providersHydrated: true,
+            hydrated: true,
+            sourceBucket: "Gemini Wildcard"
+        };
+
+        if (isSeriesVaultItem(fullCand)) continue;
+        if (isExcludedOrSeen(fullCand)) continue;
+        if (verifiedEntries.some((v) => isSameMovie(v.cand, fullCand))) continue;
+        if (hasProviderFilter && !matchesWatchProviders(fullCand, userProviders)) continue;
+        if (explicitMood && !matchesMoodCandidateGate(fullCand, mood, moodFilters)) continue;
+
+        verifiedEntries.push({ pick, cand: fullCand });
+    }
+
+    if (verifiedEntries.length === 0) return [];
+
+    const verifiedCandList = verifiedEntries.map((v) => v.cand);
+    const mergedContentSimMap = new Map(context?.contentSimMap instanceof Map ? context.contentSimMap : []);
+    if (contentIndex || verifiedCandList.length > 0) {
+        try {
+            const coldContent = buildContentSimMap(
+                profile?.weightedRatings || [],
+                contentIndex,
+                verifiedCandList,
+                {
+                    collabIndex: embeddingIndex,
+                    collabSimMap,
+                    enableStructuredFallback: true,
+                    coldOnly: true
+                }
+            );
+            for (const [k, val] of coldContent.entries()) {
+                mergedContentSimMap.set(k, val);
+            }
+        } catch (_) {}
+    }
+
+    let wcDnaSimMap = context?.dnaSimMap instanceof Map ? context.dnaSimMap : new Map();
+    if (dnaIndex && (!context?.dnaSimMap || context.dnaSimMap.size === 0)) {
+        try {
+            wcDnaSimMap = buildDnaSimMap(profile?.weightedRatings || [], dnaIndex);
+        } catch (_) {}
+    }
+
+    // Preserve catalog-max scaling on small test catalogs (< 50 entries) without 1-item stretching
+    let fallbackCatalogMax = null;
+    if (collabSimMap && getCollabCatalogMax(collabSimMap) === null) {
+        let maxFound = 0;
+        for (const val of collabSimMap.values()) {
+            const n = Number(val);
+            if (Number.isFinite(n) && n > maxFound) maxFound = n;
+        }
+        for (const c of existingCandidates) {
+            const n = Number(c?.collabSim ?? 0);
+            if (Number.isFinite(n) && n > maxFound) maxFound = n;
+        }
+        if (maxFound > 0.05) fallbackCatalogMax = maxFound;
+    }
+
+    const scoredWildcards = [];
+    for (const { pick, cand } of verifiedEntries) {
+        const rankerCtx = {
+            profile,
+            mood,
+            moodFilters,
+            collabSimMap,
+            contentSimMap: mergedContentSimMap,
+            repulsionMap,
+            dnaSimMap: wcDnaSimMap,
+            anchorKeywords: context?.anchorKeywords ?? profile?.lovedKeywordIds,
+            userProviders
+        };
+        const [scored] = rankCandidatePool(
+            [cand],
+            rankerCtx,
+            rankerWeights,
+            1,
+            {
+                ...(rankerOptions || {}),
+                collabNormalization: "catalog-max",
+                ...(fallbackCatalogMax ? { collabCatalogMax: fallbackCatalogMax } : {}),
+                onDiagnostics: undefined
+            },
+            null
+        );
+        if (!scored) continue;
+        scoredWildcards.push({
+            ...scored,
+            sourceBucket: "Gemini Wildcard",
+            reason: pick?.reason,
+            anchorTitles: pick?.anchorTitles
+        });
+    }
+
+    return scoredWildcards;
+}
+
 /**
  * Merges Gemini's diversity pass and explanations with deterministic calibrated ranker matchScores,
  * enforcing a soft max-2-per-director cap (relaxing only to prevent shortlist underflow) and backfilling
@@ -1932,43 +2196,62 @@ export function mergeGeminiExplanationsWithRanker(
 
     const effectiveTarget = Math.max(1, Number(context?.targetCount ?? targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const watchedList = Array.isArray(context.watched) ? context.watched : [];
-    const sanitizeReasonText = (raw) => {
-        if (!raw || typeof raw !== "string") return "";
-        return raw
-            .replace(/\b\d{2,3}%\s*(High\s*)?Taste-?Twin\s*Match\b/gi, "")
-            .replace(/\b(High\s*)?(Taste-?Twin Match|Core Theme Match|Genre Bullseye|Cult Classic Overlap)\b/gi, "")
-            .replace(/\s{2,}/g, " ")
-            .replace(/^[\s,.:;-]+/, "")
-            .trim();
-    };
 
     const usedIds = new Set();
-    const poolItems = [];
+    const chosenRefs = [];
+    const wildcardPoolItems = [];
+    const geminiPoolItems = [];
+    const backfillPoolItems = [];
+
+    const verifiedWildcards = Array.isArray(context?.verifiedWildcards)
+        ? context.verifiedWildcards.slice(0, MAX_WILDCARD_PICKS)
+        : [];
+    for (const wc of verifiedWildcards) {
+        if (!wc) continue;
+        const key = wc.tmdbId || wc.id || wc.title?.toLowerCase();
+        if ((key && usedIds.has(key)) || chosenRefs.some((r) => isSameMovie(r, wc))) continue;
+        if (key) usedIds.add(key);
+        chosenRefs.push(wc);
+
+        const { reason, anchorTitles, anchorIds } = resolveGeminiExplanationFields(
+            wc,
+            watchedList,
+            "Curated wildcard discovery aligned with your core taste profile."
+        );
+        const entry = buildRecommendationEntry(
+            { ...wc, sourceBucket: wc.sourceBucket || "Gemini Wildcard" },
+            wc,
+            profile,
+            { reason, anchorTitles, anchorIds }
+        );
+        wildcardPoolItems.push({
+            entry,
+            dirKey: normalizeDirectorCapKey(entry, wc)
+        });
+    }
 
     for (const rec of result.recommendations) {
         const candidate = rankedCandidates.find(
             c => c.id === rec.tmdbId || c.tmdbId === rec.tmdbId || c.title?.toLowerCase() === rec.title?.toLowerCase()
         ) || {};
+        const refObj = candidate.tmdbId || candidate.id ? candidate : rec;
         const key = candidate.tmdbId || candidate.id || rec.tmdbId || rec.title?.toLowerCase();
-        if (key && usedIds.has(key)) continue;
+        if ((key && usedIds.has(key)) || chosenRefs.some((r) => isSameMovie(r, refObj))) continue;
         if (key) usedIds.add(key);
+        chosenRefs.push(refObj);
 
-        const cleanedReason = sanitizeReasonText(rec.reason) || rec.reason || "Pairs closely with your top-rated films.";
-        const anchorTitles = Array.isArray(rec.anchorTitles)
-            ? rec.anchorTitles.filter((t) => typeof t === "string" && t.trim())
-            : [];
-        const anchorIds = anchorTitles
-            .map((t) => watchedList.find((w) => (w.title || w.Title || "").toLowerCase() === t.toLowerCase()))
-            .filter(Boolean)
-            .map((w) => w.imdbID || w.id || (w.tmdbId ? `tmdb_${w.tmdbId}` : null))
-            .filter(Boolean);
+        const { reason, anchorTitles, anchorIds } = resolveGeminiExplanationFields(
+            rec,
+            watchedList,
+            "Pairs closely with your top-rated films."
+        );
 
         const entry = buildRecommendationEntry(candidate, rec, profile, {
-            reason: cleanedReason,
+            reason,
             anchorTitles,
             anchorIds
         });
-        poolItems.push({
+        geminiPoolItems.push({
             entry,
             dirKey: normalizeDirectorCapKey(entry, candidate)
         });
@@ -1976,17 +2259,19 @@ export function mergeGeminiExplanationsWithRanker(
 
     for (const cand of rankedCandidates) {
         const key = cand.tmdbId || cand.id || cand.title?.toLowerCase();
-        if (key && usedIds.has(key)) continue;
+        if ((key && usedIds.has(key)) || chosenRefs.some((r) => isSameMovie(r, cand))) continue;
         if (key) usedIds.add(key);
+        chosenRefs.push(cand);
         const entry = buildRecommendationEntry(cand, {}, profile, {
             reason: "Selected by your calibrated taste profile and current mood filter."
         });
-        poolItems.push({
+        backfillPoolItems.push({
             entry,
             dirKey: normalizeDirectorCapKey(entry, cand)
         });
     }
 
+    const poolItems = [...wildcardPoolItems, ...geminiPoolItems, ...backfillPoolItems];
     const desiredTotal = Math.min(effectiveTarget, poolItems.length > 0 ? poolItems.length : effectiveTarget);
     const enriched = selectWithSoftDirectorCap(poolItems, desiredTotal, 2);
     enriched.sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
@@ -2209,6 +2494,19 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
                         },
                         required: ["tmdbId", "title", "year", "reason"]
                     }
+                },
+                wildcardPicks: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING },
+                            year: { type: Type.STRING },
+                            anchorTitles: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            reason: { type: Type.STRING }
+                        },
+                        required: ["title", "year", "reason"]
+                    }
                 }
             },
             required: ["tasteProfile", "recommendations"]
@@ -2261,9 +2559,46 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         if (!Array.isArray(result?.recommendations) || result.recommendations.length === 0) {
             throw new Error("Gemini re-rank returned empty or missing recommendations array");
         }
+        const verifiedWildcards = Array.isArray(result?.wildcardPicks) && result.wildcardPicks.length > 0
+            ? await verifyAndScoreWildcardPicks(
+                result.wildcardPicks,
+                {
+                    watched: options.watched,
+                    watchlist: options.watchlist,
+                    excludeIds: options.excludeIds,
+                    existingCandidates: topCandidates,
+                    profile,
+                    mood,
+                    moodFilters,
+                    userRegion: options.userRegion || "US",
+                    userProviders: options.userProviders || [],
+                    embeddingIndex: options.embeddingIndex,
+                    contentIndex: options.contentIndex,
+                    dnaIndex: options.dnaIndex,
+                    collabSimMap: options.collabSimMap,
+                    contentSimMap: options.contentSimMap,
+                    repulsionMap: options.repulsionMap,
+                    dnaSimMap: options.dnaSimMap,
+                    rankerWeights: options.rankerWeights,
+                    rankerOptions: options.rankerOptions
+                },
+                {
+                    wildcardFinder: options.wildcardFinder,
+                    detailFetcher: options.detailFetcher,
+                    fetchFn: options.fetchFn,
+                    apiKey: options.apiKey,
+                    forceProxy: options.forceProxy,
+                    cacheStore: options.cacheStore,
+                    indexedDB: options.indexedDB,
+                    bypassCache: options.bypassCache,
+                    signal: options.signal
+                }
+            ).catch(() => [])
+            : [];
         const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile, {
             watched: options.watched,
-            targetCount
+            targetCount,
+            verifiedWildcards
         });
         if (!Array.isArray(merged?.recommendations) || merged.recommendations.length === 0) {
             throw new Error("Merged recommendations empty");

@@ -12,7 +12,8 @@ import {
   getMovieRecommendations,
   normalizeMatchScore,
   resetSessionWorkingModels,
-  resetModelInfoForTests
+  resetModelInfoForTests,
+  verifyAndScoreWildcardPicks
 } from "../src/services/geminiService.js";
 
 test("hatedKeywordIds sorts by negative weight descending before slicing top 5", async () => {
@@ -1305,6 +1306,89 @@ test("getMovieRecommendations shortlists 39 diversified candidates to Gemini whe
     } finally {
         if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
         else process.env.VITE_GEMINI_KEY = prevGKey;
+    }
+});
+
+test("verifyAndScoreWildcardPicks uses strict TMDB search + fetchBatchFormattedDetailsMap batch path and rejects TV/remake mismatches", async () => {
+    const prevVitTmdb = process.env.VITE_TMDB_KEY;
+    delete process.env.VITE_TMDB_KEY;
+
+    const calls = [];
+    const mockFetch = async (url) => {
+        const u = String(url);
+        calls.push(u);
+        if (u.includes("search") && u.includes("True+Grit")) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    results: [
+                        // 1969 remake rejected by strict 2010 year check
+                        { id: 1969, title: "True Grit", release_date: "1969-06-11", genre_ids: [37], vote_average: 7.4, vote_count: 800, popularity: 25 },
+                        { id: 44264, title: "True Grit", release_date: "2010-12-22", genre_ids: [18, 37], vote_average: 7.3, vote_count: 5200, overview: "A stubborn teenager hires a marshal.", popularity: 40 }
+                    ]
+                })
+            };
+        }
+        if (u.includes("search") && u.includes("Wrong+Show")) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    results: [{ id: 999, title: "Wrong Show Movie", release_date: "2018-01-01", genre_ids: [18], vote_average: 6.0, vote_count: 50 }]
+                })
+            };
+        }
+        if (u.includes("/api/tmdb-batch")) {
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    results: {
+                        44264: {
+                            id: 44264,
+                            title: "True Grit",
+                            release_date: "2010-12-22",
+                            genres: [{ id: 18, name: "Drama" }, { id: 37, name: "Western" }],
+                            keywords: { keywords: [{ id: 991, name: "revenge" }] },
+                            credits: {
+                                crew: [{ id: 1223, name: "Joel Coen", job: "Director" }],
+                                cast: [{ id: 1229, name: "Jeff Bridges" }]
+                            },
+                            external_ids: { imdb_id: "tt1403865" },
+                            vote_average: 7.3,
+                            vote_count: 5200,
+                            runtime: 110,
+                            overview: "A stubborn teenager hires a marshal."
+                        }
+                    }
+                })
+            };
+        }
+        return { ok: true, status: 200, json: async () => ({ results: [] }) };
+    };
+
+    try {
+        const res = await verifyAndScoreWildcardPicks(
+            [
+                { title: "Wrong Show", year: "2020", reason: "Not an exact match or wrong year." },
+                { title: "True Grit", year: "2010", anchorTitles: ["No Country for Old Men"], reason: "Shares Coen moral grit." }
+            ],
+            {
+                watched: [{ tmdbId: 6977, imdbID: "tt0477348", title: "No Country for Old Men", year: "2007", userRating: 10 }],
+                profile: { lovedGenreIds: [18, 37], lovedKeywordIds: [991], crewAffinities: { 1223: 0.9 } }
+            },
+            { fetchFn: mockFetch, forceProxy: true, bypassCache: true }
+        );
+
+        assert.equal(res.length, 1, "Rejects inexact title/year mismatch while hydrating exact strict match");
+        assert.equal(res[0].tmdbId, 44264);
+        assert.equal(res[0].director, "Joel Coen");
+        assert.equal(res[0].sourceBucket, "Gemini Wildcard");
+        assert.ok(calls.some((u) => u.includes("/api/tmdb-batch")), "Uses fetchBatchFormattedDetailsMap batch path");
+    } finally {
+        if (prevVitTmdb === undefined) delete process.env.VITE_TMDB_KEY;
+        else process.env.VITE_TMDB_KEY = prevVitTmdb;
     }
 });
 

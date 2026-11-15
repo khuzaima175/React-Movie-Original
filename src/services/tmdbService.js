@@ -1473,7 +1473,7 @@ async function getCachedTmdbDetails(id, userRegion = "US", detailFetcher = null)
   return details;
 }
 
-async function fetchBatchFormattedDetailsMap(ids = [], userRegion = "US", options = {}) {
+export async function fetchBatchFormattedDetailsMap(ids = [], userRegion = "US", options = {}) {
   const resultMap = new Map();
   const useMemCache = !options.fetchFn && !options.cacheStore && options.bypassCache !== true;
   const uncachedIds = [];

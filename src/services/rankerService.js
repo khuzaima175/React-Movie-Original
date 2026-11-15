@@ -607,7 +607,12 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
     : options;
 
   const normMode = options.collabNormalization ?? "catalog-max";
-  const catalogMax = normMode === "catalog-max" ? getCollabCatalogMax(collabSimMap) : null;
+  const overrideCatalogMax = Number(options?.collabCatalogMax);
+  const catalogMax = normMode === "catalog-max"
+    ? (Number.isFinite(overrideCatalogMax) && overrideCatalogMax > 0
+        ? overrideCatalogMax
+        : getCollabCatalogMax(collabSimMap))
+    : null;
   const scored = workingPool.map(cand => {
     const features = extractCandidateFeatures(cand, context);
     features.rawCollabSim = features.collabSim;
