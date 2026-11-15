@@ -679,7 +679,17 @@ export function retrieveAlignedEmbeddingNeighbors(
       ? options.repulsionMap
       : buildRepulsionMapFromIndex(weightedRatings, index);
 
-  const repulsionWeight = options.repulsionWeight ?? (1.5 / 4.8);
+  const catalogMax =
+    options.catalogMax !== undefined
+      ? (options.catalogMax !== null && Number.isFinite(Number(options.catalogMax))
+          ? Math.max(0.05, Number(options.catalogMax))
+          : null)
+      : (() => {
+          const detected = getCollabCatalogMax(collabSimMap);
+          return detected !== null ? Math.max(0.05, detected) : null;
+        })();
+
+  const repulsionWeight = options.repulsionWeight ?? (1.5 / 6.4);
   const topK = options.topK ?? 40;
   const excluded = new Set([...(excludeTmdbIds || [])].map(Number));
   const { count, ids } = index;
@@ -689,7 +699,11 @@ export function retrieveAlignedEmbeddingNeighbors(
     const tmdbId = ids[i];
     if (excluded.has(tmdbId)) continue;
 
-    const collabSim = collabSimMap.get(tmdbId) ?? 0;
+    const rawCollabSim = collabSimMap.get(tmdbId) ?? 0;
+    const collabSim =
+      rawCollabSim > 0 && catalogMax !== null
+        ? Math.min(1.0, rawCollabSim / catalogMax)
+        : rawCollabSim;
     const repulsion = repulsionMap?.get(tmdbId) ?? 0;
     const alignedScore = collabSim - repulsionWeight * repulsion;
     results.push({ tmdbId, collabSim, repulsion, alignedScore });

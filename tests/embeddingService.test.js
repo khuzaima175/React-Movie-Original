@@ -360,3 +360,71 @@ test("retrieveAlignedEmbeddingNeighbors aligns with collabSim - repulsionWeight 
   assert.ok(neighbors[0].alignedScore > neighbors[1].alignedScore);
 });
 
+
+test("retrieveAlignedEmbeddingNeighbors scales positive collabSim by catalogMax and applies 1.5/6.4 repulsionWeight so high-collab candidates survive disliked clusters", async () => {
+  const {
+    buildCollabSimMapFromIndex,
+    buildRepulsionMapFromIndex,
+    getCollabCatalogMax,
+    retrieveAlignedEmbeddingNeighbors
+  } = await import("../src/services/embeddingService.js");
+
+  // 60-item index (dim=4) using Bayesian-shrunk sub-unit norms matching CVEM production scale (~0.45 max)
+  const count = 60;
+  const dim = 4;
+  const ids = new Int32Array(count);
+  const vectors = new Float32Array(count * dim);
+  const idToIndex = new Map();
+
+  const setRawVec = (slot, id, v) => {
+    ids[slot] = id;
+    idToIndex.set(id, slot);
+    for (let d = 0; d < dim; d++) vectors[slot * dim + d] = v[d];
+  };
+
+  setRawVec(0, 1, [0.40, 0, 0, 0]);       // loved training film
+  setRawVec(1, 2, [0, 1, 0, 0]);          // disliked training film
+  setRawVec(2, 99, [0.45, 0, 0, 0]);      // excluded watchlist film setting full-catalog max
+  // High-collab candidate (0.20 on loved axis, 0.78 on disliked axis -> repulsion ~0.68):
+  // Pre-fix: ~0.20 - (1.5/4.8)*0.68 <= 0 (loses to weak-collab filler 204 at +0.10)
+  // Post-fix: (0.20/0.45) - (1.5/6.4)*0.68 > +0.28 (beats filler 204 at 0.222)
+  setRawVec(3, 100, [0.20, 0.78, Math.sqrt(1 - 0.20 ** 2 - 0.78 ** 2), 0]);
+
+  for (let i = 4; i < count; i++) {
+    // Dislike-free weak-collab filler items (~0.10 on loved axis, 0 repulsion)
+    setRawVec(i, 200 + i, [0.10, 0, Math.sqrt(0.99), 0]);
+  }
+
+  const index = { count, dim, ids, vectors, idToIndex };
+  const weightedRatings = [
+    { tmdbId: 1, userRating: 10, weight: 2.0 },
+    { tmdbId: 2, userRating: 2, weight: -2.0 }
+  ];
+
+  const collabSimMap = buildCollabSimMapFromIndex(weightedRatings, index);
+  const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, index);
+  const catalogMax = getCollabCatalogMax(collabSimMap);
+  const excludeIds = new Set([1, 2, 99]);
+
+  // Direct call (must normalize via full-map catalogMax before excludeIds filtering and default 1.5/6.4 weight)
+  const neighborsDefault = retrieveAlignedEmbeddingNeighbors(weightedRatings, index, excludeIds, {
+    collabSimMap,
+    repulsionMap,
+    topK: 1
+  });
+  assert.equal(neighborsDefault.length, 1);
+  assert.equal(neighborsDefault[0].tmdbId, 100, "high-collab candidate must survive top-1 ranking");
+  assert.ok(neighborsDefault[0].alignedScore > 0, `expected alignedScore > 0, got ${neighborsDefault[0].alignedScore}`);
+  assert.ok(Math.abs(neighborsDefault[0].collabSim - 0.20 / 0.45) < 0.02, "must normalize by pre-exclude full catalogMax");
+
+  // Explicit options call matching geminiService caller
+  const neighborsExplicit = retrieveAlignedEmbeddingNeighbors(weightedRatings, index, excludeIds, {
+    collabSimMap,
+    repulsionMap,
+    catalogMax,
+    repulsionWeight: 1.5 / 6.4,
+    topK: 1
+  });
+  assert.equal(neighborsExplicit[0].tmdbId, 100);
+  assert.ok(neighborsExplicit[0].alignedScore > 0);
+});

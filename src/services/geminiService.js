@@ -32,6 +32,7 @@ import {
     loadDefaultEmbeddingIndex,
     buildCollabSimMapFromIndex,
     buildRepulsionMapFromIndex,
+    getCollabCatalogMax,
     retrieveAlignedEmbeddingNeighbors
 } from "./embeddingService.js";
 import {
@@ -2088,11 +2089,14 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                         ...(Array.isArray(options.excludeIds) ? options.excludeIds.map(id => Number(id || 0)) : []),
                         ...candidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0))
                     ]);
+                    const catalogMax = getCollabCatalogMax(collabSimMap);
+                    const repulsionWeight =
+                        Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim;
                     const neighbors = retrieveAlignedEmbeddingNeighbors(
                         profile.weightedRatings,
                         embeddingIndex,
                         excludeIds,
-                        { collabSimMap, repulsionMap, topK: 80 }
+                        { collabSimMap, repulsionMap, catalogMax, repulsionWeight, topK: 80 }
                     );
                     const injected = await fetchEmbeddingCandidates(
                         neighbors,
