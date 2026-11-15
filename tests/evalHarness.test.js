@@ -508,3 +508,45 @@ test("evaluateBucketEPoolCohort slices Bucket E top-K before catalog lookup, ran
   assert.equal(report.summaryByK[30].deltaVsK30, null);
   assert.equal(report.summaryByK[60].deltaVsK30.recall10.n, 1);
 });
+
+test("analyzeVaultColdShare groups >=8★ Schema v2 watched films by watch year and computes Bucket D / reserve uncovered range", async () => {
+  const {
+    analyzeVaultColdShare,
+    computeColdUncoveredWindow,
+    DEFAULT_INDEX_CUTOFF_DATE
+  } = await import("../scripts/experiments/vault_cold_share.mjs");
+
+  assert.equal(DEFAULT_INDEX_CUTOFF_DATE, "2023-10-13");
+  const win = computeColdUncoveredWindow({ today: "2026-11-15" });
+  assert.equal(win.bucketDFloorDate, "2025-05-15");
+  assert.equal(win.reserveFloorDate, "2025-05-15");
+  assert.equal(win.uncoveredIntervalNotation, "(2023-10-13, 2025-05-15)");
+
+  const indexIds = new Set([101, 102]);
+  const schemaV2Payload = JSON.stringify({
+    schemaVersion: 2,
+    watched: [
+      { tmdbId: 101, userRating: 9, dateWatched: "2023-05-10", release_date: "2019-07-01" }, // warm
+      { tmdbId: 999, userRating: 8, dateWatched: "2023-09-01", release_date: "2010-03-15" }, // unindexed
+      { tmdbId: 102, userRating: 8, dateWatched: "2024-11-20", release_date: "2024-02-01" }, // in set, post-cutoff date -> cold
+      { id: "tmdb_888", userRating: 9, dateWatched: "2025-06-01", year: "2025" },            // unindexed + year>2023 -> cold
+      { tmdbId: 101, userRating: 7, dateWatched: "2024-01-01", release_date: "2024-05-01" }, // <8★ ignored
+      { id: "tt1234567", userRating: 8, release_date: "2020-01-01" }                       // Unknown watchYear & missing numeric tmdbId -> cold
+    ],
+    watchlist: [],
+    preferences: {}
+  });
+
+  const report = analyzeVaultColdShare(schemaV2Payload, indexIds, { today: "2026-11-15" });
+  assert.equal(report.summary.totalWatched, 6);
+  assert.equal(report.summary.totalQualified, 5);
+  assert.equal(report.summary.coldCount, 4);
+  assert.ok(Math.abs(report.summary.coldFraction - 0.8) < 1e-9);
+  assert.equal(report.summary.missingTmdbIdCount, 1);
+  assert.deepEqual(report.byWatchYear.map(r => r.watchYear), ["2023", "2024", "2025", "Unknown"]);
+  assert.equal(report.byWatchYear[0].count, 2);
+  assert.equal(report.byWatchYear[0].coldCount, 1);
+  assert.equal(report.byWatchYear[1].coldCount, 1);
+  assert.equal(report.byWatchYear[1].postCutoffCount, 1);
+  assert.equal(report.byWatchYear[3].missingTmdbIdCount, 1);
+});
