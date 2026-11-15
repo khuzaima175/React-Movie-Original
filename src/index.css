@@ -4,6 +4,7 @@
 @import "./styles/nav-discover.css";
 @import "./styles/vault.css";
 @import "./styles/oracle.css";
+@import "./styles/person.css";
 
 /* Tailwind v4 @theme Binding */
 @theme {
