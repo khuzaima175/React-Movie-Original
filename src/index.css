@@ -7343,3 +7343,278 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ============================================================
+   Movie Page Rabbit Hole (Clickable Research Chips, Franchise Timeline, Similar Strip)
+   ============================================================ */
+
+a.clickable-research-chip {
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+
+a.clickable-research-chip:hover {
+  border-color: var(--hairline-strong);
+  background: var(--surface-3);
+  color: var(--text-1);
+  transform: translateY(-1px);
+}
+
+.rabbit-hole-section {
+  margin-top: 3.4rem;
+  padding-top: 2.6rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.rabbit-hole-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.6rem;
+}
+
+.rabbit-hole-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.rabbit-hole-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+}
+
+.rabbit-hole-title {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-1);
+}
+
+.rabbit-hole-explore-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.05rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.rabbit-hole-explore-link:hover {
+  background: var(--surface-3);
+}
+
+/* Franchise Completion Badge */
+.collection-progress-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-1);
+  color: var(--text-1);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.collection-progress-bar {
+  width: 6.4rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.collection-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--match);
+  transition: width 0.25s ease;
+}
+
+.collection-timeline-strip,
+.similar-films-strip {
+  display: flex;
+  gap: 1.4rem;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.collection-part-card {
+  flex: 0 0 15.8rem;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hairline);
+  background: var(--surface-1);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+a.collection-part-card:hover {
+  border-color: var(--hairline-strong);
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+
+.collection-part-card.is-current {
+  border-color: var(--accent);
+  background: rgba(229, 184, 75, 0.06);
+}
+
+.collection-part-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 1.15rem;
+}
+
+.collection-part-step {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+
+.collection-part-year {
+  color: var(--text-3);
+}
+
+.collection-part-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-poster);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.collection-current-badge {
+  position: absolute;
+  left: 0.6rem;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  text-align: center;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--r-sm);
+  background: rgba(13, 14, 17, 0.9);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.collection-part-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.collection-part-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+.collection-part-status {
+  display: flex;
+  align-items: center;
+}
+
+.collection-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--r-sm);
+  font-size: 1.15rem;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.collection-status-chip.is-watched {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.collection-status-chip.is-watchlist {
+  background: rgba(70, 211, 105, 0.12);
+  color: var(--match);
+}
+
+.similar-film-item {
+  flex: 0 0 16.5rem;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.similar-origin-pill {
+  align-self: flex-start;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.similar-origin-pill.origin-hybrid {
+  border-color: rgba(70, 211, 105, 0.38);
+  background: rgba(70, 211, 105, 0.1);
+  color: var(--match);
+}
+
+.collection-part-skeleton,
+.similar-film-skeleton {
+  flex: 0 0 16rem;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+}
+
+@media (max-width: 640px) {
+  .collection-part-card {
+    flex: 0 0 13.6rem;
+  }
+
+  .similar-film-item {
+    flex: 0 0 14.2rem;
+  }
+}

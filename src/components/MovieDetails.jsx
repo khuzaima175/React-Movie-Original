@@ -1,12 +1,31 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
 import PersonFilmographyModal from "./PersonFilmographyModal";
+import CollectionTimeline from "./CollectionTimeline";
+import SimilarFilmsStrip from "./SimilarFilmsStrip";
 import { useApp } from "../context/AppContext";
-import { findTmdbByImdbId, findTmdbByTitleAndYear, fetchTmdbMovieDetails, getFallbackPoster, isSeriesVaultItem } from "../services/tmdbService";
-import { fetchOmdbJson } from "../services/apiTransport";
+import {
+  TMDB_GENRE_MAP,
+  findTmdbByImdbId,
+  findTmdbByTitleAndYear,
+  fetchTmdbMovieDetails,
+  fetchCollectionTimeline,
+  fetchTmdbMovieRecommendations,
+  getFallbackPoster,
+  isSeriesVaultItem
+} from "../services/tmdbService";
+import { fetchOmdbJson, getMovieDetailsBatch } from "../services/apiTransport";
+import { toDashboardCardItem } from "../services/dashboardService";
+import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { buildExploreRoute } from "../services/exploreService";
+import {
+  normalizeCollectionTimeline,
+  findEmbeddingNeighborsForMovie,
+  buildHybridSimilarFilms
+} from "../services/rabbitHoleService";
 import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
 import { findMatchingMovie } from "../services/movieIdentity";
 import {
@@ -91,12 +110,132 @@ export default function MovieDetails({
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [activePerson, setActivePerson] = useState(null);
+  const [collectionRaw, setCollectionRaw] = useState(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
+  const [embeddingNeighbors, setEmbeddingNeighbors] = useState([]);
+  const [hydratedEmbeddingCards, setHydratedEmbeddingCards] = useState([]);
+  const [tmdbRecs, setTmdbRecs] = useState([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
 
   const creditPeople = useMemo(() => extractMovieCreditPeople(movie), [movie]);
 
   useEffect(() => {
     setActivePerson(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    setCollectionRaw(null);
+    setEmbeddingNeighbors([]);
+    setHydratedEmbeddingCards([]);
+    setTmdbRecs([]);
+
+    if (!movie?.tmdbId) {
+      setCollectionLoading(false);
+      setSimilarLoading(false);
+      return undefined;
+    }
+
+    let isActive = true;
+    const controller = new AbortController();
+
+    if (Number(movie.collectionId) > 0) {
+      setCollectionLoading(true);
+      fetchCollectionTimeline(movie.collectionId, { signal: controller.signal })
+        .then((colData) => {
+          if (isActive && !controller.signal.aborted) {
+            setCollectionRaw(colData);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (isActive && !controller.signal.aborted) {
+            setCollectionLoading(false);
+          }
+        });
+    } else {
+      setCollectionLoading(false);
+    }
+
+    async function loadRabbitHoleSimilar() {
+      setSimilarLoading(true);
+      try {
+        const [recs, index] = await Promise.all([
+          fetchTmdbMovieRecommendations(movie.tmdbId, { signal: controller.signal }),
+          loadDefaultEmbeddingIndex().catch(() => null)
+        ]);
+        if (!isActive || controller.signal.aborted) return;
+
+        const safeRecs = Array.isArray(recs) ? recs : [];
+        setTmdbRecs(safeRecs);
+
+        const neighbors = index
+          ? findEmbeddingNeighborsForMovie(movie.tmdbId, index, { limit: 16 })
+          : [];
+        setEmbeddingNeighbors(neighbors);
+
+        const recIdSet = new Set(safeRecs.map((r) => Number(r.tmdbId || r.id)));
+        const topNeighborIds = neighbors
+          .filter((n) => !recIdSet.has(n.tmdbId))
+          .slice(0, 10)
+          .map((n) => n.tmdbId);
+
+        if (topNeighborIds.length > 0) {
+          const rawBatch = await getMovieDetailsBatch(topNeighborIds, { signal: controller.signal });
+          if (!isActive || controller.signal.aborted) return;
+
+          const cards = topNeighborIds
+            .map((id) => rawBatch?.[id] || rawBatch?.[String(id)])
+            .filter(Boolean)
+            .map((raw) =>
+              toDashboardCardItem({
+                ...raw,
+                imdbID: raw.external_ids?.imdb_id || `tmdb_${raw.id}`,
+                genre_ids: Array.isArray(raw.genres) ? raw.genres.map((g) => g.id) : []
+              })
+            );
+          setHydratedEmbeddingCards(cards);
+        }
+      } catch {
+        // Degrade gracefully when similarity sources are unavailable
+      } finally {
+        if (isActive && !controller.signal.aborted) {
+          setSimilarLoading(false);
+        }
+      }
+    }
+
+    loadRabbitHoleSimilar();
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [selectedId, movie?.tmdbId, movie?.collectionId]);
+
+  const collectionTimeline = useMemo(
+    () => normalizeCollectionTimeline(collectionRaw, movie, watched, watchlist),
+    [collectionRaw, movie, watched, watchlist]
+  );
+
+  const collectionPartIds = useMemo(
+    () => new Set((collectionTimeline?.parts || []).map((p) => p.tmdbId)),
+    [collectionTimeline]
+  );
+
+  const similarFilms = useMemo(
+    () =>
+      buildHybridSimilarFilms({
+        currentMovie: movie,
+        embeddingNeighbors,
+        hydratedEmbeddingCards,
+        tmdbRecommendations: tmdbRecs,
+        collectionPartIds,
+        watched,
+        watchlist,
+        limit: 14
+      }),
+    [movie, embeddingNeighbors, hydratedEmbeddingCards, tmdbRecs, collectionPartIds, watched, watchlist]
+  );
 
   // Match across tmdb_<id>, numeric tmdbId, imdbID, and title+year variants
   const movieIdentity = useMemo(
@@ -1107,11 +1246,30 @@ export default function MovieDetails({
               {/* Genres Row */}
               {movie.genres?.length > 0 && (
                 <div className="netflix-genres-row">
-                  {movie.genres.map((g) => (
-                    <span key={g} className="netflix-genre-tag luxury-genre-tag">
-                      {g}
-                    </span>
-                  ))}
+                  {movie.genres.map((g, idx) => {
+                    const genreId =
+                      TMDB_GENRE_MAP[String(g || "").trim().toLowerCase()] ??
+                      (Array.isArray(movie.tmdbGenreIds) && movie.tmdbGenreIds.length === movie.genres.length
+                        ? movie.tmdbGenreIds[idx]
+                        : null);
+                    if (Number.isSafeInteger(Number(genreId)) && Number(genreId) > 0) {
+                      return (
+                        <Link
+                          key={g}
+                          to={buildExploreRoute({ genres: [Number(genreId)] })}
+                          className="netflix-genre-tag luxury-genre-tag clickable-research-chip"
+                          title={`Explore ${g} films`}
+                        >
+                          {g}
+                        </Link>
+                      );
+                    }
+                    return (
+                      <span key={g} className="netflix-genre-tag luxury-genre-tag">
+                        {g}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
 
@@ -1292,20 +1450,56 @@ export default function MovieDetails({
               )}
 
               {/* Thematic Keywords & Cinematic Tropes */}
-              {movie.keywords?.length > 0 && (
+              {(movie.keywordItems?.length > 0 || movie.keywords?.length > 0) && (
                 <div className="thematic-keywords-section">
                   <span className="keywords-title"><Tag size={13} aria-hidden="true" /> Cinematic Motifs & Themes</span>
                   <div className="keywords-chip-cloud">
-                    {movie.keywords.map((k) => (
-                      <span key={k} className="theme-keyword-chip">
-                        #{k}
-                      </span>
-                    ))}
+                    {(movie.keywordItems?.length > 0
+                      ? movie.keywordItems
+                      : (movie.keywords || []).map((name, idx) => ({
+                          id:
+                            Array.isArray(movie.tmdbKeywords) &&
+                            movie.tmdbKeywords.length === movie.keywords.length
+                              ? movie.tmdbKeywords[idx]
+                              : null,
+                          name
+                        }))
+                    ).map((kw) =>
+                      Number.isSafeInteger(Number(kw.id)) && Number(kw.id) > 0 ? (
+                        <Link
+                          key={`${kw.id}-${kw.name}`}
+                          to={buildExploreRoute({
+                            keywords: [{ id: Number(kw.id), name: kw.name }],
+                            minImdb: 0,
+                            minVotes: 25
+                          })}
+                          className="theme-keyword-chip clickable-research-chip"
+                          title={`Explore films with #${kw.name}`}
+                        >
+                          #{kw.name}
+                        </Link>
+                      ) : (
+                        <span key={kw.name} className="theme-keyword-chip">
+                          #{kw.name}
+                        </span>
+                      )
+                    )}
                   </div>
                 </div>
               )}
             </div>
           </div>
+
+          <CollectionTimeline timeline={collectionTimeline} loading={collectionLoading} />
+
+          <SimilarFilmsStrip
+            films={similarFilms}
+            sourceTitle={movie.title}
+            genreIds={movie.tmdbGenreIds || []}
+            loading={similarLoading}
+            onSelectMovie={(movieId) => navigate(`/movie/${encodeURIComponent(movieId)}`)}
+            onQuickRate={onQuickRate}
+          />
         </div>
       ) : null}
 
