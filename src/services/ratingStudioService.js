@@ -38,6 +38,55 @@ function toCalibrationAnchor(movie) {
   };
 }
 
+function clampStarScore(raw) {
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num < 1) return 0;
+  return Math.min(10, Math.max(1, Math.round(num)));
+}
+
+/**
+ * Computes deterministic 1-10 star stage wave states, synchronized rail fill percentage,
+ * and WAI-ARIA roving tabIndex values for the Rating Studio Star Stage.
+ */
+export function computeStarStageMetrics(selectedRating = 0, hoverRating = 0) {
+  const selectedScore = clampStarScore(selectedRating);
+  const hoverScore = clampStarScore(hoverRating);
+  const isHovering = hoverScore > 0;
+  const activeScore = isHovering ? hoverScore : selectedScore;
+  const fillPercent = activeScore * 10;
+
+  const stars = Array.from({ length: 10 }, (_, idx) => {
+    const score = idx + 1;
+    const distance = activeScore > 0 ? Math.abs(score - activeScore) : Infinity;
+    const isFilled = activeScore > 0 && score <= activeScore;
+    const isSelected = selectedScore > 0 && score === selectedScore;
+    const isCurrent = activeScore > 0 && score === activeScore;
+    const isWaveNeighbor = activeScore > 0 && distance === 1;
+    const staggerMs = isFilled ? (score - 1) * 18 : 0;
+    const tabIndex = (selectedScore > 0 ? score === selectedScore : score === 1) ? 0 : -1;
+
+    return {
+      score,
+      isFilled,
+      isSelected,
+      isCurrent,
+      isWaveNeighbor,
+      distance,
+      staggerMs,
+      tabIndex
+    };
+  });
+
+  return {
+    activeScore,
+    selectedScore,
+    hoverScore,
+    isHovering,
+    fillPercent,
+    stars
+  };
+}
+
 /**
  * Computes where a target 1-10 rating sits in the user's rated Vault
  * and returns up to 2 recent anchor films rated the same (or nearest) score.

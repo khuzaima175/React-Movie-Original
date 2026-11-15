@@ -3,6 +3,8 @@ import { buildQuickAddWatchedMovie } from "./csvImport.js";
 export const RATING_TIERS = {
   10: {
     label: "Masterpiece (Anchor Film)",
+    shortLabel: "Masterpiece",
+    tone: "zenith",
     icon: "🏆",
     desc: "Cinematic zenith • Sets top AI taste anchor",
     color: "#e5b84b",
@@ -12,6 +14,8 @@ export const RATING_TIERS = {
   },
   9: {
     label: "Exceptional Cinema",
+    shortLabel: "Exceptional Cinema",
+    tone: "gold",
     icon: "✨",
     desc: "Essential viewing • Strong positive affinity",
     color: "#f59e0b",
@@ -21,6 +25,8 @@ export const RATING_TIERS = {
   },
   8: {
     label: "Great Film",
+    shortLabel: "Great Film",
+    tone: "emerald",
     icon: "🍿",
     desc: "Highly recommended & deeply engaging",
     color: "#10b981",
@@ -30,6 +36,8 @@ export const RATING_TIERS = {
   },
   7: {
     label: "Good Watch",
+    shortLabel: "Good Watch",
+    tone: "cyan",
     icon: "👍",
     desc: "Solid craft, enjoyable & well-made",
     color: "#06b6d4",
@@ -39,6 +47,8 @@ export const RATING_TIERS = {
   },
   6: {
     label: "Decent Baseline",
+    shortLabel: "Decent Baseline",
+    tone: "violet",
     icon: "😐",
     desc: "Watchable with balanced qualities",
     color: "#8b5cf6",
@@ -48,6 +58,8 @@ export const RATING_TIERS = {
   },
   5: {
     label: "Mediocre",
+    shortLabel: "Mediocre",
+    tone: "slate",
     icon: "📉",
     desc: "Forgettable with noticeable flaws",
     color: "#94a3b8",
@@ -57,6 +69,8 @@ export const RATING_TIERS = {
   },
   4: {
     label: "Flawed",
+    shortLabel: "Flawed",
+    tone: "amber",
     icon: "⚠️",
     desc: "Weak storytelling or execution",
     color: "#f97316",
@@ -66,6 +80,8 @@ export const RATING_TIERS = {
   },
   3: {
     label: "Disliked",
+    shortLabel: "Disliked",
+    tone: "crimson",
     icon: "🚫",
     desc: "Trope penalty applied to AI engine",
     color: "#ef4444",
@@ -75,6 +91,8 @@ export const RATING_TIERS = {
   },
   2: {
     label: "Poor Experience",
+    shortLabel: "Poor Experience",
+    tone: "crimson",
     icon: "⛔",
     desc: "AI engine suppresses matching motifs",
     color: "#dc2626",
@@ -84,6 +102,8 @@ export const RATING_TIERS = {
   },
   1: {
     label: "Severe Dislike",
+    shortLabel: "Severe Dislike",
+    tone: "crimson",
     icon: "💀",
     desc: "Strict negative weight applied",
     color: "#b91c1c",
@@ -95,8 +115,10 @@ export const RATING_TIERS = {
 
 export const UNRATED_TIER = {
   label: "Select Your Score",
+  shortLabel: "Select Score",
+  tone: "unrated",
   icon: "⭐",
-  desc: "Choose a rating from 1 to 10 before saving",
+  desc: "Hover or tap 1 to 10 stars to calibrate your rating",
   color: "#b6b6b2",
   bg: "rgba(255, 255, 255, 0.05)",
   border: "rgba(255, 255, 255, 0.14)",

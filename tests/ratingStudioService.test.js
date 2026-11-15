@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { getRatingTier } from "../src/services/ratingTiers.js";
 import {
   CRAFT_ASPECTS,
   WATCH_FORMATS,
   computeVaultCalibration,
+  computeStarStageMetrics,
   normalizeRatingBreakdown,
   computeCraftAverage,
   normalizeWatchMeta,
@@ -143,4 +145,41 @@ test("buildWatchedRatingPayload({ markCleared: true }) clears existing ratingBre
   });
   assert.deepEqual(partialList[0].ratingBreakdown, { story: 5, direction: 5 });
   assert.deepEqual(partialList[0].watchMeta, { format: "imax", rewatchCount: 2, containsSpoilers: true });
+});
+
+test("computeStarStageMetrics computes unrated, selected, and hover-override wave states and roving tabIndex", () => {
+  const unrated = computeStarStageMetrics(0, 0);
+  assert.equal(unrated.activeScore, 0);
+  assert.equal(unrated.fillPercent, 0);
+  assert.equal(unrated.isHovering, false);
+  assert.equal(unrated.stars.length, 10);
+  assert.equal(unrated.stars[0].tabIndex, 0);
+  assert.ok(unrated.stars.slice(1).every((s) => s.tabIndex === -1));
+  assert.ok(unrated.stars.every((s) => !s.isFilled && !s.isCurrent && !s.isWaveNeighbor));
+
+  // Selected 7/10, hover 4/10 overrides activeScore and centers wave on 4 (neighbors 3 and 5)
+  const hovered = computeStarStageMetrics(7, 4);
+  assert.equal(hovered.activeScore, 4);
+  assert.equal(hovered.selectedScore, 7);
+  assert.equal(hovered.isHovering, true);
+  assert.equal(hovered.fillPercent, 40);
+  assert.equal(hovered.stars[3].isCurrent, true); // score 4
+  assert.equal(hovered.stars[2].isWaveNeighbor, true); // score 3
+  assert.equal(hovered.stars[4].isWaveNeighbor, true); // score 5
+  assert.equal(hovered.stars[5].isFilled, false); // score 6 not filled while hovering 4
+  assert.equal(hovered.stars[6].isSelected, true); // score 7 retains selected marker & roving tabIndex
+  assert.equal(hovered.stars[6].tabIndex, 0);
+
+  // Boundary wave at 10/10 only marks 9 as neighbor and clamps out-of-range inputs
+  const boundaryTen = computeStarStageMetrics(14, 0);
+  assert.equal(boundaryTen.activeScore, 10);
+  assert.equal(boundaryTen.fillPercent, 100);
+  assert.equal(boundaryTen.stars[9].isCurrent, true);
+  assert.equal(boundaryTen.stars[8].isWaveNeighbor, true);
+
+  const tier7 = getRatingTier(7);
+  assert.equal(tier7.shortLabel, "Good Watch");
+  assert.equal(tier7.tone, "cyan");
+  assert.equal(getRatingTier(10).shortLabel, "Masterpiece");
+  assert.equal(getRatingTier(0).tone, "unrated");
 });
