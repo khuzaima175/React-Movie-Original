@@ -1516,21 +1516,70 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
         vibeConstraints.length > 0 ? `- Custom Vibe Constraints: ${vibeConstraints.join(" | ")}` : ""
     ].filter(Boolean);
 
-    // 3. Candidate Movies formatting with director, badges, vote count, matchScore, and plot snippet
-    const candidatesStr = topCandidates.map(c => {
-        const directorStr = c.director && c.director !== "Unknown" ? ` | Director: ${cleanStr(c.director)}` : "";
-        const badgesStr = Array.isArray(c.matchReasons) && c.matchReasons.length > 0
-            ? ` | Badges: [${c.matchReasons.join(", ")}]`
+    // 3. Compact Candidate Metadata formatting + adaptive <18,000 char budget guard
+    const toLimitedList = (val, limit) => {
+        const raw = Array.isArray(val)
+            ? val
+            : typeof val === "string"
+                ? val.split(",")
+                : [];
+        return raw
+            .map((s) => cleanStr(typeof s === "string" ? s : s?.name || ""))
+            .filter((s) => s && s !== "N/A" && s !== "Unknown")
+            .slice(0, limit);
+    };
+
+    const formatCandidatePromptBlock = (c, { plotLimit = 250, taglineLimit = 70 } = {}) => {
+        const directorStr = c.director && c.director !== "Unknown" && c.director !== "N/A"
+            ? ` | Dir: ${cleanStr(c.director)}`
             : "";
-        const votesStr = c.vote_count ? ` (${c.vote_count} votes)` : "";
-        const plotSnippet = cleanStr(c.overview || c.plot || "").slice(0, 140);
+        const badgesStr = Array.isArray(c.matchReasons) && c.matchReasons.length > 0
+            ? ` | [${c.matchReasons.join(", ")}]`
+            : "";
+        const votesStr = c.vote_count ? ` (${c.vote_count}v)` : "";
+        const ratingStr = c.vote_average != null && c.vote_average !== "N/A" ? `${c.vote_average}/10` : "N/A";
         const matchDisplay = typeof c.matchScore === "number" && Number.isFinite(c.matchScore)
             ? `${c.matchScore}%`
             : "N/A";
-        return `ID: ${c.id || c.tmdbId} | "${c.title}" (${c.year})${directorStr} | Calibrated Match: ${matchDisplay} | Genres: ${c.genre} | TMDB Rating: ${c.vote_average || 'N/A'}/10${votesStr}${badgesStr} | Overview: ${plotSnippet}`;
-    }).join("\n");
 
-    return `
+        const runtimeNum = Number(c.runtimeMinutes);
+        const langs = toLimitedList(c.spokenLanguages, 2);
+        const origins = langs.length === 0 ? toLimitedList(c.originCountry, 2) : [];
+        const specsParts = [
+            Number.isFinite(runtimeNum) && runtimeNum > 0 ? `${Math.round(runtimeNum)}m` : "",
+            langs.length > 0 ? langs.join(", ") : origins.join(", "),
+        ].filter(Boolean);
+        const specsStr = specsParts.length > 0 ? ` | [${specsParts.join(" | ")}]` : "";
+
+        const baseLine = `ID: ${c.id || c.tmdbId} | "${cleanStr(c.title)}" (${c.year})${directorStr} | Match: ${matchDisplay} | Genres: ${c.genre} | TMDB: ${ratingStr}${votesStr}${badgesStr}${specsStr}`;
+
+        const castList = toLimitedList(c.cast, 3);
+        const themeList = toLimitedList(c.keywordNames, 5);
+        const rawTagline = cleanStr(c.tagline || "");
+        const taglineText = taglineLimit > 0 && rawTagline && rawTagline !== "N/A"
+            ? rawTagline.slice(0, taglineLimit)
+            : "";
+        const rawPlot = cleanStr(c.overview || c.plot || "");
+        const plotText = plotLimit > 0 && rawPlot && rawPlot !== "N/A"
+            ? rawPlot.slice(0, plotLimit)
+            : "";
+
+        const detailParts = [
+            castList.length > 0 ? `Cast: ${castList.join(", ")}` : "",
+            themeList.length > 0 ? `Themes: ${themeList.join(", ")}` : "",
+            taglineText ? `Tagline: "${taglineText}"` : "",
+            plotText ? `Plot: ${plotText}` : "",
+        ].filter(Boolean);
+
+        return detailParts.length > 0 ? `${baseLine}\n  ${detailParts.join(" | ")}` : baseLine;
+    };
+
+    const renderPrompt = (candLimits) => {
+        const candidatesStr = topCandidates
+            .map((c) => formatCandidatePromptBlock(c, candLimits))
+            .join("\n");
+
+        return `
 You are an elite film critic and cinema intelligence engine.
 Select a diverse top ${targetCount} from these pre-ranked TMDB candidate movies and write compelling, personalized explanations.
 Do NOT invent scores—each candidate already has a calibrated ranker score.
@@ -1548,8 +1597,9 @@ ${candidatesStr}
 
 TASK:
 Perform a diversity pass over these top candidates and select ${targetCount} distinct films.
-${explicitMood ? `CRITICAL MOOD RULE: Every pick MUST genuinely fit the "${preset.label}" mood and any custom vibe constraints above — prioritize true mood matches over off-tone vault staples.` : ""}
-Pick the ${targetCount} strongest, most cohesive films from the candidates and write a bespoke 1-sentence upright editorial reason explaining why this film connects to their requested vibe and favorite anchor films, directors, themes, or pacing (never write a generic plot summary).
+- Ranker balance: Favor #1–#15 ranked picks by default; promote a #16–#30 candidate (especially post-2023 releases lacking co-rating depth) only when its Plot, Themes, Cast, and Tone clearly match USER NOTES/favorite anchors better, or to replace a #1–#15 pick vetoed for clashing with Disliked/Near-Miss notes.
+- Keep directors varied (max 2 picks per director unless deeply core).${explicitMood ? `\n- CRITICAL MOOD RULE: Every pick MUST genuinely fit the "${preset.label}" mood and any custom vibe constraints above — prioritize true mood matches over off-tone vault staples.` : ""}
+Write a bespoke 1-sentence upright editorial reason explaining how each pick fits their requested vibe and favorite anchors, user notes, directors, themes, or pacing (never generic plot summary).
 CRITICAL STYLE RULES FOR "reason" AND OUTPUT:
 - Write clean, human cinema prose (1 sentence, plain statement).
 - NEVER include internal system labels, scoring jargon, badges, percentages, or model names in the text (forbid phrases like "Taste-Twin Match", "Core Theme Match", "Genre Bullseye", "% Match", or "Gemini").
@@ -1563,6 +1613,23 @@ Output strict JSON with:
    - anchorTitles (array of 1-3 exact titles from user's favorite anchor films)
    - reason (string: crisp 1-sentence editorial connection free of internal jargon)
 `;
+    };
+
+    const PROMPT_CHAR_BUDGET = 17600;
+    let prompt = renderPrompt({ plotLimit: 250, taglineLimit: 70 });
+    if (prompt.length > PROMPT_CHAR_BUDGET) {
+        prompt = renderPrompt({ plotLimit: 250, taglineLimit: 0 });
+    }
+    if (prompt.length > PROMPT_CHAR_BUDGET) {
+        const excess = prompt.length - (PROMPT_CHAR_BUDGET - 400);
+        const perCandidate = Math.max(1, topCandidates.length);
+        const tightenedPlot = Math.max(100, 250 - Math.ceil(excess / perCandidate) - 10);
+        prompt = renderPrompt({ plotLimit: tightenedPlot, taglineLimit: 0 });
+    }
+    if (prompt.length >= 18000) {
+        prompt = renderPrompt({ plotLimit: 60, taglineLimit: 0 });
+    }
+    return prompt;
 }
 
 function buildRecommendationEntry(candidate = {}, fallback = {}, profile = {}, extras = {}) {

@@ -1179,3 +1179,90 @@ test("buildGeminiReRankPrompt handles real extractTasteProfile shapes, notes on 
     assert.ok(prompt.includes("Christopher Nolan, Denis Villeneuve"), "Handles string[] topDirectors from extractTasteProfile");
     assert.ok(prompt.includes("Severance"), "Watchlist signal included when non-empty");
 });
+
+test("buildGeminiReRankPrompt formats compact candidate metadata, balances #1-15 vs #16-30 promotion/veto rules, and stays under 18k chars", () => {
+    const longOverview = "A".repeat(160) + " climax twist about memory loops." + "Z".repeat(200);
+    const baseCandidate = {
+        tmdbId: 888,
+        id: 888,
+        title: "Looper Two",
+        year: "2025",
+        director: "Rian Johnson",
+        matchScore: 76,
+        genre: "Sci-Fi, Thriller",
+        vote_average: 7.9,
+        vote_count: 1400,
+        runtimeMinutes: 118,
+        spokenLanguages: ["English"],
+        originCountry: ["US"],
+        cast: ["Joseph Gordon-Levitt", "Emily Blunt", "Bruce Willis", "Jeff Daniels"],
+        keywordNames: ["time travel", "hitman", "noir", "loop", "dystopia", "extra-sixth-tag"],
+        tagline: "Hunted by your future in a city where time itself has a price tag on every second.",
+        matchReasons: ["Recent cold-start gem"],
+        overview: longOverview,
+    };
+
+    const stringShapedCandidate = {
+        tmdbId: 889,
+        id: 889,
+        title: "String Field Movie",
+        year: "2024",
+        director: "Denis Villeneuve",
+        matchScore: 81,
+        genre: "Sci-Fi",
+        vote_average: 8.1,
+        vote_count: 950,
+        runtimeMinutes: 142,
+        spokenLanguages: "N/A",
+        originCountry: "US, CA, GB",
+        cast: "Actor One, Actor Two, Actor Three, Actor Four",
+        keywordNames: ["desert", "prophecy"],
+        tagline: "Short tagline",
+        overview: "String shaped metadata test.",
+    };
+
+    const prompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Sci-Fi"] },
+        "any",
+        [baseCandidate, stringShapedCandidate],
+        { watched: [{ tmdbId: 1, title: "Matrix", year: "1999", userRating: 10 }] }
+    );
+
+    assert.ok(prompt.includes("118m"), "Includes candidate runtime");
+    assert.ok(prompt.includes("English"), "Includes candidate language");
+    assert.ok(!prompt.includes("English | US"), "Omits redundant originCountry when spokenLanguages is present");
+    assert.ok(prompt.includes("US, CA"), "Falls back to comma-joined originCountry (capped at 2) when spokenLanguages is N/A");
+    assert.ok(!prompt.includes("GB"), "Caps fallback originCountry at 2 entries");
+    assert.ok(prompt.includes("Joseph Gordon-Levitt, Emily Blunt, Bruce Willis"), "Includes top 3 cast");
+    assert.ok(!prompt.includes("Jeff Daniels"), "Caps cast at 3 names");
+    assert.ok(prompt.includes("Actor One, Actor Two, Actor Three"), "Handles comma-joined string cast from formatTmdbMovieDetails");
+    assert.ok(!prompt.includes("Actor Four"), "Caps comma-joined string cast at 3 names");
+    assert.ok(prompt.includes("time travel, hitman, noir, loop, dystopia"), "Includes top 5 themes");
+    assert.ok(!prompt.includes("extra-sixth-tag"), "Caps themes at 5 keywords");
+    assert.ok(prompt.includes("climax twist about memory loops."), "Includes plot up to 250 chars");
+    assert.ok(!prompt.includes("Z".repeat(100)), "Caps plot at 250 chars");
+    assert.match(prompt, /#1[–-]#?15/i, "Explicitly instructs Gemini to favor #1–#15 ranker picks by default");
+    assert.match(prompt, /#16[–-]#?30/i, "Explicitly scopes promotion to #16–#30 fits and vetoing clashes");
+
+    // Worst-case 30 candidates + 10 anchors + 5 dislikes + 3 recent + 4 near misses + 8 watchlist
+    const fullWatched = [
+        ...Array.from({ length: 10 }, (_, i) => ({ tmdbId: i + 1, title: `Anchor Film ${i + 1}`, year: "2020", userRating: 10, director: "Director Name", genre: "Sci-Fi, Thriller", userNote: "A".repeat(180) })),
+        ...Array.from({ length: 5 }, (_, i) => ({ tmdbId: i + 20, title: `Dislike Film ${i + 1}`, year: "2021", userRating: 3, genre: "Horror", userNote: "B".repeat(180) })),
+        ...Array.from({ length: 4 }, (_, i) => ({ tmdbId: i + 30, title: `Near Miss ${i + 1}`, year: "2022", userRating: 7, genre: "Drama", userNote: "C".repeat(180) })),
+    ];
+    const thirtyRich = Array.from({ length: 30 }, (_, idx) => ({
+        ...baseCandidate,
+        tmdbId: 900 + idx,
+        id: 900 + idx,
+        title: `Rich Candidate Title ${idx + 1}`,
+        overview: "D".repeat(500),
+    }));
+    const fullWatchlist = Array.from({ length: 8 }, (_, i) => ({ tmdbId: 50 + i, title: `Watchlist Movie ${i + 1}`, year: "2024" }));
+    const fullPrompt = buildGeminiReRankPrompt(
+        { lovedGenreNames: ["Sci-Fi", "Thriller", "Action"], topDirectors: ["Denis Villeneuve", "Christopher Nolan", "Ridley Scott"], userStats: { mean: 7.8, std: 1.5, count: 122 } },
+        "any",
+        thirtyRich,
+        { watched: fullWatched, watchlist: fullWatchlist }
+    );
+    assert.ok(fullPrompt.length < 18000, `Expected worst-case 30-candidate prompt < 18000 chars, got ${fullPrompt.length}`);
+});
