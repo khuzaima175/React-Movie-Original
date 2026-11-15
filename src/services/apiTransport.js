@@ -85,7 +85,12 @@ export async function fetchTmdbJson(path, queryParams = {}, options = {}) {
     cache: "no-store",
     ...(options.signal ? { signal: options.signal } : {})
   });
-  if (!res || !res.ok) return null;
+  if (!res || !res.ok) {
+    if (res && typeof options.onHttpError === "function") {
+      options.onHttpError(res.status, res);
+    }
+    return null;
+  }
   return await res.json();
 }
 
@@ -114,7 +119,12 @@ export async function fetchOmdbJson(queryParams = {}, options = {}) {
     cache: "no-store",
     ...(options.signal ? { signal: options.signal } : {})
   });
-  if (!res || !res.ok) return null;
+  if (!res || !res.ok) {
+    if (res && typeof options.onHttpError === "function") {
+      options.onHttpError(res.status, res);
+    }
+    return null;
+  }
   return await res.json();
 }
 
@@ -384,7 +394,13 @@ export async function getMovieDetailsBatch(ids = [], options = {}) {
           cache: "no-store",
           ...(options.signal ? { signal: options.signal } : {})
         });
-        if (!res || !res.ok) continue;
+        if (!res || !res.ok) {
+          if (res && typeof options.onHttpError === "function") {
+            options.onHttpError(res.status, res);
+          }
+          if (res?.status === 429) break;
+          continue;
+        }
         const payload = await res.json().catch(() => null);
         const batchResults = payload?.results;
         if (!batchResults || typeof batchResults !== "object") continue;

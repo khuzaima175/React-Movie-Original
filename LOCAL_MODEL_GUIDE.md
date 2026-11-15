@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
 **Last Updated:** November 15, 2026 (`main`)  
-**Status:** Production-ready on `main` · **`229 / 229` unit tests passing** across **28** suites · Production build green (**`2302` modules**)
+**Status:** Production-ready on `main` · **`234 / 234` unit tests passing** across **28** suites · Production build green (**`2302` modules**)
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -218,6 +218,7 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 | **12** | **Streaming filters missed TMDB ad-tier / Amazon-channel IDs & region switches served stale cached picks** | TMDB assigns separate provider IDs for ad tiers & channels (e.g. `1796` Netflix Ads, `1825` Max Channel), and `generateProfileHash` excluded `userRegion` & `moodFilters` | Added `PROVIDER_FAMILY_MAP` (13 alias groups) + `expandProviderIds` + `matchesWatchProviders` strict sorting, and expanded `generateProfileHash` to 6 args with `buildMoodFilterHashSegment` + `_reg_<REGION>` | [tmdbService.js](./src/services/tmdbService.js), [geminiService.js](./src/services/geminiService.js) |
 | **13** | **"Match Vibe" failed offline & Refresh repeated the exact same 6 cards** | Free-text parser returned `null` offline/keyless and closure state lagged in React; refresh re-ran the identical TMDB page `1` with no exclusions and capped output at `6` | Added `parseFreeTextMoodFallback`, override args in `handleGetRecommendations`, **`DEFAULT_RECOMMENDATION_COUNT = 10`**, `MIN_VALID_CACHE_COUNT = 7` in `cinemavault_smart_cache_v4`, & `nextRefreshExcludeState` (`120` IDs, pages `1..5`) + exhaustion padding guard | [oracleViewHelpers.js](./src/services/oracleViewHelpers.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx) |
 | **14** | **Client production bundle risked exposing API secrets & cross-ID duplicates skipped Vault collision checks** | Vite `VITE_*` vars embed in `build/assets/*.js`; `tmdb_123` vs `tt...` caused Hero/Home/Vault duplicates & silent `5★`/`7★` fake CSV ratings | Added `/api/{gemini,tmdb,omdb}` Vercel proxies + `apiTransport.js`, canonical `movieIdentity.js` (`isSameMovie`), `vaultPortability.js` (`0` rating preservation), & opt-in Supabase RLS sync | [api/](./api), [apiTransport.js](./src/services/apiTransport.js), [movieIdentity.js](./src/services/movieIdentity.js), [vaultPortability.js](./src/services/vaultPortability.js) |
+| **15** | **Pre-2024 OMDb/CSV movies lacked `tmdbId` & keywords (hiding indexed favorites from embeddings), TV shows risked movie-ID collision, & `tmdb_...`/`tt...` imports duplicated entries** | Legacy imports saved only `imdbID` (or un-enriched Quick Rate entries); untyped series (`2017–2020`) lacked `/3/find` TV guards; `summarizeImportDiff` used single-key maps & batch fetches looped past `429` | Added series-guarded `backfillMissingTmdbIds` (`maxItems: 40`, `maxLookups: 15`, strict `±1`-year lookup, `tv_results` skip, `"N/A"` poster guard), `AppContext` deferred mount backfill + `addWatched` hydration, `MovieDetails` `isSeriesVaultItem` guard, `apiTransport` `429` stop, & `isSameMovie` dedupe in `summarizeImportDiff` | [tmdbService.js](./src/services/tmdbService.js), [AppContext.jsx](./src/context/AppContext.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx), [vaultPortability.js](./src/services/vaultPortability.js), [apiTransport.js](./src/services/apiTransport.js) |
 
 ---
 
@@ -225,12 +226,12 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 
 Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 
-### Check 1: Run All 229 Unit Tests (~0.8s, Offline)
+### Check 1: Run All 234 Unit Tests (~0.8s, Offline)
 ```bash
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with **`tests 229 | pass 229 | fail 0 | skipped 0`** across all **28** suites:
+- Exits `0` with **`tests 234 | pass 234 | fail 0 | skipped 0`** across all **28** suites:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/contentSim.test.js`
@@ -295,6 +296,7 @@ node scripts/run_eval.mjs --benchmark .data/benchmark_vaults.json --embeddings p
 **Additional evaluation-only experiment scripts (no production defaults changed):**
 - **Warm vs. cold partial-mask harness:** `scripts/experiments/run_ablation.mjs` accepts `--mask-frac <0..1>` and `--mask-seed <int>` (powered by `scripts/experiments/mask_eval_utils.mjs`) to mask candidate-side `collabSimMap` / `repulsionMap` entries after building full-index user taste vectors so masked films take the `coldOnly` structured fallback; run the full sweep via `node scripts/experiments/run_partial_mask_eval.mjs` -> `scripts/experiments/results/partial_mask_eval.{json,md}`.
 - **Isolated Bucket E recall sweep:** `node scripts/experiments/bucket_e_recall.mjs` evaluates `retrieveAlignedEmbeddingNeighbors` across `topK ∈ {15, 30, 45, 60, 80, 100, 150}` against `328` and `fresh_300` (`>=8★` and `>=9★`) in isolation (without TMDB Buckets A–D) and writes `scripts/experiments/results/bucket_e_recall.{json,md}`.
+- **Schema v2 vault cold-share audit:** `node scripts/experiments/vault_cold_share.mjs --vault <backup.json> [--exclude-series]` reports by watch year the share of `>=8★` entries absent from `public/models/item_embeddings_f16.bin` or released after the MovieLens 32M index cutoff (`2023-10-13`), with `--exclude-series` (`isSeriesVaultItem`) isolating true movie-only coverage.
 
 ### Check 5: Retrain or Regenerate the Local `.bin` Model (Only When Updating MovieLens Data)
 ```bash

@@ -6,7 +6,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const imp = rel => import(pathToFileURL(path.join(ROOT, rel)).href);
 
 const { parseEmbeddingBinary } = await imp("src/services/embeddingService.js");
-const { getRecentReleaseDateFloor } = await imp("src/services/tmdbService.js");
+const { getRecentReleaseDateFloor, isSeriesVaultItem } = await imp("src/services/tmdbService.js");
 const {
   RECENT_RELEASE_RESERVE_COUNT,
   RECENT_RELEASE_RESERVE_MONTHS,
@@ -151,7 +151,8 @@ export function analyzeVaultColdShare(
   const {
     minRating = 8,
     cutoffDate = DEFAULT_INDEX_CUTOFF_DATE,
-    today = new Date().toISOString().slice(0, 10)
+    today = new Date().toISOString().slice(0, 10),
+    excludeSeries = false
   } = options;
 
   let watched = [];
@@ -174,9 +175,18 @@ export function analyzeVaultColdShare(
   let missingTmdbIdCount = 0;
   let missingReleaseInfoCount = 0;
   let ambiguousSameYearCount = 0;
+  let excludedSeriesCount = 0;
+  let excludedSeriesQualifiedCount = 0;
 
   for (const movie of watched) {
     const rating = Number(movie?.userRating ?? movie?.UserRating ?? movie?.rating ?? 0);
+    if (excludeSeries && isSeriesVaultItem(movie)) {
+      excludedSeriesCount++;
+      if (Number.isFinite(rating) && rating >= minRating) {
+        excludedSeriesQualifiedCount++;
+      }
+      continue;
+    }
     if (!Number.isFinite(rating) || rating < minRating) continue;
 
     totalRatedQualified++;
@@ -239,6 +249,7 @@ export function analyzeVaultColdShare(
   return {
     schemaVersionDetected: vaultInput?.schemaVersion ?? null,
     minRating,
+    excludeSeries,
     indexSize: indexIds.size,
     cutoffDate,
     cutoffProvenance: INDEX_CUTOFF_PROVENANCE,
@@ -247,6 +258,8 @@ export function analyzeVaultColdShare(
     uncoveredWindow: computeColdUncoveredWindow({ today, cutoffDate }),
     summary: {
       totalWatched,
+      excludedSeriesCount,
+      excludedSeriesQualifiedCount,
       totalQualified: totalRatedQualified,
       coldCount: totalColdUnion,
       coldFraction: totalRatedQualified > 0 ? totalColdUnion / totalRatedQualified : 0,
@@ -275,7 +288,10 @@ export function formatVaultColdReport(report, vaultPath = null) {
   ];
 
   if (vaultPath) {
-    lines.push(`- Vault File: \`${vaultPath}\` (total watched: \`${report.summary.totalWatched}\`, \`>=${report.minRating}★\` films: \`${report.summary.totalQualified}\`)`);
+    const seriesNote = report.excludeSeries
+      ? `, excluded series: \`${report.summary.excludedSeriesCount}\` (\`>=${report.minRating}★\`: \`${report.summary.excludedSeriesQualifiedCount}\`)`
+      : "";
+    lines.push(`- Vault File: \`${vaultPath}\` (total watched: \`${report.summary.totalWatched}\`${seriesNote}, \`>=${report.minRating}★\` ${report.excludeSeries ? "movies" : "films"}: \`${report.summary.totalQualified}\`)`);
   }
   lines.push("");
 
@@ -316,6 +332,7 @@ function parseCliArgs(argv = []) {
     cutoffDate: DEFAULT_INDEX_CUTOFF_DATE,
     today: new Date().toISOString().slice(0, 10),
     minRating: 8,
+    excludeSeries: false,
     json: false
   };
   for (let i = 0; i < argv.length; i++) {
@@ -325,6 +342,7 @@ function parseCliArgs(argv = []) {
     else if (a === "--cutoff" && argv[i + 1]) opts.cutoffDate = argv[++i];
     else if (a === "--today" && argv[i + 1]) opts.today = argv[++i];
     else if (a === "--min-rating" && argv[i + 1]) opts.minRating = Number(argv[++i]);
+    else if (a === "--exclude-series") opts.excludeSeries = true;
     else if (a === "--json") opts.json = true;
     else if (!a.startsWith("-") && !opts.vaultPath) opts.vaultPath = a;
   }
@@ -350,7 +368,8 @@ async function main() {
       {
         minRating: opts.minRating,
         cutoffDate: opts.cutoffDate,
-        today: opts.today
+        today: opts.today,
+        excludeSeries: opts.excludeSeries
       }
     );
   } else {

@@ -28,6 +28,11 @@ import {
   fetchOmdbJson,
   getMovieDetailsBatch
 } from "./apiTransport.js";
+import {
+  normalizeTitleKey,
+  normalizeYearKey,
+  extractTmdbNumericId
+} from "./movieIdentity.js";
 
 export const getTmdbKey = () => resolveTmdbKey();
 export const getOmdbKey = () => resolveOmdbKey();
@@ -1236,64 +1241,123 @@ export async function fetchTmdbMovieDetails(tmdbId, userRegion = "US") {
   }
 }
 
-/**
- * Reverse lookup TMDB movie by IMDb ID using /find/{external_id}
- */
-export async function findTmdbByImdbId(imdbId) {
-  if (!hasTmdbBackend() || !imdbId) return null;
+const SERIES_YEAR_RANGE_RE = /^\d{4}\s*[\u2013\u2014-]\s*(?:\d{4})?\s*$/;
 
+function formatTmdbSearchStub(movie) {
+  if (!movie || !Number.isSafeInteger(Number(movie.id))) return null;
+  return {
+    tmdbId: movie.id,
+    title: movie.title,
+    year: movie.release_date ? movie.release_date.slice(0, 4) : "N/A",
+    poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null,
+    backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : null,
+    overview: movie.overview,
+    vote_average: movie.vote_average
+  };
+}
+
+function normalizeMatchTitle(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/^["']|["']$/g, "")
+    .replace(/&/g, " and ")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function selectStrictTitleYearCandidate(results, title, year) {
+  const targetTitle = normalizeMatchTitle(title);
+  const targetYearStr = normalizeYearKey(year);
+  const targetYear = targetYearStr ? Number(targetYearStr) : NaN;
+  if (!targetTitle || !Number.isInteger(targetYear)) return null;
+
+  let best = null;
+  let bestScore = -Infinity;
+  for (const candidate of Array.isArray(results) ? results : []) {
+    if (!candidate || !Number.isSafeInteger(Number(candidate.id))) continue;
+    const candYearStr = normalizeYearKey(candidate.release_date);
+    if (!candYearStr) continue;
+    const candYear = Number(candYearStr);
+    const yearDiff = Math.abs(candYear - targetYear);
+    if (yearDiff > 1) continue;
+
+    const candTitle = normalizeMatchTitle(candidate.title);
+    const candOriginal = normalizeMatchTitle(candidate.original_title);
+    if (candTitle !== targetTitle && candOriginal !== targetTitle) continue;
+
+    const score = (yearDiff === 0 ? 1000 : 0) + (candTitle === targetTitle ? 100 : 0) + Math.min(99, Number(candidate.popularity || 0));
+    if (score > bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+async function lookupTmdbByImdbInternal(imdbId, options = {}) {
+  if (!hasTmdbBackend(options) || !imdbId) return { kind: "error", match: null };
   try {
     const data = await fetchTmdbJson(`/3/find/${imdbId}`, {
       external_source: "imdb_id"
-    });
-    const movie = data?.movie_results?.[0];
-    if (!movie) return null;
-
-    return {
-      tmdbId: movie.id,
-      title: movie.title,
-      year: movie.release_date ? movie.release_date.slice(0, 4) : "N/A",
-      poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null,
-      backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : null,
-      overview: movie.overview,
-      vote_average: movie.vote_average
-    };
+    }, options);
+    if (!data || typeof data !== "object") return { kind: "error", match: null };
+    const movie = data.movie_results?.[0];
+    if (movie) return { kind: "movie", match: formatTmdbSearchStub(movie) };
+    const hasTvMatch =
+      (Array.isArray(data.tv_results) && data.tv_results.length > 0) ||
+      (Array.isArray(data.tv_episode_results) && data.tv_episode_results.length > 0) ||
+      (Array.isArray(data.tv_season_results) && data.tv_season_results.length > 0);
+    if (hasTvMatch) return { kind: "series", match: null };
+    return { kind: "none", match: null };
   } catch (err) {
     console.warn("TMDB find by IMDb ID failed:", err);
-    return null;
+    return { kind: "error", match: null };
+  }
+}
+
+/**
+ * Reverse lookup TMDB movie by IMDb ID using /find/{external_id}
+ */
+export async function findTmdbByImdbId(imdbId, options = {}) {
+  const res = await lookupTmdbByImdbInternal(imdbId, options);
+  return res.kind === "movie" ? res.match : null;
+}
+
+async function lookupTmdbByTitleAndYearInternal(title, year, options = {}) {
+  if (!hasTmdbBackend(options) || !title) return { kind: "error", match: null };
+  const strict = options.strict === true;
+  const cleanTitle = String(title).replace(/^["']|["']$/g, "").trim();
+  const cleanYear = normalizeYearKey(year);
+  if (strict && (!cleanTitle || !cleanYear)) {
+    return { kind: "none", match: null };
+  }
+  try {
+    const data = await fetchTmdbJson("/3/search/movie", {
+      query: cleanTitle,
+      include_adult: "false",
+      ...(cleanYear ? { year: cleanYear } : {})
+    }, options);
+    if (!data || typeof data !== "object") return { kind: "error", match: null };
+    const movie = strict
+      ? selectStrictTitleYearCandidate(data.results, cleanTitle, cleanYear)
+      : data.results?.[0];
+    if (!movie) return { kind: "none", match: null };
+    return { kind: "movie", match: formatTmdbSearchStub(movie) };
+  } catch (err) {
+    console.warn("TMDB search by title/year failed:", err);
+    return { kind: "error", match: null };
   }
 }
 
 /**
  * Lookup TMDB movie by title and year
  */
-export async function findTmdbByTitleAndYear(title, year) {
-  if (!hasTmdbBackend() || !title) return null;
-
-  try {
-    const cleanTitle = String(title).replace(/^["']|["']$/g, "").trim();
-    const cleanYear = year ? String(year).match(/\d{4}/)?.[0] : "";
-    const data = await fetchTmdbJson("/3/search/movie", {
-      query: cleanTitle,
-      include_adult: "false",
-      ...(cleanYear ? { year: cleanYear } : {})
-    });
-    const movie = data?.results?.[0];
-    if (!movie) return null;
-
-    return {
-      tmdbId: movie.id,
-      title: movie.title,
-      year: movie.release_date ? movie.release_date.slice(0, 4) : "N/A",
-      poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null,
-      backdrop: movie.backdrop_path ? `https://image.tmdb.org/t/p/original${movie.backdrop_path}` : null,
-      overview: movie.overview,
-      vote_average: movie.vote_average
-    };
-  } catch (err) {
-    console.warn("TMDB search by title/year failed:", err);
-    return null;
-  }
+export async function findTmdbByTitleAndYear(title, year, options = {}) {
+  const res = await lookupTmdbByTitleAndYearInternal(title, year, options);
+  return res.kind === "movie" ? res.match : null;
 }
 
 /**
@@ -1664,4 +1728,338 @@ export async function fetchEmbeddingCandidates(
 
   await Promise.all(Array.from({ length: Math.min(concurrency, unseen.length) }, worker));
   return results.filter(Boolean).slice(0, maxNeighbors);
+}
+
+/**
+ * Returns true when a vault record represents a TV series or episode via Type or year range.
+ */
+export function isSeriesVaultItem(item) {
+  if (!item || typeof item !== "object") return false;
+  const explicitType = String(item.Type ?? item.type ?? item.mediaType ?? item.media_type ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    explicitType === "series" ||
+    explicitType === "tv" ||
+    explicitType === "episode" ||
+    explicitType === "mini-series"
+  ) {
+    return true;
+  }
+  const rawYear = String(item.year ?? item.Year ?? "").trim();
+  return SERIES_YEAR_RANGE_RE.test(rawYear);
+}
+
+/**
+ * Returns true when an entry already carries a positive integer tmdbId plus keyword and cast arrays.
+ */
+export function hasCompleteTmdbMetadata(item) {
+  const tmdbId = extractTmdbNumericId(item?.tmdbId);
+  if (!tmdbId) return false;
+  return Array.isArray(item?.tmdbKeywords) && Array.isArray(item?.castIds);
+}
+
+/**
+ * Computes a stable key for backfill deduplication across mounts/sessions.
+ */
+export function getVaultBackfillItemKey(item) {
+  if (!item || typeof item !== "object") return "";
+  const rawImdb = String(item.imdbID || "").trim();
+  if (/^tt\d+$/i.test(rawImdb)) return `imdb:${rawImdb.toLowerCase()}`;
+  const tmdbId = extractTmdbNumericId(item.tmdbId);
+  if (tmdbId) return `tmdb:${tmdbId}`;
+  const titleKey = normalizeTitleKey(item.title || item.Title);
+  const yearKey = normalizeYearKey(item.year || item.Year || item.release_date);
+  if (titleKey) return yearKey ? `ty:${titleKey}::${yearKey}` : `ty:${titleKey}`;
+  const rawId = item.id !== null && item.id !== undefined ? String(item.id).trim().toLowerCase() : "";
+  return rawId ? `raw:${rawId}` : "";
+}
+
+function mergeBackfilledMovieMetadata(item, tmdbId, details, stub) {
+  const existingImdb = String(item.imdbID || "").trim();
+  const safeImdbId = /^tt\d+$/i.test(existingImdb)
+    ? existingImdb
+    : (details?.imdbID || item.imdbID || undefined);
+
+  const hasValidLowerPoster =
+    typeof item.poster === "string" && item.poster.trim() !== "" && item.poster !== "N/A";
+  const upperPoster =
+    typeof item.Poster === "string" && item.Poster.trim() !== "" && item.Poster !== "N/A"
+      ? item.Poster
+      : null;
+  const resolvedPoster = hasValidLowerPoster
+    ? item.poster
+    : (details?.poster || stub?.poster || upperPoster || "N/A");
+
+  const next = {
+    ...item,
+    tmdbId,
+    poster: resolvedPoster,
+    ...(safeImdbId ? { imdbID: safeImdbId } : {}),
+    ...(!item.Type && !item.type ? { Type: "movie" } : {}),
+    ...(!item.title ? { title: item.Title || details?.title || stub?.title } : {}),
+    ...(!item.year ? { year: item.Year || details?.year || stub?.year || "N/A" } : {})
+  };
+
+  if (details) {
+    if (Array.isArray(details.tmdbGenreIds)) next.tmdbGenreIds = details.tmdbGenreIds;
+    if (Array.isArray(details.tmdbKeywords)) next.tmdbKeywords = details.tmdbKeywords;
+    if (Array.isArray(details.castIds)) next.castIds = details.castIds;
+    if (details.crewPersonId !== undefined) next.crewPersonId = details.crewPersonId;
+    if (!next.genre && details.genre) next.genre = details.genre;
+    if ((!next.director || next.director === "Unknown") && details.director) next.director = details.director;
+    if (!next.release_date && details.release_date) next.release_date = details.release_date;
+    if (!next.backdrop && details.backdrop) next.backdrop = details.backdrop;
+  } else if (!next.backdrop && stub?.backdrop) {
+    next.backdrop = stub.backdrop;
+  }
+
+  return next;
+}
+
+/**
+ * Lazily resolves missing TMDB IDs and metadata on watched/watchlist items without ever
+ * attaching movie IDs to TV series or overwriting user ratings/dates.
+ */
+export async function backfillMissingTmdbIds(watched = [], watchlist = [], options = {}) {
+  const safeWatched = Array.isArray(watched) ? watched : [];
+  const safeWatchlist = Array.isArray(watchlist) ? watchlist : [];
+  const nextWatched = safeWatched.slice();
+  const nextWatchlist = safeWatchlist.slice();
+
+  const detailFetcher = typeof options.detailFetcher === "function" ? options.detailFetcher : null;
+  if (!hasTmdbBackend(options) && !detailFetcher) {
+    return {
+      watched: nextWatched,
+      watchlist: nextWatchlist,
+      updatedCount: 0,
+      enrichedCount: 0,
+      seriesTaggedCount: 0,
+      skippedCount: safeWatched.length + safeWatchlist.length,
+      resolvedIds: [],
+      checkedKeys: [],
+      rateLimited: false
+    };
+  }
+
+  const maxItems = Math.max(0, Number.isFinite(Number(options.maxItems)) ? Number(options.maxItems) : 40);
+  const maxLookups = Math.max(0, Number.isFinite(Number(options.maxLookups)) ? Number(options.maxLookups) : maxItems);
+  const lookupConcurrency = Math.max(1, Math.min(4, Number(options.lookupConcurrency) || 3));
+  const userRegion = options.userRegion || "US";
+  const checkedSet = new Set(options.alreadyChecked ? [...options.alreadyChecked] : []);
+  const newlyCheckedKeys = [];
+
+  let updatedCount = 0;
+  let enrichedCount = 0;
+  let seriesTaggedCount = 0;
+  let skippedCount = 0;
+  let lookupCount = 0;
+  const pending = [];
+
+  const scanList = (listRef, listName) => {
+    for (let idx = 0; idx < listRef.length; idx++) {
+      const item = listRef[idx];
+      if (!item || typeof item !== "object") {
+        skippedCount++;
+        continue;
+      }
+
+      const checkKey = getVaultBackfillItemKey(item);
+      if (isSeriesVaultItem(item)) {
+        if (!item.Type && !item.type) {
+          listRef[idx] = { ...item, Type: "series" };
+          seriesTaggedCount++;
+          updatedCount++;
+        } else {
+          skippedCount++;
+        }
+        if (checkKey && !checkedSet.has(checkKey)) {
+          checkedSet.add(checkKey);
+          newlyCheckedKeys.push(checkKey);
+        }
+        continue;
+      }
+
+      if (hasCompleteTmdbMetadata(item)) {
+        skippedCount++;
+        continue;
+      }
+
+      if (checkKey && checkedSet.has(checkKey)) {
+        skippedCount++;
+        continue;
+      }
+
+      const existingTmdbId = extractTmdbNumericId(item.tmdbId);
+      if (pending.length >= maxItems || (!existingTmdbId && lookupCount >= maxLookups)) {
+        skippedCount++;
+        continue;
+      }
+      if (!existingTmdbId) lookupCount++;
+
+      pending.push({
+        listRef,
+        listName,
+        idx,
+        item,
+        checkKey,
+        existingTmdbId,
+        tmdbId: existingTmdbId,
+        stub: null,
+        detectedSeries: false,
+        definitiveMiss: false
+      });
+    }
+  };
+
+  scanList(nextWatched, "watched");
+  scanList(nextWatchlist, "watchlist");
+
+  if (pending.length === 0) {
+    return {
+      watched: nextWatched,
+      watchlist: nextWatchlist,
+      updatedCount,
+      enrichedCount,
+      seriesTaggedCount,
+      skippedCount,
+      resolvedIds: [],
+      checkedKeys: newlyCheckedKeys,
+      rateLimited: false
+    };
+  }
+
+  let rateLimited = false;
+  const lookupOptions = {
+    ...options,
+    onHttpError: (status, res) => {
+      if (status === 429) rateLimited = true;
+      options.onHttpError?.(status, res);
+    }
+  };
+
+  const toLookup = pending.filter((p) => !p.existingTmdbId);
+  let cursor = 0;
+  async function lookupWorker() {
+    while (true) {
+      if (rateLimited || options.signal?.aborted) return;
+      const slot = cursor++;
+      if (slot >= toLookup.length) return;
+      const entry = toLookup[slot];
+      const item = entry.item;
+
+      const rawImdb = String(item.imdbID || "").trim();
+      const validImdb = /^tt\d+$/i.test(rawImdb) ? rawImdb : "";
+      let imdbOutcome = null;
+
+      if (validImdb) {
+        imdbOutcome = await lookupTmdbByImdbInternal(validImdb, lookupOptions);
+        if (rateLimited || options.signal?.aborted) return;
+        if (imdbOutcome.kind === "series") {
+          entry.detectedSeries = true;
+          continue;
+        }
+        if (imdbOutcome.kind === "movie" && imdbOutcome.match?.tmdbId) {
+          entry.tmdbId = imdbOutcome.match.tmdbId;
+          entry.stub = imdbOutcome.match;
+          continue;
+        }
+      }
+
+      if (!entry.tmdbId && !entry.detectedSeries && (!validImdb || imdbOutcome?.kind === "none")) {
+        const searchTitle = item.title || item.Title || "";
+        const searchYear = item.year || item.Year || item.release_date || "";
+        const titleOutcome = await lookupTmdbByTitleAndYearInternal(searchTitle, searchYear, {
+          ...lookupOptions,
+          strict: true
+        });
+        if (rateLimited || options.signal?.aborted) return;
+        if (titleOutcome.kind === "movie" && titleOutcome.match?.tmdbId) {
+          entry.tmdbId = titleOutcome.match.tmdbId;
+          entry.stub = titleOutcome.match;
+        } else if (titleOutcome.kind === "none") {
+          entry.definitiveMiss = true;
+        }
+      }
+    }
+  }
+
+  if (toLookup.length > 0 && hasTmdbBackend(options)) {
+    await Promise.all(
+      Array.from({ length: Math.min(lookupConcurrency, toLookup.length) }, lookupWorker)
+    );
+  }
+
+  const batchIds = [];
+  const seenBatchIds = new Set();
+  for (const entry of pending) {
+    if (!entry.detectedSeries && entry.tmdbId && !seenBatchIds.has(entry.tmdbId)) {
+      seenBatchIds.add(entry.tmdbId);
+      batchIds.push(entry.tmdbId);
+    }
+  }
+
+  let detailsById = new Map();
+  if (batchIds.length > 0 && !rateLimited && !options.signal?.aborted) {
+    try {
+      if (detailFetcher) {
+        await Promise.all(
+          batchIds.map(async (id) => {
+            const d = await getCachedTmdbDetails(id, userRegion, detailFetcher);
+            if (d && d.tmdbId) detailsById.set(id, d);
+          })
+        );
+      } else {
+        detailsById = await fetchBatchFormattedDetailsMap(batchIds, userRegion, lookupOptions);
+      }
+    } catch (_) {
+      // Preserve ID resolution results even if detail batch hydration fails partially
+    }
+  }
+
+  const resolvedIds = [];
+  for (const entry of pending) {
+    const { listRef, idx, item, checkKey } = entry;
+    if (entry.detectedSeries) {
+      listRef[idx] = { ...item, Type: "series" };
+      seriesTaggedCount++;
+      updatedCount++;
+      if (checkKey && !checkedSet.has(checkKey)) {
+        checkedSet.add(checkKey);
+        newlyCheckedKeys.push(checkKey);
+      }
+      continue;
+    }
+
+    const details = entry.tmdbId ? (detailsById.get(entry.tmdbId) || null) : null;
+    if (entry.tmdbId && (!entry.existingTmdbId || details)) {
+      const merged = mergeBackfilledMovieMetadata(item, entry.tmdbId, details, entry.stub);
+      listRef[idx] = merged;
+      updatedCount++;
+      enrichedCount++;
+      resolvedIds.push(entry.tmdbId);
+      if (checkKey && hasCompleteTmdbMetadata(merged) && !checkedSet.has(checkKey)) {
+        checkedSet.add(checkKey);
+        newlyCheckedKeys.push(checkKey);
+      }
+      continue;
+    }
+
+    if (entry.definitiveMiss && !rateLimited && checkKey && !checkedSet.has(checkKey)) {
+      checkedSet.add(checkKey);
+      newlyCheckedKeys.push(checkKey);
+    }
+  }
+
+  return {
+    watched: nextWatched,
+    watchlist: nextWatchlist,
+    updatedCount,
+    enrichedCount,
+    seriesTaggedCount,
+    skippedCount,
+    resolvedIds,
+    checkedKeys: newlyCheckedKeys,
+    rateLimited
+  };
 }

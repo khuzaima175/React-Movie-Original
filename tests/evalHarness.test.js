@@ -549,4 +549,20 @@ test("analyzeVaultColdShare groups >=8★ Schema v2 watched films by watch year 
   assert.equal(report.byWatchYear[1].coldCount, 1);
   assert.equal(report.byWatchYear[1].postCutoffCount, 1);
   assert.equal(report.byWatchYear[3].missingTmdbIdCount, 1);
+
+  const seriesPayload = JSON.stringify({
+    schemaVersion: 2,
+    watched: [
+      { tmdbId: 101, userRating: 9, dateWatched: "2023-05-01", release_date: "2019-06-01", Type: "movie" },
+      { imdbID: "tt5753856", title: "Dark", Year: "2017–2020", userRating: 10, Type: "series" },
+      { imdbID: "tt0903747", title: "Breaking Bad", Year: "2008-2013", userRating: 9 }
+    ],
+    watchlist: [],
+    preferences: {}
+  });
+  const movieOnlyReport = analyzeVaultColdShare(seriesPayload, indexIds, { today: "2026-11-15", excludeSeries: true });
+  assert.equal(movieOnlyReport.summary.excludedSeriesCount, 2);
+  assert.equal(movieOnlyReport.summary.excludedSeriesQualifiedCount, 2);
+  assert.equal(movieOnlyReport.summary.totalQualified, 1);
+  assert.equal(movieOnlyReport.summary.coldCount, 0);
 });

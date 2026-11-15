@@ -899,3 +899,281 @@ test("vault-aware generateProfileHash, >80 candidate batch enrichment, cand.feat
   }
 });
 
+test("backfillMissingTmdbIds resolves IMDb/strict title+year movies, skips TV series, and avoids retrying already-enriched or checked items", async () => {
+  const { backfillMissingTmdbIds, getVaultBackfillItemKey } = await import("../src/services/tmdbService.js");
+
+  const watched = [
+    // 1. Legacy OMDb movie with imdbID only
+    {
+      imdbID: "tt2911666",
+      Title: "John Wick",
+      Year: "2014",
+      Poster: "https://m.media-amazon.com/wick.jpg",
+      userRating: 9,
+      updatedAt: "2026-11-14T00:00:00.000Z"
+    },
+    // 2. Empty /3/find -> strict title+year must reject 2025 remake and pick 2010 match; missing TMDB poster keeps "N/A"
+    {
+      imdbID: "tt0892769",
+      title: "How to Train Your Dragon",
+      year: "2010",
+      poster: "N/A",
+      userRating: 9
+    },
+    // 3. Explicit TV series must trigger zero network calls
+    {
+      imdbID: "tt5753856",
+      title: "Dark",
+      year: "2017–2020",
+      Type: "series",
+      userRating: 10
+    },
+    // 4. Legacy untagged year-range series must be tagged Type:"series" with zero calls
+    {
+      imdbID: "tt21209876",
+      Title: "Solo Leveling",
+      Year: "2024–",
+      userRating: 9
+    },
+    // 5. Series without range year detected via /3/find tv_results must never call /3/search/movie
+    {
+      imdbID: "tt0903747",
+      title: "Breaking Bad",
+      year: "2008",
+      userRating: 10
+    },
+    // 6. Already enriched item must trigger zero network calls
+    {
+      imdbID: "tt1375666",
+      tmdbId: 27205,
+      title: "Inception",
+      year: "2010",
+      poster: "https://image.tmdb.org/t/p/w500/inception.jpg",
+      tmdbGenreIds: [28, 878],
+      tmdbKeywords: [101],
+      castIds: [6193],
+      crewPersonId: 525,
+      userRating: 10
+    }
+  ];
+
+  const watchlist = [
+    // Wrong-year remake only in /3/search/movie -> must NOT resolve to wrong movie
+    {
+      title: "Wrong Year Remake Film",
+      year: "2010"
+    }
+  ];
+
+  const fetchCalls = [];
+  const prevVitTmdb = process.env.VITE_TMDB_KEY;
+  delete process.env.VITE_TMDB_KEY;
+  try {
+    const res = await backfillMissingTmdbIds(watched, watchlist, {
+      forceProxy: true,
+      lookupConcurrency: 1,
+      fetchFn: async (url) => {
+        const u = String(url);
+        fetchCalls.push(u);
+        const qs = new URLSearchParams(u.split("?")[1] || "");
+        const tmdbPath = qs.get("path") || "";
+
+        if (tmdbPath === "/3/find/tt2911666") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              movie_results: [{ id: 245891, title: "John Wick", release_date: "2014-10-22", poster_path: "/wick_stub.jpg" }],
+              tv_results: []
+            })
+          };
+        }
+        if (tmdbPath === "/3/find/tt0892769") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ movie_results: [], tv_results: [] })
+          };
+        }
+        if (tmdbPath === "/3/find/tt0903747") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ movie_results: [], tv_results: [{ id: 1396, name: "Breaking Bad" }] })
+          };
+        }
+        if (tmdbPath === "/3/search/movie") {
+          const query = qs.get("query") || "";
+          if (query === "Wrong Year Remake Film") {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                results: [
+                  { id: 999888, title: "Wrong Year Remake Film", release_date: "2025-06-13", popularity: 99 }
+                ]
+              })
+            };
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              results: [
+                { id: 1087192, title: "How to Train Your Dragon", release_date: "2025-06-13", popularity: 99 },
+                { id: 10191, title: "How to Train Your Dragon", release_date: "2010-03-26", poster_path: null, popularity: 50 }
+              ]
+            })
+          };
+        }
+        if (u.startsWith("/api/tmdb-batch?")) {
+          const ids = (qs.get("ids") || "").split(",").map(Number);
+          const results = {};
+          for (const id of ids) {
+            if (id === 245891) {
+              results["245891"] = {
+                id: 245891,
+                title: "John Wick",
+                release_date: "2014-10-22",
+                poster_path: "/wick_tmdb.jpg",
+                genres: [{ id: 28, name: "Action" }, { id: 53, name: "Thriller" }],
+                keywords: { keywords: [{ id: 9715, name: "revenge" }, { id: 10292, name: "hitman" }] },
+                credits: {
+                  crew: [{ job: "Director", id: 40644, name: "Chad Stahelski" }],
+                  cast: [{ id: 6384, name: "Keanu Reeves" }]
+                },
+                external_ids: { imdb_id: "tt2911666" }
+              };
+            }
+            if (id === 10191) {
+              results["10191"] = {
+                id: 10191,
+                title: "How to Train Your Dragon",
+                release_date: "2010-03-26",
+                poster_path: null,
+                genres: [{ id: 16, name: "Animation" }],
+                keywords: { keywords: [{ id: 1299, name: "dragon" }] },
+                credits: {
+                  crew: [{ job: "Director", id: 69797, name: "Dean DeBlois" }],
+                  cast: [{ id: 69799, name: "Jay Baruchel" }]
+                },
+                external_ids: { imdb_id: "tt0892769" }
+              };
+            }
+          }
+          return { ok: true, status: 200, json: async () => ({ results }) };
+        }
+        throw new Error(`Unexpected fetch URL: ${u}`);
+      }
+    });
+
+    assert.equal(res.rateLimited, false);
+    assert.deepEqual(res.resolvedIds, [245891, 10191]);
+    // 1) John Wick resolved cleanly without inventing dateWatched
+    assert.equal(res.watched[0].tmdbId, 245891);
+    assert.deepEqual(res.watched[0].tmdbGenreIds, [28, 53]);
+    assert.deepEqual(res.watched[0].tmdbKeywords, [9715, 10292]);
+    assert.deepEqual(res.watched[0].castIds, [6384]);
+    assert.equal(res.watched[0].crewPersonId, 40644);
+    assert.equal(res.watched[0].poster, "https://image.tmdb.org/t/p/w500/wick_tmdb.jpg");
+    assert.equal(res.watched[0].userRating, 9);
+    assert.equal("dateWatched" in res.watched[0], false);
+
+    // 2) Strict title+year picked 2010 (10191) instead of 2025 remake and preserved "N/A" poster when poster_path is null
+    assert.equal(res.watched[1].tmdbId, 10191);
+    assert.equal(res.watched[1].poster, "N/A");
+    assert.equal(res.watchlist[0].tmdbId, undefined, "Wrong-year remake candidate must be rejected");
+    assert.equal(res.checkedKeys.includes(getVaultBackfillItemKey(watchlist[0])), true);
+
+    // 3) Series items have NO tmdbId and were skipped/tagged safely without searching movie endpoint for Dark, Solo Leveling, or Breaking Bad
+    assert.equal(res.watched[2].tmdbId, undefined);
+    assert.equal(res.watched[3].tmdbId, undefined);
+    assert.equal(res.watched[3].Type, "series");
+    assert.equal(res.watched[4].tmdbId, undefined);
+    assert.equal(res.watched[4].Type, "series");
+
+    const searchUrls = fetchCalls.filter((u) => u.includes("%2F3%2Fsearch%2Fmovie"));
+    assert.equal(searchUrls.length, 2, "Only the empty-/3/find movie and missing-imdb watchlist movie should call /3/search/movie");
+    assert.equal(fetchCalls.some((u) => u.includes("tt5753856") || u.includes("tt21209876") || u.includes("tt1375666")), false);
+
+    // Calling again on the updated lists + checkedKeys triggers ZERO network calls
+    const retryCalls = [];
+    const second = await backfillMissingTmdbIds(res.watched, res.watchlist, {
+      forceProxy: true,
+      alreadyChecked: res.checkedKeys,
+      fetchFn: async (url) => {
+        retryCalls.push(String(url));
+        throw new Error("Should not call network on already-enriched/checked items");
+      }
+    });
+    assert.equal(retryCalls.length, 0);
+    assert.equal(second.updatedCount, 0);
+
+    // Rate-limit (429) test stops cleanly and does not mark 429 item checked
+    const rlCalls = [];
+    const rlRes = await backfillMissingTmdbIds(
+      [
+        { imdbID: "tt0133093", Title: "The Matrix", Year: "1999", userRating: 10 },
+        { imdbID: "tt0110912", Title: "Pulp Fiction", Year: "1994", userRating: 9 }
+      ],
+      [],
+      {
+        forceProxy: true,
+        lookupConcurrency: 1,
+        fetchFn: async (url) => {
+          rlCalls.push(String(url));
+          return { ok: false, status: 429, json: async () => ({ errorCode: "PROXY_RATE_LIMIT" }) };
+        }
+      }
+    );
+    assert.equal(rlRes.rateLimited, true);
+    assert.equal(rlCalls.length, 1, "Must stop making lookups immediately on HTTP 429");
+    assert.equal(rlRes.checkedKeys.includes(getVaultBackfillItemKey({ imdbID: "tt0133093" })), false);
+
+    // maxLookups caps /3/find calls independently while still batch-hydrating existing-tmdbId entries
+    const budgetCalls = [];
+    const budgetRes = await backfillMissingTmdbIds(
+      [
+        { imdbID: "tt2911666", Title: "John Wick", Year: "2014", userRating: 9 },
+        { imdbID: "tt4425200", Title: "John Wick: Chapter 2", Year: "2017", userRating: 9 },
+        { tmdbId: 10191, imdbID: "tt0892769", title: "How to Train Your Dragon", year: "2010", userRating: 9 }
+      ],
+      [],
+      {
+        forceProxy: true,
+        maxItems: 5,
+        maxLookups: 1,
+        fetchFn: async (url) => {
+          const u = String(url);
+          budgetCalls.push(u);
+          const qs = new URLSearchParams(u.split("?")[1] || "");
+          const tmdbPath = qs.get("path") || "";
+          if (tmdbPath === "/3/find/tt2911666") {
+            return { ok: true, status: 200, json: async () => ({ movie_results: [{ id: 245891, title: "John Wick", release_date: "2014-10-22" }] }) };
+          }
+          if (u.startsWith("/api/tmdb-batch?")) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                results: {
+                  "245891": { id: 245891, title: "John Wick", release_date: "2014-10-22", genres: [{ id: 28, name: "Action" }], keywords: { keywords: [{ id: 9, name: "action" }] }, credits: { crew: [], cast: [{ id: 6384 }] } },
+                  "10191": { id: 10191, title: "How to Train Your Dragon", release_date: "2010-03-26", genres: [{ id: 16, name: "Animation" }], keywords: { keywords: [{ id: 12, name: "dragon" }] }, credits: { crew: [], cast: [{ id: 69799 }] } }
+                }
+              })
+            };
+          }
+          throw new Error(`Unexpected budget call: ${u}`);
+        }
+      }
+    );
+    assert.equal(budgetRes.watched[0].tmdbId, 245891);
+    assert.equal(budgetRes.watched[1].tmdbId, undefined, "2nd lookup-needing item deferred cleanly under maxLookups: 1");
+    assert.deepEqual(budgetRes.watched[2].tmdbKeywords, [12], "existing-tmdbId item still batch-hydrated within maxItems");
+    assert.equal(budgetCalls.length, 2, "1 /3/find + 1 /api/tmdb-batch");
+  } finally {
+    if (prevVitTmdb === undefined) delete process.env.VITE_TMDB_KEY;
+    else process.env.VITE_TMDB_KEY = prevVitTmdb;
+  }
+});
+

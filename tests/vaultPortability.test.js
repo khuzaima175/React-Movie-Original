@@ -52,6 +52,36 @@ test("summarizeImportDiff supports add_new, merge_update, and replace modes dete
   assert.equal(mergeRes.newWatchedCount, 1);
   assert.equal(mergeRes.updatedRatingCount, 1);
   assert.equal(mergeRes.mergedWatched.find((m) => m.imdbID === "tt1").userRating, 9);
+
+  // Deduplicate tmdb_... and tt... entries without losing dateWatched or TMDB metadata
+  const replaceRes = summarizeImportDiff({
+    incomingWatched: [
+      {
+        imdbID: "tmdb_372058",
+        tmdbId: 372058,
+        title: "Your Name.",
+        year: "2016",
+        userRating: 8,
+        dateWatched: "2026-11-13T21:04:33.894Z"
+      },
+      {
+        imdbID: "tt5311514",
+        tmdbId: 372058,
+        title: "Your Name.",
+        year: "2016",
+        userRating: 8,
+        tmdbKeywords: [101],
+        castIds: [202]
+      }
+    ],
+    incomingWatchlist: [{ imdbID: "tmdb_372058", title: "Your Name.", year: "2016" }],
+    mode: "replace"
+  });
+  assert.equal(replaceRes.mergedWatched.length, 1);
+  assert.equal(replaceRes.mergedWatched[0].imdbID, "tt5311514");
+  assert.equal(replaceRes.mergedWatched[0].dateWatched, "2026-11-13T21:04:33.894Z");
+  assert.deepEqual(replaceRes.mergedWatched[0].tmdbKeywords, [101]);
+  assert.equal(replaceRes.mergedWatchlist.length, 0);
 });
 
 test("resolveCsvRowFallbackRecord never invents fake 5 or 7 ratings for unrated rows", () => {

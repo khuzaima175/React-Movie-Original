@@ -1,4 +1,70 @@
 import { buildWatchedRecordFromImport } from "./csvImport.js";
+import { buildMovieKeys, extractTmdbNumericId, isSameMovie } from "./movieIdentity.js";
+
+function indexMovieKeys(keyIndex, movie, idx) {
+  for (const k of buildMovieKeys(movie)) {
+    if (!keyIndex.has(k)) keyIndex.set(k, []);
+    keyIndex.get(k).push(idx);
+  }
+}
+
+function findSameMovieIndex(list, keyIndex, target) {
+  for (const k of buildMovieKeys(target)) {
+    const candidates = keyIndex.get(k);
+    if (!candidates) continue;
+    for (const idx of candidates) {
+      if (list[idx] && isSameMovie(list[idx], target)) return idx;
+    }
+  }
+  return -1;
+}
+
+function mergeDuplicateMovieRecord(base = {}, incoming = {}) {
+  const baseImdb = String(base.imdbID || "").trim();
+  const incImdb = String(incoming.imdbID || "").trim();
+  const preferredImdb =
+    (/^tt\d+$/i.test(incImdb) ? incImdb : "") ||
+    (/^tt\d+$/i.test(baseImdb) ? baseImdb : "") ||
+    incImdb ||
+    baseImdb;
+  const preferredTmdb = extractTmdbNumericId(incoming.tmdbId) ?? extractTmdbNumericId(base.tmdbId);
+  const hasValidPoster = (p) => typeof p === "string" && p.trim() !== "" && p !== "N/A";
+  const resolvedPoster = hasValidPoster(incoming.poster)
+    ? incoming.poster
+    : hasValidPoster(base.poster)
+      ? base.poster
+      : (incoming.poster ?? base.poster);
+
+  const dateWatched = incoming.dateWatched || base.dateWatched;
+  const userNote = incoming.userNote || base.userNote;
+  const recSource = incoming.recSource || base.recSource;
+  const tmdbKeywords = Array.isArray(incoming.tmdbKeywords) ? incoming.tmdbKeywords : base.tmdbKeywords;
+  const castIds = Array.isArray(incoming.castIds) ? incoming.castIds : base.castIds;
+  const tmdbGenreIds = Array.isArray(incoming.tmdbGenreIds) ? incoming.tmdbGenreIds : base.tmdbGenreIds;
+  const crewPersonId = incoming.crewPersonId ?? base.crewPersonId;
+  const typeVal = incoming.Type || base.Type;
+
+  const merged = {
+    ...base,
+    ...incoming,
+    ...(preferredImdb ? { imdbID: preferredImdb } : {}),
+    ...(preferredTmdb ? { tmdbId: preferredTmdb } : {}),
+    ...(resolvedPoster !== undefined ? { poster: resolvedPoster } : {}),
+    userRating: Number(incoming.userRating) > 0 ? Number(incoming.userRating) : (Number(base.userRating) || 0)
+  };
+  if (dateWatched) merged.dateWatched = dateWatched;
+  else delete merged.dateWatched;
+  if (userNote) merged.userNote = userNote;
+  else delete merged.userNote;
+  if (recSource) merged.recSource = recSource;
+  else delete merged.recSource;
+  if (Array.isArray(tmdbKeywords)) merged.tmdbKeywords = tmdbKeywords;
+  if (Array.isArray(castIds)) merged.castIds = castIds;
+  if (Array.isArray(tmdbGenreIds)) merged.tmdbGenreIds = tmdbGenreIds;
+  if (crewPersonId !== undefined) merged.crewPersonId = crewPersonId;
+  if (typeVal) merged.Type = typeVal;
+  return merged;
+}
 
 function normalizeIdentityKey(item = {}) {
   const imdb = String(item.imdbID || "").trim().toLowerCase();
@@ -143,59 +209,72 @@ export function summarizeImportDiff({
   mode = "merge_update"
 } = {}) {
   if (mode === "replace") {
-    const watchedMap = new Map();
+    const mergedWatched = [];
+    const watchedKeyIndex = new Map();
+    let duplicatesSkipped = 0;
+
     for (const item of incomingWatched || []) {
-      const key = normalizeIdentityKey(item);
-      if (key) watchedMap.set(key, item);
+      if (!item || typeof item !== "object") continue;
+      const existingIdx = findSameMovieIndex(mergedWatched, watchedKeyIndex, item);
+      if (existingIdx >= 0) {
+        mergedWatched[existingIdx] = mergeDuplicateMovieRecord(mergedWatched[existingIdx], item);
+        indexMovieKeys(watchedKeyIndex, mergedWatched[existingIdx], existingIdx);
+        duplicatesSkipped += 1;
+        continue;
+      }
+      const nextIdx = mergedWatched.length;
+      mergedWatched.push(item);
+      indexMovieKeys(watchedKeyIndex, item, nextIdx);
     }
-    const mergedWatched = [...watchedMap.values()];
+
     const mergedWatchlist = [];
-    const watchlistSeen = new Set(watchedMap.keys());
+    const watchlistKeyIndex = new Map();
     for (const item of incomingWatchlist || []) {
-      const key = normalizeIdentityKey(item);
-      if (!key || watchlistSeen.has(key)) continue;
-      watchlistSeen.add(key);
+      if (!item || typeof item !== "object") continue;
+      if (findSameMovieIndex(mergedWatched, watchedKeyIndex, item) >= 0) {
+        duplicatesSkipped += 1;
+        continue;
+      }
+      if (findSameMovieIndex(mergedWatchlist, watchlistKeyIndex, item) >= 0) {
+        duplicatesSkipped += 1;
+        continue;
+      }
+      const nextIdx = mergedWatchlist.length;
       mergedWatchlist.push(item);
+      indexMovieKeys(watchlistKeyIndex, item, nextIdx);
     }
+
     return {
       newWatchedCount: mergedWatched.length,
       updatedRatingCount: 0,
       newWatchlistCount: mergedWatchlist.length,
-      duplicatesSkipped: 0,
+      duplicatesSkipped,
       mergedWatched,
       mergedWatchlist
     };
   }
 
   const mergedWatched = [...(existingWatched || [])];
-  const watchedIndexByKey = new Map();
-  mergedWatched.forEach((item, idx) => {
-    const key = normalizeIdentityKey(item);
-    if (key) watchedIndexByKey.set(key, idx);
-  });
+  const watchedKeyIndex = new Map();
+  mergedWatched.forEach((item, idx) => indexMovieKeys(watchedKeyIndex, item, idx));
 
   let newWatchedCount = 0;
   let updatedRatingCount = 0;
   let duplicatesSkipped = 0;
 
   for (const incoming of incomingWatched || []) {
-    const key = normalizeIdentityKey(incoming);
-    if (!key) continue;
+    if (!incoming || typeof incoming !== "object") continue;
+    if (buildMovieKeys(incoming).length === 0) continue;
 
-    if (watchedIndexByKey.has(key)) {
-      const existingIdx = watchedIndexByKey.get(key);
+    const existingIdx = findSameMovieIndex(mergedWatched, watchedKeyIndex, incoming);
+    if (existingIdx >= 0) {
       const current = mergedWatched[existingIdx];
       const nextRating = Number(incoming.userRating ?? 0);
       const prevRating = Number(current.userRating ?? 0);
 
       if (mode === "merge_update" && nextRating > 0 && nextRating !== prevRating) {
-        mergedWatched[existingIdx] = {
-          ...current,
-          ...incoming,
-          userRating: nextRating,
-          userNote: incoming.userNote || current.userNote,
-          dateWatched: incoming.dateWatched || current.dateWatched
-        };
+        mergedWatched[existingIdx] = mergeDuplicateMovieRecord(current, incoming);
+        indexMovieKeys(watchedKeyIndex, mergedWatched[existingIdx], existingIdx);
         updatedRatingCount += 1;
       } else {
         duplicatesSkipped += 1;
@@ -203,27 +282,32 @@ export function summarizeImportDiff({
       continue;
     }
 
-    watchedIndexByKey.set(key, mergedWatched.length);
+    const nextIdx = mergedWatched.length;
     mergedWatched.push(incoming);
+    indexMovieKeys(watchedKeyIndex, incoming, nextIdx);
     newWatchedCount += 1;
   }
 
   const mergedWatchlist = (existingWatchlist || []).filter(
-    (item) => !watchedIndexByKey.has(normalizeIdentityKey(item))
+    (item) => findSameMovieIndex(mergedWatched, watchedKeyIndex, item) < 0
   );
-  const watchlistSeen = new Set(
-    mergedWatchlist.map((item) => normalizeIdentityKey(item)).filter(Boolean)
-  );
+  const watchlistKeyIndex = new Map();
+  mergedWatchlist.forEach((item, idx) => indexMovieKeys(watchlistKeyIndex, item, idx));
 
   let newWatchlistCount = 0;
   for (const incoming of incomingWatchlist || []) {
-    const key = normalizeIdentityKey(incoming);
-    if (!key || watchedIndexByKey.has(key) || watchlistSeen.has(key)) {
-      if (key) duplicatesSkipped += 1;
+    if (!incoming || typeof incoming !== "object") continue;
+    if (buildMovieKeys(incoming).length === 0) continue;
+    if (
+      findSameMovieIndex(mergedWatched, watchedKeyIndex, incoming) >= 0 ||
+      findSameMovieIndex(mergedWatchlist, watchlistKeyIndex, incoming) >= 0
+    ) {
+      duplicatesSkipped += 1;
       continue;
     }
-    watchlistSeen.add(key);
+    const nextIdx = mergedWatchlist.length;
     mergedWatchlist.push(incoming);
+    indexMovieKeys(watchlistKeyIndex, incoming, nextIdx);
     newWatchlistCount += 1;
   }
 

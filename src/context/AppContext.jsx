@@ -2,10 +2,19 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { normalizeFeedbackEvent, recordRatedMovieConversion } from "../services/feedbackService.js";
 import { resolveMovieRecSource } from "../services/vaultStats.js";
 import {
+  extractTmdbNumericId,
   findMatchingMovie,
+  isSameMovie,
   removeMovieEntries,
   upsertMovieEntry
 } from "../services/movieIdentity.js";
+import { hasTmdbBackend } from "../services/apiTransport.js";
+import {
+  backfillMissingTmdbIds,
+  fetchTmdbMovieDetails,
+  hasCompleteTmdbMetadata,
+  isSeriesVaultItem
+} from "../services/tmdbService.js";
 import { getSupabaseClient, hasSupabaseConfig } from "../services/supabaseClient.js";
 import {
   getCanonicalMovieKey,
@@ -177,6 +186,7 @@ export function AppProvider({ children }) {
   const syncTimerRef = useRef(null);
   const syncInFlightRef = useRef(false);
   const lastAutoSyncedUserIdRef = useRef(null);
+  const backfillStartedRef = useRef(false);
 
   useEffect(() => {
     watchedRef.current = watched || [];
@@ -473,6 +483,170 @@ export function AppProvider({ children }) {
     };
   }, [syncVaultWithCloud]);
 
+  useEffect(() => {
+    if (backfillStartedRef.current || !hasTmdbBackend()) return undefined;
+    const CHECKED_KEY = "cinemavault_tmdb_backfill_checked_v1";
+    const controller = new AbortController();
+
+    function loadCheckedKeys() {
+      try {
+        const raw = localStorage.getItem(CHECKED_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(parsed) ? parsed : []);
+      } catch (_) {
+        return new Set();
+      }
+    }
+
+    function saveCheckedKeys(keysSet) {
+      try {
+        safeSetItem(CHECKED_KEY, [...keysSet].slice(-500));
+      } catch (_) {}
+    }
+
+    function mergeBackfilledListPure(currentList, snapshotList, updatedList) {
+      if (!Array.isArray(currentList) || !Array.isArray(updatedList)) return currentList;
+      const enriched = [];
+      for (let i = 0; i < updatedList.length; i++) {
+        if (updatedList[i] && updatedList[i] !== snapshotList?.[i]) {
+          enriched.push(updatedList[i]);
+        }
+      }
+      if (enriched.length === 0) return currentList;
+
+      let anyChanged = false;
+      const mergedItems = currentList.map((liveItem) => {
+        if (!liveItem) return liveItem;
+        const match = enriched.find((cand) => isSameMovie(liveItem, cand));
+        if (!match) return liveItem;
+        const hasValidLivePoster =
+          typeof liveItem.poster === "string" && liveItem.poster.trim() !== "" && liveItem.poster !== "N/A";
+        const resolvedLiveImdb =
+          /^tt\d+$/i.test(String(liveItem.imdbID || "").trim())
+            ? liveItem.imdbID
+            : (/^tt\d+$/i.test(String(match.imdbID || "").trim()) ? match.imdbID : liveItem.imdbID);
+        anyChanged = true;
+        return {
+          ...liveItem,
+          ...(resolvedLiveImdb ? { imdbID: resolvedLiveImdb } : {}),
+          tmdbId: liveItem.tmdbId ?? match.tmdbId ?? null,
+          poster: hasValidLivePoster ? liveItem.poster : (match.poster || liveItem.poster),
+          ...(match.Type && !liveItem.Type ? { Type: match.Type } : {}),
+          ...(Array.isArray(match.tmdbGenreIds) && !Array.isArray(liveItem.tmdbGenreIds) ? { tmdbGenreIds: match.tmdbGenreIds } : {}),
+          ...(Array.isArray(match.tmdbKeywords) && !Array.isArray(liveItem.tmdbKeywords) ? { tmdbKeywords: match.tmdbKeywords } : {}),
+          ...(Array.isArray(match.castIds) && !Array.isArray(liveItem.castIds) ? { castIds: match.castIds } : {}),
+          ...(match.crewPersonId !== undefined && liveItem.crewPersonId == null ? { crewPersonId: match.crewPersonId } : {}),
+          ...(match.genre && !liveItem.genre ? { genre: match.genre } : {}),
+          ...(match.director && (!liveItem.director || liveItem.director === "Unknown") ? { director: match.director } : {}),
+          ...(match.release_date && !liveItem.release_date ? { release_date: match.release_date } : {}),
+          ...(match.title && !liveItem.title ? { title: match.title } : {}),
+          ...(match.year && !liveItem.year ? { year: match.year } : {}),
+          ...(match.backdrop && !liveItem.backdrop ? { backdrop: match.backdrop } : {})
+        };
+      });
+      if (!anyChanged) return currentList;
+
+      const deduped = [];
+      for (const item of mergedItems) {
+        if (!item) continue;
+        const existingIdx = deduped.findIndex((kept) => isSameMovie(kept, item));
+        if (existingIdx >= 0) {
+          const kept = deduped[existingIdx];
+          deduped[existingIdx] = {
+            ...item,
+            ...kept,
+            userRating: Number(kept.userRating) > 0 ? kept.userRating : item.userRating,
+            dateWatched: kept.dateWatched || item.dateWatched,
+            userNote: kept.userNote || item.userNote,
+            recSource: kept.recSource || item.recSource,
+            tmdbKeywords: Array.isArray(kept.tmdbKeywords) ? kept.tmdbKeywords : item.tmdbKeywords,
+            castIds: Array.isArray(kept.castIds) ? kept.castIds : item.castIds,
+            tmdbGenreIds: Array.isArray(kept.tmdbGenreIds) ? kept.tmdbGenreIds : item.tmdbGenreIds,
+            crewPersonId: kept.crewPersonId ?? item.crewPersonId
+          };
+        } else {
+          deduped.push(item);
+        }
+      }
+      return deduped;
+    }
+
+    function queueBackfilledCloudUpserts(liveList, snapshotList, updatedList, status) {
+      if (!cloudUserRef.current?.id || !Array.isArray(liveList) || !Array.isArray(updatedList)) return false;
+      let queued = false;
+      const mergedList = mergeBackfilledListPure(liveList, snapshotList, updatedList);
+      if (mergedList === liveList) return false;
+
+      const liveSet = new Set(liveList);
+      const nextKeys = new Set(mergedList.map((m) => getCanonicalMovieKey(m)).filter(Boolean));
+      for (const liveItem of liveList) {
+        const oldKey = liveItem ? getCanonicalMovieKey(liveItem) : "";
+        if (oldKey && !nextKeys.has(oldKey)) {
+          pendingUpsertsRef.current.delete(oldKey);
+          pendingDeletesRef.current.add(oldKey);
+          queued = true;
+        }
+      }
+      for (const mergedItem of mergedList) {
+        if (!mergedItem || liveSet.has(mergedItem)) continue;
+        const newKey = getCanonicalMovieKey(mergedItem);
+        if (newKey) {
+          pendingDeletesRef.current.delete(newKey);
+          pendingUpsertsRef.current.set(newKey, { movie: mergedItem, status });
+          queued = true;
+        }
+      }
+      return queued;
+    }
+
+    const timerId = setTimeout(async () => {
+      if (backfillStartedRef.current || controller.signal.aborted) return;
+      backfillStartedRef.current = true;
+
+      const watchedSnap = Array.isArray(watchedRef.current) ? watchedRef.current : [];
+      const watchlistSnap = Array.isArray(watchlistRef.current) ? watchlistRef.current : [];
+      if (watchedSnap.length === 0 && watchlistSnap.length === 0) return;
+
+      const checkedSet = loadCheckedKeys();
+      try {
+        const res = await backfillMissingTmdbIds(watchedSnap, watchlistSnap, {
+          maxItems: 40,
+          maxLookups: 15,
+          userRegion: userRegionRef.current || "US",
+          alreadyChecked: checkedSet,
+          signal: controller.signal
+        });
+        if (controller.signal.aborted) return;
+
+        if (Array.isArray(res.checkedKeys) && res.checkedKeys.length > 0) {
+          for (const key of res.checkedKeys) checkedSet.add(key);
+          saveCheckedKeys(checkedSet);
+        }
+
+        if (res.updatedCount > 0) {
+          const liveWatched = Array.isArray(watchedRef.current) ? watchedRef.current : [];
+          const liveWatchlist = Array.isArray(watchlistRef.current) ? watchlistRef.current : [];
+          const queuedW = queueBackfilledCloudUpserts(liveWatched, watchedSnap, res.watched, "watched");
+          const queuedWl = queueBackfilledCloudUpserts(liveWatchlist, watchlistSnap, res.watchlist, "watchlist");
+          setWatched((prev) => mergeBackfilledListPure(prev, watchedSnap, res.watched));
+          setWatchlist((prev) => mergeBackfilledListPure(prev, watchlistSnap, res.watchlist));
+          if (queuedW || queuedWl) {
+            scheduleCloudFlush();
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.warn("Background TMDB backfill failed:", err);
+        }
+      }
+    }, 800);
+
+    return () => {
+      clearTimeout(timerId);
+      controller.abort();
+    };
+  }, [scheduleCloudFlush]);
+
   async function signInWithEmailOtp(email) {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -667,6 +841,62 @@ export function AppProvider({ children }) {
         pendingUpsertsRef.current.set(movieKey, { movie: mergedEntry, status: "watched" });
         scheduleCloudFlush();
       }
+    }
+
+    const addedTmdbId = extractTmdbNumericId(mergedEntry.tmdbId);
+    if (addedTmdbId && !hasCompleteTmdbMetadata(mergedEntry) && !isSeriesVaultItem(mergedEntry) && hasTmdbBackend()) {
+      fetchTmdbMovieDetails(addedTmdbId, userRegionRef.current || "US")
+        .then((details) => {
+          if (!details || !details.tmdbId) return;
+          const patch = {
+            imdbID: /^tt\d+$/i.test(String(mergedEntry.imdbID || ""))
+              ? mergedEntry.imdbID
+              : (details.imdbID || mergedEntry.imdbID),
+            tmdbId: details.tmdbId,
+            tmdbKeywords: Array.isArray(details.tmdbKeywords) ? details.tmdbKeywords : [],
+            castIds: Array.isArray(details.castIds) ? details.castIds : [],
+            crewPersonId: details.crewPersonId ?? mergedEntry.crewPersonId ?? null,
+            ...(Array.isArray(details.tmdbGenreIds) && details.tmdbGenreIds.length > 0 ? { tmdbGenreIds: details.tmdbGenreIds } : {}),
+            ...(!mergedEntry.release_date && details.release_date ? { release_date: details.release_date } : {}),
+            ...((!mergedEntry.director || mergedEntry.director === "Unknown") && details.director ? { director: details.director } : {}),
+            ...(!mergedEntry.genre && details.genre ? { genre: details.genre } : {}),
+            ...(!mergedEntry.Type ? { Type: "movie" } : {})
+          };
+          setWatched((prev) => {
+            const existingLive = findMatchingMovie(prev || [], mergedEntry);
+            if (!existingLive) return prev;
+            const nextEntry = {
+              ...existingLive,
+              ...patch,
+              imdbID: /^tt\d+$/i.test(String(existingLive.imdbID || ""))
+                ? existingLive.imdbID
+                : (details.imdbID || existingLive.imdbID)
+            };
+            return upsertMovieEntry(prev, nextEntry);
+          });
+          if (cloudUserRef.current?.id) {
+            const existingLive = findMatchingMovie(watchedRef.current || [], mergedEntry);
+            const finalMovie = {
+              ...(existingLive || mergedEntry),
+              ...patch,
+              imdbID: /^tt\d+$/i.test(String((existingLive || mergedEntry).imdbID || ""))
+                ? (existingLive || mergedEntry).imdbID
+                : (details.imdbID || (existingLive || mergedEntry).imdbID)
+            };
+            const newKey = getCanonicalMovieKey(finalMovie);
+            const oldKey = getCanonicalMovieKey(existingLive || mergedEntry);
+            if (oldKey && newKey && oldKey !== newKey) {
+              pendingUpsertsRef.current.delete(oldKey);
+              pendingDeletesRef.current.add(oldKey);
+            }
+            if (newKey) {
+              pendingDeletesRef.current.delete(newKey);
+              pendingUpsertsRef.current.set(newKey, { movie: finalMovie, status: "watched" });
+              scheduleCloudFlush();
+            }
+          }
+        })
+        .catch(() => {});
     }
   }
 

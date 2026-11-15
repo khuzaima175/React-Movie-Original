@@ -3,7 +3,7 @@ import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
 import { useApp } from "../context/AppContext";
-import { findTmdbByImdbId, findTmdbByTitleAndYear, fetchTmdbMovieDetails, getFallbackPoster } from "../services/tmdbService";
+import { findTmdbByImdbId, findTmdbByTitleAndYear, fetchTmdbMovieDetails, getFallbackPoster, isSeriesVaultItem } from "../services/tmdbService";
 import { fetchOmdbJson } from "../services/apiTransport";
 import { RATING_TIERS, getRatingTier } from "../services/ratingTiers";
 import { findMatchingMovie } from "../services/movieIdentity";
@@ -141,9 +141,9 @@ export default function MovieDetails({
           omdbData = omdbRes && omdbRes.Response === "True" ? omdbRes : null;
           tmdbData = tmdbRes;
 
-          if (!tmdbData && omdbData?.Title) {
+          if (!tmdbData && omdbData?.Title && !isSeriesVaultItem(omdbData) && !isSeriesVaultItem(watchedItem)) {
             try {
-              const fallbackFound = await findTmdbByTitleAndYear(omdbData.Title, omdbData.Year);
+              const fallbackFound = await findTmdbByTitleAndYear(omdbData.Title, omdbData.Year, { strict: true });
               if (fallbackFound?.tmdbId) {
                 tmdbData = await fetchTmdbMovieDetails(fallbackFound.tmdbId, userRegion);
               }
@@ -200,9 +200,12 @@ export default function MovieDetails({
 
         const mpaaRating = tmdbData?.mpaaRating || (omdbData?.Rated && omdbData.Rated !== "N/A" ? omdbData.Rated : null);
 
+        const resolvedType = omdbData?.Type || watchedItem?.Type || (tmdbData ? "movie" : undefined);
+
         const combinedData = {
           imdbID: omdbData?.imdbID || tmdbData?.imdbID || selectedId,
           tmdbId: tmdbData?.tmdbId || null,
+          ...(resolvedType ? { Type: resolvedType } : {}),
           title,
           year,
           released: omdbData?.Released || tmdbData?.release_date || year,
@@ -295,6 +298,7 @@ export default function MovieDetails({
     const savedMovie = {
       imdbID: movie.imdbID || selectedId,
       tmdbId: movie.tmdbId || null,
+      ...(movie.Type ? { Type: movie.Type } : {}),
       title: movie.title,
       year: movie.year,
       poster: movie.poster,
@@ -330,6 +334,7 @@ export default function MovieDetails({
     const newWatchlistMovie = {
       imdbID: movie.imdbID || selectedId,
       tmdbId: movie.tmdbId || null,
+      ...(movie.Type ? { Type: movie.Type } : {}),
       title: movie.title,
       year: movie.year,
       poster: movie.poster,

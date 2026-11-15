@@ -12,7 +12,7 @@
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-4_Hydrogen_Cascade-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-Smooth_Physics-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
-[![Tests 229/229](https://img.shields.io/badge/Tests-229%2F229_Passing-46d369?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md#6-how-to-check-everything-yourself-ez-verification-commands)
+[![Tests 234/234](https://img.shields.io/badge/Tests-234%2F234_Passing-46d369?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md#6-how-to-check-everything-yourself-ez-verification-commands)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
 
 [Explore Features](#-standout-features-showcase) • [Why CinemaVault?](#-the-problem-why-cinemavault) • [How It Works](#-the-magic-under-the-hood) • [Local ML & Bugs Fixed](#-on-device-local-ml--provenance-highlights) • [Quick Start](#-quickstart-guide)
@@ -166,7 +166,7 @@ Already have years of movie ratings logged on Letterboxd or a spreadsheet?
 - **Priority & Strict Calendar Date Validation**: Prioritizes **`Watched Date`** (`dateSource: "watched"`) over **`Date`** (`dateSource: "logged"`), rejects impossible calendar rollovers (e.g. `2026-02-30`), and enforces a `+24h` timezone guard against future timestamps.
 - **Clustered Backlog Suppression**: Automatically detects bulk Letterboxd `Date` exports (`>= 10` logged rows with `>= 30%` on 3 days OR `< 14`-day span) and flags them `isBulkImported: true` so the **180-day undated prior** applies instead of skewing recent tastes.
 - **Diary Rewatch Deduplication**: Merges duplicate `title + year` diary rows keeping the newest valid `Watched Date` while retaining the most recent non-empty rating if the latest rewatch row was blank.
-- **Batch Processing, Schema v2 Backups & Diff Preview ([vaultPortability.js](./src/services/vaultPortability.js))**: Smart background batching (`4 films/batch`) enriches metadata without throttling your browser; exports **Schema v2 JSON backups** (preserving regional & streaming preferences), full CinemaVault CSVs, and Letterboxd 10-scale CSVs (`Review` included), previews import diffs across **Merge & Update**, **Add New Only**, and **Replace Vault** modes, and never fabricates silent `5★` or `7★` ratings on unrated rows (`resolveCsvRowFallbackRecord`).
+- **Batch Processing, Schema v2 Backups, Diff Preview & Safe TMDB Backfill ([vaultPortability.js](./src/services/vaultPortability.js), [tmdbService.js](./src/services/tmdbService.js))**: Smart background batching (`4 films/batch`) enriches metadata without throttling your browser; exports **Schema v2 JSON backups** (preserving regional & streaming preferences), full CinemaVault CSVs, and Letterboxd 10-scale CSVs (`Review` included), previews import diffs across **Merge & Update**, **Add New Only**, and **Replace Vault** modes while collapsing `tmdb_...`/`tt...` duplicates (`isSameMovie`) without losing dates or metadata, never fabricates silent `5★` or `7★` ratings (`resolveCsvRowFallbackRecord`), and lazily backfills missing TMDB movie IDs/keywords/cast in the background (`maxLookups: 15`, series-guarded).
 
 ---
 
@@ -244,7 +244,7 @@ Everything about the local machine learning stack and engineering fixes is docum
   - **4-Vault Human Benchmark (`--benchmark .data/benchmark_vaults.json`):** `>= 8★` rolling mean reaches **`NDCG@10 = 0.1776`**, `Recall@20 = 0.2500`, `Precision@10 = 0.1667`, `withinUserAuc(>=9v<=7) = 0.7265`, `withinUserAuc(>=8v<=7) = 0.6422` (`+0.0160` NDCG@10 vs `post_fixes`); `>= 9★` (`3` eligible vaults) reaches **`NDCG@10 = 0.2258` (`+0.0345`)**, `Recall@20 = 0.3333`, `Precision@10 = 0.2167`, `withinUserAuc(>=9v<=7) = 0.6817` (`+0.0938`).
   - **328-User MovieLens Tune Cohort (`clean2`):** `>= 8★` lifts **`NDCG@10 = 0.0909`** (`+0.0061`, 95% CI `[+0.0000, +0.0126]`, significant), `Recall@20 = 0.1256`, `Precision@10 = 0.0805`, `withinUserAuc(>=9v<=7) = 0.7335` (`+0.0285*`), `withinUserAuc(>=8v<=7) = 0.6994` (`+0.0240*`); `>= 9★` (`n=304`) lifts **`NDCG@10 = 0.1145` (`+0.0095*`)**, `Recall@20 = 0.1448` (`+0.0082*`), `Precision@10 = 0.0947` (`+0.0076*`), `withinUserAuc(>=9v<=7) = 0.7458` (`+0.0301*`).
   - **Strictly Held-Out `fresh_300` Cohort (`clean2`):** `>= 8★` cuts `NegHit@20` to **`0.0032` (`-0.0018*`)** and lifts `withinUserAuc(>=9v<=7) = 0.7218` (`+0.0338*`) & `withinUserAuc(>=8v<=7) = 0.6788` (`+0.0256*`); `>= 9★` (`n=284`) lifts **`NDCG@10 = 0.1227` (`+0.0067*`)**, `Recall@20 = 0.1581`, **`Precision@10 = 0.0986` (`+0.0077*`)**, `withinUserAuc(>=9v<=7) = 0.7407` (`+0.0302*`), `withinUserAuc(>=8v<=7) = 0.6926` (`+0.0230*`).
-- **100% Test Coverage of Critical Pipelines:** **`229 / 229` unit tests pass** across all **28** test suites (`npm test`), covering float16 codec, relative cutoff, smooth `[0, 0.02]` damping & `catalog-max` invariance, mass-weighted persona mixture (`beta=20`) + `64×64` Ridge fold-in (`lambda=20`), reserve slot math, CSV rollover/cluster/rewatch logic, Schema v2 portability, cross-ID `movieIdentity`, Discover collision filtering, Rapid Taste Deck, canonical mood policy + strict mood ranker rebalancing, generous-rater `>= 7★` negative-suppression guards, 10-pick soft director cap + backfill & refresh rotation, serverless `/api/*` proxies (including `/api/tmdb-batch`, `PROXY_RATE_LIMIT`, and `Sec-Fetch-Site` checks), H1 Gemini error classification/cooldowns + `45s` cascade deadline, online feedback weight updates, Supabase lossless keyset-paginated cloud sync, session `.bin` negative-caching + documented `coldOnly` fallback, and rolling evaluation.
+- **100% Test Coverage of Critical Pipelines:** **`234 / 234` unit tests pass** across all **28** test suites (`npm test`), covering float16 codec, relative cutoff, smooth `[0, 0.02]` damping & `catalog-max` invariance, mass-weighted persona mixture (`beta=20`) + `64×64` Ridge fold-in (`lambda=20`), reserve slot math, CSV rollover/cluster/rewatch logic, Schema v2 duplicate-safe portability, series-guarded lazy TMDB vault backfill + HTTP `429` abort handling, cross-ID `movieIdentity`, Discover collision filtering, Rapid Taste Deck, canonical mood policy + strict mood ranker rebalancing, generous-rater `>= 7★` negative-suppression guards, 10-pick soft director cap + backfill & refresh rotation, serverless `/api/*` proxies (including `/api/tmdb-batch`, `PROXY_RATE_LIMIT`, and `Sec-Fetch-Site` checks), H1 Gemini error classification/cooldowns + `45s` cascade deadline, online feedback weight updates, Supabase lossless keyset-paginated cloud sync, session `.bin` negative-caching + documented `coldOnly` fallback, and rolling evaluation.
 
 ---
 
@@ -261,8 +261,8 @@ Everything about the local machine learning stack and engineering fixes is docum
 | **Styling** | **Tailwind CSS v4** | Next-generation `@theme` tokens, pure CSS custom properties, zero runtime overhead. |
 | **Motion** | **Framer Motion 12** | Spring physics, portal-based hover expansions, and `prefers-reduced-motion` accessibility. |
 | **Movie Data** | **TMDB API v3 & OMDb API** | 5-bucket retrieval (`A/B/C/D/E`), trailers, `13` watch-provider alias families across 15 regions, IMDb/RT/Metacritic scores. |
-| **Storage & Import** | **LocalStorage + `csvImport.js` + `vaultPortability.js`** | 100% guest-first persistence with `500KB` LRU cache (`v4`), Schema v2 JSON export, & hardened Letterboxd CSV importer. |
-| **Verification** | **`node --test` + `scripts/run_eval.mjs`** | **`229` offline unit tests** across **28** suites + rolling temporal cross-validation CLI harness. |
+| **Storage & Import** | **LocalStorage + `csvImport.js` + `vaultPortability.js`** | 100% guest-first persistence with `500KB` LRU cache (`v4`), deduplicated Schema v2 JSON export, hardened Letterboxd CSV importer, & lazy TMDB vault backfill. |
+| **Verification** | **`node --test` + `scripts/run_eval.mjs`** | **`234` offline unit tests** across **28** suites + rolling temporal cross-validation CLI harness. |
 
 ---
 
@@ -305,7 +305,7 @@ OMDB_API_KEY=your_omdb_api_key_here
 ### 3. Launch, Test, Evaluate & Build
 ```bash
 npm start                                 # Dev server at http://localhost:3000
-npm test                                  # Run all 229 offline unit tests across 28 suites (~0.8s)
+npm test                                  # Run all 234 offline unit tests across 28 suites (~0.8s)
 node scripts/run_eval.mjs --synthetic     # Run built-in offline recommender benchmark
 npm run build                             # Production bundle into build/
 npm run serve                             # Preview production build locally
@@ -326,7 +326,7 @@ npm run serve                             # Preview production build locally
 
 ## 📄 Documentation & License
 
-- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)** — Complete plain-English walkthrough of the local 25k `CVEM v1` model, provenance & zero-leakage proof, Phases A–J + Step 2/3B ablations, all 14 errors & fixes, and EZ verification commands (`229 / 229` across 28 suites).
+- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)** — Complete plain-English walkthrough of the local 25k `CVEM v1` model, provenance & zero-leakage proof, Phases A–J + Step 2/3B ablations, all 15 errors & fixes, and EZ verification commands (`234 / 234` across 28 suites).
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Full technical & mathematical specification (v5.0): z-scores, relative cutoff, mass-weighted persona mixture + 64×64 Ridge fold-in, `catalog-max` + smooth damping, 5-bucket retrieval + `moodPolicy.js` + Reserve Lane, `PROVIDER_FAMILY_MAP`, H1 `gemini-4-hydrogen` cascade, Smart Cache v4 & refresh rotation, serverless `/api/*` proxies, CSV & v2 portability, Supabase RLS schema, and 28-suite test map.
 - **[SPEC.md](./SPEC.md)** — Streaming-grade Frontend Overhaul UI/UX design tokens & component specification (v1.2 + v4.x + v5.0 Section 7 extensions).
 - **[README.md](./README.md)** — Quickstart repository README & overview.
