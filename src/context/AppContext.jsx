@@ -24,19 +24,30 @@ import {
   toggleCompareItem
 } from "../services/compareService.js";
 import {
+  compactVaultListForStorage,
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
   pullAndSyncCloudVault
 } from "../services/vaultSyncService.js";
 
 const AppContext = createContext(null);
+const VAULT_STORAGE_KEYS = new Set(["watchedMovies", "watchlist"]);
+const DELETED_VAULT_KEYS_STORAGE = "cinemavault_deleted_keys_v1";
+const LAST_SYNCED_AT_STORAGE = "cinemavault_last_synced_at_v1";
 
 /**
- * Safe LocalStorage setter with tiered LRU eviction policy.
- * Evicts derivative AI caches first to protect primary user movie data.
+ * Safe LocalStorage setter with tiered LRU eviction policy & 2-stage vault compaction.
+ * 1. Compacts `watchedMovies` / `watchlist` automatically so 2,000+ film vaults stay slim.
+ * 2. Evicts derivative AI caches first on `QuotaExceededError`.
+ * 3. Falls back to aggressive vault compaction (stripping plots/cast strings cached in IndexedDB)
+ *    if the vault itself approaches the ~5 MB browser origin ceiling.
  */
 export const safeSetItem = (key, value) => {
-  const serialized = JSON.stringify(value);
+  const payload =
+    VAULT_STORAGE_KEYS.has(key) && Array.isArray(value)
+      ? compactVaultListForStorage(value, { aggressive: false })
+      : value;
+  const serialized = JSON.stringify(payload);
   try {
     localStorage.setItem(key, serialized);
     return true;
@@ -65,6 +76,32 @@ export const safeSetItem = (key, value) => {
             // Continue to next eviction candidate
           }
         }
+      }
+
+      // Stage 2 recovery: aggressively compact existing vault lists in localStorage
+      try {
+        for (const vKey of VAULT_STORAGE_KEYS) {
+          if (vKey === key) continue;
+          const rawExisting = localStorage.getItem(vKey);
+          if (rawExisting && rawExisting !== "undefined") {
+            const parsedExisting = JSON.parse(rawExisting);
+            if (Array.isArray(parsedExisting)) {
+              localStorage.setItem(
+                vKey,
+                JSON.stringify(compactVaultListForStorage(parsedExisting, { aggressive: true }))
+              );
+            }
+          }
+        }
+        const retryPayload =
+          VAULT_STORAGE_KEYS.has(key) && Array.isArray(value)
+            ? JSON.stringify(compactVaultListForStorage(value, { aggressive: true }))
+            : serialized;
+        localStorage.setItem(key, retryPayload);
+        console.log(`✅ Recovered storage via Stage-2 aggressive vault compaction for ${key}`);
+        return true;
+      } catch (_) {
+        // Proceed to critical error dispatch
       }
 
       console.error("❌ Critical: Storage completely full even after derivative cache eviction.");
@@ -199,7 +236,13 @@ export function AppProvider({ children }) {
   const [hasCloudConfig] = useState(() => hasSupabaseConfig());
   const [cloudUser, setCloudUser] = useState(null);
   const [cloudSyncStatus, setCloudSyncStatus] = useState("idle");
-  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState(() => {
+    try {
+      return localStorage.getItem(LAST_SYNCED_AT_STORAGE) || null;
+    } catch {
+      return null;
+    }
+  });
   const [cloudError, setCloudError] = useState(null);
 
   const watchedRef = useRef(watched);
@@ -209,12 +252,40 @@ export function AppProvider({ children }) {
   const userRegionRef = useRef(userRegion);
   const userWatchProvidersRef = useRef(userWatchProviders);
   const cloudUserRef = useRef(null);
+  const lastSyncedAtRef = useRef(lastSyncedAt);
+  const deletedVaultKeysRef = useRef((() => {
+    try {
+      const raw = localStorage.getItem(DELETED_VAULT_KEYS_STORAGE);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  })());
   const pendingUpsertsRef = useRef(new Map());
   const pendingDeletesRef = useRef(new Set());
   const syncTimerRef = useRef(null);
   const syncInFlightRef = useRef(false);
   const lastAutoSyncedUserIdRef = useRef(null);
   const backfillStartedRef = useRef(false);
+
+  const persistDeletedVaultKeys = useCallback((nextMap) => {
+    const entries = Object.entries(nextMap || {}).slice(-1000);
+    const trimmed = Object.fromEntries(entries);
+    deletedVaultKeysRef.current = trimmed;
+    try {
+      safeSetItem(DELETED_VAULT_KEYS_STORAGE, trimmed);
+    } catch (_) {}
+  }, []);
+
+  const persistLastSyncedAt = useCallback((iso) => {
+    lastSyncedAtRef.current = iso || null;
+    setLastSyncedAt(iso || null);
+    try {
+      if (iso) localStorage.setItem(LAST_SYNCED_AT_STORAGE, iso);
+      else localStorage.removeItem(LAST_SYNCED_AT_STORAGE);
+    } catch (_) {}
+  }, []);
 
   useEffect(() => {
     watchedRef.current = watched || [];
@@ -350,7 +421,7 @@ export function AppProvider({ children }) {
       }
 
       setCloudSyncStatus("synced");
-      setLastSyncedAt(new Date().toISOString());
+      persistLastSyncedAt(new Date().toISOString());
     } catch (err) {
       for (const [key, entry] of upsertEntries) {
         if (!pendingUpsertsRef.current.has(key) && !pendingDeletesRef.current.has(key)) {
@@ -417,6 +488,8 @@ export function AppProvider({ children }) {
         localWatched: watchedRef.current || [],
         localWatchlist: watchlistRef.current || [],
         nowIso,
+        deletedKeys: deletedVaultKeysRef.current || {},
+        lastSyncedAt: lastSyncedAtRef.current || null,
         onMerged: ({ mergedWatched, mergedWatchlist }) => {
           watchedRef.current = mergedWatched;
           watchlistRef.current = mergedWatchlist;
@@ -428,7 +501,7 @@ export function AppProvider({ children }) {
       const syncedTimestamp = new Date().toISOString();
       lastAutoSyncedUserIdRef.current = userObj.id;
       setCloudSyncStatus("synced");
-      setLastSyncedAt(syncedTimestamp);
+      persistLastSyncedAt(syncedTimestamp);
       return { ok: true };
     } catch (err) {
       setCloudSyncStatus("error");
@@ -497,7 +570,7 @@ export function AppProvider({ children }) {
         setCloudUser(null);
         setCloudSyncStatus("idle");
         setCloudError(null);
-        setLastSyncedAt(null);
+        persistLastSyncedAt(null);
         return;
       }
 
@@ -730,7 +803,8 @@ export function AppProvider({ children }) {
     setCloudUser(null);
     setCloudSyncStatus("idle");
     setCloudError(null);
-    setLastSyncedAt(null);
+    persistLastSyncedAt(null);
+    persistDeletedVaultKeys({});
   }
 
   async function syncCloudNow() {
@@ -824,7 +898,7 @@ export function AppProvider({ children }) {
           if (delErr) throw delErr;
         }
         setCloudSyncStatus("synced");
-        setLastSyncedAt(new Date().toISOString());
+        persistLastSyncedAt(new Date().toISOString());
       } else {
         await syncVaultWithCloud(activeUser);
       }
@@ -871,6 +945,12 @@ export function AppProvider({ children }) {
 
     setWatched((prev) => upsertMovieEntry(prev, mergedEntry, { clearKeys: clearStudioKeys }));
     setWatchlist((prev) => removeMovieEntries(prev, mergedEntry).nextList);
+    const addedCanonicalKey = getCanonicalMovieKey(mergedEntry);
+    if (addedCanonicalKey && deletedVaultKeysRef.current?.[addedCanonicalKey]) {
+      const nextDeleted = { ...deletedVaultKeysRef.current };
+      delete nextDeleted[addedCanonicalKey];
+      persistDeletedVaultKeys(nextDeleted);
+    }
     if (Number(movie.userRating) > 0) {
       setAiFeedbackLog((prev) => recordRatedMovieConversion(mergedEntry, prev, aiRecommendations, 500));
     }
@@ -960,14 +1040,22 @@ export function AppProvider({ children }) {
     if (!idOrMovie) return;
     const { removed } = removeMovieEntries(listRef.current || [], idOrMovie);
     setList((prev) => removeMovieEntries(prev, idOrMovie).nextList);
+    const keysToDelete = removed.length > 0
+      ? removed.map((m) => getCanonicalMovieKey(m)).filter(Boolean)
+      : [
+          typeof idOrMovie === "object"
+            ? getCanonicalMovieKey(idOrMovie)
+            : getCanonicalMovieKey({ imdbID: idOrMovie, id: idOrMovie })
+        ].filter(Boolean);
+    if (keysToDelete.length > 0) {
+      const nowIso = new Date().toISOString();
+      const nextDeleted = { ...(deletedVaultKeysRef.current || {}) };
+      for (const key of keysToDelete) {
+        nextDeleted[key] = nowIso;
+      }
+      persistDeletedVaultKeys(nextDeleted);
+    }
     if (cloudUserRef.current?.id) {
-      const keysToDelete = removed.length > 0
-        ? removed.map((m) => getCanonicalMovieKey(m)).filter(Boolean)
-        : [
-            typeof idOrMovie === "object"
-              ? getCanonicalMovieKey(idOrMovie)
-              : getCanonicalMovieKey({ imdbID: idOrMovie, id: idOrMovie })
-          ].filter(Boolean);
       for (const key of keysToDelete) {
         pendingUpsertsRef.current.delete(key);
         pendingDeletesRef.current.add(key);
@@ -994,6 +1082,12 @@ export function AppProvider({ children }) {
     };
     if (findMatchingMovie(watchlistRef.current, normalizedMovie)) return;
     setWatchlist((prev) => (findMatchingMovie(prev, normalizedMovie) ? prev : [...(prev || []), normalizedMovie]));
+    const wlCanonicalKey = getCanonicalMovieKey(normalizedMovie);
+    if (wlCanonicalKey && deletedVaultKeysRef.current?.[wlCanonicalKey]) {
+      const nextDeleted = { ...deletedVaultKeysRef.current };
+      delete nextDeleted[wlCanonicalKey];
+      persistDeletedVaultKeys(nextDeleted);
+    }
     if (cloudUserRef.current?.id) {
       const movieKey = getCanonicalMovieKey(normalizedMovie);
       if (movieKey) {

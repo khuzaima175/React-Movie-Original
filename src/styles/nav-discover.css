@@ -1169,3 +1169,387 @@
     padding-bottom: 8.8rem;
   }
 }
+
+
+/* ── Hero Motion Layer (parallax, Ken Burns, word reveal, progress bars) ───── */
+.hero-parallax {
+  position: absolute;
+  top: -14%;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.hero-backdrop {
+  will-change: transform, opacity;
+  transform-origin: 60% 30%;
+}
+
+.hero-content {
+  will-change: transform, opacity;
+}
+
+.hero-word-mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  /* room for descenders inside the clip box without shifting the baseline */
+  padding-bottom: 0.1em;
+  margin-bottom: -0.1em;
+}
+
+.hero-word {
+  display: inline-block;
+  will-change: transform;
+}
+
+.hero-indicators {
+  gap: 0.2rem;
+}
+
+.hero-bar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 3.4rem;
+  height: 2.4rem; /* generous hit area; visual track is 3px */
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.hero-bar-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(243, 241, 235, 0.26);
+  border-radius: 3px;
+  transition: background-color var(--dur-2) ease;
+}
+
+.hero-bar:hover .hero-bar-track {
+  background: rgba(243, 241, 235, 0.5);
+}
+
+.hero-bar:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.hero-bar-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--text-1);
+  border-radius: 3px;
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation: hero-bar-fill var(--hero-slide-ms, 8000ms) linear forwards;
+}
+
+.hero-bar.is-static .hero-bar-fill {
+  animation: none;
+  transform: scaleX(1);
+}
+
+@keyframes hero-bar-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (max-width: 600px) {
+  .hero-bar {
+    width: 2.4rem;
+  }
+}
+
+/* ── Nav: scroll-aware elevation + sliding active underline ──────────────── */
+.nav-bar-stream {
+  border-bottom-color: transparent;
+  transition: border-color var(--dur-3) ease, box-shadow var(--dur-3) ease, background-color var(--dur-3) ease;
+}
+
+.nav-bar-stream.is-scrolled {
+  border-bottom-color: var(--hairline);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);
+}
+
+/* The underline is now a shared-layout element that glides between tabs */
+.stream-nav-link.active::after {
+  content: none;
+}
+
+.nav-underline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--text-1);
+  border-radius: 2px 2px 0 0;
+}
+
+/* ── Reading progress line ───────────────────────────────────────────────── */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 45;
+  height: 2px;
+  background: var(--text-1);
+  opacity: 0.75;
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+/* Mobile hero: stronger scrim + text shadow so meta/plot stay legible on bright art */
+@media (max-width: 700px) {
+  .hero-scrim-left {
+    background: linear-gradient(
+      180deg,
+      rgba(13, 14, 17, 0.28) 0%,
+      rgba(13, 14, 17, 0.5) 38%,
+      rgba(13, 14, 17, 0.9) 100%
+    );
+  }
+
+  .hero-billboard .cv-meta-line,
+  .hero-plot {
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* ============================================================
+   PHASE 3 — Rows, cards & scroll choreography
+   ============================================================ */
+
+/* Staggered card entrance once a row scrolls into view */
+@keyframes cv-card-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.carousel-section.is-visible .carousel-track > .unified-movie-card {
+  animation: cv-card-rise 0.6s var(--ease-out) backwards;
+}
+.carousel-section.is-visible .carousel-track > .unified-movie-card:nth-child(2) { animation-delay: 0.05s; }
+.carousel-section.is-visible .carousel-track > .unified-movie-card:nth-child(3) { animation-delay: 0.1s; }
+.carousel-section.is-visible .carousel-track > .unified-movie-card:nth-child(4) { animation-delay: 0.15s; }
+.carousel-section.is-visible .carousel-track > .unified-movie-card:nth-child(5) { animation-delay: 0.2s; }
+.carousel-section.is-visible .carousel-track > .unified-movie-card:nth-child(6) { animation-delay: 0.25s; }
+.carousel-section.is-visible .carousel-track > .unified-movie-card:nth-child(7) { animation-delay: 0.3s; }
+.carousel-section.is-visible .carousel-track > .unified-movie-card:nth-child(n + 8) { animation-delay: 0.34s; }
+
+/* Edge fades that appear only when there is more to scroll */
+@property --fade-l {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-r {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.carousel-track {
+  --fade-l: 0px;
+  --fade-r: 0px;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--fade-l),
+    #000 calc(100% - var(--fade-r)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--fade-l),
+    #000 calc(100% - var(--fade-r)),
+    transparent 100%
+  );
+  transition: --fade-l 0.3s ease, --fade-r 0.3s ease;
+}
+
+.carousel-track.fade-start {
+  --fade-l: 5.2rem;
+}
+
+.carousel-track.fade-end {
+  --fade-r: 5.2rem;
+}
+
+/* Drag-to-scroll (mouse) */
+@media (hover: hover) and (pointer: fine) {
+  .carousel-track {
+    cursor: grab;
+  }
+
+  .carousel-track.is-dragging {
+    cursor: grabbing;
+    scroll-snap-type: none;
+    user-select: none;
+  }
+
+  .carousel-track.is-dragging .unified-movie-card {
+    pointer-events: none;
+  }
+}
+
+.carousel-track img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* Section header polish */
+.carousel-title {
+  position: relative;
+  padding-bottom: 0.9rem;
+}
+
+.carousel-title::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 2.8rem;
+  height: 2px;
+  background: var(--text-1);
+  opacity: 0.55;
+  border-radius: 2px;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.7s var(--ease-out) 0.15s;
+}
+
+.carousel-section.is-visible .carousel-title::after {
+  transform: scaleX(1);
+}
+
+.carousel-see-all-arrow {
+  display: inline-block;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.carousel-see-all:hover .carousel-see-all-arrow,
+.carousel-see-all:focus-visible .carousel-see-all-arrow {
+  transform: translateX(4px);
+}
+
+/* Card action icon swap (+ → ✓) */
+.card-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Desktop-only depth: pointer tilt, moving glare, neighbour dimming */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .unified-card-poster {
+    transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition: transform 0.14s ease-out, box-shadow 0.24s ease;
+    will-change: transform;
+  }
+
+  .unified-movie-card:not(:hover) .unified-card-poster {
+    transition: transform 0.55s var(--ease-out), box-shadow 0.24s ease;
+  }
+
+  /* The static corner sheen becomes a light that follows the cursor */
+  .unified-card-poster::before {
+    background: radial-gradient(
+      circle at var(--gx, 22%) var(--gy, 14%),
+      rgba(255, 255, 255, 0.22) 0%,
+      rgba(255, 255, 255, 0.05) 38%,
+      transparent 64%
+    );
+  }
+
+  .unified-card-poster img {
+    transition: transform 0.35s var(--ease-out), opacity 0.3s ease;
+  }
+
+  /* Netflix-style focus: dim siblings while one poster is hovered */
+  .carousel-track:has(.unified-movie-card:hover) .unified-movie-card:not(:hover):not(:focus-within) .unified-card-poster img {
+    opacity: 0.5;
+  }
+}
+
+/* ── Loading skeletons (hero + rows) ─────────────────────────────────────── */
+@keyframes cv-shimmer-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.hero-skeleton .hero-billboard,
+.hero-skeleton-block {
+  position: relative;
+}
+
+.cv-skel {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}
+
+.cv-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: cv-shimmer-sweep 1.6s ease-in-out infinite;
+}
+
+.hero-skel-line {
+  height: 1.4rem;
+}
+
+.hero-skel-title {
+  height: 4.2rem;
+  width: min(42rem, 80%);
+}
+
+.hero-skel-btn {
+  height: 4.2rem;
+  width: 15rem;
+}
+
+.row-skeleton .carousel-track {
+  overflow: hidden;
+  cursor: default;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.row-skel-poster {
+  aspect-ratio: 2 / 3;
+  width: 100%;
+  border-radius: var(--r-poster);
+}
+
+.row-skel-title {
+  height: 2rem;
+  width: 22rem;
+}

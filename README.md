@@ -12,7 +12,7 @@
 [![Local ML CVEM v1](https://img.shields.io/badge/Local_ML-CVEM_v1_25k_f16-e5b84b?style=flat-square)](./LOCAL_MODEL_GUIDE.md)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-Resilient_Cascade-8e75ff?style=flat-square&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Supabase Cloud Sync](https://img.shields.io/badge/Supabase-Auth_%26_RLS_Sync-3ecf8e?style=flat-square&logo=supabase&logoColor=black)](./supabase/migrations/20261114000000_init_cinemavault_schema.sql)
-[![Tests 311/311](https://img.shields.io/badge/Tests-311%2F311-46d369?style=flat-square)](#development--testing)
+[![Tests 314/314](https://img.shields.io/badge/Tests-314%2F314-46d369?style=flat-square)](#development--testing)
 [![License MIT](https://img.shields.io/badge/License-MIT-e5b84b?style=flat-square)](#license)
 
 [Features](#features) · [Recommendation Pipeline](#recommendation-pipeline) · [Project Structure](#project-structure) · [Getting Started](#getting-started) · [Tech Stack](#tech-stack)
@@ -127,7 +127,7 @@ OMDB_API_KEY=your_omdb_api_key_here
 # Start local Vite dev server (http://localhost:3000)
 npm start
 
-# Run all 311 offline service & API tests (37 files)
+# Run all 314 offline service & API tests (37 files)
 npm test
 
 # Run built-in offline recommender benchmark
@@ -151,7 +151,7 @@ npm run serve
 | **On-Device ML** | Custom `CVEM v1` 25k × 64 float16 collaborative embeddings + 11-feature logistic ranker |
 | **AI & Catalog APIs** | `@google/genai` (Gemini cascade), TMDB API v3, OMDb API |
 | **Optional Cloud Sync** | `@supabase/supabase-js` v2 with Email OTP auth and Postgres 15+ Row-Level Security |
-| **Testing** | Node built-in test runner (`node --test`) across 37 service & API test suites (`311/311` passing) |
+| **Testing** | Node built-in test runner (`node --test`) across 37 service & API test suites (`314/314` passing) |
 
 ---
 

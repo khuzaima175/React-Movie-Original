@@ -22,6 +22,151 @@ const CORE_SQL_FIELDS = new Set([
   "updatedAt"
 ]);
 
+const TRANSIENT_API_BLOBS_TO_STRIP = new Set([
+  "credits",
+  "videos",
+  "images",
+  "release_dates",
+  "external_ids",
+  "watch/providers",
+  "recommendations",
+  "similar",
+  "Awards",
+  "DVD",
+  "Website",
+  "Production",
+  "Response",
+  "Ratings"
+]);
+
+const AGGRESSIVE_STORAGE_STRIP_FIELDS = new Set([
+  "overview",
+  "Plot",
+  "plot",
+  "tagline",
+  "backdrop",
+  "Actors",
+  "Writer",
+  "BoxOffice",
+  "cast",
+  "writers",
+  "keywordItems",
+  "directorDetails",
+  "writerDetails",
+  "cinematographerDetails",
+  "composerDetails",
+  "streamProviders",
+  "freeProviders",
+  "spokenLanguages",
+  "originCountry"
+]);
+
+/**
+ * Compacts a single movie record before persisting to browser `localStorage` (`watchedMovies` / `watchlist`)
+ * so 2,000–3,000+ enriched vault rows stay well below the ~5 MB browser origin quota.
+ * All stripped display/detail fields remain cached in IndexedDB (`tmdbCacheService.js`).
+ */
+export function compactVaultMovieForStorage(movie, { aggressive = false } = {}) {
+  if (!movie || typeof movie !== "object") return movie;
+  const out = {};
+
+  for (const [k, v] of Object.entries(movie)) {
+    if (v === undefined || v === null) continue;
+    if (TRANSIENT_API_BLOBS_TO_STRIP.has(k)) continue;
+    if (aggressive && AGGRESSIVE_STORAGE_STRIP_FIELDS.has(k)) continue;
+    out[k] = v;
+  }
+
+  // Deduplicate casing aliases when canonical lowercase keys exist
+  if (out.title && out.Title === out.title) delete out.Title;
+  if (out.year && out.Year === out.year) delete out.Year;
+  if (out.poster && out.Poster === out.poster) delete out.Poster;
+  if (out.genre && out.Genre === out.genre) delete out.Genre;
+  if (out.director && out.Director === out.director) delete out.Director;
+  if (out.runtime !== undefined && out.Runtime === out.runtime) delete out.Runtime;
+
+  if (!aggressive) {
+    if (typeof out.overview === "string" && out.overview.length > 260) {
+      out.overview = `${out.overview.slice(0, 257).trimEnd()}...`;
+    }
+    if (typeof out.Plot === "string") {
+      if (out.overview) {
+        delete out.Plot;
+      } else if (out.Plot.length > 260) {
+        out.Plot = `${out.Plot.slice(0, 257).trimEnd()}...`;
+      }
+    }
+    if (typeof out.plot === "string" && out.overview) {
+      delete out.plot;
+    }
+    if (Array.isArray(out.cast) && out.cast.length > 6) out.cast = out.cast.slice(0, 6);
+    if (Array.isArray(out.writers) && out.writers.length > 4) out.writers = out.writers.slice(0, 4);
+    if (Array.isArray(out.keywordItems) && out.keywordItems.length > 12) out.keywordItems = out.keywordItems.slice(0, 12);
+    if (Array.isArray(out.streamProviders) && out.streamProviders.length > 6) {
+      out.streamProviders = out.streamProviders.slice(0, 6);
+    }
+    if (Array.isArray(out.freeProviders) && out.freeProviders.length > 4) {
+      out.freeProviders = out.freeProviders.slice(0, 4);
+    }
+  }
+
+  // Always retain bounded ranker & taste-engine signal arrays
+  if (Array.isArray(out.tmdbGenreIds) && out.tmdbGenreIds.length > 8) {
+    out.tmdbGenreIds = out.tmdbGenreIds.slice(0, 8);
+  }
+  if (Array.isArray(out.tmdbKeywords) && out.tmdbKeywords.length > 20) {
+    out.tmdbKeywords = out.tmdbKeywords.slice(0, 20);
+  }
+  if (Array.isArray(out.keywordNames) && out.keywordNames.length > 12) {
+    out.keywordNames = out.keywordNames.slice(0, 12);
+  }
+  if (Array.isArray(out.castIds) && out.castIds.length > 10) {
+    out.castIds = out.castIds.slice(0, 10);
+  }
+
+  return out;
+}
+
+/**
+ * Compacts an entire watched or watchlist array for `localStorage` persistence.
+ */
+export function compactVaultListForStorage(list = [], options = {}) {
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => compactVaultMovieForStorage(item, options));
+}
+
+function normalizeDeletedKeysMap(deletedKeys) {
+  const map = new Map();
+  if (!deletedKeys) return map;
+  if (deletedKeys instanceof Set || Array.isArray(deletedKeys)) {
+    for (const entry of deletedKeys) {
+      if (typeof entry === "string" && entry.trim()) {
+        map.set(entry.trim(), Infinity);
+      } else if (entry && typeof entry === "object" && entry.key) {
+        const ts = parseTimestampMs(entry.deletedAt);
+        map.set(String(entry.key).trim(), ts > 0 ? ts : Infinity);
+      }
+    }
+    return map;
+  }
+  if (deletedKeys instanceof Map) {
+    for (const [k, v] of deletedKeys.entries()) {
+      if (!k) continue;
+      const ts = typeof v === "number" ? v : parseTimestampMs(v);
+      map.set(String(k).trim(), ts > 0 ? ts : Infinity);
+    }
+    return map;
+  }
+  if (typeof deletedKeys === "object") {
+    for (const [k, v] of Object.entries(deletedKeys)) {
+      if (!k) continue;
+      const ts = typeof v === "number" ? v : parseTimestampMs(v);
+      map.set(String(k).trim(), ts > 0 ? ts : Infinity);
+    }
+  }
+  return map;
+}
+
 function parseRuntimeMinutes(rawRuntime) {
   if (rawRuntime === null || rawRuntime === undefined || rawRuntime === "N/A") return null;
   if (typeof rawRuntime === "number") return Number.isFinite(rawRuntime) && rawRuntime > 0 ? Math.round(rawRuntime) : null;
@@ -150,7 +295,8 @@ export function mapDbRowToLocalMovie(row = {}) {
 
 /**
  * Losslessly merges local guest lists with cloud rows:
- * - Never discards local-only guest ratings
+ * - Never discards local-only guest ratings (unless deleted on another device after `lastSyncedAt`
+ *   or recorded in `deletedKeys` tombstones)
  * - Always grants "watched" precedence over "watchlist"
  * - Uses updatedAt / updated_at timestamps for watched conflict resolution
  */
@@ -159,11 +305,24 @@ export function mergeLocalAndCloudVault({
   localWatchlist = [],
   cloudRows = [],
   userId = "",
-  nowIso = new Date().toISOString()
+  nowIso = new Date().toISOString(),
+  deletedKeys = null,
+  lastSyncedAt = null
 } = {}) {
+  const deletedMap = normalizeDeletedKeysMap(deletedKeys);
+  const lastSyncedMs = parseTimestampMs(lastSyncedAt);
+  const toDeleteCloudSet = new Set();
+
   const cloudByKey = new Map();
   for (const row of cloudRows || []) {
-    if (row?.movie_key) cloudByKey.set(row.movie_key, row);
+    if (!row?.movie_key) continue;
+    const delMs = deletedMap.get(row.movie_key);
+    const cloudMs = parseTimestampMs(row.updated_at);
+    if (delMs !== undefined && (delMs === Infinity || delMs >= cloudMs)) {
+      toDeleteCloudSet.add(row.movie_key);
+      continue;
+    }
+    cloudByKey.set(row.movie_key, row);
   }
 
   const resolvedWatchedMap = new Map();
@@ -173,9 +332,23 @@ export function mergeLocalAndCloudVault({
   for (const localMovie of localWatched || []) {
     const key = getCanonicalMovieKey(localMovie);
     if (!key) continue;
+    const localMs = parseTimestampMs(localMovie.updatedAt || localMovie.dateWatched || localMovie.dateAdded);
+    const delMs = deletedMap.get(key);
+    if (delMs !== undefined && (delMs === Infinity || delMs >= localMs)) {
+      continue;
+    }
+
     const cloudRow = cloudByKey.get(key);
 
     if (!cloudRow) {
+      // If this device previously synced at `lastSyncedAt` and this local item is older than or
+      // equal to `lastSyncedAt`, its absence from `cloudRows` means another device deleted it.
+      const wasDeletedRemotely =
+        lastSyncedMs > 0 &&
+        ((localMs > 0 && localMs <= lastSyncedMs) || Boolean(localMovie.isSyncedToCloud));
+      if (wasDeletedRemotely) {
+        continue;
+      }
       resolvedWatchedMap.set(key, localMovie);
       toUpsertMap.set(key, mapLocalMovieToDbRow(localMovie, "watched", userId, nowIso));
       continue;
@@ -188,7 +361,6 @@ export function mergeLocalAndCloudVault({
       continue;
     }
 
-    const localMs = parseTimestampMs(localMovie.updatedAt || localMovie.dateWatched);
     const cloudMs = parseTimestampMs(cloudRow.updated_at);
     const localRating = Number(localMovie.userRating) || 0;
     const cloudRating = Number(cloudRow.user_rating) || 0;
@@ -216,7 +388,7 @@ export function mergeLocalAndCloudVault({
     }
   }
 
-  for (const row of cloudRows || []) {
+  for (const row of cloudByKey.values()) {
     if (!row?.movie_key || row.status !== "watched") continue;
     if (!resolvedWatchedMap.has(row.movie_key)) {
       resolvedWatchedMap.set(row.movie_key, mapDbRowToLocalMovie(row));
@@ -226,9 +398,20 @@ export function mergeLocalAndCloudVault({
   for (const localSaved of localWatchlist || []) {
     const key = getCanonicalMovieKey(localSaved);
     if (!key || resolvedWatchedMap.has(key)) continue;
+    const localMs = parseTimestampMs(localSaved.updatedAt || localSaved.dateAdded || localSaved.dateWatched);
+    const delMs = deletedMap.get(key);
+    if (delMs !== undefined && (delMs === Infinity || delMs >= localMs)) {
+      continue;
+    }
 
     const cloudRow = cloudByKey.get(key);
     if (!cloudRow) {
+      const wasDeletedRemotely =
+        lastSyncedMs > 0 &&
+        ((localMs > 0 && localMs <= lastSyncedMs) || Boolean(localSaved.isSyncedToCloud));
+      if (wasDeletedRemotely) {
+        continue;
+      }
       resolvedWatchlistMap.set(key, localSaved);
       toUpsertMap.set(key, mapLocalMovieToDbRow(localSaved, "watchlist", userId, nowIso));
     } else if (cloudRow.status === "watchlist") {
@@ -240,7 +423,7 @@ export function mergeLocalAndCloudVault({
     }
   }
 
-  for (const row of cloudRows || []) {
+  for (const row of cloudByKey.values()) {
     if (!row?.movie_key || row.status !== "watchlist") continue;
     if (resolvedWatchedMap.has(row.movie_key)) continue;
     if (!resolvedWatchlistMap.has(row.movie_key)) {
@@ -251,7 +434,8 @@ export function mergeLocalAndCloudVault({
   return {
     mergedWatched: [...resolvedWatchedMap.values()],
     mergedWatchlist: [...resolvedWatchlistMap.values()],
-    toUpsertCloud: [...toUpsertMap.values()]
+    toUpsertCloud: [...toUpsertMap.values()],
+    ...(toDeleteCloudSet.size > 0 ? { toDeleteCloud: [...toDeleteCloudSet] } : {})
   };
 }
 
@@ -321,6 +505,8 @@ export async function pullAndSyncCloudVault(
     localWatched = [],
     localWatchlist = [],
     nowIso = new Date().toISOString(),
+    deletedKeys = null,
+    lastSyncedAt = null,
     pageSize = 1000,
     mergeFn = mergeLocalAndCloudVault,
     onMerged = null
@@ -333,11 +519,26 @@ export async function pullAndSyncCloudVault(
     localWatchlist,
     cloudRows,
     userId,
-    nowIso
+    nowIso,
+    deletedKeys,
+    lastSyncedAt
   });
 
   if (typeof onMerged === "function") {
     onMerged(merged);
+  }
+
+  const toDeleteCloud = Array.isArray(merged?.toDeleteCloud) ? merged.toDeleteCloud : [];
+  if (toDeleteCloud.length > 0 && userId) {
+    for (let i = 0; i < toDeleteCloud.length; i += 100) {
+      const chunk = toDeleteCloud.slice(i, i + 100);
+      const { error: deleteError } = await client
+        .from("user_vault_items")
+        .delete()
+        .eq("user_id", userId)
+        .in("movie_key", chunk);
+      if (deleteError) throw deleteError;
+    }
   }
 
   const toUpsertCloud = Array.isArray(merged?.toUpsertCloud) ? merged.toUpsertCloud : [];

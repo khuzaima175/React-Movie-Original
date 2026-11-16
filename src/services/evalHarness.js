@@ -316,7 +316,79 @@ export function gridSearchHyperparams(watched = [], candidateCatalog = [], param
  * Ranker evaluation (Phase 1): scores the REAL logistic ranker against fixed baselines
  * ---------------------------------------------------------------------------------------- */
 
-export const EVAL_STRATEGIES = ["ranker", "popularity", "toy", "random"];
+export const EVAL_STRATEGIES = ["ranker", "popularity", "item_knn", "toy", "random"];
+
+function getIndexVectorForMovie(movie, embeddingIndex) {
+  if (!embeddingIndex?.idToIndex || !embeddingIndex?.vectors || !embeddingIndex?.dim) return null;
+  const tid = Number(movie?.tmdbId ?? movie?.id ?? 0);
+  if (!Number.isFinite(tid) || tid <= 0) return null;
+  const idx = embeddingIndex.idToIndex.get(tid);
+  if (idx === undefined) return null;
+  const offset = idx * embeddingIndex.dim;
+  return embeddingIndex.vectors.subarray(offset, offset + embeddingIndex.dim);
+}
+
+function cosineSimVectors(u, v) {
+  if (!u || !v || u.length === 0 || u.length !== v.length) return 0;
+  let dot = 0;
+  let normU = 0;
+  let normV = 0;
+  for (let i = 0; i < u.length; i++) {
+    dot += u[i] * v[i];
+    normU += u[i] * u[i];
+    normV += v[i] * v[i];
+  }
+  const denom = Math.sqrt(normU) * Math.sqrt(normV);
+  return denom > 0 ? dot / denom : 0;
+}
+
+function jaccardOverlap(arrA, arrB) {
+  if (!Array.isArray(arrA) || !Array.isArray(arrB) || arrA.length === 0 || arrB.length === 0) return 0;
+  const setA = new Set(arrA);
+  let inter = 0;
+  const unionSet = new Set(arrA);
+  for (const x of arrB) {
+    if (setA.has(x)) inter += 1;
+    unionSet.add(x);
+  }
+  return unionSet.size > 0 ? inter / unionSet.size : 0;
+}
+
+function computeItemKnnScore(candidate, likedTrain = [], embeddingIndex = null, k = 10) {
+  if (!Array.isArray(likedTrain) || likedTrain.length === 0) return 0;
+  const vecC = getIndexVectorForMovie(candidate, embeddingIndex);
+  const candGenres = candidate?.tmdbGenreIds || candidate?.genre_ids || [];
+  const candKeywords = candidate?.tmdbKeywords || [];
+  const candCast = candidate?.castIds || [];
+  const candDirector = candidate?.crewPersonId ?? null;
+
+  const sims = [];
+  for (const trainItem of likedTrain) {
+    const r = Number(trainItem?.userRating ?? trainItem?.UserRating ?? 8);
+    const weight = Math.max(0.25, (r - 5) / 5);
+    const vecT = vecC ? getIndexVectorForMovie(trainItem, embeddingIndex) : null;
+    let sim = 0;
+    if (vecC && vecT) {
+      sim = Math.max(0, cosineSimVectors(vecC, vecT));
+    } else {
+      const gSim = jaccardOverlap(candGenres, trainItem?.tmdbGenreIds || trainItem?.genre_ids || []);
+      const kwSim = jaccardOverlap(candKeywords, trainItem?.tmdbKeywords || []);
+      const cSim = jaccardOverlap(candCast, trainItem?.castIds || []);
+      const dSim =
+        candDirector && trainItem?.crewPersonId && Number(candDirector) === Number(trainItem.crewPersonId)
+          ? 1
+          : 0;
+      sim = gSim * 0.45 + kwSim * 0.35 + cSim * 0.1 + dSim * 0.1;
+    }
+    if (sim > 0) {
+      sims.push({ sim, weighted: sim * weight });
+    }
+  }
+  if (sims.length === 0) return 0;
+  sims.sort((a, b) => b.sim - a.sim);
+  const topNeighbors = sims.slice(0, Math.max(1, k));
+  return topNeighbors.reduce((acc, n) => acc + n.weighted, 0) / topNeighbors.length;
+}
 
 function seededRandom(seed = 1) {
   let a = Number(seed) >>> 0;
@@ -510,6 +582,24 @@ export async function evaluateRanker(options = {}) {
     ranked = candidates
       .map(c => ({ item: c, score: computeBayesianScore(c.vote_average, c.vote_count) }))
       .sort((a, b) => b.score - a.score || getMovieKey(a.item).localeCompare(getMovieKey(b.item)))
+      .map(x => x.item);
+  } else if (strategy === "item_knn") {
+    const likedTrain = split.trainWatched.filter(
+      m => Number(m?.userRating ?? m?.UserRating ?? 0) >= minPositiveRating
+    );
+    const knnAnchors = likedTrain.length > 0 ? likedTrain : split.trainWatched;
+    ranked = candidates
+      .map(c => ({
+        item: c,
+        score: computeItemKnnScore(c, knnAnchors, embeddingIndex, 10),
+        tieScore: computeBayesianScore(c.vote_average, c.vote_count)
+      }))
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.tieScore - a.tieScore ||
+          getMovieKey(a.item).localeCompare(getMovieKey(b.item))
+      )
       .map(x => x.item);
   } else {
     ranked = seededShuffle(candidates, seed);

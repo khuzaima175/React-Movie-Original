@@ -4,6 +4,18 @@
  */
 import { findMatchingMovie } from "./movieIdentity.js";
 
+function normalizePipelineName(rawPipeline) {
+  if (typeof rawPipeline !== "string" || !rawPipeline.trim()) return null;
+  const clean = rawPipeline.trim().toLowerCase();
+  if (clean === "gemini" || clean === "gemini-curation" || clean === "gemini-omdb-fallback") {
+    return "gemini";
+  }
+  if (clean === "ranker-fallback" || clean === "ranker-preliminary" || clean === "ranker") {
+    return "ranker-fallback";
+  }
+  return clean;
+}
+
 function normalizeRecSourcePayload(raw, fallback = {}) {
   if (!raw || typeof raw !== "object") return null;
   const shownAt =
@@ -24,7 +36,14 @@ function normalizeRecSourcePayload(raw, fallback = {}) {
     rawRank !== null && rawRank !== undefined && Number.isFinite(Number(rawRank))
       ? Math.max(1, Math.round(Number(rawRank)))
       : null;
-  return { shownAt, matchScore, mood, rank };
+  const pipeline = normalizePipelineName(raw.pipeline ?? fallback.pipeline);
+  return {
+    shownAt,
+    matchScore,
+    mood,
+    rank,
+    ...(pipeline ? { pipeline } : {})
+  };
 }
 
 /**
@@ -33,23 +52,28 @@ function normalizeRecSourcePayload(raw, fallback = {}) {
 export function attachRecSourceToRecommendations(
   recommendations = [],
   mood = "any",
-  shownAt = new Date().toISOString()
+  shownAt = new Date().toISOString(),
+  pipeline = null
 ) {
   if (!Array.isArray(recommendations)) return [];
   const cleanMood = typeof mood === "string" && mood.trim() ? mood.trim() : "any";
+  const normalizedPipeline = normalizePipelineName(pipeline);
   return recommendations.map((rec, idx) => {
     if (!rec || typeof rec !== "object") return rec;
+    const recPipeline = normalizePipelineName(rec.pipeline) || normalizedPipeline;
     const existing = normalizeRecSourcePayload(rec.recSource, {
       shownAt,
       matchScore: rec.matchScore,
       mood: cleanMood,
-      rank: idx + 1
+      rank: idx + 1,
+      ...(recPipeline ? { pipeline: recPipeline } : {})
     });
     const recSource = existing || {
       shownAt,
       matchScore: Number.isFinite(Number(rec.matchScore)) ? Number(rec.matchScore) : null,
       mood: cleanMood,
-      rank: idx + 1
+      rank: idx + 1,
+      ...(recPipeline ? { pipeline: recPipeline } : {})
     };
     return {
       ...rec,
@@ -105,21 +129,8 @@ export function resolveMovieRecSource(
   );
 }
 
-/**
- * Computes real-world conversion hit rates on watched films that originated from AI recommendations.
- */
-export function computeRecommendationHitRate(watched = []) {
-  const fromRecs = (Array.isArray(watched) ? watched : []).filter(
-    (movie) =>
-      movie &&
-      typeof movie === "object" &&
-      movie.recSource &&
-      typeof movie.recSource === "object" &&
-      Number.isFinite(Number(movie.userRating)) &&
-      Number(movie.userRating) > 0
-  );
-
-  const totalRatedFromRecs = fromRecs.length;
+function computeHitRateSlice(items = []) {
+  const totalRatedFromRecs = items.length;
   if (totalRatedFromRecs === 0) {
     return {
       totalRatedFromRecs: 0,
@@ -134,7 +145,7 @@ export function computeRecommendationHitRate(watched = []) {
   let count8Plus = 0;
   let count9Plus = 0;
   let ratingSum = 0;
-  for (const movie of fromRecs) {
+  for (const movie of items) {
     const rating = Number(movie.userRating);
     ratingSum += rating;
     if (rating >= 8) count8Plus += 1;
@@ -148,6 +159,43 @@ export function computeRecommendationHitRate(watched = []) {
     hitRate8Plus: count8Plus / totalRatedFromRecs,
     hitRate9Plus: count9Plus / totalRatedFromRecs,
     meanRating: ratingSum / totalRatedFromRecs
+  };
+}
+
+/**
+ * Computes real-world conversion hit rates on watched films that originated from AI recommendations,
+ * both overall and split by pipeline (`gemini` vs `rankerFallback`).
+ */
+export function computeRecommendationHitRate(watched = []) {
+  const fromRecs = (Array.isArray(watched) ? watched : []).filter(
+    (movie) =>
+      movie &&
+      typeof movie === "object" &&
+      movie.recSource &&
+      typeof movie.recSource === "object" &&
+      Number.isFinite(Number(movie.userRating)) &&
+      Number(movie.userRating) > 0
+  );
+
+  const overall = computeHitRateSlice(fromRecs);
+  const geminiItems = [];
+  const rankerFallbackItems = [];
+
+  for (const movie of fromRecs) {
+    const p = normalizePipelineName(movie.recSource?.pipeline || movie.pipeline);
+    if (p === "ranker-fallback") {
+      rankerFallbackItems.push(movie);
+    } else if (p === "gemini") {
+      geminiItems.push(movie);
+    }
+  }
+
+  return {
+    ...overall,
+    byPipeline: {
+      gemini: computeHitRateSlice(geminiItems),
+      rankerFallback: computeHitRateSlice(rankerFallbackItems)
+    }
   };
 }
 

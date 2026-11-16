@@ -854,6 +854,46 @@ test("api/* Sec-Fetch-Site: cross-site is rejected when Origin is absent, never 
       evilOriginWithSameOriginFetchSite
     );
     assert.equal(evilOriginWithSameOriginFetchSite.statusCode, 403);
+
+    // Production / Vercel strict mode: curl / script with neither Origin nor Sec-Fetch-Site -> 403,
+    // while browser same-origin request with Sec-Fetch-Site: same-origin -> 200
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const curlNoHeadersProd = createMockRes();
+      await tmdbHandler(
+        {
+          method: "GET",
+          headers: {
+            host: "cinemavault.example.com",
+            "x-forwarded-for": "198.51.100.95"
+          },
+          query: { path: "/3/discover/movie" },
+          fetchFn
+        },
+        curlNoHeadersProd
+      );
+      assert.equal(curlNoHeadersProd.statusCode, 403, "curl without Origin or Sec-Fetch-Site must be blocked in production");
+
+      const browserSameOriginProd = createMockRes();
+      await tmdbHandler(
+        {
+          method: "GET",
+          headers: {
+            host: "cinemavault.example.com",
+            "sec-fetch-site": "same-origin",
+            "x-forwarded-for": "198.51.100.96"
+          },
+          query: { path: "/3/discover/movie" },
+          fetchFn
+        },
+        browserSameOriginProd
+      );
+      assert.equal(browserSameOriginProd.statusCode, 200, "same-origin browser fetch with Sec-Fetch-Site: same-origin must pass in production");
+    } finally {
+      if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevNodeEnv;
+    }
   } finally {
     resetRateLimitBuckets();
     if (prevTmdb === undefined) delete process.env.TMDB_API_KEY;

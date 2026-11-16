@@ -113,6 +113,7 @@ export default function MovieRecommendations({
   } = useApp();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isEnhancingWithGemini, setIsEnhancingWithGemini] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
   const [activeStep, setActiveStep] = useState(0);
@@ -291,6 +292,7 @@ export default function MovieRecommendations({
     }
 
     setIsLoading(true);
+    setIsEnhancingWithGemini(false);
     setRecommendations(null);
     setError("");
     setDismissingTitle(null);
@@ -305,7 +307,26 @@ export default function MovieRecommendations({
         userRegion,
         userProviders: userWatchProviders,
         feedbackLog: aiFeedbackLog,
-        tasteRules
+        tasteRules,
+        onStage3Ready: (preliminaryResult) => {
+          if (activeRequestRef.current !== requestId) return;
+          if (
+            Array.isArray(preliminaryResult?.recommendations) &&
+            preliminaryResult.recommendations.length > 0
+          ) {
+            const prelimStamped = attachRecSourceToRecommendations(
+              preliminaryResult.recommendations,
+              effectiveMood,
+              new Date().toISOString(),
+              "ranker-fallback"
+            );
+            setTasteProfile(preliminaryResult.tasteProfile);
+            setRecommendations(prelimStamped);
+            setMoodShortfall(preliminaryResult.moodShortfall ?? null);
+            setIsLoading(false);
+            setIsEnhancingWithGemini(true);
+          }
+        }
       });
 
       if (activeRequestRef.current !== requestId) return;
@@ -326,9 +347,18 @@ export default function MovieRecommendations({
         ...resolveResultModelInfo(result, "curation"),
         fromCache: false
       };
+      const activeMode = liveModelInfo?.pipeline || liveModelInfo?.fallbackMode || "";
+      const finalPipeline =
+        activeMode === "gemini-curation" ||
+        activeMode === "gemini-omdb-fallback" ||
+        Boolean(liveModelInfo?.model)
+          ? "gemini"
+          : "ranker-fallback";
       const stampedRecommendations = attachRecSourceToRecommendations(
         result.recommendations,
-        effectiveMood
+        effectiveMood,
+        new Date().toISOString(),
+        finalPipeline
       );
       const cacheableResult = {
         ...result,
@@ -347,6 +377,7 @@ export default function MovieRecommendations({
     } finally {
       if (activeRequestRef.current === requestId) {
         setIsLoading(false);
+        setIsEnhancingWithGemini(false);
         setProgress("");
       }
     }
@@ -356,6 +387,7 @@ export default function MovieRecommendations({
     activeRequestRef.current++;
     refreshStateRef.current = { key: "", seenIds: [], page: 1 };
     setIsLoading(false);
+    setIsEnhancingWithGemini(false);
     setProgress("");
     setError("");
     setSelectedMood("any");
@@ -1081,6 +1113,13 @@ export default function MovieRecommendations({
                 <Info size={13} aria-hidden="true" />
                 <span>About these picks</span>
               </button>
+
+              {isEnhancingWithGemini && (
+                <span className="oracle-enhancing-pill" role="status" aria-live="polite">
+                  <Loader2 size={12} className="spin-icon" aria-hidden="true" />
+                  <span>Enhancing with Gemini curation…</span>
+                </span>
+              )}
 
               {showAboutPicks && (
                 <div className="about-picks-popover" role="status">

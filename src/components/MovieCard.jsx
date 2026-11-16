@@ -1,4 +1,5 @@
-import { motion } from "framer-motion";
+import { useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Star, Plus, Check, Info, Trash2, CheckSquare, Square, GitCompareArrows } from "lucide-react";
 import PosterImage from "./PosterImage";
 import { useOptionalApp } from "../context/AppContext";
@@ -25,6 +26,8 @@ export default function MovieCard({
   className = ""
 }) {
   const appCtx = useOptionalApp();
+  const posterRef = useRef(null);
+  const tiltFrameRef = useRef(0);
   const [revealRef, isRevealed] = useScrollReveal({
     rootMargin: "120px 0px 40px 0px",
     threshold: 0,
@@ -73,6 +76,34 @@ export default function MovieCard({
     onDeleteMovie?.(id);
   }
 
+  // Pointer-driven tilt + moving glare. Writes CSS variables directly (no re-render);
+  // the CSS only consumes them on fine-pointer, no-reduced-motion devices.
+  function handlePosterPointerMove(e) {
+    if (e.pointerType !== "mouse" || isManageMode) return;
+    const el = posterRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+    cancelAnimationFrame(tiltFrameRef.current);
+    tiltFrameRef.current = requestAnimationFrame(() => {
+      el.style.setProperty("--ry", `${((px - 0.5) * 10).toFixed(2)}deg`);
+      el.style.setProperty("--rx", `${((0.5 - py) * 10).toFixed(2)}deg`);
+      el.style.setProperty("--gx", `${(px * 100).toFixed(1)}%`);
+      el.style.setProperty("--gy", `${(py * 100).toFixed(1)}%`);
+    });
+  }
+
+  function handlePosterPointerLeave() {
+    cancelAnimationFrame(tiltFrameRef.current);
+    const el = posterRef.current;
+    if (!el) return;
+    el.style.removeProperty("--rx");
+    el.style.removeProperty("--ry");
+    el.style.removeProperty("--gx");
+    el.style.removeProperty("--gy");
+  }
+
   return (
     <motion.div
       ref={animateOnScroll ? revealRef : undefined}
@@ -93,16 +124,23 @@ export default function MovieCard({
       } ${className}`}
       onClick={handleCardClick}
       tabIndex={0}
-      role="button"
+      role="group"
       aria-label={`View details for ${title}`}
       onKeyDown={(e) => {
+        // Ignore keys bubbling up from nested action buttons
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           handleCardClick(e);
         }
       }}
     >
-      <div className="unified-card-poster">
+      <div
+        ref={posterRef}
+        className="unified-card-poster"
+        onPointerMove={handlePosterPointerMove}
+        onPointerLeave={handlePosterPointerLeave}
+      >
         <PosterImage src={poster} title={title} alt={`${title} poster`} />
 
         {isManageMode && (
@@ -145,7 +183,18 @@ export default function MovieCard({
                   title={isWatched ? "In Vault" : "Rate or Save"}
                   aria-label={isWatched ? `${title} is in Vault` : `Rate or save ${title}`}
                 >
-                  {isWatched ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={isWatched ? "added" : "idle"}
+                      className="card-action-icon"
+                      initial={{ scale: 0.3, rotate: -90, opacity: 0 }}
+                      animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                      exit={{ scale: 0.3, rotate: 90, opacity: 0 }}
+                      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                      {isWatched ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+                    </motion.span>
+                  </AnimatePresence>
                 </button>
               )}
 
@@ -164,7 +213,7 @@ export default function MovieCard({
               {!isManageMode && showCompareButton && resolvedToggleCompare && (
                 <button
                   type="button"
-                  className={`btn-card-action ${resolvedIsInCompare ? "added" : "ghost"}`}
+                  className={`btn-card-action ${resolvedIsInCompare ? "" : "ghost"}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     resolvedToggleCompare(movie);
@@ -173,11 +222,7 @@ export default function MovieCard({
                   aria-pressed={resolvedIsInCompare}
                   aria-label={resolvedIsInCompare ? `Remove ${title} from Compare` : `Add ${title} to Compare`}
                 >
-                  {resolvedIsInCompare ? (
-                    <Check size={14} aria-hidden="true" />
-                  ) : (
-                    <GitCompareArrows size={14} aria-hidden="true" />
-                  )}
+                  <GitCompareArrows size={14} aria-hidden="true" />
                 </button>
               )}
 

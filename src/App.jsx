@@ -23,7 +23,23 @@ import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
 } from "./services/tasteDeckService";
-import { Film } from "lucide-react";
+import { motion, AnimatePresence, MotionConfig, useScroll, useSpring } from "framer-motion";
+import { pageTransition } from "./motion";
+
+/** Thin reading-progress line pinned above the navbar. */
+function ScrollProgress() {
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, { stiffness: 140, damping: 28, restDelta: 0.001 });
+  return <motion.div className="scroll-progress" style={{ scaleX }} aria-hidden="true" />;
+}
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  if (typeof document !== "undefined") {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
+}
 
 function AppContent() {
   const {
@@ -46,14 +62,6 @@ function AppContent() {
   const didCheckOnboardingRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
-
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    if (typeof document !== "undefined") {
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-    }
-  }, [location.pathname]);
 
   useEffect(() => {
     if (didCheckOnboardingRef.current) return;
@@ -114,6 +122,7 @@ function AppContent() {
   return (
     <div className="min-h-screen flex flex-col bg-bg text-text-1 selection:bg-accent/20 selection:text-accent">
       <AnimatedBackground />
+      <ScrollProgress />
       <NavBar
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenRandomPicker={() => setIsRandomPickerOpen(true)}
@@ -176,7 +185,15 @@ function AppContent() {
       <CompareModal onQuickRate={(m) => setQuickRateTarget(m)} />
 
       <main className="flex-1 w-full">
-        <Routes>
+        <AnimatePresence mode="wait" onExitComplete={scrollToTop}>
+          <motion.div
+            key={location.pathname}
+            variants={pageTransition}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+          >
+        <Routes location={location}>
           <Route
             path="/"
             element={
@@ -202,6 +219,8 @@ function AppContent() {
           <Route path="/ai" element={<AIPage onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Slim Editorial Footer */}
@@ -227,9 +246,11 @@ function AppContent() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppProvider>
-        <AppContent />
-      </AppProvider>
+      <MotionConfig reducedMotion="user">
+        <AppProvider>
+          <AppContent />
+        </AppProvider>
+      </MotionConfig>
     </ErrorBoundary>
   );
 }

@@ -1,365 +1,373 @@
-# 🎬 CinemaVault — The Ultimate Personal Film Vault, On-Device ML Recommender & Cinema Companion
+# CinemaVault
 
-<div align="center">
-
-![CinemaVault Banner](assets/movie_vault.png)
-
-### *Stop scrolling. Start watching. A private, streaming-grade film tracker powered by an on-device 25,000-film taste model and resilient Gemini AI curation.*
+A local-first film tracker and recommender. It combines an on-device taste model, multi-bucket TMDB retrieval, and Gemini-based curation, with optional Supabase sync.
 
 [![React 18](https://img.shields.io/badge/React-18.3-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Vite 5](https://img.shields.io/badge/Vite-5.4-646cff?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Local ML CVEM v1](https://img.shields.io/badge/Local_ML-CVEM_v1_25k_f16-e2b13c?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-4_Hydrogen_Cascade-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Framer Motion](https://img.shields.io/badge/Framer_Motion-Smooth_Physics-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
-[![Tests 311/311](https://img.shields.io/badge/Tests-311%2F311_Passing-46d369?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md#6-how-to-check-everything-yourself-ez-verification-commands)
+[![Framer Motion](https://img.shields.io/badge/Framer_Motion-12-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
 
-[Explore Features](#-standout-features-showcase) • [Why CinemaVault?](#-the-problem-why-cinemavault) • [How It Works](#-the-magic-under-the-hood) • [Local ML & Bugs Fixed](#-on-device-local-ml--provenance-highlights) • [Quick Start](#-quickstart-guide)
-
-</div>
+[Features](#features) · [Why CinemaVault](#why-cinemavault) · [How it works](#how-it-works) · [Local model](#local-model-and-verification) · [Quick start](#quick-start) · [Known limitations](#known-limitations)
 
 ---
 
-## 💡 The Problem: Why CinemaVault?
+## Why CinemaVault
 
-We’ve all been there:
-- You spend **45 minutes scrolling** through Netflix, Prime, and Disney+ trying to pick something to watch, only to end up watching re-runs of a comfort show.
-- You ask ChatGPT or an AI chatbot for movie recommendations, and it gives you either the **same 5 generic movies everyone has seen** (*Inception*, *Interstellar*, *The Dark Knight*) or **completely hallucinates** fake movies and release years.
-- Even good mathematical recommenders choke on **10–25 year old decayed film logs**, **clustered Letterboxd CSV backlog imports** that masquerade as "watched today", or **blindspots for great movies released in the last 18 months** after historical collaborative datasets end.
-- When you do find a movie you like, you have no idea **which streaming service actually has it in your country**.
-- Your film ratings are scattered across IMDb, Letterboxd, and notes on your phone with zero actionable insights.
+Problems this project is built around:
 
-### Enter **CinemaVault**.
-CinemaVault is a modern, privacy-focused, streaming-grade web application designed to be your **definitive personal film vault, on-device 25,000-film mathematical curator, live discovery & research hub, side-by-side comparison workbench, and cinema concierge** — combining multi-page TMDB Discover carousels, a URL-synced `/explore` Deep Filter Workbench, a first-open 30-film Rapid Taste Deck, Rating Studio 2.0 (live Vault percentile calibration, 4-aspect Craft Breakdown, & Watch Log metadata), Rabbit Hole franchise timelines & hybrid `CVEM v1` + TMDB similarity strips, a 2–3 film Side-by-Side Comparison Matrix (`/compare` + floating `CompareDock`), verified 5-bucket retrieval + `moodPolicy.js` vibe gating, local `CVEM v1` half-precision collaborative embeddings, a calibrated 12-feature logistic ranker (`10` curated picks with refresh rotation), a resilient `gemini-4-hydrogen` multi-model cascade (including spoiler-safe `"Discuss This Film"` contextual AI chat) served via key-isolated `/api/*` serverless proxies, and optional multi-user Supabase Cloud Sync with Postgres RLS.
+- Browsing streaming services for a film to watch can take a long time.
+- General AI chatbots often recommend the same mainstream titles, or invent films and release years.
+- Math-based recommenders can struggle with old rating logs, bulk-imported Letterboxd backlogs that look like recent watches, and films released after the collaborative training data ends.
+- Streaming availability depends on the viewer's country.
+- Ratings are scattered across services, spreadsheets, and notes.
 
----
-
-## 🌟 What Makes CinemaVault Special? (CinemaVault at a Glance)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             CINEMAVAULT AT A GLANCE                         │
-├──────────────────────┬───────────────────────┬──────────────────────────────┤
-│  🧠 On-Device ML     │  🎭 Canonical Moods   │  🛡️ Resilient H1 Cascade     │
-│  3.15 MB float16     │  6 moods + free-text  │  gemini-4-hydrogen (HIGH) +  │
-│  index (25k films)   │  "Match Vibe" parser  │  3.5-flash-lite + /api/*     │
-│  for $0 / 5ms taste. │  & 10-pick rotation.  │  proxies + error cooldowns.  │
-├──────────────────────┼───────────────────────┼──────────────────────────────┤
-│  🎯 0% Hallucination │  📺 Real Streaming    │  🃏 Rapid Taste Deck         │
-│  Verified TMDB IDs + │  12 platforms + 13    │  30-film multi-genre deck +  │
-│  locked 50-99% +     │  TMDB alias families, │  10-tier Quick Rate without  │
-│  vault anchor links. │  15 regions localized.│  ever faking 5★/7★ ratings.  │
-├──────────────────────┼───────────────────────┼──────────────────────────────┤
-│  💬 Contextual AI    │  📊 Cinema Taste      │  📥 Schema v2 & CSV Import   │
-│  Chat concierge aware│  Analytics: True 1-10 │  Diff preview, Watched >     │
-│  of 8★+ history &    │  bins, contrarian &   │  Logged date, bulk cluster   │
-│  personal reviews.   │  total screen time.   │  guard & rewatch dedupe.     │
-├──────────────────────┼───────────────────────┼──────────────────────────────┤
-│  ✨ Editorial Discover│ ☁️ Local + Supabase   │  ⚡ Fast Command Palette     │
-│  Zero-seen carousels │  Guest-first storage  │  `Cmd + K` / `/` race-safe   │
-│  + "All Films" grid. │  + opt-in Auth/RLS.   │  search & official trailers. │
-└──────────────────────┴───────────────────────┴──────────────────────────────┘
-```
+CinemaVault keeps your film log in your browser by default. It uses your ratings to build a local taste model, retrieves candidates from TMDB, ranks them with a deterministic model, and only then asks Gemini to choose and explain among already-verified titles.
 
 ---
 
-## 🚀 Standout Features Showcase
+## At a glance
 
-### 1. 🎯 4-Stage On-Device ML & Hybrid AI Recommendation Engine
-> *"Recommendations built on real math first — with zero hallucinated scores or invented titles."*
-
-Most AI movie tools prompt an LLM to invent titles from thin air. CinemaVault runs a **4-stage hybrid architecture** where **85–90% of the intelligence happens locally on your device**:
-1. **Per-User Z-Scored Taste DNA & Relative Weighting ([scoringUtils.js](./src/services/scoringUtils.js) + [embeddingService.js](./src/services/embeddingService.js))**:
-   - Normalizes harsh vs. generous rating habits via personal z-scores ($z_i = (r_i - \mu) / \max(\sigma, 0.5)$).
-   - Applies exponential recency decay ($\lambda = 0.002\text{ days}^{-1}$, ~11.5-month half-life) with an **180-day undated backlog prior** and a **vault-relative weight cutoff** (`1e-6 * maxAbsWeight`) so even 1999–2005 film vaults keep full collaborative personas.
-   - Clusters positive affinities into **1–4 mass-weighted Spherical K-Means Personas** (`computePersonaDetails`) aggregated via log-sum-exp mixture ($\beta = 20$), blended (`0.75 / 0.25`) with an on-device **64×64 L2-regularized Ridge fold-in vector** (`computeUserRidgeEmbedding`, $\lambda = 20$, `ridgeMinItems = 10`, scale-invariant `normW`) so eclectic favorites never blur into a midpoint while global liked/neutral/disliked ratings shape sharp preference boundaries, and `buildRepulsionMapFromIndex` actively pushes away neighborhoods of movies you disliked.
-2. **5-Bucket Verified Candidate Harvesting ([tmdbService.js](./src/services/tmdbService.js))**:
-   - **Bucket B (Spiritual Successors):** Thematic micro-keywords matched from your highest-weighted `9★+` anchor film (`vote_count >= 500`, `vote_average >= 7.0`).
-   - **Bucket C (Auteur & Crew Network):** Unwatched acclaimed films from your favorite directors, cinematographers, composers, and screenwriters.
-   - **Bucket A (Semantic Discovery):** Broad discovery filtered by loved genres, watchlist intent, top actors, selected mood, surgical negative keyword exclusions (`without_keywords`), and regional streaming subscriptions.
-   - **Bucket D (Recent-Release Lane):** Dedicated harvesting of popular acclaimed films from the **last 18 months** (`vote_average >= 7.0`, `vote_count >= 150`, top 3 loved genres, up to 12 items) appended after Buckets A/B/C without shrinking them (and skipped cleanly under `hidden-gem` or pre-era custom filters).
-   - **Bucket E (64-D Embedding Neighbors):** Up to **30 unseen nearest-neighbor films** (or **15 mood-gated neighbors** when an explicit mood/vibe filter is active) pulled locally from `/models/item_embeddings_f16.bin` across your taste personas with full-pool batch metadata hydration via `/api/tmdb-batch` + 30-day IndexedDB caching (`enrichCandidatePoolMetadata`).
-3. **Calibrated Logistic Ranker, Mood Rebalancing & Strict Streaming Gates ([rankerService.js](./src/services/rankerService.js) + [moodPolicy.js](./src/services/moodPolicy.js))**:
-   - Scores the merged pool across **12 features** (with online feedback tuning via `onlineLearningService.js` skipping `already_seen`, and optional Stage 2 `/models/content_embeddings_f16.bin` + `CDNA` vectors) using pool-independent **`catalog-max` `collabSim` scaling**, **smoothstep `[0, 0.02]` → `0.35x` metadata damping** in `"any"` vibe, generous-rater `>= 7★` negative-suppression guards, and tuned `-0.5` negative keyword penalty.
-   - Under explicit moods or custom **"Match Vibe"** queries, switches seamlessly to `collabSim * 0.35`, `1.0x` metadata strength, `computeMoodScoreAdjustment`, and strict `matchesMoodCandidateGate` filtering (emitting a `moodShortfall` banner when few candidates qualify) while leaving `"any"` vibe untouched.
-   - Guarantees **`RECENT_RELEASE_RESERVE_COUNT = 2`** qualifying recent-release slots in `"any"` shortlists via `computeReserveQualityScore` (identical ranker weights with `noveltyBonus = 0`) so acclaimed new cinema breaks through MovieLens's late-2023 cutoff without displacing `98%` classics.
-   - Locks deterministic **50–99% Match Scores** (with `null` fallback suppressing noisy scores rather than inventing `88%`) and emits up to **3 human-readable Match Reason Badges** (`🎭 <Mood> Fit`, `🧬 High Taste-Twin Match`, `🎬 Favorite Filmmaker`, `🎯 Core Theme Match`, `💎 Personal Cult Pick`, `🎪 Genre Bullseye`, `⭐ Critical Acclaim`).
-4. **Resilient H1 Gemini Cascade, Note-Aware Curation & Refresh Rotation ([geminiService.js](./src/services/geminiService.js) + [oracleViewHelpers.js](./src/services/oracleViewHelpers.js))**:
-   - Builds a **39-candidate stratified shortlist** via `buildDiversifiedGeminiShortlist` (`25` core ranker + `8` cold `2024–2026` + `6` director/genre/decade outliers; gating strictly on `gatePassed`) and sends unbiased, signal-rich context bounded **`<= 20,000` chars** (`PROMPT_CHAR_BUDGET = 19200`, `PROMPT_CHAR_LIMIT = 20000`) to **`CURATION_MODEL_CASCADE`** (`gemini-4-hydrogen` HIGH `35s` → `gemini-3.5-flash-lite` → `gemini-3.6-flash` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-3.8-flash` `15s`) via `/api/gemini` or direct dev keys: real `userStats.mean` & `topDirectors`, mood-stratified anchors (`[Series]` + `userNote` up to `180` chars), relative `5/10` dislikes (resolved from nested `weightedRatings`), `6–7★` `NEAR MISSES`, `USER'S WATCHLIST`, `ADDITIONAL TOP FAVORITES` (`11–25`), `LOVED SERIES / ANIME`, deduplicated `ADDITIONAL VIEWER NOTES` (all remaining notes), and compact candidate blocks (`Specs`, top `3` `Cast`, top `5` `Themes`, `Tagline`, `Plot` `<= 250`, zero `Match: XX%` or `#1–#15` rank bias under `"Curate openly"`). Supports **0–2 optional `wildcardPicks`** strictly verified via TMDB search + `fetchBatchFormattedDetailsMap` against vault/watchlist/pool exclusions, TV guards, active streaming providers, and mood gates (`verifyAndScoreWildcardPicks`, scored against `collabCatalogMax` without 1-item probability stretching) while selecting **`10` (`DEFAULT_RECOMMENDATION_COUNT = 10`)** diverse winners (`"Because you rated"` vault anchor chips, soft max-2-per-director cap, calibrated `matchScore` locking, & automatic shortlist backfill):
-     > *"Non-linear neo-noir cinematography and deliberate nighttime atmosphere pairing cleanly with your 9★ rating for **Blade Runner 2049**."*
-   - **Deterministic Math Fallback, Note-Aware Cache Hash & Refresh Rotation:** If every cloud model hits quota or fails offline, CinemaVault seamlessly serves the **top `10`** mathematical ranker picks (`pipeline: "ranker-fallback"`) with zero blank screens. Cached sets live in `cinemavault_smart_cache_v4` (region-, filter-, & `userNote`-hash-scoped `vlt_` token requiring `>= 7` unseen picks via `MIN_VALID_CACHE_COUNT = 7`), while Refresh rotates through `excludeIds` (120-ID cap) and TMDB pages `1..5` with automatic exhaustion padding.
-
-- **Choose Your Vibe (Preset Matrix + Free-Text "Match Vibe")**: Filter recommendations on the fly by canonical preset or natural-language vibe (`"like Drive but quieter"`, `"pre-2000 cozy comedy, no horror"`):
-  - 🧠 *Mind-Bending* (plot twists & cerebral puzzles)
-  - 🌑 *Dark Thriller* (gritty neo-noir & high tension)
-  - 🍿 *Fun Popcorn* (high-energy crowd pleasers)
-  - 🛋️ *Comfort Watch* (heartwarming & rewatchable)
-  - 💎 *Hidden Gem* (underrated masterworks `< 2,000` TMDB votes)
-  - ✨ *Any Vibe* (all-time peak cinema)
+| Area | What it does |
+| :--- | :--- |
+| Local taste model | 25,000-film collaborative embedding index (3,300,016 bytes, float16), per-user rating normalization, recency decay, persona mixtures, and a 64×64 ridge fold-in. Runs in the browser. |
+| Recommendations | Five retrieval buckets, a calibrated logistic ranker, and 10 picks from a 39-candidate shortlist. Verified TMDB titles only. |
+| Vibes | Six preset moods plus free-text "Match Vibe" queries such as "like Drive but quieter." |
+| Gemini cascade | Ordered model fallback with error-specific cooldowns, plus a deterministic ranker fallback when no model responds. |
+| Streaming | 12 services, 13 provider alias families, 15 regions. |
+| Rating studio | 10-star stage, live percentile calibration, optional 4-aspect craft scores, and watch-session metadata. |
+| Import and export | Letterboxd and CinemaVault CSV import, Schema v2 JSON backup, and a diff preview before applying. |
+| Discovery | Discover rows, a filterable `/explore` workbench, and a first-visit taste deck. |
+| Compare | Two to three films side by side, with shared cast, genres, and taste similarity. |
+| Sync | Optional Supabase sign-in with Postgres row-level security. |
+| Security | Serverless `/api/*` proxies keep API keys out of the browser bundle. |
 
 ---
 
-### 2. 💬 AI Cinema Concierge, "Discuss This Film" Mode & Deep Breakdowns
-> *"An intelligent conversational partner that actually remembers what you've watched — and respects spoilers."*
+## Features
 
-CinemaVault features a dedicated, context-aware AI chat assistant and deep explanation engine built right into the app:
-- **Dual-Speed Routing:** [geminiChatService.js](./src/services/geminiChatService.js) uses **`FAST_INTERACTIVE_CASCADE`** (`gemini-3.5-flash-lite` first for 500 RPD speed, backed by `gemini-4-hydrogen` `MEDIUM` thinking, `3.6-flash`, `3-flash-preview` `MINIMAL`, `2.5-flash`, and `3.8-flash`), while [geminiExplanationService.js](./src/services/geminiExplanationService.js) shares the `HIGH`-thinking curation cascade and `35s` client timeout.
-- **Tailored to You**: Automatically references movies you’ve rated `8★+` and incorporates your notes, reviews, and active Steerable Taste Rules.
-- **Contextual "Discuss This Film" Deep-Link & Spoiler-Safe Guard ([filmChatService.js](./src/services/filmChatService.js), [AIPage.jsx](./src/pages/AIPage.jsx), [AIChat.jsx](./src/components/AIChat.jsx))**: Click **Discuss with AI** on any movie page to launch `/ai?tab=chat&movie=...` with a pinned Film Context Bar, injection-safe dossier prompt (`serializeFilmDossierForPrompt`), 4 tailored starter prompts (`buildMovieChatStarterPrompts`), and a 1-click **Spoiler-Safe Toggle** (`SPOILER-SAFE MODE` automatically enabled when you haven't watched the film yet).
-- **Strictly Cinema-Focused**: Polite guardrails keep the conversation locked on cinema history, filmmaking styles, and film theory.
-- **Interactive Title Cards**: When the AI suggests a film, it formats it as an interactive card so you can view details, watch trailers, or add it to your Watchlist with a single tap.
+### 1. Recommendation engine
 
----
+Recommendations come from local math first. Gemini does not generate titles.
 
-### 3. 📺 "Where Can I Watch It?" — Universal Streaming Availability
-> *"Never find a great movie recommendation only to realize it isn't streaming anywhere."*
+1. **Taste model.** Ratings are z-scored against each user's own distribution and decayed over time (about an 11.5-month half-life). Undated and bulk-imported entries get a 180-day prior. Positive taste is clustered into one to four personas, blended with a ridge fold-in vector, and disliked films push nearby candidates down.
+2. **Candidate retrieval.** Five buckets run:
+   - **Bucket B (keyword successors):** films sharing micro-keywords with your highest-rated anchor (rated 9 or higher).
+   - **Bucket C (auteur network):** acclaimed films from your most-watched directors, cinematographers, composers, and writers.
+   - **Bucket A (semantic discovery):** TMDB discover results filtered by loved genres, watchlist genres, mood, and regional streaming.
+   - **Bucket D (recent releases):** films from the last 18 months with reasonable acclaim, capped at 12.
+   - **Bucket E (embedding neighbors):** up to 30 unseen nearest neighbors from the local index, or 15 when an explicit mood is active.
+3. **Ranking.** A 12-feature logistic ranker scores the pool. Under "Any Vibe," collaborative similarity is normalized against the whole catalog, and metadata is damped while collaborative signal is weak. Under an explicit mood, the ranker shifts weight toward genre fit and hard-gates candidates against the mood's rules. Display scores fall between 50 and 99 and preserve rank order.
+4. **Curation.** The shortlist of 39 candidates (25 top-ranked, 8 releases from 2024–2026, 6 outliers) goes to Gemini with a prompt capped at 20,000 characters. Gemini picks 10 and may propose up to two extra titles. Each extra title must pass TMDB verification, the vault and watchlist exclusions, the streaming filter, and the mood gate before it appears.
+5. **Fallback.** If every model fails or Gemini is unavailable, the top 10 ranker results are shown and labeled as ranker output.
 
-- Integrates with TMDB Watch Providers across **12 top streaming services** mapped cleanly through **`PROVIDER_FAMILY_MAP`** (expanding `13` TMDB alias families like Netflix ad/kids tiers, Max/HBO channels, and Paramount+/Showtime bundles so real streaming titles aren't missed):
-  - **Netflix**, **Amazon Prime Video**, **Disney+**, **Max (HBO)**, **Apple TV+**, **Hulu**, **Paramount+**, **Peacock**, **Criterion Channel**, **Tubi**, **Pluto TV**, and **Freevee**.
-- **15 Localized Regions Supported**: Switch between `GLOBAL`, `US`, `GB` (UK), `CA` (Canada), `AU` (Australia), `JP` (Japan), `KR` (South Korea), `FR`, `DE`, `ES`, `IT`, `IN` (India), `BR`, `MX`, and `SE`.
-- Recommendations (`matchesWatchProviders`) and movie pages show provider icons directly, with region-scoped cache hashes (`_reg_<REGION>`) and strict provider verification in `rankCandidatePool`.
+Each pick includes "Because you rated" links to films in your vault. The Refresh button rotates through unseen candidates without repeats.
 
----
+### 2. Vibes and free-text matching
 
-### 4. 🎲 Cinema Roulette (Random Picker)
-> *"Eliminate the 30-minute 'what should we watch' argument."*
+- **Mind-Bending:** plot-driven and cerebral.
+- **Dark Thriller:** tense, gritty, often neo-noir.
+- **Fun Popcorn:** high-energy crowd pleasers.
+- **Comfort Watch:** warm and rewatchable.
+- **Hidden Gem:** acclaimed films with fewer than 2,000 TMDB votes.
+- **Any Vibe:** the default, using your full taste profile.
 
-Can't decide what to watch tonight? Open the **Cinema Roulette** ([RandomPicker.jsx](./src/components/RandomPicker.jsx)):
-- Choose your pool: Pick from your **Watchlist** or re-discover a favorite from your **Watched** library.
-- Features a casino-style animated spinning reveal that settles on your film for the evening.
-- Direct quick links to start the trailer or read the synopsis.
+Free-text queries such as "pre-2000 cozy comedy, no horror" are parsed into genre, exclusion, and year constraints. The parser runs offline with keyword rules and uses Gemini's fast model when available.
 
----
+### 3. AI chat and "Discuss This Film"
 
-### 5. 📊 Cinema Taste Analytics & The Contrarian Meter
-> *"Discover what kind of movie watcher you really are."*
+- The chat uses your films rated 8 or higher, your notes, and any active taste rules.
+- **Discuss This Film** on a movie page opens `/ai?tab=chat` with a pinned film context bar.
+- Spoiler-safe mode is on by default for films you haven't watched. You can allow spoilers from the context bar.
+- Film titles in replies appear as cards with details, trailer, and watchlist actions.
+- Chat is limited to cinema topics.
 
-Your vault isn't just a list; CinemaVault continuously turns your logged movies into personalized cinema analytics ([VaultBanner.jsx](./src/components/VaultBanner.jsx) & [VaultPage.jsx](./src/pages/VaultPage.jsx)):
-- **The Rating Delta Histogram (Contrarian Index)**:
-  - Compares your personal 1–10 ratings to the global IMDb consensus.
-  - Shows whether you are a **Critical Contrarian** (harsh on mainstream hits), a **Consensus Neutral**, or a **Passionate Champion** (defending misunderstood cult classics).
-- **Total Screen Time Aggregator**: Calculates your life watch time into total **Days, Hours, and Minutes**.
-- **Rating Distribution (`vaultStats.js`)**: Exact **1★–10★** visual breakdown without hiding or clamping `< 6★` repulsion ratings.
+### 4. Streaming availability
 
----
+- Services: Netflix, Amazon Prime Video, Disney+, Max, Apple TV+, Hulu, Paramount+, Peacock, Criterion Channel, Tubi, Pluto TV, and Freevee.
+- Provider alias families group ad-supported tiers, kids tiers, and channel versions (for example, Netflix Standard with Ads).
+- Regions: GLOBAL, US, GB, CA, AU, JP, KR, FR, DE, ES, IT, IN, BR, MX, and SE.
+- Recommendations and cache keys are region-specific.
 
-### 6. ⭐ Luxury 10-Star Rating Studio 2.0, Dynamic Anchor Tiers & Rabbit Hole Discovery
-> *"Rating a movie should feel as rewarding as watching it."*
+### 5. Cinema Roulette
 
-CinemaVault replaces clunky dropdowns with a **synchronized dual rating interface** ([MovieDetails.jsx](./src/components/MovieDetails.jsx) & [ratingStudioService.js](./src/services/ratingStudioService.js)):
-- A sleek, 10-star glowing rating bar coupled with an instant 1–10 numeric dial.
-- **Dynamic Taste Feedback**: Every star rating triggers reactive metadata explaining how this score influences your recommendation engine:
-  - **10★ Masterpiece**: Sets the primary anchor for spiritual successor keyword matching (Brass Gold).
-  - **9★ Exceptional Cinema**: Eligible elite anchor; boosts loved genre and director vectors (Amber).
-  - **8★ Great Film**: Accumulates actor (`castIds`) and auteur crew affinities (Emerald).
-  - **7★ Good Watch**: Solid craft baseline & director tally (Cyan).
-  - **$\le$ 3★ Disliked/Flawed**: Extracts negative micro-keywords (e.g. *"slapstick"*, *"found-footage"*) and triggers embedding repulsion to steer away from similar disappointments.
-- **Live Vault Calibration & Benchmark Anchors (`computeVaultCalibration`)**: Shows your real-time Vault percentile (`Top X% of your Vault`) as you dial `1★–10★` alongside up to 2 recent films you rated the exact same (or nearest) score.
-- **Optional 4-Aspect Craft Breakdown & Watch Session Log (`CRAFT_ASPECTS`, `WATCH_FORMATS`)**: Expandable `1–5` craft bars for **Story & Script**, **Direction**, **Performances**, and **Visuals & Score** (`computeCraftAverage`) plus viewing format (`Streaming`, `Theater`, `IMAX / Dolby`, `4K / Blu-ray`), custom watch date, rewatch counter, and spoiler flag (`buildWatchedRatingPayload`).
-- **Review Notes & Contextual Quick Tags ([quickReviewTags.js](./src/services/quickReviewTags.js), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx))**: Write 1–2 lines explaining *why* you loved or bounced off a film (up to `200` chars in Quick Rate, unbounded in Movie Details — fed directly to Gemini up to `180` chars) with 1-click praise and critique chips (`#Masterpiece`, `#SmartPlot`, `#TightPacing`, `#SlowPacing`, `#WeakEnding`, `#TooBleak`).
-- **Clickable Cast, Director & Crew Filmography ([personService.js](./src/services/personService.js), [PersonFilmographyModal.jsx](./src/components/PersonFilmographyModal.jsx), [PersonPage.jsx](./src/pages/PersonPage.jsx))**: Click any actor card or Director/Writer/Cinematographer/Composer credit in `MovieDetails` to open a non-destructive Filmography Overlay (`Watched`, `Avg ★`, & `Watchlist` affinity stats, department tabs, status filters, `+ Save`, & `★ Rate`) or launch the dedicated `/person/:id` full profile page.
-- **Rabbit Hole Discovery ([rabbitHoleService.js](./src/services/rabbitHoleService.js), [CollectionTimeline.jsx](./src/components/CollectionTimeline.jsx), [SimilarFilmsStrip.jsx](./src/components/SimilarFilmsStrip.jsx))**: Click any genre or `#keyword` motif pill to pivot into `/explore`, track franchise progress in the chronological **Collection Timeline**, and browse the **Hybrid Similar Films Strip** blending local 64-D `CVEM v1` vector neighbors with TMDB `/recommendations` & `/similar`.
+Pick a random film from your Watchlist or your Watched list, with an animated reveal and quick links to the trailer and synopsis.
 
----
+### 6. Taste analytics
 
-### 7. 🔄 Hardened Letterboxd & CSV Data Portability ([csvImport.js](./src/services/csvImport.js))
-> *"Your data belongs to you. Zero vendor lock-in — and zero corrupted timestamps."*
+- **Rating delta:** your rating minus the IMDb rating for each film, grouped into five bands from "critical contrarian" to "strong favorite."
+- **Screen time:** total runtime of watched films, shown in days, hours, and minutes.
+- **Distribution:** exact 1–10 counts, including low ratings.
 
-Already have years of movie ratings logged on Letterboxd or a spreadsheet?
-- **Letterboxd CSV Import**: One-click import converting star glyphs (`★★★★½` → `9`) or 1–5 scales to CinemaVault's 10-point scale, with header-aware column mapping (stopping Letterboxd URLs from leaking into `note`).
-- **Priority & Strict Calendar Date Validation**: Prioritizes **`Watched Date`** (`dateSource: "watched"`) over **`Date`** (`dateSource: "logged"`), rejects impossible calendar rollovers (e.g. `2026-02-30`), and enforces a `+24h` timezone guard against future timestamps.
-- **Clustered Backlog Suppression**: Automatically detects bulk Letterboxd `Date` exports (`>= 10` logged rows with `>= 30%` on 3 days OR `< 14`-day span) and flags them `isBulkImported: true` so the **180-day undated prior** applies instead of skewing recent tastes.
-- **Diary Rewatch Deduplication**: Merges duplicate `title + year` diary rows keeping the newest valid `Watched Date` while retaining the most recent non-empty rating if the latest rewatch row was blank.
-- **Batch Processing, Schema v2 Backups, Diff Preview & Safe TMDB Backfill ([vaultPortability.js](./src/services/vaultPortability.js), [tmdbService.js](./src/services/tmdbService.js))**: Smart background batching (`4 films/batch`) enriches metadata without throttling your browser; exports **Schema v2 JSON backups** (preserving regional & streaming preferences), full CinemaVault CSVs, and Letterboxd 10-scale CSVs (`Review` included), previews import diffs across **Merge & Update**, **Add New Only**, and **Replace Vault** modes while collapsing `tmdb_...`/`tt...` duplicates (`isSameMovie`) without losing dates or metadata, never fabricates silent `5★` or `7★` ratings (`resolveCsvRowFallbackRecord`), and lazily backfills missing TMDB movie IDs/keywords/cast in the background (`maxLookups: 15`, series-guarded).
+### 7. Rating studio
 
----
+- A 10-star stage with a numeric readout and a tier label for each score.
+- **Live calibration:** as you pick a score, the stage shows your percentile in the vault and up to two films rated the same or nearest.
+- **Optional craft scores (1–5):** story, direction, performances, and visuals and sound.
+- **Watch log:** format (streaming, theater, IMAX or Dolby, physical media), rewatch count, and watch date.
+- **Notes and tags:** a short note and one-tap tags such as `#TightPacing` or `#WeakEnding`. Notes in Quick Rate are capped at 200 characters. Notes are passed to Gemini up to 180 characters.
+- **Score effects:** a 10 sets an anchor for keyword matching. Scores of 4 and below feed negative keyword and embedding repulsion.
 
-### 8. ⚡ Global Command Palette (`Cmd + K` / `Ctrl + K`) & Official Trailers
-> *"Keyboard-first navigation for power users."*
+### 8. Filmography and person pages
 
-- Press `Cmd + K` (Mac) or `Ctrl + K` (Windows/Linux) anywhere to summon the spotlight search ([SearchModal.jsx](./src/components/SearchModal.jsx)) with OMDb primary search and automatic TMDB fallback.
-- Powered by debounced (`300ms`) real-time search with keyboard arrow navigation (`↑` / `↓` / `Enter`).
-- **Official Studio Trailer Resolution (`extractOfficialTrailerKey`)**:
-  - Automatically identifies official studio theatrical trailers (skipping fan edits and low-quality re-uploads).
-  - Opens in an immersive modal ([TrailerModal.jsx](./src/components/TrailerModal.jsx)) or launches directly to YouTube to avoid annoying embed restrictions or playback errors.
+Click any cast member or crew credit to open their filmography in an overlay, with department tabs, status filters, watchlist and rate actions, and your stats for their films. A full `/person/:id` page is also available.
 
----
+### 9. CSV and data portability
 
-### 9. 🎨 Streaming-Grade "Content-First" Interface
-> *"Built like an app you’d pay a monthly subscription for."*
+- **Letterboxd import:** star glyphs (for example, ★★★★½) and 1–5 scales convert to the 10-point scale. Headers are matched by name.
+- **Dates:** `Watched Date` takes priority over `Date`. Impossible dates such as 2026-02-30 are rejected. Timestamps more than 24 hours in the future are rejected.
+- **Bulk-import guard:** if at least 10 logged dates cluster heavily (the top three days hold 30% or more of rows, or the span is under 14 days), they are treated as a bulk import and get the 180-day prior.
+- **Rewatch handling:** duplicate diary rows collapse to the newest date. If the newest row has no rating, the most recent earlier rating is kept.
+- **Backup:** Schema v2 JSON (includes region, providers, and taste rules), a CinemaVault CSV, and a Letterboxd-style CSV.
+- **Import modes:** Merge and Update, Add New Only, or Replace Vault. A diff preview appears before anything changes.
+- **Unrated rows** stay unrated. Missing ratings are never filled in.
+- **Background backfill:** missing TMDB IDs, keywords, and cast are filled in gradually, skipping TV series.
 
-CinemaVault was redesigned to eliminate the loud, neon "AI-demo" look in favor of an **ultra-clean, streaming-grade aesthetic**:
-- **Neutral Dark Palette**: Luxurious charcoal surfaces (`#0b0b0c`, `#141416`), delicate hairline borders, and subtle Vault Brass (`#e2b13c`) accents.
-- **Portal Hover Previews**: Hovering over carousel cards smoothly expands detailed preview actions without clipping carousel scroll containers.
-- **Ken Burns Hero Billboard ([HeroBillboard.jsx](./src/components/HeroBillboard.jsx))**: Full-bleed backdrop carousel backed by live unwatched TMDB spotlights with gentle panning, pause-on-hover, and synchronized slide progression.
-- **Full Accessibility & Reduced Motion**: Automatically respects `prefers-reduced-motion` for smooth, comfortable browsing, paired with a floating Undo toast pill ([ToastNotification.jsx](./src/components/ToastNotification.jsx)).
+### 10. Search and trailers
 
----
+- `Cmd + K` (Mac) or `Ctrl + K` (Windows and Linux), or `/` outside text fields, opens search.
+- Search queries OMDb and TMDB in parallel, merges results, and marks films already in your vault.
+- Trailers prefer an official English trailer, then other trailers, then teasers. Playback opens in a modal or on YouTube. Films with no trailer data link to a YouTube search.
 
-### 10. 🃏 Rapid 30-Film Taste Calibration Deck & Quick Rate ([TasteDeckModal.jsx](./src/components/TasteDeckModal.jsx), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx))
-> *"Go from an empty vault to sharp taste predictions in under 60 seconds."*
+### 11. Interface
 
-- **Smart Onboarding (`shouldAutoShowTasteOnboarding`):** Automatically opens once on first visit only when your vault has fewer than 3 rated films (and stays closed once dismissed or once `watched.length >= 3`), while remaining launchable anytime from `NavBar` or `Oracle` under **Taste Calibration (30)**.
-- **Flashcard & Multi-Genre Grid Modes ([tasteDeckService.js](./src/services/tasteDeckService.js)):** Interleaves 30 iconic films across genres (`CORE_TASTE_DECK` + optional live TMDB pool) while hiding anything already watched, letting you rate `1★–10★` or save directly to Watchlist without ever fabricating placeholder scores.
+- Dark, neutral palette with brass accents.
+- Discover hero carousel that pauses on hover.
+- Motion respects `prefers-reduced-motion`.
+- Toast notifications with Undo for deletions.
 
----
+### 12. First-visit taste deck
 
-### 11. 🎞️ Live Editorial Discover Hub & Cross-ID Identity ([DashboardPage.jsx](./src/pages/DashboardPage.jsx), [HomePosterGrid.jsx](./src/components/HomePosterGrid.jsx), [movieIdentity.js](./src/services/movieIdentity.js))
-> *"Every poster on Discover is fresh — never crowded by films you've already logged."*
+On a first visit with fewer than three rated films, a 30-film deck opens. It mixes genres, hides films already watched, and accepts ratings or watchlist saves. It stays available from the menu as "Taste Calibration (30)."
 
-- **Zero-Collision Multi-Row Feeds ([dashboardService.js](./src/services/dashboardService.js)):** Filters out `watched` and `watchlist` collisions across IMDb (`tt...`), TMDB (`tmdb_<id>` / numeric), and normalized `title::year` keys (`isSameMovie`), deduplicates films across Hero slides and horizontal carousels, and degrades cleanly to curated `FALLBACK_ROWS` offline.
-- **Filterable "All Films" Mosaic (`HomePosterGrid.jsx`):** Lets you browse the full discovery pool by genre pills (`24` posters per increment) with instant `QuickRateModal` shortcuts.
+### 13. Discover hub
 
----
+- Rows of unwatched films, with films already in your vault or watchlist excluded across all rows.
+- A filterable "All Films" grid, 24 posters per page.
+- Offline, the app shows built-in fallback rows.
 
-### 12. ☁️ Opt-In Supabase Cloud Sync & Zero-Leakage `/api/*` Proxies ([CloudSyncModal.jsx](./src/components/CloudSyncModal.jsx), [api/](./api))
-> *"Private local storage by default — encrypted Postgres sync & secret-isolated proxies whenever you scale."*
+### 14. Explore workbench (`/explore`)
 
-- **Guest-First Local Storage + Opt-In Auth ([vaultSyncService.js](./src/services/vaultSyncService.js), [20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql)):** Runs 100% locally in `localStorage` with zero sign-in walls. When configured with `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY`, users can sign in via Email Magic Link to sync across devices into Postgres (`public.profiles` & `public.user_vault_items` secured by `(select auth.uid())` RLS policies and `public`/`anon` revocations) via lossless `mergeLocalAndCloudVault` reconciliation (`watched` beats `watchlist`).
-- **Vercel Serverless Proxies ([api/gemini.js](./api/gemini.js), [api/tmdb.js](./api/tmdb.js), [api/omdb.js](./api/omdb.js) + [apiTransport.js](./src/services/apiTransport.js)):** Isolates `GEMINI_API_KEY`, `TMDB_API_KEY`, and `OMDB_API_KEY` on the server behind strict model/path allowlists and upstream error secret redaction so production browser bundles ship zero API keys.
+- Filters: genres (include and exclude), decades or custom years, runtime, minimum rating, minimum votes, language, country, keyword and person search, streaming services, and hide-watched or hide-watchlist.
+- Every filter is stored in the URL, so searches can be shared and reloaded.
+- Removable filter chips show active filters.
+- Clicking a genre or keyword on a movie page opens `/explore` with that filter applied.
 
----
+### 15. Compare (`/compare`)
 
-### 13. 🧭 Deep Filter Workbench (`/explore`) & Shareable Catalog Research ([ExplorePage.jsx](./src/pages/ExplorePage.jsx), [exploreService.js](./src/services/exploreService.js))
-> *"Turn any genre, motif, decade, runtime, or filmmaker into a live, shareable discovery query."*
+- Add up to three films with the Compare button on any card or detail page. A dock at the bottom of the screen tracks them, and the list is stored in `localStorage`.
+- The comparison table highlights the best value in each row. It covers IMDb, Rotten Tomatoes, Metascore, TMDB score, runtime, budget, box office, return on budget, your rating, and taste similarity.
+- Shared cast and crew link to filmographies. Shared genres and keywords link to `/explore`. Pairwise similarity bars come from the local embedding index.
+- Comparison URLs can be copied and shared.
 
-- **Multi-Facet TMDB Discover Compiler (`buildTmdbDiscoverParams`):** Combine included genres (`AND`/`OR`), excluded genres, decade & year bounds (`DECADE_PRESETS`), runtime presets (`Quick <95m`, `Feature 95–135m`, `Epic 150m+`), minimum IMDb/TMDB rating & vote floors, original language, origin country, debounced TMDB keyword & person autocomplete, regional streaming providers, and `Hide Watched` (auto-advancing when page 1 is already logged).
-- **100% URL-Synced State (`parseExploreSearchParams` / `buildExploreSearchParams`):** Every filter state round-trips cleanly into `/explore?...` query params with removable filter chips (`getActiveFilterChips`) and glitch-free loading transitions (`deriveExploreViewState`).
+### 16. Cloud sync and secure API proxies
+
+- **Local first:** the app works fully offline with no sign-in.
+- **Optional sign-in:** if you configure Supabase, you can sign in by email and sync across devices. Rows are protected by row-level security. Merging gives watched entries priority over watchlist entries and prevents deleted items from coming back.
+- **Proxies:** `GEMINI_API_KEY`, `TMDB_API_KEY`, and `OMDB_API_KEY` stay on the server behind `/api/*` routes, with model and path allowlists and rate limits. Production browser bundles contain no API keys.
 
 ---
 
-### 14. ⚖️ Side-by-Side Film Comparison Workbench (`/compare` & `CompareDock`) ([CompareWorkbench.jsx](./src/components/CompareWorkbench.jsx), [CompareDock.jsx](./src/components/CompareDock.jsx), [compareService.js](./src/services/compareService.js))
-> *"Compare 2–3 films head-to-head across critical reception, box office ROI, shared collaborators, and your 64-D taste vector."*
-
-- **Floating Compare Tray & Dual Views (`CompareDock.jsx`, `CompareModal.jsx`, `ComparePage.jsx`):** Click `⇄ Compare` on any poster card or detail page to dock up to 3 films in `sessionStorage` (`cinemavault_compare_v1`), inspect them in a quick modal or full `/compare?ids=...` workbench, and copy shareable comparison URLs.
-- **Head-to-Head Matrix & Shared DNA (`buildCompareMatrix`, `computeCompareOverlap`):** Concurrent TMDB + OMDb hydration (`hydrateCompareMovieSlot`) highlights single or tied `Best` leaders across IMDb, Rotten Tomatoes, Metascore, TMDB, shortest runtime, budget, box office revenue, ROI multiple, personal Vault score, and on-device 64-D Taste Resonance (`vaultMatchPct`), while surfacing **Shared Cast & Crew** (clickable into `PersonFilmographyModal`), **Shared Genres & `#keyword` Motifs** (clickable into `/explore`), and **Pairwise 64-D `CVEM v1` Cosine Similarity Bars**.
-
----
-
-## 🧠 The Magic Under the Hood
-
-How does CinemaVault deliver accurate, zero-hallucination recommendations *mostly on your own machine* (and securely via `/api/*` proxies in production)?
+## How it works
 
 ```mermaid
 flowchart LR
-    A["Your Rated Vault\n(CSV/v2 + Z-Scores + Sync)"] --> B["On-Device Taste Model\n• Relative Cutoff 1e-6 * maxW\n• 1-4 K-Means Personas\n• Disliked Repulsion Map"]
-    B --> C["5-Bucket Harvesting + Mood Policy\n• B: Keywords • C: Auteurs\n• A: Discover + Mood + PROVIDER_FAMILY_MAP\n• D: Recent 18m • E: 15-30 CVEM v1 Neighbors"]
-    C --> D["Calibrated Logistic Ranker\n• Catalog-Max Collab + Ridge + Mood Gate\n• Strict Watch Verification\n• Locked 50-99% + Badges"]
-    D --> E["H1 Gemini 4 Hydrogen Cascade\n• Stratified 39 -> 10 Picks + Verified Wildcards\n• 35s Timeout + /api/gemini Proxy\n• Deterministic Top-10 Math Fallback"]
-    E --> F["Smart Cache v4 (Floor >= 7)\n& 120-ID / 5-Page Refresh Rotation"]
+    A["Your vault\n(ratings, notes, CSV/JSON imports)"] --> B["On-device taste model\n• Relative weight cutoff\n• Persona mixture + ridge fold-in\n• Dislike repulsion"]
+    B --> C["Candidate retrieval\n• B keyword successors\n• C auteur network\n• A discover + mood\n• D recent releases\n• E embedding neighbors"]
+    C --> D["Logistic ranker\n• Catalog-normalized collaborative score\n• Mood gate\n• Verified streaming"]
+    D --> E["Gemini cascade\n• 39-candidate shortlist → 10 picks\n• Verified wildcards\n• Ranker fallback"]
+    E --> F["Cache (24h)\nRefresh rotation"]
 ```
 
-1. **Per-User Z-Scores & Relative Weight Cutoff**: Normalizes harsh vs. generous raters ($z_i$), applies an `180`-day undated backlog prior with $\lambda = 0.002$ exponential decay, and scales the embedding cutoff relative to your vault's peak weight (`1e-6 * maxAbsWeight`) so even 20-year-old vaults retain full 64-D taste vectors.
-2. **Surgical Negative Tropes, Mood Rebalancing & Embedding Repulsion**: Combines sorted top-5 `without_keywords` filters + softened `-0.5` ranker keyword penalties + quadratic cosine repulsion above `0.35` similarity around disliked films; when an explicit mood or **"Match Vibe"** constraint is active, `moodPolicy.js` + `rankerService.js` rebalance collab vs. metadata weights (`collabSim * 0.35`, `1.0x` metadata) and enforce `matchesMoodCandidateGate` while keeping `"any"` vibe untouched.
-3. **25,000-Film `CVEM v1` Float16 Binary + Recent Reserve Lane**: Your browser loads [item_embeddings_f16.bin](./public/models/item_embeddings_f16.bin) (`3,300,016 B`) once, scores collaborative taste-twins (`Bucket E`, optional Stage 2 `content_embeddings_f16.bin` & `CDNA`) alongside acclaimed recent releases from the last 18 months (`Bucket D`, 2 reserved `"any"` slots via `computeReserveQualityScore` with `noveltyBonus = 0`).
-4. **Smart LRU Cache v4, Region/Vault Hashing & H1 Resilience**: Caches 10-pick sessions in `cinemavault_smart_cache_v4` for 24h under a `500KB` cap (requiring `>= 7` uncollided items and region-, filter-, & watched-vault-aware 7-arg hashes), rotates refreshes across up to 120 seen IDs and TMDB pages `1..5`, persists working Gemini models for 30 minutes across `localStorage`, and cools down failing models by error class (`quota`, `transient`, `invalid_config`, `auth_fatal`).
+**Taste model.** Ratings are normalized per user and decayed by age, and the embedding cutoff is scaled against the vault's strongest signal, so long-running vaults keep their taste profile. Liked films form up to four personas, and disliked films push nearby candidates down.
 
----
+**Negative signals.** Keywords from films rated 4 or below become `without_keywords` filters (the top five, in pipe-OR form). These filters replace whole-genre bans. The ranker also applies a mild keyword penalty and embedding repulsion around disliked films.
 
-## 🔬 On-Device Local ML & Provenance Highlights
+**Mood policy.** When a mood or free-text vibe is active, the ranker shifts weight from collaborative to metadata features and applies hard gates. "Any Vibe" keeps the default pipeline.
 
-Everything about the local machine learning stack and engineering fixes is documented in plain English in **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)**. Key verified facts on `main`:
-- **Active Model Integrity:** `/models/item_embeddings_f16.bin` (`25,000` MovieLens 32M items × `64`-D float16, `3,300,016` bytes) is confirmed genuine Google Colab output with **zero statistically significant holdout leakage** (`clean_ranker` `NDCG@10 = 0.0826` vs `leaky_ranker = 0.0828`, `Δ = +0.00023`, 95% CI `[-0.00197, +0.00236]`, `ΔRecall@20 = 0`).
-- **Validated Benchmark Performance (`eval_final.json`, `clean2` Step 2 + Step 3B vs `post_fixes`):**
-  - **4-Vault Human Benchmark (`--benchmark .data/benchmark_vaults.json`):** `>= 8★` rolling mean reaches **`NDCG@10 = 0.1776`**, `Recall@20 = 0.2500`, `Precision@10 = 0.1667`, `withinUserAuc(>=9v<=7) = 0.7265`, `withinUserAuc(>=8v<=7) = 0.6422` (`+0.0160` NDCG@10 vs `post_fixes`); `>= 9★` (`3` eligible vaults) reaches **`NDCG@10 = 0.2258` (`+0.0345`)**, `Recall@20 = 0.3333`, `Precision@10 = 0.2167`, `withinUserAuc(>=9v<=7) = 0.6817` (`+0.0938`).
-  - **328-User MovieLens Tune Cohort (`clean2`):** `>= 8★` lifts **`NDCG@10 = 0.0909`** (`+0.0061`, 95% CI `[+0.0000, +0.0126]`, significant), `Recall@20 = 0.1256`, `Precision@10 = 0.0805`, `withinUserAuc(>=9v<=7) = 0.7335` (`+0.0285*`), `withinUserAuc(>=8v<=7) = 0.6994` (`+0.0240*`); `>= 9★` (`n=304`) lifts **`NDCG@10 = 0.1145` (`+0.0095*`)**, `Recall@20 = 0.1448` (`+0.0082*`), `Precision@10 = 0.0947` (`+0.0076*`), `withinUserAuc(>=9v<=7) = 0.7458` (`+0.0301*`).
-  - **Strictly Held-Out `fresh_300` Cohort (`clean2`):** `>= 8★` cuts `NegHit@20` to **`0.0032` (`-0.0018*`)** and lifts `withinUserAuc(>=9v<=7) = 0.7218` (`+0.0338*`) & `withinUserAuc(>=8v<=7) = 0.6788` (`+0.0256*`); `>= 9★` (`n=284`) lifts **`NDCG@10 = 0.1227` (`+0.0067*`)**, `Recall@20 = 0.1581`, **`Precision@10 = 0.0986` (`+0.0077*`)**, `withinUserAuc(>=9v<=7) = 0.7407` (`+0.0302*`), `withinUserAuc(>=8v<=7) = 0.6926` (`+0.0230*`).
-- **100% Test Coverage of Critical Pipelines:** **`310 / 310` unit tests pass** across all **37** test suites (`npm test`), covering float16 codec, relative cutoff, smooth `[0, 0.02]` damping & `catalog-max` invariance, mass-weighted persona mixture (`beta=20`) + `64×64` Ridge fold-in (`lambda=20`), reserve slot math, CSV rollover/cluster/rewatch logic, Schema v2 duplicate-safe portability, series-guarded lazy TMDB vault backfill (`cast`, `tagline`, `language`, `runtime`, `keywords`, overview) + HTTP `429` abort handling, cross-ID `movieIdentity`, Discover collision filtering, Rapid Taste Deck & contextual `quickReviewTags.js`, canonical mood policy + strict mood ranker rebalancing, generous-rater `>= 7★` negative-suppression guards, 39-pick stratified shortlist (`25+8+6`) + 10-pick soft director/collection caps + auto-backfill + open `<= 20,000`-char / top-25 favorite / all-note / `LOVED SERIES / ANIME` Gemini curation + TMDB-verified `wildcardPicks` & refresh rotation, steerable Taste Rules (`tasteRulesService.js`), interactive Person Filmography & Vault stats (`personService.js`), Rating Studio 2.0 calibration + Craft Breakdown + Watch Log null-tombstone clearing (`ratingStudioService.js`), spoiler-safe `"Discuss This Film"` dossier & deep-link routing (`filmChatService.js`), `/explore` multi-facet URL & TMDB discover compilation (`exploreService.js`), Rabbit Hole franchise timelines & hybrid `CVEM v1` + TMDB similarity (`rabbitHoleService.js`, `tmdbRabbitHoleHelpers`), 2–3 film Side-by-Side Comparison Matrix + DNA overlap + URL slot synchronization (`compareService.js`), serverless `/api/*` proxies (including `/api/tmdb-batch`, `PROXY_RATE_LIMIT`, and `Sec-Fetch-Site` checks), H1 Gemini error classification/cooldowns + `45s` cascade deadline, online feedback weight updates, Supabase lossless keyset-paginated cloud sync, session `.bin` negative-caching + documented `coldOnly` fallback, and rolling evaluation.
+**Recent-release reserve.** Under "Any Vibe," two shortlist slots are reserved for recent releases that pass a quality floor. Their score ignores the novelty bonus so popular acclaimed films can compete.
 
----
+**Cache.** Results are cached for 24 hours under a key built from loved genres, watchlist genres, providers, region, mood, custom filters, and a hash of your vault ratings, notes, and taste rules. Logging or editing a rating invalidates the cache. A cached set is used only if it still has at least seven valid picks.
 
-## 🛠️ Technology Stack
+**Refresh.** Refresh cycles through TMDB pages 1–5 and excludes up to 120 recently shown IDs. If that leaves too few candidates, the list is filled from the rest of the ranked pool.
 
-| Layer | Technology | Why It Was Chosen |
+**Gemini cascade.** Models are tried in order. Errors are classified:
+
+| Error class | Trigger | Cooldown |
 | :--- | :--- | :--- |
-| **Framework** | **React 18.3** | Declarative UI, Context API state management (`safeSetItem`), and modern component hooks. |
-| **Build & Tooling** | **Vite 5.4** | Instant Hot Module Replacement (HMR) and optimized Rollup production builds (**`2321`** modules). |
-| **On-Device ML** | **`CVEM v1` Float16 + Ridge & Logistic Ranker** | `3.15 MB` 25k-film collaborative index, mass-weighted K-Means mixture (`beta=20`) + `0.25` Ridge fold-in (`lambda=20`), `catalog-max` scaling, smoothstep damping, `moodPolicy.js` & 2 reserve slots. |
-| **AI Engine** | **Gemini 4 Hydrogen & Flash H1 Cascade** | `HIGH`-thinking `<= 20,000`-char 10-pick open curation over 39 stratified candidates, top-25 favorites, all `userNote`s, `LOVED SERIES / ANIME`, optional TMDB-verified `wildcardPicks`, anchor pairing & explanations, `FAST` interactive chat/vibe parsing (incl. spoiler-safe `"Discuss This Film"` mode), `35s` timeouts & error-specific cooldowns. |
-| **Serverless Security** | **Vercel Functions (`api/*.js`) + `apiTransport.js`** | Isolates `GEMINI_API_KEY`, `TMDB_API_KEY`, and `OMDB_API_KEY` server-side behind strict allowlists with zero secret leakage in `build/`. |
-| **Cloud Sync (Opt-In)** | **Supabase Auth + Postgres 17 RLS** | Optional Email Magic Link auth (`@supabase/supabase-js`) syncing `profiles` & `user_vault_items` with lossless `mergeLocalAndCloudVault`. |
-| **Styling** | **Tailwind CSS v4** | Next-generation `@theme` tokens, pure CSS custom properties, zero runtime overhead. |
-| **Motion** | **Framer Motion 12** | Spring physics, portal-based hover expansions, and `prefers-reduced-motion` accessibility. |
-| **Movie Data** | **TMDB API v3 & OMDb API** | 5-bucket retrieval (`A/B/C/D/E`), `/explore` multi-facet discover, `/compare` dual-source hydration, trailers, `13` watch-provider alias families across 15 regions, IMDb/RT/Metacritic scores. |
-| **Storage & Import** | **LocalStorage + `csvImport.js` + `vaultPortability.js`** | 100% guest-first persistence with `500KB` LRU cache (`v4`), deduplicated Schema v2 JSON export, hardened Letterboxd CSV importer, & lazy TMDB vault backfill. |
-| **Verification** | **`node --test` + `scripts/run_eval.mjs`** | **`310` offline unit tests** across **37** suites + rolling temporal cross-validation CLI harness. |
+| Quota | HTTP 429 or quota messages | Server retry time, or 2 or 10 minutes |
+| Transient | 503, 504, timeouts, network errors | 30 seconds |
+| Invalid config | HTTP 400 | 30 minutes |
+| Auth | 401, 403, 404 | 30 minutes |
+| Proxy rate limit | Proxy returned 429 | No model cooldown; the cascade stops |
+
+The first model is `gemini-4-hydrogen` with a 35-second timeout. Flash models have a 15-second timeout. The whole cascade is capped at 45 seconds. A working model is remembered for 30 minutes.
+
+### When something fails
+
+The app is designed to degrade rather than stop. Each missing dependency has a defined fallback:
+
+| Missing piece | What happens |
+| :--- | :--- |
+| Gemini (no key, quota, or every model fails) | The top 10 ranker results are shown, labeled `ranker-fallback`. |
+| TMDB unavailable, or fewer than 6 candidates harvested | The app switches to the OMDb-based pipeline, which checks Gemini picks against OMDb. |
+| Embedding file missing (`item_embeddings_f16.bin`) | Collaborative scoring is off. Ranking relies on the structured fallback (genres, keywords, cast, crew, and overview), and recent releases carry more weight through Bucket D. |
+| Supabase not configured | Sync is disabled. The app runs fully as a guest. |
+| Proxy rate limit hit | The cascade stops for that request and the proxy's `Retry-After` time is respected. |
+
+Check the "About these picks" panel in Oracle to see which pipeline produced the current list.
 
 ---
 
-## 💻 Quickstart Guide
+## Storage, backups, and data loss
 
-Want to run CinemaVault on your local machine? It takes less than 3 minutes:
+- **Guest vault:** stored in `localStorage` (about 5 MB per browser origin). This is comfortable for typical vaults of a few thousand films. Very large hydrated vaults can exceed the limit, and cloud sync is the intended path beyond that.
+- **TMDB detail cache:** stored in IndexedDB for 30 days.
+- **Recommendation cache:** capped at 500 KB. The oldest entries are evicted first.
+- **Quota recovery:** if the browser reports a storage quota error, derivative caches are purged first, in a fixed order. Vault data is kept.
+- **Clearing site data deletes the guest vault.** If you are not signed in to Supabase, the only recovery path is a Schema v2 JSON backup. Export one regularly from the Backup manager.
 
-### 1. Clone & Install
+---
+
+## Data flow and privacy
+
+| Destination | What is sent | When |
+| :--- | :--- | :--- |
+| TMDB and OMDb | Title, ID, and search or discover parameters. No notes or ratings. | Search, discovery, detail pages, and candidate harvesting. |
+| Gemini | A prompt containing your loved genres, anchor films, notes (up to 180 characters each), recent watches, dislikes, watchlist titles, and candidate films, bounded to 20,000 characters. Chat prompts include the films and notes you discuss. | Curation, chat, and vibe parsing. Only when AI features are used. |
+| Supabase | Your vault rows, including ratings, notes, and metadata. | Only after you sign in and enable sync. |
+| Your browser only | The vault, caches, spend tracking, feedback log, and taste rules. | Always. |
+
+In production, Gemini, TMDB, and OMDb requests pass through your own `/api/*` routes, so API keys never reach the browser. Upstream providers still receive the request contents and see the server's IP address. Rate limits are applied per client IP. The project does not add other analytics on top of this, and spend tracking stays on your device.
+
+If you do not want vault content sent to Gemini, do not use the AI features (Oracle curation, chat, and free-text vibes). Browsing, rating, search, and the local model still work without them.
+
+---
+
+## Known limitations
+
+- **Training data cutoff.** The collaborative embeddings come from MovieLens 32M, which ends around late 2023. Films released after that have no collaborative signal. They can appear through Bucket D and the structured fallback, but their ranking is less reliable than older films.
+- **Rate limits are per instance.** Limits are kept in memory on each serverless instance. They reset on cold starts and do not act as a hard global cap.
+- **Gemini quota.** Heavy use can exhaust free-tier quota. The app then serves ranker output, which is usable but has no written explanations.
+- **Benchmarks are offline.** The numbers in this file measure the deterministic ranker on MovieLens-derived data and a small set of human vaults. They are not measures of user satisfaction.
+- **Gemini curation is not benchmarked offline.** Its quality is tracked only through in-app `recSource` telemetry.
+- **Metadata depends on TMDB and OMDb.** Missing or outdated provider data (for example, streaming availability) shows up as missing or stale in the app.
+- **Streaming data is region-specific.** A title can be listed in one region and not another, and availability changes often.
+- **Trailers depend on TMDB video records.** Some films have no record, and the app falls back to a YouTube search.
+
+---
+
+## Technology stack
+
+| Layer | Technology | Notes |
+| :--- | :--- | :--- |
+| Framework | React 18.3 | Context for app state. |
+| Build | Vite 5.4 | Dev server and production bundle. |
+| Local model | CVEM v1 float16 index, ridge fold-in, logistic ranker | Runs in the browser. |
+| AI | Gemini cascade (`gemini-4-hydrogen` first, Flash fallbacks) | Curation, chat, and mood parsing. |
+| Serverless | Vercel Functions (`api/*.js`) | Keeps keys off the client. |
+| Cloud sync (optional) | Supabase Auth and Postgres 15+ with row-level security | Email sign-in. |
+| Styling | Tailwind CSS v4 | |
+| Motion | Framer Motion 12 | Respects reduced-motion settings. |
+| Movie data | TMDB API v3, OMDb API | |
+| Storage | `localStorage`, IndexedDB (TMDB detail cache) | Guest vault stays in the browser. |
+| Tests | `node --test`, `scripts/run_eval.mjs` | Offline suites and a rolling evaluation harness. |
+
+---
+
+## Quick start
+
+### 1. Clone and install
+
 ```bash
-git clone https://github.com/khuzaima175/React-Movie-Original.git
-cd movie-ratings
+git clone <your-repo-url>
+cd <repo-folder>
 npm install
 ```
 
-### 2. Configure API Keys (Server Proxies Recommended; Optional Local Dev Fallback & Opt-In Supabase)
-CinemaVault uses standard free-tier developer keys from OMDb, TMDB, and Google AI Studio. For Vercel deployments (or `vercel dev`), keep upstream secrets purely server-side; for plain `npm start`, set local `VITE_*` dev fallbacks (see `.env.example`):
+### 2. Configure keys
 
-Create `.env.local` in the root directory:
+Create `.env.local` in the project root:
+
 ```env
-# Recommended server-side secrets for Vercel `/api/*` proxies (`vercel dev` / production)
+# Server-side secrets for the /api/* proxies (vercel dev or production)
 GEMINI_API_KEY=your_gemini_api_key_here
 TMDB_API_KEY=your_tmdb_api_key_here
 OMDB_API_KEY=your_omdb_api_key_here
 
-# Optional local-dev client fallback when running `npm start` without `vercel dev`
+# Optional local-only fallback when running `npm start` without `vercel dev`
 # VITE_GEMINI_KEY=your_local_dev_gemini_key_here
 # VITE_TMDB_KEY=your_local_dev_tmdb_key_here
 # VITE_OMDB_KEY=your_local_dev_omdb_key_here
 
-# Optional opt-in Supabase Cloud Sync (publishable key only — protected by Postgres RLS)
+# Optional Supabase sync (publishable key only; protected by row-level security)
 # VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 # VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
 ```
-> **Where to get free keys:**
-> - [Google Gemini API Key](https://aistudio.google.com/) (Free)
-> - [TMDB API Key](https://www.themoviedb.org/documentation/api) (Free)
-> - [OMDb API Key](http://www.omdbapi.com/apikey.aspx) (Free)
-> - [Supabase](https://supabase.com/) (Optional Free Tier for Cloud Vault Sync)
 
-### 3. Launch, Test, Evaluate & Build
+Keys are available from:
+- [Google AI Studio](https://aistudio.google.com/) (Gemini)
+- [TMDB](https://www.themoviedb.org/documentation/api)
+- [OMDb](http://www.omdbapi.com/apikey.aspx)
+- [Supabase](https://supabase.com/) (optional)
+
+### 3. Setup notes
+
+These are the points most likely to cause problems on first run:
+
+- **The `/api/*` proxies only run under `vercel dev` or on Vercel.** Plain `npm start` does not serve them. Without the `VITE_*` dev keys, AI and TMDB calls fail, and the app falls back as described under "When something fails." Use `vercel dev`, or set the `VITE_*` keys for local development.
+- **Never put `VITE_*` keys in a deployed build.** Any `VITE_` variable is compiled into the browser bundle and is visible to anyone. They are for local development only.
+- **Production rejects requests without a browser origin.** When deployed, requests with no `Origin` header and no `Sec-Fetch-Site: same-origin` (or `same-site`) get a 403. This means `curl` against a deployed copy will fail. Test with a browser, or call the proxies from the same site.
+- **`ALLOWED_ORIGIN` is optional.** Set it to a comma-separated list if you serve the app from a domain other than the default Vercel host.
+- **`gemini-4-argon` is blocked by default.** It returns 403 unless `ENABLE_ARGON` is set to `"true"` on the server. It also has a zero free-tier limit on some accounts, so leave it off unless you need it.
+- **Supabase sync needs two things before it works:** the migration in `supabase/migrations/` applied to your project, and email sign-in enabled in the Supabase Auth settings.
+
+### 4. Run, test, and build
+
 ```bash
-npm start                                 # Dev server at http://localhost:3000
-npm test                                  # Run all 311 offline service & API tests across 37 suites (~1.2s)
-node scripts/run_eval.mjs --synthetic     # Run built-in offline recommender benchmark
-npm run build                             # Production bundle into build/
-npm run serve                             # Preview production build locally
+npm start                    # dev server; open the URL shown in the terminal
+npm test                     # offline service and API tests
+node scripts/run_eval.mjs    # offline evaluation harness (see the script header for options)
+npm run build                # production bundle in build/
+npm run serve                # preview the production build
 ```
 
 ---
 
-## 🎯 Typical User Journey: An Evening with CinemaVault
+## Contributing and tests
 
-1. **Instant Onboarding or Zero-Friction Migration:** New visitors can calibrate taste in under a minute using the **30-film Rapid Taste Deck (`TasteDeckModal`)** — or open **Import / Export Ratings (`BackupManagerModal`)** to preview diffs and drop in a Letterboxd CSV or Schema v2 JSON archive with `Watched Date` priority and zero fake `5★`/`7★` scores.
-2. **Browse Fresh Discover Rows, Deep Explore (`/explore`) & Quick Search (`Cmd + K` / `/`):** Browse unwatched Hero spotlights and `"All Films"` genre mosaics on **Discover**, pivot into **Explore (`/explore`)** to filter by decade, runtime, motif keywords, or streaming service, or summon race-safe dual-engine search to inspect *Dune: Part Two*, watch the official studio trailer, and add or quick-rate in one tap (with 1-click praise/critique chips and 200-char notes).
-3. **Log in Rating Studio 2.0, Discuss with AI & Optionally Sync (`MovieDetails` + `AIChat` + `CloudSyncModal`):** Slide the synchronized dial to **9★ (Exceptional Cinema)** while checking your live Vault percentile & same-score benchmarks, log optional `1–5` Craft Breakdown scores and `IMAX / Dolby` watch format, click **Discuss with AI** for a spoiler-aware breakdown, and optionally sign into Supabase Magic Link Sync to carry your entire Vault across desktop and mobile cleanly.
-4. **Check True `1★–10★` Stats & Contrarian Index:** Jump to **Vault** and see screen time rise to *14 Days, 6 Hours*, inspect full `1★–10★` histogram bins (`vaultStats.js`), and see how your sci-fi ratings compare to IMDb consensus.
-5. **Discover Your Next 10 Watches (`Oracle` + `"Match Vibe"`):** Switch over to **Oracle**, pick *Mind-Bending* or type `"like Drive but quieter"`, filter by *Netflix* or *Max* (matching all ad-tier/channel aliases via `PROVIDER_FAMILY_MAP`), and inspect **10 curated picks** paired with `"Because you rated"` anchor chips and jargon-free reasons — hitting **Refresh** to rotate fresh candidates without duplicates.
-6. **Compare Contenders Head-to-Head (`CompareDock` / `/compare`) or Spin the Wheel:** Torn between three titles for tonight? Click `⇄ Compare` to inspect their IMDb/RT/Metascore leaders, shortest runtime, shared cast/crew, and 64-D Taste Resonance side-by-side — or open **Pick Random Film**, hit spin, and let CinemaVault decide your movie for the night!
+- Service, ranking, storage, sync, and API-proxy logic is tested with `node --test`. Test files live in `tests/` and run with `npm test`.
+- UI components (`src/components/` and `src/pages/`) do not have unit tests. They are checked with `npm run build` and by manual testing in the browser. Please include a short manual test note in pull requests that change UI.
+- Changes to ranking, the cache hash, or the cascade should add or update a test in `tests/`, because these affect results silently.
+- `scripts/run_eval.mjs` runs the offline ranker evaluation. If you change ranker weights, run it and report the change in the pull request.
 
 ---
 
-## 📄 Documentation & License
+## Typical session
 
-- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)** — Complete plain-English walkthrough of the local 25k `CVEM v1` model, provenance & zero-leakage proof, Phases A–J + Step 2/3B ablations, all 17 errors & fixes, and EZ verification commands (`311 / 311` across 37 suites).
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Full technical & mathematical specification (v5.1–v5.2): z-scores, relative cutoff, mass-weighted persona mixture + 64×64 Ridge fold-in, `catalog-max` + smooth damping, 5-bucket retrieval + `moodPolicy.js` + Reserve Lane, `PROVIDER_FAMILY_MAP`, H1 `gemini-4-hydrogen` cascade (stratified 39-pick shortlist, `<= 20,000`-char unbiased open curation, top-25 favorites, all notes, `LOVED SERIES / ANIME`, & verified `wildcardPicks`), Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`), interactive Actor/Director/Crew Filmography (`personService.js` + `/person/:id`), Rating Studio 2.0 (`ratingStudioService.js`), Contextual Film Chat (`filmChatService.js`), Deep Explore Workbench (`exploreService.js` + `/explore`), Rabbit Hole Discovery (`rabbitHoleService.js`), Side-by-Side Comparison (`compareService.js` + `/compare`), Smart Cache v4 & refresh rotation, serverless `/api/*` proxies, CSV & v2 portability, Supabase RLS schema, and 37-suite test map.
-- **[SPEC.md](./SPEC.md)** — Streaming-grade Frontend Overhaul UI/UX design tokens & component specification (v1.2 + v4.x + v5.0–v5.2 Section 7 extensions).
-- **[README.md](./README.md)** — Quickstart repository README & overview.
-- Built and designed with precision by **[Khuzaima](https://github.com/khuzaima175)**.
-- Licensed under the **MIT License** — free to use, modify, and build upon.
-- Movie data provided by [The Movie Database (TMDB)](https://www.themoviedb.org/) and [OMDb API](http://www.omdbapi.com/).
-- AI powered by [Google Gemini](https://ai.google.dev/).
+1. **Start.** Use the 30-film taste deck, or import a Letterboxd CSV or a Schema v2 backup. Preview the diff before applying it.
+2. **Browse.** Use Discover for unwatched rows and the "All Films" grid. Use `/explore` to filter by decade, runtime, keyword, or streaming service. Use `Cmd + K` or `/` to search, then rate or add a film.
+3. **Rate and discuss.** Open a film, set a rating with the live percentile readout, optionally add craft scores and a watch format, then click Discuss This Film. Sign in to sync if you use more than one device.
+4. **Review stats.** Open the Vault page for screen time and the rating distribution.
+5. **Pick a film.** Open Oracle, choose a vibe or type one, filter by your streaming services, and browse the 10 picks. Refresh for new candidates.
+6. **Compare or roll.** Add up to three films to `/compare` to see the differences, or open Cinema Roulette to choose one at random.
 
 ---
 
-<div align="center">
+## Documentation, history, and license
 
-**CinemaVault** — *Your taste. Your cinema. Curated on-device with mathematical precision.*
+- **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md):** plain-English guide to the local model, its provenance, the evaluation runs, the errors found and fixed along the way, and verification commands.
+- **[ARCHITECTURE.md](./ARCHITECTURE.md):** full technical and mathematical specification.
+- **[SPEC.md](./SPEC.md):** UI design tokens and component specification.
+- **[docs/superpowers/](./docs/superpowers):** historical design specs and implementation plans for earlier versions. Use these to see how the v5.x features were designed.
+- **[README.md](./README.md):** project overview and quick start.
 
-</div>
+**License.** Application source code is MIT licensed.
+
+**Data and third-party notices:**
+- This product uses the TMDB API but is not endorsed or certified by TMDB.
+- Movie metadata from [OMDb](http://www.omdbapi.com/).
+- AI features use [Google Gemini](https://ai.google.dev/).
+- The bundled embedding file is derived from the MovieLens 32M dataset by [GroupLens Research](https://grouplens.org/datasets/movielens/32m/). It is distributed for non-commercial research and educational use under the MovieLens terms. If you deploy this app commercially, check those terms or replace the file.

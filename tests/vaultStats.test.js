@@ -118,23 +118,30 @@ test("resolveMovieRecSource preserves provenance from direct recSource, watchlis
   assert.equal(resolveMovieRecSource({ imdbID: "tt9999999", title: "Unrelated Film" }, aiRecs, []), null);
 });
 
-test("computeRecommendationHitRate computes real-world >=8 and >=9 hit rates over rated AI picks", () => {
-  const empty = computeRecommendationHitRate([]);
-  assert.deepEqual(empty, {
+test("computeRecommendationHitRate computes real-world >=8 and >=9 hit rates over rated AI picks and splits gemini vs ranker-fallback", () => {
+  const emptySlice = {
     totalRatedFromRecs: 0,
     count8Plus: 0,
     count9Plus: 0,
     hitRate8Plus: 0,
     hitRate9Plus: 0,
     meanRating: 0
+  };
+  const empty = computeRecommendationHitRate([]);
+  assert.deepEqual(empty, {
+    ...emptySlice,
+    byPipeline: {
+      gemini: emptySlice,
+      rankerFallback: emptySlice
+    }
   });
 
   const watched = [
     { title: "Organic Hit", userRating: 10 }, // no recSource -> excluded
-    { title: "Unrated From Rec", userRating: 0, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 90, mood: "any", rank: 1 } },
-    { title: "Rec Pick 9", userRating: 9, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 92, mood: "any", rank: 1 } },
-    { title: "Rec Pick 8", userRating: 8, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 88, mood: "any", rank: 2 } },
-    { title: "Rec Miss 7", userRating: 7, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 86, mood: "any", rank: 3 } },
+    { title: "Unrated From Rec", userRating: 0, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 90, mood: "any", rank: 1, pipeline: "gemini" } },
+    { title: "Rec Pick 9", userRating: 9, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 92, mood: "any", rank: 1, pipeline: "gemini" } },
+    { title: "Rec Pick 8", userRating: 8, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 88, mood: "any", rank: 2, pipeline: "gemini-curation" } },
+    { title: "Rec Miss 7", userRating: 7, recSource: { shownAt: "2026-11-14T00:00:00Z", matchScore: 86, mood: "any", rank: 3, pipeline: "ranker-fallback" } },
     { title: "Rec Miss 10 NonRec", userRating: 10 } // no recSource -> excluded
   ];
 
@@ -145,4 +152,21 @@ test("computeRecommendationHitRate computes real-world >=8 and >=9 hit rates ove
   assert.ok(Math.abs(stats.hitRate8Plus - 2 / 3) < 1e-9);
   assert.ok(Math.abs(stats.hitRate9Plus - 1 / 3) < 1e-9);
   assert.ok(Math.abs(stats.meanRating - 8) < 1e-9);
+
+  assert.equal(stats.byPipeline.gemini.totalRatedFromRecs, 2);
+  assert.equal(stats.byPipeline.gemini.hitRate8Plus, 1);
+  assert.equal(stats.byPipeline.gemini.hitRate9Plus, 0.5);
+  assert.equal(stats.byPipeline.gemini.meanRating, 8.5);
+
+  assert.equal(stats.byPipeline.rankerFallback.totalRatedFromRecs, 1);
+  assert.equal(stats.byPipeline.rankerFallback.hitRate8Plus, 0);
+  assert.equal(stats.byPipeline.rankerFallback.meanRating, 7);
+
+  const tagged = attachRecSourceToRecommendations(
+    [{ tmdbId: 550, title: "Fight Club", matchScore: 93 }],
+    "any",
+    "2026-11-15T10:00:00.000Z",
+    "gemini-curation"
+  );
+  assert.equal(tagged[0].recSource.pipeline, "gemini");
 });

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  compactVaultListForStorage,
+  compactVaultMovieForStorage,
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
   mapDbRowToLocalMovie,
@@ -347,4 +349,106 @@ test("mergeLocalAndCloudVault never resurrects cleared ratingBreakdown or watchM
   );
   assert.equal("ratingBreakdown" in nullStrippedRow.metadata, false);
   assert.equal("watchMeta" in nullStrippedRow.metadata, false);
+});
+
+test("mergeLocalAndCloudVault prevents multi-device deleted films from resurrecting via lastSyncedAt and deletedKeys tombstones", () => {
+  // Scenario A: Device B synced at 10:00Z. Movie X (updated 09:00Z) was deleted on Device A at 11:00Z.
+  // Movie Y (updated 11:30Z) was newly added offline on Device B after lastSyncedAt.
+  const deviceBWatched = [
+    { imdbID: "tt0133093", title: "The Matrix", userRating: 9, updatedAt: "2026-11-15T09:00:00.000Z" },
+    { imdbID: "tt0816692", title: "Interstellar", userRating: 10, updatedAt: "2026-11-15T11:30:00.000Z" }
+  ];
+  const deviceBWatchlist = [
+    { imdbID: "tt0111161", title: "Shawshank", updatedAt: "2026-11-15T08:00:00.000Z" }
+  ];
+
+  const mergedRemoteDelete = mergeLocalAndCloudVault({
+    localWatched: deviceBWatched,
+    localWatchlist: deviceBWatchlist,
+    cloudRows: [],
+    userId: "u1",
+    lastSyncedAt: "2026-11-15T10:00:00.000Z",
+    nowIso: "2026-11-15T12:00:00.000Z"
+  });
+
+  assert.deepEqual(
+    mergedRemoteDelete.mergedWatched.map((m) => m.imdbID),
+    ["tt0816692"],
+    "must drop tt0133093 (older than lastSyncedAt and missing from cloud) while keeping newer offline addition tt0816692"
+  );
+  assert.equal(mergedRemoteDelete.mergedWatchlist.length, 0, "must drop remotely deleted watchlist item older than lastSyncedAt");
+  assert.deepEqual(mergedRemoteDelete.toUpsertCloud.map((r) => r.movie_key), ["tt0816692"]);
+
+  // Scenario B: Local tombstone in `deletedKeys` suppresses stale cloud row and emits `toDeleteCloud`
+  const cloudRowsWithDeleted = [
+    {
+      movie_key: "tt0068646",
+      imdb_id: "tt0068646",
+      status: "watched",
+      title: "The Godfather",
+      user_rating: 10,
+      updated_at: "2026-11-15T10:00:00.000Z",
+      metadata: {}
+    }
+  ];
+  const mergedTombstone = mergeLocalAndCloudVault({
+    localWatched: [],
+    localWatchlist: [],
+    cloudRows: cloudRowsWithDeleted,
+    userId: "u1",
+    deletedKeys: { tt0068646: "2026-11-15T11:00:00.000Z" }
+  });
+  assert.equal(mergedTombstone.mergedWatched.length, 0);
+  assert.deepEqual(mergedTombstone.toDeleteCloud, ["tt0068646"]);
+});
+
+test("compactVaultMovieForStorage and compactVaultListForStorage shrink 2,300+ film vaults while retaining all ranker & studio fields", () => {
+  const bloatedMovie = {
+    imdbID: "tt0816692",
+    tmdbId: 157336,
+    title: "Interstellar",
+    Title: "Interstellar",
+    year: "2014",
+    Year: "2014",
+    poster: "https://image.tmdb.org/t/p/w500/p.jpg",
+    Poster: "https://image.tmdb.org/t/p/w500/p.jpg",
+    genre: "Sci-Fi, Drama",
+    Genre: "Sci-Fi, Drama",
+    director: "Christopher Nolan",
+    Director: "Christopher Nolan",
+    runtime: 169,
+    Runtime: 169,
+    userRating: 10,
+    userNote: "Masterpiece",
+    ratingBreakdown: { story: 5, visuals: 5 },
+    watchMeta: { format: "imax" },
+    recSource: { shownAt: "2026-11-15T00:00:00Z", matchScore: 95, mood: "any", rank: 1, pipeline: "gemini" },
+    overview: "A".repeat(900),
+    Plot: "A".repeat(900),
+    tmdbGenreIds: [878, 18],
+    tmdbKeywords: Array.from({ length: 45 }, (_, i) => i + 1),
+    keywordNames: Array.from({ length: 30 }, (_, i) => `kw_${i}`),
+    castIds: Array.from({ length: 25 }, (_, i) => 1000 + i),
+    crewPersonId: 525,
+    credits: { cast: Array.from({ length: 50 }, (_, i) => ({ id: i, name: `Actor ${i}` })) },
+    videos: { results: [{ key: "abc" }] }
+  };
+
+  const standard = compactVaultMovieForStorage(bloatedMovie, { aggressive: false });
+  assert.equal("Title" in standard, false);
+  assert.equal("Plot" in standard, false);
+  assert.equal("credits" in standard, false);
+  assert.equal("videos" in standard, false);
+  assert.ok(standard.overview.length <= 260);
+  assert.equal(standard.tmdbKeywords.length, 20);
+  assert.equal(standard.castIds.length, 10);
+  assert.equal(standard.crewPersonId, 525);
+  assert.deepEqual(standard.ratingBreakdown, { story: 5, visuals: 5 });
+
+  const aggressive = compactVaultListForStorage([bloatedMovie], { aggressive: true })[0];
+  assert.equal("overview" in aggressive, false);
+  assert.equal(aggressive.userRating, 10);
+  assert.equal(aggressive.userNote, "Masterpiece");
+  assert.equal(aggressive.tmdbKeywords.length, 20);
+  assert.equal(aggressive.castIds.length, 10);
 });

@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useApp } from "../context/AppContext";
 import {
   Film,
@@ -18,6 +20,39 @@ import {
   formatVaultNavCount
 } from "../services/navHelpers";
 
+function NavTab({ to, end = false, children }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
+    >
+      {({ isActive }) => (
+        <>
+          {children}
+          {isActive && (
+            <motion.span
+              layoutId="nav-underline"
+              className="nav-underline"
+              transition={{ type: "spring", stiffness: 480, damping: 36 }}
+            />
+          )}
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+function useScrolled(threshold = 8) {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > threshold);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [threshold]);
+  return scrolled;
+}
 export default function NavBar({
   onOpenSearch,
   onOpenRandomPicker,
@@ -29,6 +64,7 @@ export default function NavBar({
   cloudSyncStatus = "idle"
 }) {
   const { watched = [], watchlist = [] } = useApp();
+  const isScrolled = useScrolled();
   const shortcutLabel = getSearchShortcutHint(
     typeof navigator !== "undefined" ? navigator.platform : ""
   );
@@ -41,7 +77,7 @@ export default function NavBar({
 
   return (
     <>
-      <header className="nav-bar-stream" aria-label="Main Navigation">
+      <header className={`nav-bar-stream ${isScrolled ? "is-scrolled" : ""}`} aria-label="Main Navigation">
         <div className="nav-container page-rail">
           <div className="nav-brand-group">
             <NavLink to="/" className="brand-logo" aria-label="CinemaVault Home">
@@ -49,34 +85,12 @@ export default function NavBar({
             </NavLink>
 
             <nav className="nav-links-desktop" role="navigation" aria-label="Primary sections">
-              <NavLink
-                to="/"
-                end
-                className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
-              >
+              <NavTab to="/" end>
                 Discover
-              </NavLink>
-
-              <NavLink
-                to="/explore"
-                className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
-              >
-                Explore
-              </NavLink>
-
-              <NavLink
-                to="/vault"
-                className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
-              >
-                Vault
-              </NavLink>
-
-              <NavLink
-                to="/ai"
-                className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
-              >
-                Oracle
-              </NavLink>
+              </NavTab>
+              <NavTab to="/explore">Explore</NavTab>
+              <NavTab to="/vault">Vault</NavTab>
+              <NavTab to="/ai">Oracle</NavTab>
             </nav>
           </div>
 

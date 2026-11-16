@@ -4,6 +4,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import HeroBillboard from "../components/HeroBillboard";
 import MovieCarouselRow from "../components/MovieCarouselRow";
+import RowSkeleton from "../components/RowSkeleton";
 import HomePosterGrid from "../components/HomePosterGrid";
 import QuickRateModal from "../components/QuickRateModal";
 import { loadHomeDiscoveryFeeds } from "../services/dashboardService";
@@ -12,6 +13,7 @@ export default function DashboardPage({ onOpenTasteDeck }) {
   const navigate = useNavigate();
   const { watched = [], watchlist = [], userRegion = "GLOBAL", addWatched, addToWatchlist } = useApp();
   const [feeds, setFeeds] = useState({ heroSlides: [], rows: [], mosaicPool: [], isLive: false });
+  const [hasLoadedFeeds, setHasLoadedFeeds] = useState(false);
   const [quickAddMovie, setQuickAddMovie] = useState(null);
 
   useEffect(() => {
@@ -28,7 +30,10 @@ export default function DashboardPage({ onOpenTasteDeck }) {
           setFeeds(result);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (isActive) setHasLoadedFeeds(true);
+      });
 
     return () => {
       isActive = false;
@@ -48,9 +53,16 @@ export default function DashboardPage({ onOpenTasteDeck }) {
         onAddWatched={addWatched}
         onAddToWatchlist={addToWatchlist}
         onOpenTasteDeck={onOpenTasteDeck}
+        loading={!hasLoadedFeeds}
       />
 
       <div className="home-rows-container">
+        {!hasLoadedFeeds && (!feeds.rows || feeds.rows.length === 0) && (
+          <>
+            <RowSkeleton />
+            <RowSkeleton />
+          </>
+        )}
         {watchlist && watchlist.length > 0 && (
           <MovieCarouselRow
             title="Watchlist"

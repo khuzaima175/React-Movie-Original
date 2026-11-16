@@ -15,8 +15,18 @@ export default function MovieCarouselRow({
   seeAllLink
 }) {
   const scrollRef = useRef(null);
+  const dragRef = useRef({ active: false, startX: 0, startLeft: 0, moved: false, suppressClick: false });
   const [canScroll, setCanScroll] = useState(false);
+  const [edges, setEdges] = useState({ start: false, end: true });
   const [revealRef, isRevealed] = useScrollReveal();
+
+  function updateEdges() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const start = el.scrollLeft > 4;
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  }
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -24,6 +34,7 @@ export default function MovieCarouselRow({
 
     const updateOverflow = () => {
       setCanScroll(shouldShowCarouselArrows(el.scrollWidth, el.clientWidth));
+      updateEdges();
     };
 
     updateOverflow();
@@ -39,6 +50,52 @@ export default function MovieCarouselRow({
       window.removeEventListener("resize", updateOverflow);
     };
   }, [movies.length]);
+
+  // Mouse drag-to-scroll (touch already scrolls natively)
+  function handlePointerDown(e) {
+    if (e.pointerType !== "mouse" || e.button !== 0 || !scrollRef.current) return;
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startLeft: scrollRef.current.scrollLeft,
+      moved: false,
+      suppressClick: false
+    };
+  }
+
+  function handlePointerMove(e) {
+    const drag = dragRef.current;
+    const el = scrollRef.current;
+    if (!drag.active || !el) return;
+    const dx = e.clientX - drag.startX;
+    if (!drag.moved && Math.abs(dx) > 6) {
+      drag.moved = true;
+      el.classList.add("is-dragging");
+    }
+    if (drag.moved) el.scrollLeft = drag.startLeft - dx;
+  }
+
+  function endDrag() {
+    const drag = dragRef.current;
+    if (!drag.active) return;
+    drag.active = false;
+    scrollRef.current?.classList.remove("is-dragging");
+    if (drag.moved) {
+      drag.suppressClick = true;
+      // Clear in case no click follows (pointer released off a card)
+      window.setTimeout(() => {
+        dragRef.current.suppressClick = false;
+      }, 0);
+    }
+  }
+
+  function handleClickCapture(e) {
+    if (dragRef.current.suppressClick) {
+      e.stopPropagation();
+      e.preventDefault();
+      dragRef.current.suppressClick = false;
+    }
+  }
 
   function scroll(direction) {
     if (!scrollRef.current) return;
@@ -59,7 +116,7 @@ export default function MovieCarouselRow({
         <div className="carousel-header-right">
           {seeAllLink && (
             <Link to={seeAllLink} className="carousel-see-all">
-              See all &rarr;
+              See all <span className="carousel-see-all-arrow" aria-hidden="true">&rarr;</span>
             </Link>
           )}
           {canScroll && (
@@ -86,25 +143,37 @@ export default function MovieCarouselRow({
       </div>
 
       <div className="page-rail">
-        <div className="carousel-track" ref={scrollRef}>
-        {movies.map((movie) => {
-          if (!movie) return null;
-          const id = movie.imdbID || movie.id;
-          const isWatched = (watched || []).some(
-            (w) => w && (w.imdbID === id || w.id === id || (movie.tmdbId && w.tmdbId === movie.tmdbId))
-          );
+        <div
+          className={`carousel-track ${edges.start ? "fade-start" : ""} ${
+            edges.end && canScroll ? "fade-end" : ""
+          }`}
+          ref={scrollRef}
+          onScroll={updateEdges}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endDrag}
+          onPointerLeave={endDrag}
+          onPointerCancel={endDrag}
+          onClickCapture={handleClickCapture}
+        >
+          {movies.map((movie) => {
+            if (!movie) return null;
+            const id = movie.imdbID || movie.id;
+            const isWatched = (watched || []).some(
+              (w) => w && (w.imdbID === id || w.id === id || (movie.tmdbId && w.tmdbId === movie.tmdbId))
+            );
 
-          return (
-            <MovieCard
-              key={id}
-              movie={movie}
-              onSelectMovie={onSelectMovie}
-              onQuickAdd={onQuickAdd}
-              onAddWatched={onAddWatched}
-              isWatched={isWatched}
-            />
-          );
-        })}
+            return (
+              <MovieCard
+                key={id}
+                movie={movie}
+                onSelectMovie={onSelectMovie}
+                onQuickAdd={onQuickAdd}
+                onAddWatched={onAddWatched}
+                isWatched={isWatched}
+              />
+            );
+          })}
         </div>
       </div>
     </section>

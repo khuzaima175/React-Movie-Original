@@ -865,6 +865,7 @@ export function buildCascadeModelInfo(
         displayName: formatModelDisplayName(normalizedModel),
         cascadeType,
         pipeline,
+        fallbackMode: pipeline,
         primaryModel,
         isFallback: Boolean(!normalizedModel || (primaryModel && normalizedModel !== primaryModel)),
         cooldownModels,
@@ -2518,6 +2519,33 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
             moodShortfall
         });
         return buildRankerFallbackResponse(topCandidates, profile, rankerFallbackInfo, undefined, targetCount, moodShortfall);
+    }
+
+    // Progressive Stage-3 rendering: emit the instant local ranker top-10 immediately so the UI
+    // never blocks on a 15-35s cold Gemini cascade before showing recommendations.
+    if (
+        typeof options.onStage3Ready === "function" ||
+        typeof options.onPreliminaryRecommendations === "function"
+    ) {
+        try {
+            const preliminaryModelInfo = {
+                ...buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-preliminary"),
+                hydrationCoverage,
+                fallbackMode: "ranker-preliminary",
+                pipeline: "ranker-preliminary",
+                isPreliminary: true
+            };
+            const preliminaryResult = buildRankerFallbackResponse(
+                topCandidates,
+                profile,
+                preliminaryModelInfo,
+                "Selected by your local taste ranker while Gemini refines curation & explanations...",
+                targetCount,
+                moodShortfall
+            );
+            options.onStage3Ready?.(preliminaryResult);
+            options.onPreliminaryRecommendations?.(preliminaryResult);
+        } catch (_) {}
     }
 
     const prompt = buildGeminiReRankPrompt(profile, mood, topCandidates, {

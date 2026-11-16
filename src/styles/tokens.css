@@ -15,7 +15,7 @@
   /* Typography Hierarchy — Three Clean Levels */
   --text-1: #f3f1eb;
   --text-2: #a8a7a1;
-  --text-3: #6e6d68;
+  --text-3: #8a8984; /* >= 4.5:1 on --bg and --surface-2 (WCAG AA) */
 
   /* Accent Discipline:
      Gold (--accent) is strictly reserved for user rating stars,

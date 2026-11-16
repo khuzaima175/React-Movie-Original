@@ -2093,3 +2093,70 @@ test("OMDb fallback pipeline injects active tasteRules into the Gemini prompt", 
         else process.env.VITE_OMDB_KEY = prevOmdb;
     }
 });
+
+test("getMovieRecommendations invokes onStage3Ready with instant local ranker top-10 before Gemini cascade resolves", async () => {
+    resetSessionWorkingModels({ clearStorage: true });
+    const events = [];
+    const candidates = Array.from({ length: 12 }, (_, i) => ({
+        id: 500 + i,
+        tmdbId: 500 + i,
+        title: `Candidate Film ${i + 1}`,
+        year: "2023",
+        release_date: "2023-06-01",
+        genre: "Sci-Fi, Thriller",
+        tmdbGenreIds: [878, 53],
+        vote_average: 8.2 - i * 0.1,
+        vote_count: 1500
+    }));
+
+    const mockAi = {
+        models: {
+            generateContent: async () => {
+                events.push("gemini_called");
+                return {
+                    text: JSON.stringify({
+                        tasteProfile: {
+                            favoriteGenres: ["Sci-Fi"],
+                            preferredEra: "2020s",
+                            ratingStyle: "Selective"
+                        },
+                        recommendations: candidates.slice(0, 10).map((c) => ({
+                            tmdbId: c.tmdbId,
+                            title: c.title,
+                            year: c.year,
+                            reason: `Gemini curated reason for ${c.title}.`
+                        }))
+                    })
+                };
+            }
+        }
+    };
+
+    let stage3Payload = null;
+    const finalResult = await getMovieRecommendations(
+        [{ imdbID: "tt0816692", tmdbId: 157336, title: "Interstellar", year: "2014", userRating: 9, tmdbGenreIds: [878] }],
+        [],
+        undefined,
+        {
+            aiClient: mockAi,
+            candidates,
+            enrichCandidates: false,
+            injectEmbeddingNeighbors: false,
+            embeddingIndex: null,
+            contentIndex: null,
+            dnaIndex: null,
+            onStage3Ready: (prelim) => {
+                events.push("stage3_ready");
+                stage3Payload = prelim;
+            }
+        }
+    );
+
+    assert.deepEqual(events, ["stage3_ready", "gemini_called"], "onStage3Ready must fire before awaiting Gemini network call");
+    assert.ok(stage3Payload);
+    assert.equal(stage3Payload.recommendations.length, 10);
+    assert.equal(stage3Payload.modelInfo?.isPreliminary, true);
+    assert.equal(stage3Payload.modelInfo?.fallbackMode, "ranker-preliminary");
+    assert.equal(finalResult.recommendations.length, 10);
+    assert.equal(finalResult.modelInfo?.fallbackMode, "gemini-curation");
+});

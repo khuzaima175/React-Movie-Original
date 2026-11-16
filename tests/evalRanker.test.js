@@ -274,5 +274,17 @@ test("evaluateRanker reports negHitAt20, uniqueRecommendedCount, medianCandidate
   assert.equal(typeof res.metrics.uniqueRecommendedCount, "number");
   assert.equal(typeof res.metrics.medianCandidateVotes, "number");
   assert.ok(res.metrics.uniqueRecommendedCount > 0);
+
+  const knnRes = await evaluateRanker({
+    watched,
+    catalog,
+    strategy: "item_knn",
+    holdoutSize: 10,
+    minTrain: 5,
+    minHoldoutPositives: 2,
+    embeddingIndex: contentIndex
+  });
+  assert.equal(knnRes.status, "ok");
+  assert.ok(knnRes.metrics.ndcgAt10 > 0, "item_knn baseline with aligned vectors must achieve positive ndcgAt10");
 });
 

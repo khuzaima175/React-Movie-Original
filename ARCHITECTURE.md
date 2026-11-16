@@ -1,1029 +1,1031 @@
-  # 🏛️ CinemaVault — Comprehensive Architecture & Mathematics Specification (v5.2)
-
-  **CinemaVault** is an open-source, local-first cinema logging, analytics, research workbench, and hybrid recommendation platform with optional opt-in Supabase cloud sync.
-
-  Rather than prompting an LLM to invent movie lists from scratch, CinemaVault separates **on-device mathematical taste modeling, multi-bucket catalog retrieval, and deterministic logistic ranking** from **bounded LLM diversity selection and natural-language explanations**:
-  - **On-Device Taste & Embedding Engine:** Per-user z-scored rating normalization with bulk-safe recency decay (`scoringUtils.js`), a `25,000`-film × `64`-D IEEE-754 `float16` collaborative embedding index (`CVEM v1`, `embeddingService.js`), vault-relative weight cutoffs (`1e-6 * maxAbsWeight`), mass-weighted Spherical K-Means multi-persona mixtures (`beta = 20`) blended (`0.75 / 0.25`) with on-device `64×64` L2-regularized Ridge fold-in (`lambda = 20`), and quadratic disliked-film repulsion.
-  - **5-Bucket Verified Retrieval & Logistic Ranker:** Parallel TMDB + embedding candidate harvesting across Buckets `A–E` (`tmdbService.js`) with batched `/api/tmdb-batch` metadata hydration and 30-day IndexedDB caching (`tmdbCacheService.js`), scored by an 11-feature (+ optional `dnaSim`) logistic ranker (`rankerService.js`) with pool-independent `catalog-max` normalization, smoothstep `[0, 0.02]` → `0.35x` metadata damping, canonical mood/vibe policy (`moodPolicy.js`), steerable Prefer/Avoid taste rules (`tasteRulesService.js`), and an order-preserving `tau = 1.45` display score transform (`[50, 99]`).
-  - **Stratified 39-Pick Gemini Curation & Resilient Cascade:** Unbiased `10`-pick curation over a `39`-candidate stratified shortlist (`25` core + `8` cold `2024–2026` + `6` outliers via `buildDiversifiedGeminiShortlist`), optional `0–2` TMDB-verified `wildcardPicks` (`verifyAndScoreWildcardPicks`), soft director/franchise variety caps (`selectWithSoftVarietyCaps`), and an error-classified H1 Gemini model cascade (`geminiService.js`) with deterministic ranker fallback and `cinemavault_smart_cache_v4` (`8`-arg profile hash).
-  - **Research Hub, Sculpted 10-Star Rating Studio & Cloud Sync:** Sculpted 10-Star Cinema Stage (`StarRatingStage.jsx`, `ratingStudioService.js`) with live Vault percentile calibration, 4-aspect Craft Breakdown, and Watch Log metadata; spoiler-safe `"Discuss This Film"` contextual AI chat (`filmChatService.js`); URL-synced `/explore` Deep Filter Workbench (`exploreService.js`); chronological franchise timelines & hybrid `CVEM v1` + TMDB similar-film strips (`rabbitHoleService.js`); 2–3 film Side-by-Side Comparison Matrix (`/compare`, `compareService.js`); serverless `/api/*` credential proxies (`api/_security.js`); opt-in Supabase Auth + Postgres 15+ RLS sync (`vaultSyncService.js`); and **37** service- & API-layer `node --test` suites (**311 / 311 passing**).
-
-  > For a plain-English walkthrough of the local model, provenance audits, verified benchmarks, errors resolved, and copy-paste health checks, see **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)**. Historical point-in-time design specs and implementation plans remain preserved under [docs/superpowers/](./docs/superpowers).
-
-  ---
-
-  ## Implementation Status (Updated Nov 15, 2026)
-
-  | Area | Implemented Behavior on Current Branch (`main`) | Primary Modules |
-  | :--- | :--- | :--- |
-  | **Stage 1 Collaborative Embeddings** | `25,000`-film, `64`-D float16 binary (`/models/item_embeddings_f16.bin`, `3,300,016` B, `CVEM v1`) trained on MovieLens 32M with verified zero holdout leakage, repulsion-aligned Bucket `E` neighbor retrieval (`retrieveAlignedEmbeddingNeighbors`, capped at `15` aligned neighbors during explicit mood vs `30` under `"any"`), & SPA `text/html` fallback rejection | [embeddingService.js](./src/services/embeddingService.js), [colab_train_embeddings.py](./scripts/colab_train_embeddings.py) |
-  | **Stage 2 Content Embeddings & CDNA** | Dedicated content embedding loader/scorer (`/models/content_embeddings_f16.bin`, `buildContentSimMap`, opt-in pure overview bigram fallback + `enableStructuredFallback` / `coldOnly: true` for unindexed items) + offline `build_content_embeddings.mjs`; optional 8-bit `CDNA` axis scorer (`loadDefaultDnaIndex`, `buildDnaSimMap`) wired to `dnaSim` feature (default weight `0` until validated) | [contentSimService.js](./src/services/contentSimService.js), [dnaService.js](./src/services/dnaService.js), [build_content_embeddings.mjs](./scripts/build_content_embeddings.mjs) |
-  | **Persona Mixture, Ridge Fold-In & Relative Cutoff** | Mass-weighted Spherical K-Means mixture (`computePersonaDetails`, `K` in `[1, 4]`, `personaBeta = 20`) blended (`0.75 / 0.25`) with `64×64` L2-regularized Ridge fold-in (`computeUserRidgeEmbedding`, `lambda = 20`, `ridgeMinItems = 10`, scale-invariant `normW`), disliked repulsion (`repulsion: -1.5`), and vault-relative weight cutoff (`1e-6 * maxAbsWeight`) supporting multi-decade vaults (`ml-user-263`, `ml-user-409`) | [embeddingService.js](./src/services/embeddingService.js), [scoringUtils.js](./src/services/scoringUtils.js) |
-  | **Canonical Mood Policy & Match Vibe** | Shared 6-mood matrix (`MOOD_OPTIONS`), free-text constraint normalizer (`normalizeMoodFilters`), deterministic keyword/decade/era offline parser (`parseFreeTextMoodFallback`), Gemini fast-cascade parser (`parseFreeTextMoodWithGemini`), hard candidate gate (`matchesMoodCandidateGate`), and cache segment builder (`buildMoodFilterHashSegment`) | [moodPolicy.js](./src/services/moodPolicy.js), [oracleViewHelpers.js](./src/services/oracleViewHelpers.js) |
-  | **5-Bucket Retrieval, Moods & Provider Families** | Buckets `B` (Anchor Keywords, scaled down `20%` max `12` in explicit mood), `C` (Auteur Crew, scaled down `12%` max `8` in explicit mood), `A` (Semantic/Mood Discover dropping `with_cast` lock under explicit moods, supporting year/exclude/page params, unqualified `avoidGenreIds` from `tasteRules`, & `with_watch_monetization_types: "flatrate\|free\|ads"`), `D` (Recent Releases `18m`, skipped for `hidden-gem` or `maxYear < currentYear - 2`), strict `PROVIDER_FAMILY_MAP` (13 alias groups) + `matchesWatchProviders`, batch metadata hydration (`enrichCandidatePoolMetadata` incl. `collectionId`/`collectionName`), & Bucket `E` mood gating | [tmdbService.js](./src/services/tmdbService.js), [moodPolicy.js](./src/services/moodPolicy.js), [tasteRulesService.js](./src/services/tasteRulesService.js) |
-  | **Logistic Ranker & Online Learning** | 11-feature (+ optional `dnaSim`) logistic ranker (`collabSim: 6.4`, `genreOverlap: 0.6`, `keywordOverlap: 0.45`, `bayesianRatingNorm: 1.8`, `noveltyBonus: 0.05`, softened `negativeKeywordPenalty: -0.5`), pool-independent `catalog-max` normalization (`minCatalogSize = 50` with `poolMax` fallback for tiny maps), smoothstep `[0, 0.02]` → `0.35x` metadata damping & order-preserving `tau = 1.45` display score scaling (`[50, 99]`) under `"any"` (or `collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`, & `matchesMoodCandidateGate` partition under explicit moods), steerable `tasteRules` logit tuning (`+0.6` prefer / `-3.5` avoid; `0` delta when empty), strict provider-verified pool enforcement, `RECENT_RELEASE_RESERVE_COUNT = 2` (disabled under explicit mood), & feedback-driven bounded weight updates (`derivePersonalizedRankerWeights`, `minEvents: 10`, `minPositives: 3`, `minNegatives: 3`, `l2: 0.55`) | [rankerService.js](./src/services/rankerService.js), [onlineLearningService.js](./src/services/onlineLearningService.js), [feedbackService.js](./src/services/feedbackService.js), [tasteRulesService.js](./src/services/tasteRulesService.js) |
-  | **10-Pick Curation, Wildcards, Collection Guard & Taste Rules** | `DEFAULT_RECOMMENDATION_COUNT = 10` over a **39-pick stratified shortlist** (`buildDiversifiedGeminiShortlist`: `25` core + `8` cold `2024–2026` + `6` outliers, strictly `gatePassed` + `passesTasteAvoidGuard` on Slices 2/3 & top-up with single `onDiagnostics`), unbiased `"Curate openly"` prompt (`<= 20,000` chars; `Match: XX%` & `#1–#15` bias removed) + `USER'S STEERABLE TASTE RULES` (never trimmed under compaction) + `Franchise rule:` + `Collection:` metadata + optional `0–2` TMDB/vault/provider/mood/avoid-rule-verified `wildcardPicks` (`verifyAndScoreWildcardPicks` via `fetchBatchFormattedDetailsMap` & `collabCatalogMax`), two-pass soft `selectWithSoftVarietyCaps` (`maxPerDirector: 2`, `maxPerCollection: 1`) & auto-backfill, nested `{ movie, weight, zScore }` relative-dislike lookup + `<=10` non-series mood-stratified anchors + `6–7★` `NEAR MISSES` + `<=5` disliked/dismissed (`already_seen`-exempt) + `<=8` `USER'S WATCHLIST` + `ADDITIONAL TOP FAVORITES` (`11–25`) + `LOVED SERIES / ANIME` + deduplicated `ADDITIONAL VIEWER NOTES` (all remaining `userNote`s) + `userStats`/`topDirectors` in `buildGeminiReRankPrompt`, `recSource` conversion provenance (`vaultStats.js`) & `"Already seen"` -> `QuickRateModal`, `SMART_CACHE_KEY = "cinemavault_smart_cache_v4"` with `MIN_VALID_CACHE_COUNT = 7` & note-aware 8-arg region/vault/taste-rule-scoped `generateProfileHash`, `null`-safe `normalizeMatchScore` fallback, `hydrationCoverage` + `moodShortfall` telemetry, session refresh `excludeIds` rotation (`120`-ID cap, TMDB pages `1..5`) + exhaustion guard, drawer close auto-refresh (`shouldAutoRefreshOnDrawerClose`), anchor film resolver (`resolveRecommendationAnchors`), jargon-free `sanitizeOracleReason`, Oracle `"Taste Rules"` drawer (`cinemavault_taste_rules_v1`), `sendChatMessage(..., tasteRules)`, plus H1 `CURATION_MODEL_CASCADE` & `FAST_INTERACTIVE_CASCADE` (`15s` Flash timeouts) | [geminiService.js](./src/services/geminiService.js), [tasteRulesService.js](./src/services/tasteRulesService.js), [rankerService.js](./src/services/rankerService.js), [oracleViewHelpers.js](./src/services/oracleViewHelpers.js), [vaultStats.js](./src/services/vaultStats.js), [geminiChatService.js](./src/services/geminiChatService.js), [geminiExplanationService.js](./src/services/geminiExplanationService.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx), [AIChat.jsx](./src/components/AIChat.jsx) |
-  | **Serverless `/api/*` Proxies & Search** | Key-isolating Vercel Functions (`api/gemini.js`, `api/tmdb.js`, `api/tmdb-batch.js`, `api/omdb.js`) with explicit model/path allowlists (incl. `/3/search/(movie\|person\|keyword)`, `/3/person/:id[/movie_credits]`, `/3/collection/:id`, & `/3/movie/:id/(recommendations\|similar)`), 40-ID TMDB batching (`concurrency = 6`, single `"tmdb"` rate-limit hit, `s-maxage=86400`), client 30-day IndexedDB detail cache (`getMovieDetailsBatch`), cross-origin blocking (`403`), per-IP sliding-window rate limits (`api/_security.js`), `maxDuration: 60` (`vercel.json`), upstream error secret redaction, automatic direct-vs-proxy client router (`apiTransport.js`), and race-safe `AbortController` dual-engine search (`searchService.js`, `SearchModal.jsx`) | [api/_security.js](./api/_security.js), [api/gemini.js](./api/gemini.js), [api/tmdb.js](./api/tmdb.js), [api/tmdb-batch.js](./api/tmdb-batch.js), [api/omdb.js](./api/omdb.js), [apiTransport.js](./src/services/apiTransport.js), [searchService.js](./src/services/searchService.js) |
-  | **Discover Hub, Taste Deck, Backfill & Portability** | Multi-page unwatched TMDB carousels + filterable mosaic grid (`dashboardService.js`, `DashboardPage.jsx`, `HomePosterGrid.jsx`), 30-film interleaved onboarding (`TasteDeckModal.jsx`, `tasteDeckService.js`), 10-tier `QuickRateModal` (`ratingTiers.js`) + shared praise/critique chips (`quickReviewTags.js`, `maxLength = 200` / `MovieDetails.jsx`), canonical cross-ID resolver (`movieIdentity.js`), lazy series-guarded TMDB vault backfill (`backfillMissingTmdbIds`, `isSeriesVaultItem`, `mergeBackfilledMovieMetadata` & `bridgeTmdbToOmdb` preserving `cast`, `writers`, `tagline`, `originCountry`, `spokenLanguages`, `mpaaRating`, `runtimeMinutes`, `keywordNames`, `keywordItems`, `collectionId`/`collectionName`, & overview fallback) + non-blocking `addWatched` hydration, 1–10 vault histogram & recommendation conversion hit-rate (`vaultStats.js`), Letterboxd CSV hardening (`csvImport.js`), & Schema v2 duplicate-safe JSON/CSV diff portability (`vaultPortability.js`, incl. `preferences.tasteRules`) | [dashboardService.js](./src/services/dashboardService.js), [tasteDeckService.js](./src/services/tasteDeckService.js), [ratingTiers.js](./src/services/ratingTiers.js), [quickReviewTags.js](./src/services/quickReviewTags.js), [movieIdentity.js](./src/services/movieIdentity.js), [tmdbService.js](./src/services/tmdbService.js), [vaultPortability.js](./src/services/vaultPortability.js), [vaultStats.js](./src/services/vaultStats.js), [csvImport.js](./src/services/csvImport.js) |
-  | **Rating Studio 2.0 (10-Star Cinema Stage), Contextual Film Chat, Deep Explore, Rabbit Hole & Compare** | Reusable `StarRatingStage` (`computeStarStageMetrics` wave-cascade physics, `--tier-color` light track, zero OS emojis) + live Vault percentile & same-score/nearest benchmark calibration (`computeVaultCalibration`), optional 4-aspect `1–5` Craft Breakdown (`CRAFT_ASPECTS`, `computeCraftAverage`) & Watch Log (`WATCH_FORMATS`, `rewatchCount`, `containsSpoilers`) with null-tombstone clearing (`buildWatchedRatingPayload`), `"Discuss This Film"` deep-link (`/ai?tab=chat&movie=...`) + injection-safe `serializeFilmDossierForPrompt` & spoiler-safe toggle (`filmChatService.js`), URL-synced `/explore` multi-facet TMDB discover workbench (`exploreService.js`, `ExplorePage.jsx`), chronological `CollectionTimeline` + hybrid 64-D `CVEM v1` + TMDB `SimilarFilmsStrip` (`rabbitHoleService.js`), & 2–3 film Side-by-Side Comparison Matrix (`/compare`, `CompareDock`, `CompareModal`, `CompareWorkbench`, `compareService.js`) | [StarRatingStage.jsx](./src/components/StarRatingStage.jsx), [ratingStudioService.js](./src/services/ratingStudioService.js), [filmChatService.js](./src/services/filmChatService.js), [exploreService.js](./src/services/exploreService.js), [rabbitHoleService.js](./src/services/rabbitHoleService.js), [compareService.js](./src/services/compareService.js), [ExplorePage.jsx](./src/pages/ExplorePage.jsx), [ComparePage.jsx](./src/pages/ComparePage.jsx), [CompareWorkbench.jsx](./src/components/CompareWorkbench.jsx) |
-  | **Opt-In Supabase Cloud Sync & RLS** | Local-first guest experience with optional Supabase Auth (Email OTP / Magic Link), Postgres 15+ `profiles` & `user_vault_items` schema with `(select auth.uid())` RLS policies and `public`/`anon` revocations, & lossless timestamped two-way sync (`mergeLocalAndCloudVault`, preserving `recSource` in `metadata` JSONB and honoring cleared `ratingBreakdown`/`watchMeta` tombstones) | [supabaseClient.js](./src/services/supabaseClient.js), [vaultSyncService.js](./src/services/vaultSyncService.js), [CloudSyncModal.jsx](./src/components/CloudSyncModal.jsx), [20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql) |
-  | **Evaluation & Verification** | Rolling temporal cross-validation (`evaluateRankerRolling`), `NegHit@20` / `Unique@30` / `NDCG@10` / `withinUserAuc` CLI harness `scripts/run_eval.mjs`, ablation harness `scripts/experiments/run_ablation.mjs`, vault cold-share analyzer `scripts/experiments/vault_cold_share.mjs` (`--exclude-series`), & **37** automated service- & API-layer `node --test` suites (**311 / 311 passing**) | [evalHarness.js](./src/services/evalHarness.js), [run_ablation.mjs](./scripts/experiments/run_ablation.mjs), [vault_cold_share.mjs](./scripts/experiments/vault_cold_share.mjs), [tests/](./tests) |
-
-  ---
-
-  ## Table of Contents
-
-  1. [Executive Summary & Core Philosophy](#1-executive-summary--core-philosophy)
-  2. [Why Pure LLM Recommenders Fail (The 5+ Fatal Flaws)](#2-why-pure-llm-recommenders-fail-the-5-fatal-flaws)
-  3. [Mathematical Taste Vector & Local Model Formulation](#3-mathematical-taste-vector--local-model-formulation)
-    - [3.1 Per-User Z-Scored Rating Normalization ($z_i$)](#31-per-user-z-scored-rating-normalization-z_i)
-    - [3.2 Bulk-Import-Safe Exponential Recency Time-Decay ($w_i$)](#32-bulk-import-safe-exponential-recency-time-decay-w_i)
-    - [3.3 Float16 Embeddings (`CVEM` v1), Relative Weight Cutoff, Personas & Repulsion](#33-float16-embeddings-cvem-v1-relative-weight-cutoff-personas--repulsion)
-    - [3.4 Temporally-Weighted Anchor Film Selection](#34-temporally-weighted-anchor-film-selection)
-    - [3.5 Granular Negative Trope Extraction (`without_keywords`) & Ranker Softening](#35-granular-negative-trope-extraction-without_keywords--ranker-softening)
-    - [3.6 Star-Power, Auteur Crew & Watchlist Intent Vectoring](#36-star-power-auteur-crew--watchlist-intent-vectoring)
-    - [3.7 Calibrated Logistic Ranker, Normalization, Metadata Damping & Match Badges](#37-calibrated-logistic-ranker-normalization-metadata-damping--match-badges)
-    - [3.8 Verified Benchmark Milestones, Leakage Audit & Tuning Results](#38-verified-benchmark-milestones-leakage-audit--tuning-results)
-  4. [The 5-Bucket Hybrid Retrieval & Recent-Release Reserve Pipeline](#4-the-5-bucket-hybrid-retrieval--recent-release-reserve-pipeline)
-    - [4.1 Bucket B: Keyword Spiritual Successors (`fetchBucketB`)](#41-bucket-b-keyword-spiritual-successors-fetchbucketb)
-    - [4.2 Bucket C: Auteur & Star Power Network (`fetchBucketC`)](#42-bucket-c-auteur--star-power-network-fetchbucketc)
-    - [4.3 Bucket A: Semantic Discover Engine & Mood Calibration Matrix (`fetchBucketA`)](#43-bucket-a-semantic-discover-engine--mood-calibration-matrix-fetchbucketa)
-    - [4.4 Bucket D: Recent-Release Lane (`fetchBucketD`)](#44-bucket-d-recent-release-lane-fetchbucketd)
-    - [4.5 Bucket E: Collaborative Embedding Neighbor Injection (`fetchEmbeddingCandidates`)](#45-bucket-e-collaborative-embedding-neighbor-injection-fetchembeddingcandidates)
-    - [4.6 Dynamic Waterfall Sizing, Cold-Start Bypass & Recent-Release Reserve Selection](#46-dynamic-waterfall-sizing-cold-start-bypass--recent-release-reserve-selection)
-  5. [TMDB API Query Grammar & Syntax Rules](#5-tmdb-api-query-grammar--syntax-rules)
-  6. [Schema Bridge & Enriched Cinema Extraction (`bridgeTmdbToOmdb` & `fetchTmdbMovieDetails`)](#6-schema-bridge--enriched-cinema-extraction-bridgetmdbtoomdb--fetchtmdbmoviedetails)
-  7. [Stage 3 Logistic Ranker, Stratified 39-Pick Open Curation, Wildcards & H1 Cascade](#7-stage-3-calibrated-ranker-stratified-39-pick-open-curation-wildcards--h1-cascade)
-    - [7.1 Stratified 39-Pick Shortlist, Unbiased Prompting, Verified Wildcards & Schema (`buildDiversifiedGeminiShortlist` / `reRankCandidatesWithGemini`)](#71-stratified-39-pick-shortlist-unbiased-prompting-verified-wildcards--schema-builddiversifiedgeminishortlist--buildgeminirerankprompt--rerankcandidateswithgemini)
-    - [7.2 Wildcard Verification (`verifyAndScoreWildcardPicks`), Score Locking (`mergeGeminiExplanationsWithRanker`) & `normalizeMatchScore`](#72-wildcard-verification-verifyandscorewildcardpicks-score-locking-mergegeminiexplanationswithranker--normalizematchscore)
-    - [7.3 Regex Code-Fence Sanitizer (`sanitizeAndParseJSON`)](#73-regex-code-fence-sanitizer-sanitizeandparsejson)
-    - [7.4 H1 Resilient Cascade Architecture, Thinking Config, Timeouts, Cooldowns & Fallbacks](#74-h1-resilient-cascade-architecture-thinking-config-timeouts-cooldowns--fallbacks)
-  8. [Smart LRU Cache, Collision Guard & Tiered Quota Recovery](#8-smart-lru-cache-collision-guard--tiered-quota-recovery)
-    - [8.1 Profile-Based Sliding Window Hash (`generateProfileHash`)](#81-profile-based-sliding-window-hash-generateprofilehash)
-    - [8.2 Master ID Cross-Referencing Collision Guard (`getSmartCache`)](#82-master-id-cross-referencing-collision-guard-getsmartcache)
-    - [8.3 500KB LRU Eviction Policy & Tiered LocalStorage Quota Protection](#83-500kb-lru-eviction-policy--tiered-localstorage-quota-protection)
-  9. [Universal Streaming Access & Multi-Region Matrix](#9-universal-streaming-access--multi-region-matrix)
-  10. [Official Trailer Resolution & Playback Architecture](#10-official-trailer-resolution--playback-architecture)
-  11. [Telemetry Analytics & Statistical Algorithms](#11-telemetry-analytics--statistical-algorithms)
-  12. [Hardened Letterboxd Portability & Pure CSV Import Engine (`csvImport.js`)](#12-hardened-letterboxd-portability--pure-csv-import-engine-csvimportjs)
-  13. [Dual-Engine Spotlight Search & Strict Env Enforcement](#13-dual-engine-spotlight-search--strict-env-enforcement)
-  14. [Complete Reference Implementations & Verification Test Matrix](#14-complete-reference-implementations--verification-test-matrix)
-  15. [Luxury Rating Deck & Interaction Architecture](#15-luxury-rating-deck--interaction-architecture)
-  16. [Canonical Mood Policy, Custom Vibe Parser & Mood-Rebalanced Ranker (`moodPolicy.js`)](#16-canonical-mood-policy-custom-vibe-parser--mood-rebalanced-ranker-moodpolicyjs)
-  17. [Session Refresh Rotation, Exhaustion Guard & Oracle View Helpers (`oracleViewHelpers.js`)](#17-session-refresh-rotation-exhaustion-guard--oracle-view-helpers-oracleviewhelpersjs)
-  18. [Serverless `/api/*` Proxy Isolation & Transport Layer (`api/*.js` & `apiTransport.js`)](#18-serverless-api-proxy-isolation--transport-layer-apijs--apitransportjs)
-  19. [Live Editorial Discover Hub, Cross-ID Identity, Rapid Taste Deck & Lossless v2 Portability](#19-live-editorial-discover-hub-cross-id-identity-rapid-taste-deck--lossless-v2-portability)
-  20. [Opt-In Multi-User Supabase Cloud Sync, Postgres RLS Schema & Merge Engine](#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
-  21. [v5.1 Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`)](#21-v51-franchise-collection-guard--steerable-taste-rules-tasterulesservicejs)
-  22. [v5.2 Research Hub: Rating Studio 2.0, Contextual Film Chat, Deep Explore Workbench (`/explore`), Rabbit Hole Discovery & Side-by-Side Film Comparison (`/compare`)](#22-v52-research-hub-rating-studio-20-contextual-film-chat-deep-explore-workbench-explore-rabbit-hole-discovery--side-by-side-film-comparison-compare)
-
-  ---
-
-  ## 1. Executive Summary & Core Philosophy
-
-  Most AI movie tools operate as **unconstrained text generators**: they prompt an LLM with a list of favorite movies and ask it to invent 10 recommendations. This leads to catalog hallucinations (invented release years, false cast members, nonexistent films), stale echo chambers (recommending the same 10 mainstream titles like *Inception* or *Interstellar*), arbitrary uncalibrated match percentages, and broken UI states.
-
-  CinemaVault fundamentally separates **local mathematical taste modeling + multi-bucket verified catalog harvesting + calibrated logistic ranking** from **bounded contextual LLM diversity selection & natural-language explanations**:
-
-  ```mermaid
-  flowchart TD
-      subgraph Phase1 ["1. Data Ingestion, CSV Hardening & Schema Enrichment"]
-          V["User Vault: Ratings, Validated Dates, Keywords, Genres, Cast/Crew IDs"]
-          W["Watchlist: Explicit Future Intent"]
-          CSV["csvImport.js: Watched > Logged Date, Rollover Guard,\nBulk Cluster Suppression (180d Prior), Diary Rewatch Dedupe"] -.-> V
-          SB["Schema Bridge (append_to_response)\nPersists castIds, tmdbKeywords, tmdbGenreIds, streamProviders"] -.->|Enrich Logged Films| V
-      end
-
-      subgraph Phase2 ["2. Mathematical Taste DNA & On-Device CVEM v1 Engine"]
-          V --> Z["Per-User Z-Scores z_i + Decay e^(-0.002 * days)\n(180d Bulk Prior, Future Timestamp Clamp)"]
-          Z --> REL["Relative Weight Cutoff: |w| > 1e-6 * max(|w|)"]
-          REL --> KM["Persona Mixture (beta=20) + 64-D Ridge Fold-In (lambda=20) + Repulsion"]
-          Z --> ANCHOR["Sorted Top Weighted Anchor (Rating >= 9) -> Bucket B"]
-          Z --> GENRE_V["Weighted Genre Affinity Vector"]
-          Z --> CAST_V["Weighted Star Power Actor Vector (castIds)"]
-          Z --> CREW_V["Weighted Auteur Crew Vector (topCrewIds & topCrewMemberId)"]
-          W --> WATCH_V["Watchlist Intent Genre Vector"]
-          V -->|<= 4★ or z < -0.4| HATED_K["Sorted Negative Tropes (without_keywords, lambda_neg = 0.001)"]
-      end
-
-      subgraph Phase3 ["3. 5-Bucket Hybrid Retrieval (Buckets B, C, A, D + E) & Mood Policy"]
-          ANCHOR --> B2["Bucket B: Anchor Keywords\n(vote_average.desc, votes >= 500, target up to 40; 20% max 12 in Mood)"]
-          CREW_V --> B3["Bucket C: Auteur Crew Network\n(with_crew, votes >= 150, target up to 20; 12% max 8 in Mood)"]
-          B2 & B3 --> POOL_SPEC["Merge Specific Pool (N films, Mood-Gated if active)"]
-          GENRE_V & WATCH_V & CAST_V & HATED_K --> B1
-          MOOD["moodPolicy.js: 6-Mood Matrix + Match Vibe Parser\n(withGenres, withoutKeywords, year bounds)"] --> B1
-          POOL_SPEC --> B1["Bucket A: Semantic Discover + Mood Matrix + PROVIDER_FAMILY_MAP"]
-          GENRE_V & HATED_K --> B4["Bucket D: Recent Releases (18m window, popularity.desc,\navg >= 7.0, votes >= 150, no with_cast, max 12; skipped in hidden-gem/legacy era)"]
-          KM --> B5["Bucket E: Aligned CVEM v1 Embedding Neighbors\n(up to 30 in Any Vibe; 15 Mood-Gated under explicit mood)"]
-          B1 & B2 & B3 & B4 & B5 --> CP["Merged Verified TMDB Candidate Pool + Batch Hydration"]
-      end
-
-      subgraph Phase4 ["4. Logistic Ranker + 39-Pick Shortlist + H1 Gemini Cascade & Smart Cache v4"]
-          CP --> RNK["Logistic Ranker: Catalog-Max collabSim (Smooth 0..0.02 -> 0.35x damping in Any Vibe;\n0.35x collab + 1.0x metadata + computeMoodScoreAdjustment + matchesMoodCandidateGate in Mood)\nStrict Provider Verification -> 39-Pick Stratified Shortlist (25 Core + 8 Cold + 6 Outliers; 2 Reserve Slots)\nLocked 50-99% tau=1.45 Display Score + Deterministic matchReasons Badges"]
-          RNK --> GEM["H1 Cascade via /api/gemini or Dev Key: gemini-4-hydrogen (HIGH, 35s)\n-> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash (15s)\nSelect Top 10 Diverse Winners + 0..2 Verified Wildcards + Anchor Titles + Backfill"]
-          GEM --> NORM["Regex JSON Sanitizer + Locked Score & Soft Variety Merger (10 picks)"]
-          NORM --> CACHE["500KB LocalStorage LRU Cache v4 (cinemavault_smart_cache_v4)\n(Region-, Vault- & Taste-Rule-Scoped 8-Arg Hash, Master ID Collision Guard, Floor >= 7 Picks, 24h TTL)"]
-          CACHE --> UI["Curated 10-Pick Oracle List, recSource Telemetry & Optional Cloud Sync"]
-      end
-  ```
-
-  ---
-
-  ## 2. Why Pure LLM Recommenders Fail (The 5+ Fatal Flaws)
-
-  1. **The Hallucination Trap**: Pure LLMs hallucinate release years, sequels that never existed, and mismatched directors. CinemaVault eliminates unverified titles because Gemini selects **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) winners from a pre-verified **39-candidate stratified shortlist** (`25` top ranker + `8` cold `2024–2026` + `6` outliers via `buildDiversifiedGeminiShortlist`, or `30` on the pure deterministic fallback path), while any optional `0–2` outside `wildcardPicks` must pass live TMDB title/year, TV-series, vault-collision, streaming-provider, mood-gate, and avoid-rule verification (`verifyAndScoreWildcardPicks`) before appearing.
-  2. **The Echo Chamber Trap**: Simple prompts repeat ubiquitous blockbusters (*The Dark Knight*, *Pulp Fiction*). CinemaVault breaks the echo chamber across five distinct retrieval channels (keyword successors, auteur crew networks, mood-calibrated discovery, 18-month recent acclaim, and 64-D MovieLens 32M nearest neighbors).
-  3. **The TMDB `/recommendations` Endpoint Trap**: TMDB's native `/movie/{id}/recommendations` endpoint is a single-seed heuristic based on generic user list co-occurrence. For whole-vault Oracle discovery, CinemaVault combines deep keyword graph discovery (`with_keywords`) sorted by critical acclaim (`vote_average.desc`, `vote_count.gte=500`) with 64-D collaborative persona vectors (while using a norm-safe `CVEM v1` + TMDB `/recommendations` hybrid for single-film *"Movies Like This"* strips on `MovieDetails`).
-  4. **The Broad Genre Blacklist Trap**: Banning an entire genre like "Action" because a user hated a superhero movie blocks masterpieces like *Seven Samurai* or *Heat*. CinemaVault instead extracts sorted micro-keywords (*"superhero"*, *"slapstick"*, *"parody"*) from disliked films (`<= 4★` or `zScore < -0.4`), applies surgical `without_keywords` filters, softens keyword penalty weights to `-0.5`, and applies localized collaborative repulsion around disliked neighborhoods.
-  5. **The Temporal & Cold-Start Blindspots**:
-    - **Temporal Drift & Decade Decay**: A favorite movie rated 10/10 four years ago shouldn't outweigh recent obsessions ($\lambda = 0.002$ half-life decay), *yet* users whose entire logs span 1999–2005 must not have all weights dropped to zero by a fixed `1e-6` threshold (solved by vault-relative cutoff `1e-6 * maxAbsWeight`).
-    - **Historical Embedding Cutoff**: Collaborative matrices trained on MovieLens 32M cut off around late 2023, giving every 2024–2026 movie `collabSim = 0`. Without **Bucket D**, **Cold-Gated Structured Fallback** (`enableStructuredFallback: true, coldOnly: true`), **Reserve Slot Selection**, and the **8-slot cold `2024–2026` shortlist slice**, high-scoring classics push every new release out of the Top 39 shortlist (or Top 30 deterministic fallback).
-    - **Free-Tier Quota Fragility**: Relying on a single unguarded Gemini model (such as `gemini-4-argon` with `0` free-tier limit or hanging `gemini-3.8-flash` calls) causes hard UI failures. Our H1 error-classified cascade with `35s` timeouts, cooldown backoff, and deterministic math fallback keeps discovery resilient offline or under quota exhaustion.
-
-  ---
-
-  ## 3. Mathematical Taste Vector & Local Model Formulation
-
-  To convert static `1–10` star logs into meaningful preference signals across both harsh critics and generous viewers, `extractTasteProfile` (`src/services/tmdbService.js`) delegates rating weight computation to `computeZScoredWeights` (`src/services/scoringUtils.js`) and feeds `embeddingService.js` + `rankerService.js`.
-
-  ### 3.1 Per-User Z-Scored Rating Normalization ($z_i$)
-  To eliminate harsh-vs-generous rater bias and ensure mediocre ratings ($4-5\star$) exert appropriate negative pull when a user's personal mean is $\approx 7.0$, CinemaVault normalizes every rating against the user's personal distribution (`src/services/scoringUtils.js`):
-
-  $$\mu = \frac{1}{N}\sum_{i=1}^{N} r_i, \quad \sigma_{\text{eff}} = \max\left(\sqrt{\frac{1}{N}\sum_{i=1}^{N}(r_i - \mu)^2},\; 0.5\right), \quad z_i = \frac{r_i - \mu}{\sigma_{\text{eff}}}$$
-
-  - **Zero-Variance Guard:** If all rated films have identical scores ($\sigma_{\text{raw}} = 0$), $z_i$ defaults safely to $+0.5$ (when $r_i \ge 7$), $-0.5$ (when $r_i \le 4$), or $0.0$ without division by zero.
-  - **Cold-Start Fallback ($N < 3$):** Uses centered linear scaling $z_i = (r_i - 5.5) / 2.0$.
-
-  ### 3.2 Bulk-Import-Safe Exponential Recency Time-Decay ($w_i$)
-  Every film's z-score is modulated by exponential time-decay (`src/services/scoringUtils.js`):
-
-  $$w_i = z_i \cdot e^{-\lambda \cdot \Delta_i}, \quad \lambda = 0.002 \text{ days}^{-1}$$
-
-  Where:
-  - $\Delta_i = \max\left(0, \frac{t_{\text{now}} - t_i}{86,400,000}\right)$ (elapsed time in days, clamped to $\ge 0$ so clock skew never yields decay $> 1.0$).
-  - $\lambda = 0.002$ ($\text{Half-life} = \frac{\ln(2)}{0.002} \approx 346.5\text{ days} \approx 11.5\text{ months}$).
-  - **Bulk-Import & Undated Prior ($\Delta_{\text{prior}} = 180\text{ days}$):** Films imported in bulk (`isBulkImported: true`, including clustered Letterboxd `Date` dumps detected by `csvImport.js`) or logged without `dateWatched` are assigned $\Delta_i = 180$ days instead of `Date.now()` ($\Delta_i = 0$), preventing undated backlog imports from overpowering genuinely recent watches.
-
-  #### Recency Decay Table ($\lambda = 0.002$):
-  - **Day 0 (Today)**: $e^{0} = 1.000$ (100% of z-score weight)
-  - **Day 60 (2 Months)**: $e^{-0.12} \approx 0.887$ (88.7% of z-score weight)
-  - **Day 180 (6 Months / Bulk Prior)**: $e^{-0.36} \approx 0.698$ (69.8% of z-score weight)
-  - **Day 346 (~Half-Life / 11.5 Months)**: $e^{-0.693} \approx 0.500$ (50.0% of z-score weight)
-  - **Day 730 (2 Years)**: $e^{-1.46} \approx 0.232$ (23.2% of z-score weight)
-
-  ### 3.3 Float16 Embeddings (`CVEM` v1), Relative Weight Cutoff, Personas & Repulsion
-  CinemaVault ships a zero-dependency IEEE-754 half-precision (`float16`) binary codec (`src/services/embeddingService.js`) backed by an offline MovieLens 32M Truncated SVD trainer (`scripts/colab_train_embeddings.py`, `25,000` items × `64` dimensions, shrinkage `0.5`).
-
-  #### Binary File Layout (`/models/item_embeddings_f16.bin`, `3,300,016` Bytes)
-  - **Dataset Attribution & Research License Note:** The pre-computed collaborative vectors in `/models/item_embeddings_f16.bin` are derived from the **MovieLens 32M** dataset curated by [GroupLens Research](https://grouplens.org/datasets/movielens/32m/) at the University of Minnesota and are distributed for non-commercial research and educational evaluation in accordance with the MovieLens license terms (while CinemaVault's application source code is MIT-licensed).
-  - **16-byte Little-Endian Header:** `magic = "CVEM"` (4 B), `version = 1` (`uint32`), `count = 25000` (`uint32`), `dim = 64` (`uint32`).
-  - **Packed Item Records ($25,000 \times 132 = 3,300,000$ B):** `[uint32 tmdbId][64 × uint16 IEEE-754 float16]`.
-  - **SPA Fallback & Structural Validation (`parseEmbeddingBinary` / `loadDefaultEmbeddingIndex`):** Rejects `text/html` MIME responses (e.g., Vite/SPA 404 fallback), validates `"CVEM"` magic header, dimension bounds (`1..1024`), and exact `byteLength === 16 + count * (4 + dim * 2)`. Returns `null` gracefully if absent.
-
-  #### Vault-Relative Weight Cutoff (`getRelativeWeightCutoff`)
-  Previously, a fixed threshold `|w| <= 1e-6` silently dropped every film for users whose watches occurred in 1999–2005 (`e^{-0.002 * ~9000} \approx 10^{-8}`). Now (`src/services/embeddingService.js:181-238`), both `computeUserEmbedding` and `computeUserPersonas` compute:
-
-  $$\text{maxAbsW} = \max_{i} |w_i|, \qquad \text{cutoff} = 10^{-6} \cdot \text{maxAbsW}$$
-
-  Items are skipped only when $|w_i| \le \text{cutoff}$ (returning empty/`null` when $\text{maxAbsW} = 0$). Scaling every weight uniformly by $10^{-8}$ produces identical personas and cosine rankings.
-
-  #### Single-Vector Baseline, Mass-Weighted Persona Mixture, 64-D Ridge Fold-In & Repulsion
-  - **Single-Vector Weighted Mean (`computeUserEmbedding`):**
-    $$u = \frac{\sum_{i: |w_i| > \text{cutoff}} w_i e_i}{\sum_{i: |w_i| > \text{cutoff}} |w_i|}$$
-    L2-normalized before retrieval.
-  - **Mass-Weighted Multi-Persona Clustering (`computePersonaDetails` / `computeUserPersonas`):** Clusters positively weighted liked films into $K \in [1, 4]$ L2-normalized centroids via deterministic Spherical K-Means (`maxIterations = 12`, `splitThreshold = 0.05`) and returns both `{ centroids, masses }` (with `masses` tracking each cluster's normalized positive weight share; `computeUserPersonas` preserves backward compatibility by returning `.centroids`).
-  - **Log-Sum-Exp Persona Mixture + Top-3 Blend (`buildCollabSimMapFromIndex`):** Instead of hard winner-take-all `max_k`, aggregates across multi-persona clusters using temperature-scaled log-sum-exp mixture (`personaBeta = 20`):
-    $$\text{personaSim}(c) = \frac{1}{\beta} \log \sum_{k=1}^{K} \exp\left(\beta \, (p_k \cdot e_c) + \ln m_k\right), \quad \text{clusterScore}(c) = \text{blend} \cdot \text{personaSim}(c) + (1 - \text{blend}) \cdot \text{top3LovedWeightedMean}(c)$$
-    with default `personaBlend = 0.70` when $K > 1$ (and `1.0` when $K = 1$).
-  - **On-Device `64×64` Ridge Fold-In (`computeUserRidgeEmbedding`):** Across users with $\ge 10$ indexed ratings (`ridgeMinItems = 10`, $\lambda = 20$), solves $(E^\top C E + \lambda I) u = E^\top C z$ via Gaussian elimination with partial pivoting over *all* positive, neutral, and disliked ratings:
-    - Targets $z_i = \text{clip}\left(\frac{r_i - \min(\mu_r, 7.5)}{\max(\sigma_r, 1.0)},\; -2.5,\; 2.5\right)$ (or scaled `(weight / maxAbsWeight) * 2.0` when explicit star ratings are absent), ensuring generous raters still discriminate between `>= 9★` masterpieces and `<= 7★` watches.
-    - Scale-invariant sample confidence $c_i = \text{clip}(0.75 + 0.5 \cdot (|w_i| / \max_j |w_j|),\; 0.5,\; 2.0)$.
-    - L2-normalizes $u$ and blends directly into collaborative similarity with `ridgeBlend = 0.25`:
-      $$\text{collabSim}_{\text{raw}}(c) = (1 - \alpha_{\text{ridge}}) \cdot \text{clusterScore}(c) + \alpha_{\text{ridge}} \cdot (u_{\text{ridge}} \cdot e_c), \quad \alpha_{\text{ridge}} = 0.25$$
-  - **Negative Repulsion (`buildRepulsionMapFromIndex` / `computeRepulsion`):** Tracks negatively weighted films ($w_i < 0$) and emits quadratic repulsion when candidate similarity to disliked centroids exceeds `0.35`, multiplied by `repulsion: -1.5` in the ranker.
-  - **Stage 2 Content Blending (`blendEmbeddings` / `contentSimService.js`):** Loads optional `/models/content_embeddings_f16.bin` (built by `scripts/build_content_embeddings.mjs`) via `loadDefaultContentIndex` and scores plot/tagline vectors in `buildContentSimMap` (with optional aligned `blendEmbeddings` and opt-in overview bigram fallback).
-  - **Optional Cinematic DNA (`CDNA`):** Loads optional `/models/cinematic_dna_u8.bin` via `loadDefaultDnaIndex` and scores mean-centred rubric axes in `buildDnaSimMap` (`dnaSim` feature, default weight `0` until validated).
-
-  ### 3.4 Temporally-Weighted Anchor Film Selection
-  Bucket B requires a high-affinity anchor film to extract thematic keywords. CinemaVault sorts all rated films by $w_i$ (`finalWeight`) descending and filters for elite masterpieces ($\text{Rating} \ge 9$, configurable `anchorCutoff`) (`src/services/tmdbService.js`):
-
-  $$\text{AnchorMovie} = \arg\max_{m \in \text{Rated}, \text{Rating}(m) \ge 9} w_i(m)$$
-
-  If the anchor movie only has an `imdbID` (e.g., logged before TMDB schema enrichment), `findTmdbByImdbId` resolves its canonical `tmdbId` on the fly. If no film is rated $\ge 9$, `anchorTmdbId` resolves to `null` and Bucket B's candidate slots are dynamically reallocated to Bucket A.
-
-  ### 3.5 Granular Negative Trope Extraction (`without_keywords`) & Ranker Softening
-  Instead of excluding broad genres, the profiler iterates over movies with $\text{Rating} \le 4$ or $z_i < -0.4$ and accumulates z-magnitude time-decayed trope penalties at half the decay rate ($\lambda_{\text{neg}} = \frac{\lambda}{2} = 0.001$, recognizing that dislikes decay more slowly than passing interests) (`src/services/tmdbService.js`):
-
-  $$\text{HatedKeywords}[k] = \sum_{m \in \text{Rated},\; r_m \le 4 \text{ or } z_m < -0.4,\; k \in m.\text{tmdbKeywords}} \max(1, |z_m|) \cdot e^{-\frac{\lambda}{2} \cdot \Delta t_m}$$
-
-  Keywords are **sorted descending by accumulated penalty** (fixing an earlier insertion-order bug in `236e0f8`), and the top 5 keyword IDs are passed to TMDB using pipe OR syntax (`without_keywords=9715|10402`), surgically excluding candidates containing *either* hated trope without banning entire genres. In `DEFAULT_RANKER_WEIGHTS`, `negativeKeywordPenalty` was tuned from `-2.0` to **`-0.5`** (`332c21c`) because common tags like *"independent film"* frequently appear across both loved and disliked watches.
-
-  ### 3.6 Star-Power, Auteur Crew & Watchlist Intent Vectoring
-  High-rated films ($\text{Rating} \ge 8$ with $w_i > 0$) contribute their creative personnel and keywords to weighted affinity maps (`src/services/tmdbService.js`):
-  - **Star-Power Actors (`topCastIds`):** The top 3 billed cast IDs (`castIds[0..2]`) accumulate $w_i$; the top 2 actors (`topCastIds`) are injected into Bucket A discover queries.
-  - **Auteur Directors & Crew (`topCrewIds` / `topCrewMemberId`):** Directors, Cinematographers, Original Music Composers, and Screenwriters accumulate $w_i$ (prioritizing Director during Schema Bridge extraction). The top 3 crew IDs are tracked for ranker `crewMatch`, and `topCrewMemberId` (`topCrewIds[0]`) is queried in Bucket C.
-  - **Loved Micro-Keywords (`lovedKeywordIds`):** Top 5 positive keyword IDs (plus normalized `keywordAffinities`) feed the ranker's `keywordOverlap` feature even for Bucket E/A/D candidates.
-  - **Watchlist Intent Vectoring (`watchlistGenreIds`):** Unwatched films saved in the user's `watchlist` contribute their top 3 recurring TMDB genre IDs (`watchlistGenreIds`), blending all 3 with `lovedGenreIds` inside Bucket A (`buildBucketAParams`).
-
-  ### 3.7 Logistic Ranker, Normalization, Metadata Damping & Display Match Scores
-  Rather than allowing the LLM to invent arbitrary match percentages, `rankCandidatePool` (`src/services/rankerService.js`) extracts **12 normalized features** (`11` active weighted features + optional `dnaSim`) across all merged candidates (`DEFAULT_RECOMMENDATION_COUNT = 10`, with `buildDiversifiedGeminiShortlist` composing a stratified shortlist of up to **39** candidates for Gemini — `25` core + `8` cold `2024–2026` + `6` outliers — or `topK = 30` on the deterministic `!ai` fallback path) and computes deterministic ranking logits and order-preserving display scores (see [Section 16](#16-canonical-mood-policy-custom-vibe-parser--mood-rebalanced-ranker-moodpolicyjs) for explicit-mood weight rebalancing and hard candidate gating):
-
-  #### Active `DEFAULT_RANKER_WEIGHTS` (`src/services/rankerService.js:18-31` & `public/models/ranker_weights.json`)
-  | Feature | Live Weight | Range / Extraction Rule |
-  | :--- | :---: | :--- |
-  | `bias` | **`-1.1`** | Logistic intercept |
-  | `collabSim` | **`+6.4`** | Positive similarities (`0.75 * mixture(beta=20) + 0.25 * ridge(lambda=20)`) scaled by pool-independent `catalog-max` (`minCatalogSize = 50`, fallback `poolMax`) -> `[0, 1]` |
-  | `contentSim` | **`+1.4`** | Cosine similarity from `/models/content_embeddings_f16.bin`, or cold-gated structured (`genres/keywords/cast/crew` + overview TF-IDF) cosine similarity when collaborative embeddings are missing (`enableStructuredFallback: true, coldOnly: true`) |
-  | `genreOverlap` | **`+0.6`** | Fraction of top 4 loved genres matched (`min(3, lovedGenreIds.length)` denominator, smoothstep-damped `[0, 0.02]` → `0.35x`) |
-  | `keywordOverlap` | **`+0.45`** | Continuous affinity-weighted overlap with top 15 IDF-damped, net-positive `keywordAffinities` (with `lovedKeywordIds` fallback or `0.6` proxy for Bucket B) |
-  | `crewMatch` | **`+0.7`** | Continuous `[0, 1]` Bayesian-shrunk `crewAffinities[crewPersonId]` (or binary fallback + `0.5` Bucket C proxy) |
-  | `castMatch` | **`+0.5`** | Billing-decayed continuous `[0, 1]` Bayesian-shrunk `castAffinities` across candidate `castIds` (or `topCastIds` binary fallback) |
-  | `bayesianRatingNorm` | **`+1.8`** | Normalized TMDB Bayesian score `(B - 5.0)/4.5` with `m=500, C=7.0` *(smoothstep-damped `[0, 0.02]` → `0.35x`)* |
-  | `noveltyBonus` | **`+0.05`** | `0.5` if `100 <= vote_count <= 4000`, else `0.1` *(zeroed in `computeReserveQualityScore`)* |
-  | `negativeKeywordPenalty` | **`-0.5`** | Clamped `[0, 1]` hit indicator against disjoint net-negative `hatedKeywordIds` *(meta IDs suppressed)* |
-  | `repulsion` | **`-1.5`** | Quadratic repulsion penalty from disliked embedding neighbors (`cos > 0.35`) |
-  | `providerMatch` | **`+0.25`** | `1.0` if `providerMatchedByQuery` or provider intersection, `0.5` if no filter, else `0` |
-  | `dnaSim` | **`0`** | Mean-centred `CDNA` axis cosine from `/models/cinematic_dna_u8.bin` *(gated at `0` until validated)* |
-
-  #### Pool-Independent `catalog-max` Collaborative Normalization
-  Because Bayesian shrinkage ($\frac{\vec{v}}{\|\vec{v}\| + 0.5}$) compresses latent vector norms to prevent low-support items from causing false cosine spikes, raw dot products typically span $[0.05, 0.35]$. Previously, normalizing by `maxPoolCollab` made scores fluctuate whenever an atypical outlier entered or exited the candidate pool. Now (`rankCandidatePool`, `collabNormalization = "catalog-max"`), CinemaVault reads the catalog-wide positive maximum via `getCollabCatalogMax(collabSimMap, minCatalogSize = 50)` (cached via a `WeakMap` over sorted `Float64Array` positives; falling back cleanly to `poolMax` only for small `< 50` synthetic unit-test maps) while preserving unscaled similarity in `features.rawCollabSim`:
-
-  $$\text{collabScale} = \max\left(\max_{c \in \text{catalog}} \text{collabSim}(c),\; 0.05\right), \quad \text{collabSim}_{\text{norm}} = \begin{cases} \min\left(1.0, \frac{\text{collabSim}}{\text{collabScale}}\right) & \text{if } \text{collabSim} > 0 \\ \text{collabSim} & \text{otherwise} \end{cases}$$
-
-  #### Smoothstep Metadata Gating & `0.35x` Damping (`dampingRampMax = 0.02`)
-  In a standard linear combination, coarse metadata features like `genreOverlap` and global popularity `bayesianRatingNorm` can overpower collaborative signals, pushing niche 9/10 taste-twins into ranks `#11–#20`. Rather than jumping discontinuously at `0.001`, `scoreCandidate` applies a smoothstep ramp over `rawCollabMag = |rawCollabSim ?? collabSim|` across `[0, 0.02]` (`DEFAULT_METADATA_DAMPING_FACTOR = 0.35`):
-
-  $$t = \min\left(1,\; \frac{|\text{rawCollabSim}|}{0.02}\right), \quad s = t^2 (3 - 2t), \quad \text{effectiveDamping} = 1.0 + s \cdot (0.35 - 1.0)$$
-  $$\text{logit}_{\text{genre}} = w_{\text{genre}} \cdot x_{\text{genre}} \cdot \text{effectiveDamping}, \qquad \text{logit}_{\text{rating}} = w_{\text{rating}} \cdot x_{\text{rating}} \cdot \text{effectiveDamping}$$
-
-  For cold-start or 2024–2026 unindexed releases ($\text{rawCollabSim} = 0$), $\text{effectiveDamping} = 1.0$, so metadata operates at full $1.0\times$ strength alongside cold-gated structured similarity (`contentSim`), rising smoothly into $0.35\times$ collaborative dominance as collaborative signal enters.
-
-  #### Order-Preserving Display Score Transform ($\tau = 1.45$) & Deterministic Match Reason Badges
-  Ranking order is determined strictly by the unscaled logit (`probability = sigmoid(logit)`), while displayed match scores (`computeDisplayMatchScore`) apply a monotonic temperature-scaled sigmoid transform **`DEFAULT_DISPLAY_TEMPERATURE = 1.45`** mapped into $[50, 99]$ so top picks distribute cleanly without saturating at 99% while preserving exact rank order (note: `matchScore` is an order-preserving UI relevance score rather than a frequentist probability; empirical `>= 8★` and `>= 9★` conversion rates are tracked separately via `computeRecommendationHitRate` in `vaultStats.js`):
-
-  $$p_{\text{disp}, i} = \frac{1}{1 + e^{-\text{logit}_i / \tau}}, \quad \text{matchScore}_i = \min\left(99,\; \max\left(50,\; \text{round}(50 + 49 \cdot p_{\text{disp}, i})\right)\right) \in [50, 99]$$
-
-  `generateMatchReasons(features)` emits up to 3 human-readable badges in priority order:
-  - `collabSim >= 0.28`: `🧬 High Taste-Twin Match` *(else if `>= 0.15`: `🤝 Collaborative Taste Pick`)*
-  - `crewMatch > 0`: `🎬 Favorite Filmmaker` *(else if `castMatch > 0`: `🎭 Top Cast Match`)*
-  - `keywordOverlap >= 0.33`: `🎯 Core Theme Match`
-  - `collabSim >= 0.16 && noveltyBonus >= 0.35`: `💎 Personal Cult Pick`
-  - `genreOverlap >= 0.66`: `🎪 Genre Bullseye`
-  - `bayesianRatingNorm >= 0.72`: `⭐ Critical Acclaim`
-  - Fallback if empty: `🔍 Hidden Discovery` (`novelty >= 0.35`) or `✨ Curated Selection`
-
-  *(Online bounded pairwise weight learning from logged user actions runs via `derivePersonalizedRankerWeights` in `onlineLearningService.js` over `fitRankerWeights` in `rankerService.js`, requiring defaults `minEvents = 10`, `minPositives = 3`, `minNegatives = 3`, and regularization `l2 = 0.55` before adapting from `DEFAULT_RANKER_WEIGHTS`.)*
-
-  ### 3.8 Verified Benchmark Milestones, Leakage Audit & Tuning Results
-
-  Evaluated via `evaluateRankerRolling` (`src/services/evalHarness.js`) and paired-bootstrap scripts over 4 human MovieLens vaults (556-film TMDB catalog) plus 328 & 300 user MovieLens cohorts enriched with 9,620 real TMDB records:
-
-  | Milestone / Audit | Scope | Key Verified Outcome |
-  | :--- | :--- | :--- |
-  | **0. Popularity Baseline (`pop`)** | 328 MovieLens users (global acclaim/popularity ordering) | `NDCG@10 = 0.0392`, `Recall@20 = 0.0671` (external non-personalized baseline; full ranker achieves `+111% NDCG@10` and `+80% Recall@20` on the same 328-user split) |
-  | **1. Original Baseline (`ml-latest-small`)** | 4 human vaults, 9.6k films (2018 cutoff) | `NDCG@10 = 0.062`, `Recall@20 = 0.083`, `Novelty = 1.48` |
-  | **2. Initial 32M (Unnormalized)** | 4 human vaults, 25k × 64 index | `NDCG@10 = 0.078`, `Recall@20 = 0.171`, `Novelty = 1.82` |
-  | **3. Pool-Normalized + `0.20x` Damped 32M** | 4 human vaults (`Nov 11` → pre-Step 2/3B) | Nov 11: `NDCG@10 = 0.143 (+131%)`, `Recall@20 = 0.242 (+192%)`, `Novelty = 2.24 (+51%)`; current live 4-vault mean (`item_embeddings_f16.bin`): **`NDCG@10 = 0.178`**, **`Recall@20 = 0.250`**, **`Novelty = 2.206`** |
-  | **4. Zero-Leakage Colab Verification** | 328 MovieLens users comparing Colab binary vs scrubbed 32M retrain | `clean_ranker` `NDCG@10 = 0.0826` vs `leaky_ranker = 0.0828` (`Δ = +0.00023`, 95% CI `[-0.00197, +0.00236]`, `isSignificant: false`, `ΔRecall@20 = 0`) |
-  | **5. `negativeKeywordPenalty = -0.5` vs `-2.0`** | Real `rankCandidatePool` on Orig `328` & Validation `300` users | **Orig 328:** `NDCG +0.0103 [+0.0042, +0.0169]`, `Recall +0.0110 [+0.0052, +0.0177]` (both sig); **Fresh 300:** `Recall +0.0143 [+0.0077, +0.0207]` (sig), `NDCG +0.0058 [-0.000011, +0.0124]` |
-  | **6. Relative Cutoff Parity & Rescue** | `328` user top-20 parity + 4 benchmark vaults | `0 / 328` mismatches on normal vaults; rescued `ml-user-263` (`0 -> 4` personas, `0 -> 25,000` scored films) & `ml-user-409` (`0 -> 2` personas, `0 -> 25,000` scored films) |
-  | **7. Phase 2 Ablations & v5.0 Offline Tuning (`run_ablation.mjs`, `clean2`)** | `328` primary + `fresh_300` validation cohorts + `4` benchmark vaults (`>= 8★` & `>= 9★`, cold `null` embeddings) | **Exp 1 (Polarity+IDF Keywords):** `328` `>=8★` `NDCG 0.0824` (`>=9★ 0.0974`), Bench `>=8★ NDCG 0.1786`; **Exp 2 (Shrunk Cast/Crew):** `328 >=9★ NDCG 0.1023 (+0.0074 *)`, `P@10 0.0822 (+0.0066 *)`, Bench `>=9★ NDCG 0.2058`; **Exp 3 (Cold Structured Fallback):** Zero regression on `clean2`, `328 null >=9★ NDCG 0.0485 (+0.0136 *)`, `Rec@20 0.0536 (+0.0187 *)`; **Exp 4 (Tuned `DEFAULT_RANKER_WEIGHTS` + `0.35x` Damping):** `328 >=8★ NDCG 0.0849 / Rec@20 0.1241 (+0.0070 *) / Neg@20 0.0024 (-0.0009 *)`, `328 >=9★ NDCG 0.1053 (+0.0104 *) / Rec@20 0.1369 (+0.0095 *) / P@10 0.0875 (+0.0118 *)`, **`fresh_300 >=8★ Rec@20 0.1270 (+0.0107 *)`**, **`fresh_300 >=9★ NDCG 0.1156 (+0.0114 *) / Rec@20 0.1505 (+0.0151 *)`**, **`328 null >=8★ NDCG 0.0415 (+0.0175 *) / Rec@20 0.0576 (+0.0296 *)`**, **`328 null >=9★ NDCG 0.0681 (+0.0331 *) / Rec@20 0.0785 (+0.0436 *)`**, Bench `>=8★ NDCG 0.1611 / Rec@20 0.2542` & `>=9★ Rec@20 0.3833` |
-  | **8. Prompt 2 Final Ablation: `catalog-max` + Smooth `[0, 0.02]` Damping + `0.75 * Mixture(beta=20) + 0.25 * Ridge(lambda=20)` (`eval_final.json`, `clean2`)** | `328` primary + `fresh_300` secondary validation cohort + `4` benchmark vaults (`withinUserAuc` + ranking IR vs `post_fixes`) | **`328 >= 8★` (`n=328`):** `NDCG@10 = 0.0909 (+0.0061 *)`, `Rec@20 = 0.1256`, `P@10 = 0.0805`, `Neg@20 = 0.0018`, **`AUC(>=9v<=7) = 0.7335 (+0.0285 *)`**, **`AUC(>=8v<=7) = 0.6994 (+0.0240 *)`**; **`328 >= 9★` (`n=304`):** **`NDCG@10 = 0.1145 (+0.0095 *)`**, **`Rec@20 = 0.1448 (+0.0082 *)`**, **`P@10 = 0.0947 (+0.0076 *)`**, **`AUC(>=9v<=7) = 0.7458 (+0.0301 *)`**; **`fresh_300 >= 8★` (`n=300`):** **`Neg@20 = 0.0032 (-0.0018 *)`**, **`AUC(>=9v<=7) = 0.7218 (+0.0338 *)`**, **`AUC(>=8v<=7) = 0.6788 (+0.0256 *)`**; **`fresh_300 >= 9★` (`n=284`):** **`NDCG@10 = 0.1227 (+0.0067 *)`**, **`Rec@20 = 0.1581`**, **`P@10 = 0.0986 (+0.0077 *)`**, **`AUC(>=9v<=7) = 0.7407 (+0.0302 *)`**; **4 Bench:** `>= 8★ NDCG 0.1776 (+0.0160)` (`ml-user-409 AUC9v7 = 0.9583`), `>= 9★ NDCG 0.2258 (+0.0345)`, `AUC9v7 = 0.6817 (+0.0938)`. *(Step 4 `eraMatch` skipped: near-zero separation `0.0005` vs `-0.0018`.)* |
-
-  > **Evaluation Scope & Statistical Caveats:**
-  > - **Stage-3 Ranker vs. Stage-4 LLM Scope:** The offline IR metrics above (`NDCG@10`, `Recall@20`, `P@10`, `NegHit@20`, `withinUserAuc`) benchmark the **deterministic Stage 3 ranker** (`rankCandidatePool` / `pipeline: "ranker-fallback"`). When Gemini is active (`pipeline: "gemini"`), it selects 10 diverse titles from the ranker's 39-pick stratified shortlist; post-selection conversion quality is tracked online via `recSource` telemetry (`computeRecommendationHitRate` in `vaultStats.js`).
-  > - **Definition of `*` & Validation Split Reuse:** In rows 7–8, `*` denotes a paired 1,000-resample bootstrap 95% confidence interval on the per-user delta that excludes zero (unadjusted for multiple comparisons across ablation rows). Because `fresh_300` was inspected across Phase 2 / Step 2–3B milestones, it should be interpreted as a **secondary validation cohort** rather than a single-use blind test split.
-  > - **Temporal Domain Note:** MovieLens timestamps reflect *rating submission time* (which can occur in backlog sessions), whereas organic Letterboxd exports record either *watch date* (`Watched Date`) or *diary log date* (`Date`, guarded by `suppressBulkClusteredLoggedDates` in `csvImport.js`).
-
-  ---
-
-  ## 4. The 5-Bucket Hybrid Retrieval & Recent-Release Reserve Pipeline
-
-  `fetchCandidatePool` (`src/services/tmdbService.js`) coordinates TMDB Buckets `B`, `C`, `A`, and `D`, while `getMovieRecommendations` (`src/services/geminiService.js`) appends `Bucket E` (`fetchEmbeddingCandidates`):
-
-  ### 4.1 Bucket B: Keyword Spiritual Successors (`fetchBucketB`)
-  - **Objective**: Discover high-acclaim films that share core micro-keywords with the user's top $w_i$ anchor film.
-  - **Methodology**: Calls `fetchMovieKeywordsAndCrew(anchorTmdbId)` to retrieve the top 3 keyword IDs (`keywords.slice(0, 3).join("|")`) and queries TMDB `/discover/movie` with `sort_by=vote_average.desc`, `vote_average.gte=7.0`, and an acclaim floor of `vote_count.gte=500` across up to 4 pages.
-  - **Target Harvest**: Scales dynamically (`min(40, max(8, floor(targetPoolSize * 0.35)))`).
-
-  ### 4.2 Bucket C: Auteur & Star Power Network (`fetchBucketC`)
-  - **Objective**: Harvest films from the user's top-weighted director, cinematographer, composer, or screenwriter.
-  - **Methodology**: Queries TMDB with `with_crew={topCrewMemberId}`, `sort_by=vote_average.desc`, and `vote_count.gte=150` across up to 3 pages (executed concurrently with Bucket B via `Promise.all`).
-  - **Target Harvest**: Scales dynamically (`min(20, max(4, floor(targetPoolSize * 0.20)))`).
-
-  ### 4.3 Bucket A: Semantic Discover Engine & Mood Calibration Matrix (`fetchBucketA`)
-  - **Objective**: Broad discovery combining weighted genre affinities (`lovedGenreIds`), watchlist intent (`watchlistGenreIds`), active mood vectors, star-power cast (`with_cast`), surgical trope exclusions (`without_keywords`), and regional streaming filters (`with_watch_providers`).
-  - **Mood Calibration Matrix (`src/services/moodPolicy.js` -> `MOOD_OPTIONS` consumed identically by `tmdbService.js`, `rankerService.js`, `geminiService.js`, and `MovieRecommendations.jsx`)**:
-
-  | Mood ID | TMDB `sort_by` | `vote_count.gte` / `.lte` | `vote_average.gte` | `preferredGenreIds` / `requiredAnyGenreIds` | `withoutGenreIds` (TMDB Exclude) |
-  | :--- | :--- | :---: | :---: | :--- | :--- |
-  | **`mind-bending`** | `vote_average.desc` | `250` / `—` | `7.5` | Pref: `9648, 878` • Req: `9648, 878, 53` | `10751, 35, 10749` (Family, Comedy, Romance) |
-  | **`dark-thriller`** | `popularity.desc` | `120` / `—` | `6.8` | Pref: `80, 53, 9648` • Req: `80, 53, 9648, 27` | `10751, 35, 16, 10402, 12, 878, 14` |
-  | **`fun-popcorn`** | `popularity.desc` | `250` / `—` | `6.5` | Pref: `28, 12, 35, 16` • Req: `28, 12, 35, 16` | `99, 27, 10752, 36` |
-  | **`comfort-watch`** | `vote_average.desc` | `180` / `—` | `7.2` | Pref: `35, 10751, 10749, 16` • Req: `35, 10751, 10749, 16` | `27, 53, 80, 10752` |
-  | **`hidden-gem`** | `vote_average.desc` | `50` / **`2000`** | `7.0` | *(Relies on user taste vector)* | `—` |
-  | **`any` (Default)** | `vote_average.desc` *(Bucket A `"any"` uses `popularity.desc`, `150` votes)* | `200` (`150` in Bucket A) / `—` | `6.8` | *(Relies on user taste vector)* | `—` |
-
-  When an explicit mood or custom vibe filter (`isExplicitMoodActive`) is active, `buildBucketAParams` also applies `without_genres`, optional `vote_count.lte`, `primary_release_date.gte` / `.lte` from `minYear`/`maxYear`, pagination `page`, `with_watch_monetization_types=flatrate|free|ads`, and **drops `with_cast` star lock** so vault actor affinity never crowds out tone-appropriate films. If `hidden-gem` is selected or `maxYear < currentYear - 2`, `fetchCandidatePool` skips **Bucket D** (`fetchBucketD`) so mainstream recent releases cannot pollute obscure or pre-era queries, scales Buckets B (`20%`, max `12`) and C (`12%`, max `8`) down cleanly, and filters Buckets B, C, D, and E through `matchesMoodCandidateGate`.
-
-  ### 4.4 Bucket D: Recent-Release Lane (`fetchBucketD`)
-  - **Objective**: Solve the late-2023 MovieLens training cutoff by guaranteeing fresh acclaimed releases from the last 18 months enter the candidate pool without shrinking Buckets A, B, or C.
-  - **Query Construction (`buildBucketDParams`, `src/services/tmdbService.js:664-684`)**:
-    - `primary_release_date.gte`: `getRecentReleaseDateFloor(18, now)` (18 months before `now`)
-    - `sort_by`: `"popularity.desc"`
-    - `vote_average.gte`: `"7.0"` (raised quality floor)
-    - `vote_count.gte`: `"150"` (raised acclaim floor)
-    - `with_genres`: `profile.lovedGenreIds.slice(0, 3).join("|")`
-    - `without_keywords`: `profile.hatedKeywordIds.join("|")`
-    - **NO `with_cast` lock-in**, honors regional `with_watch_providers` / `watch_region`.
-  - **Budget & Isolation**: Fetches up to **2 pages**, capped at **`12` unique candidates** tagged `sourceBucket: "D"` after collision filtering, and appends *after* `basePool` (Buckets B + C + A).
-
-  ### 4.5 Bucket E: Collaborative Embedding Neighbor Injection (`fetchEmbeddingCandidates`)
-  - **Objective**: Retrieve deep collaborative taste-twins directly from the on-device 25k `CVEM v1` matrix regardless of TMDB discover popularity ordering.
-  - **Methodology**: Before excluding seen/existing IDs, `geminiService.js` computes catalog-wide `catalogMax = getCollabCatalogMax(collabSimMap)` (`0.05` floor inside `retrieveAlignedEmbeddingNeighbors`) and `repulsionWeight = Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim` (`1.5 / 6.4`), passing both via options to avoid circular imports while keeping neighbor scoring aligned with Stage 3 (`collabSim = min(1, rawCollabSim / catalogMax)` before subtracting `repulsionWeight * repulsion`). Calls `retrieveAlignedEmbeddingNeighbors(profile.weightedRatings, embeddingIndex, excludeIds, { collabSimMap, repulsionMap, catalogMax, repulsionWeight, topK: 80 })` (built atop Stage 1 `computeUserPersonas` + repulsion scoring) and fetches batched live TMDB `/movie/{id}` details via `getMovieDetailsBatch` (`/api/tmdb-batch` + 30-day IndexedDB cache, honoring `userRegion`, `userProviders`, and mood filters), injecting up to **`30`** unseen items under `"any"` vibe or capped at **`15`** mood-gated neighbors when `isExplicitMoodActive(mood, moodFilters)` is true (`sourceBucket: "Bucket E (Embedding)"`). Thereafter, `enrichCandidatePoolMetadata` hydrates all merged Buckets `A–D` (`maxEnrich = candidates.length` via `getMovieDetailsBatch`, skipping transient failures from cache) and tracks `hydrationCoverage` (`hydrated / total` ratio) into `modelInfo` before Stage 3 ranking. Note also that optional binary asset loaders in `contentSimService.js` (`loadDefaultContentIndex`) and `dnaService.js` (`loadDefaultDnaIndex`) share `createSessionBinaryIndexLoader` (`embeddingService.js`), negative-caching 404 or HTML/invalid-binary responses for the session while clearing cached promises on network errors, aborts, or `>= 500` responses so transient failures can retry, and leaving `contentIndex === null` cleanly routed to the documented `coldOnly` structured fallback for unindexed (`collabSim === 0`) post-2023 releases.
-
-  ### 4.6 Dynamic Waterfall Sizing, Cold-Start Bypass & Recent-Release Reserve Selection
-  1. **Dynamic Slot Calculation**: `fetchCandidatePool` defaults to `targetPoolSize = 60` (clamped `[20, 500]`). If Buckets B & C return $N$ combined unique candidates (`specificPool.length`), Bucket A scales to `max(targetPoolSize - N, 12)`. Under explicit moods, Bucket B targets `min(12, max(2, floor(targetPoolSize * 0.20)))` and Bucket C targets `min(8, max(2, floor(targetPoolSize * 0.12)))`, and Buckets B, C, and D pass through `matchesMoodCandidateGate`.
-  2. **Cinephile Critical Fallback**: If a veteran user has already logged most popular titles in a genre (`candidates.length < min(targetCount, 5)` while `sort_by === "popularity.desc"`), Bucket A automatically pivots to `sort_by=vote_average.desc` and `vote_count.gte=500`, scanning additional pages of critically acclaimed cinema without dropping active mood filters.
-  3. **Cold-Start Bypass Engine**: For accounts with $< 3$ rated films (`(watchedMovies || []).length < 3`), specific keyword and crew graphs lack statistical significance. CinemaVault bypasses Buckets B & C and routes to Bucket A (`basePool`) + Bucket D recent releases (skipping Bucket D when `hidden-gem` or `maxYear < currentYear - 2`, and gating Bucket D under explicit moods).
-  4. **Recent-Release Reserve Selection (`selectWithReserve` & `computeReserveQualityScore`, `src/services/rankerService.js:227-312`)**:
-    - Invoked by `geminiService.js` when ranking `shortlistLimit` (`options.topK || 30`, minimum `targetCount = 10`) candidates for Gemini in **`"any"` vibe** (`RECENT_RELEASE_RESERVE_COUNT = 2`, `RECENT_RELEASE_RESERVE_MONTHS = 18`, `RECENT_RELEASE_MIN_PROB_PERCENTILE = 0.5`). Under an **explicit mood or custom vibe** (`isExplicitMoodActive`), `reRankCandidatesWithGemini` sets `reserveConfig = null` unless explicitly overridden so recent releases cannot override tone/era constraints.
-    - **Step 1 (Head Selection):** Takes the top `headCount = topK - count` candidates strictly by `rankerProbability`.
-    - **Step 2 (Eligibility Gate):** Evaluates remaining recent candidates (`release_date >= minReleaseDate`) that clear `probFloor = max(percentile50(nonCollab), 0.54)`. If the user has `lovedGenreIds`, restricts to `genreOverlap > 0` candidates whenever any exist.
-    - **Step 3 (Aligned Reserve Quality Scorer):** Ranks qualifying recent candidates using `computeReserveQualityScore`:
-      ```javascript
-      export function computeReserveQualityScore(candidate, weights = DEFAULT_RANKER_WEIGHTS, options = {}) {
-        const f = candidate?.features || {};
-        return scoreCandidate({ ...f, noveltyBonus: 0 }, weights || DEFAULT_RANKER_WEIGHTS, options).logit;
-      }
-      ```
-      Zeroing only `noveltyBonus` keeps all feature weights (`crewMatch`, `keywordOverlap`, `genreOverlap`, `bayesianRatingNorm`, `negativeKeywordPenalty`) identical to the main ranker while preventing `> 4,000`-vote acclaimed releases from losing to obscure titles, and `count = 2` prevents displacing `98%` classics for lower-ranked reserves.
-    - **Step 4 (Final Sort):** Fills up to `2` reserve slots (or falls back by ranker order if `< 2` qualify) and sorts the combined shortlist descending by `rankerProbability`.
-
-  ---
-
-  ## 5. TMDB API Query Grammar & Syntax Rules
-
-  The TMDB `/discover/movie` API enforces specific boolean logic conventions across parameter types:
-
-  | Parameter Type | Parameter Name | Delimiter | Boolean Logic | TMDB Example |
-  | :--- | :--- | :---: | :---: | :--- |
-  | **Genres** | `with_genres` | `\|` (Pipe) | **OR** | `with_genres=28\|878` (Action OR Sci-Fi) |
-  | **Keywords** | `with_keywords` | `\|` (Pipe) | **OR** | `with_keywords=9715\|10402` |
-  | **Excluded Keywords** | `without_keywords`| `\|` (Pipe) | **OR** | `without_keywords=9715\|10402` |
-  | **Cast / Actors** | `with_cast` | `\|` (Pipe) | **OR** | `with_cast=67890\|11122` (Actor A OR Actor B) |
-  | **Crew Members** | `with_crew` | N/A | Single ID | `with_crew=12345` (Christopher Nolan) |
-  | **Watch Providers** | `with_watch_providers` | `\|` (Pipe) | **OR** | `with_watch_providers=8\|9\|337` (Netflix OR Prime OR Disney+) |
-
-  > [!IMPORTANT]
-  > - **Conditional Genre Guard**: `with_genres` is only appended when `combinedLoved.length > 0` to prevent malformed empty parameters.
-  > - **Excluded Keywords (`without_keywords`)** uses pipe `|` to exclude films containing ANY of the specified trope tags.
-  > - **People (`with_cast`)** in TMDB treat comma `,` as **AND** and pipe `|` as **OR** (just like Genres & Keywords). CinemaVault uses `with_cast=A|B` so Bucket A never starves, and omits `with_cast` from Bucket D so recent releases aren't locked to legacy cast lists.
-  > - **Watch Providers** take integer provider IDs (`8|9`), NOT monetization strings like `flatrate`. Any discover item returned under an active `with_watch_providers` query is stamped `providerMatchedByQuery: true` so `rankerService.js` awards `providerMatch = 1`.
-  > - When `with_watch_providers` is passed, TMDB requires a valid 2-letter ISO `watch_region` code. If `userRegion === "GLOBAL"`, it defaults `watch_region` to `US` when provider filters are active.
-
-  ---
-
-  ## 6. Schema Bridge & Enriched Cinema Extraction (`bridgeTmdbToOmdb` & `fetchTmdbMovieDetails`)
-
-  CinemaVault enriches every saved or inspected movie record by executing a single-roundtrip TMDB request with `append_to_response=external_ids,credits,videos,keywords,watch/providers` (`src/services/tmdbService.js`), extracting high-resolution assets and structured graph IDs:
-
-  ```javascript
-  /**
-  * Resolves the optimal official trailer YouTube key using hierarchical ranking:
-  * 1. Official English Trailer
-  * 2. Main / Theatrical Trailer by title match
-  * 3. General Trailer
-  * 4. Teaser Clip
-  * 5. First available YouTube video
-  */
-  export function extractOfficialTrailerKey(videos = []) {
-    if (!videos || !Array.isArray(videos) || videos.length === 0) return null;
-    const youtubeVideos = videos.filter((v) => v.site === "YouTube" && v.key);
-    if (youtubeVideos.length === 0) return null;
-
-    const officialTrailer = youtubeVideos.find(
-      (v) => v.type === "Trailer" && v.official === true && (v.iso_639_1 === "en" || !v.iso_639_1)
-    );
-    if (officialTrailer) return officialTrailer.key;
-
-    const mainTrailer = youtubeVideos.find((v) => {
-      const name = (v.name || "").toLowerCase();
-      return v.type === "Trailer" && (name.includes("official") || name.includes("main") || name.includes("theatrical"));
+# 🏛️ CinemaVault: Technical Architecture & Mathematics Specification (v5.2)
+
+**CinemaVault** is an open-source, local-first cinema logging, analytics, research, and hybrid recommendation platform with optional opt-in Supabase cloud sync.
+
+Rather than prompting an LLM to invent movie lists from scratch, CinemaVault separates **on-device mathematical taste modeling, multi-bucket catalog retrieval, and deterministic logistic ranking** from **bounded LLM diversity selection and natural-language explanations**:
+- **On-Device Taste & Embedding Engine:** Per-user z-scored rating normalization with bulk-safe recency decay (`scoringUtils.js`), a `25,000`-film × `64`-D IEEE-754 `float16` collaborative embedding index (`CVEM v1`, `embeddingService.js`), vault-relative weight cutoffs (`1e-6 * maxAbsWeight`), mass-weighted Spherical K-Means multi-persona mixtures (`beta = 20`) blended (`0.75 / 0.25`) with on-device `64×64` L2-regularized Ridge fold-in (`lambda = 20`), and quadratic disliked-film repulsion.
+- **5-Bucket Verified Retrieval & Logistic Ranker:** Parallel TMDB + embedding candidate harvesting across Buckets `A–E` (`tmdbService.js`) with batched `/api/tmdb-batch` metadata hydration and 30-day IndexedDB caching (`tmdbCacheService.js`), scored by an 11-feature (+ optional `dnaSim`) logistic ranker (`rankerService.js`) with pool-independent `catalog-max` normalization, smoothstep `[0, 0.02]` → `0.35x` metadata damping, canonical mood/vibe policy (`moodPolicy.js`), steerable Prefer/Avoid taste rules (`tasteRulesService.js`), and an order-preserving `tau = 1.45` display score transform (`[50, 99]`).
+- **Stratified 39-Pick Gemini Curation & Resilient Cascade:** Unbiased `10`-pick curation over a `39`-candidate stratified shortlist (`25` core + `8` cold `2024–2026` + `6` outliers via `buildDiversifiedGeminiShortlist`), optional `0–2` TMDB-verified `wildcardPicks` (`verifyAndScoreWildcardPicks`), soft director/franchise variety caps (`selectWithSoftVarietyCaps`), and an error-classified H1 Gemini model cascade (`geminiService.js`) with deterministic ranker fallback and `cinemavault_smart_cache_v4` (`8`-arg profile hash).
+- **Research Hub, 10-Star Rating Studio & Cloud Sync:** 10-star rating stage (`StarRatingStage.jsx`, `ratingStudioService.js`) with live Vault percentile calibration, 4-aspect Craft Breakdown, and Watch Log metadata; spoiler-safe `"Discuss This Film"` contextual AI chat (`filmChatService.js`); URL-synced `/explore` Deep Filter Workbench (`exploreService.js`); chronological franchise timelines & hybrid `CVEM v1` + TMDB similar-film strips (`rabbitHoleService.js`); 2–3 film Side-by-Side Comparison Matrix (`/compare`, `compareService.js`); serverless `/api/*` credential proxies (`api/_security.js`); and opt-in Supabase Auth + Postgres 15+ RLS sync (`vaultSyncService.js`).
+
+> For a plain-English walkthrough of the local model, provenance audits, verified benchmarks, errors resolved, and copy-paste health checks, see **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md)**. Historical design specs and implementation plans are preserved under [docs/superpowers/](./docs/superpowers).
+
+---
+
+## Implementation Status (Updated Nov 15, 2026)
+
+| Area | Implemented Behavior on Current Branch (`main`) | Primary Modules |
+| :--- | :--- | :--- |
+| **Stage 1 Collaborative Embeddings** | `25,000`-film, `64`-D float16 binary (`/models/item_embeddings_f16.bin`, `3,300,016` B, `CVEM v1`) trained on MovieLens 32M with zero holdout leakage in the verified check, repulsion-aligned Bucket `E` neighbor retrieval (`retrieveAlignedEmbeddingNeighbors`, capped at `15` aligned neighbors during explicit mood vs `30` under `"any"`), & SPA `text/html` fallback rejection | [embeddingService.js](./src/services/embeddingService.js), [colab_train_embeddings.py](./scripts/colab_train_embeddings.py) |
+| **Stage 2 Content Embeddings & CDNA** | Dedicated content embedding loader/scorer (`/models/content_embeddings_f16.bin`, `buildContentSimMap`, opt-in pure overview bigram fallback + `enableStructuredFallback` / `coldOnly: true` for unindexed items) + offline `build_content_embeddings.mjs`; optional 8-bit `CDNA` axis scorer (`loadDefaultDnaIndex`, `buildDnaSimMap`) wired to `dnaSim` feature (default weight `0` until validated) | [contentSimService.js](./src/services/contentSimService.js), [dnaService.js](./src/services/dnaService.js), [build_content_embeddings.mjs](./scripts/build_content_embeddings.mjs) |
+| **Persona Mixture, Ridge Fold-In & Relative Cutoff** | Mass-weighted Spherical K-Means mixture (`computePersonaDetails`, `K` in `[1, 4]`, `personaBeta = 20`) blended (`0.75 / 0.25`) with `64×64` L2-regularized Ridge fold-in (`computeUserRidgeEmbedding`, `lambda = 20`, `ridgeMinItems = 10`, scale-invariant `normW`), disliked repulsion (`repulsion: -1.5`), and vault-relative weight cutoff (`1e-6 * maxAbsWeight`) supporting multi-decade vaults (`ml-user-263`, `ml-user-409`) | [embeddingService.js](./src/services/embeddingService.js), [scoringUtils.js](./src/services/scoringUtils.js) |
+| **Canonical Mood Policy & Match Vibe** | Shared 6-mood matrix (`MOOD_OPTIONS`), free-text constraint normalizer (`normalizeMoodFilters`), deterministic keyword/decade/era offline parser (`parseFreeTextMoodFallback`), Gemini fast-cascade parser (`parseFreeTextMoodWithGemini`), hard candidate gate (`matchesMoodCandidateGate`), and cache segment builder (`buildMoodFilterHashSegment`) | [moodPolicy.js](./src/services/moodPolicy.js), [oracleViewHelpers.js](./src/services/oracleViewHelpers.js) |
+| **5-Bucket Retrieval, Moods & Provider Families** | Buckets `B` (Anchor Keywords, scaled down `20%` max `12` in explicit mood), `C` (Auteur Crew, scaled down `12%` max `8` in explicit mood), `A` (Semantic/Mood Discover dropping `with_cast` lock under explicit moods, supporting year/exclude/page params, unqualified `avoidGenreIds` from `tasteRules`, & `with_watch_monetization_types: "flatrate\|free\|ads"`), `D` (Recent Releases `18m`, skipped for `hidden-gem` or `maxYear < currentYear - 2`), strict `PROVIDER_FAMILY_MAP` (13 alias groups) + `matchesWatchProviders`, batch metadata hydration (`enrichCandidatePoolMetadata` incl. `collectionId`/`collectionName`), & Bucket `E` mood gating | [tmdbService.js](./src/services/tmdbService.js), [moodPolicy.js](./src/services/moodPolicy.js), [tasteRulesService.js](./src/services/tasteRulesService.js) |
+| **Logistic Ranker & Online Learning** | 11-feature (+ optional `dnaSim`) logistic ranker (`collabSim: 6.4`, `genreOverlap: 0.6`, `keywordOverlap: 0.45`, `bayesianRatingNorm: 1.8`, `noveltyBonus: 0.05`, softened `negativeKeywordPenalty: -0.5`), pool-independent `catalog-max` normalization (`minCatalogSize = 50` with `poolMax` fallback for tiny maps), smoothstep `[0, 0.02]` → `0.35x` metadata damping & order-preserving `tau = 1.45` display score scaling (`[50, 99]`) under `"any"` (or `collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`, & `matchesMoodCandidateGate` partition under explicit moods), steerable `tasteRules` logit tuning (`+0.6` prefer / `-3.5` avoid; `0` delta when empty), strict provider-verified pool enforcement, `RECENT_RELEASE_RESERVE_COUNT = 2` (disabled under explicit mood), & feedback-driven bounded weight updates (`derivePersonalizedRankerWeights`, `minEvents: 10`, `minPositives: 3`, `minNegatives: 3`, `l2: 0.55`) | [rankerService.js](./src/services/rankerService.js), [onlineLearningService.js](./src/services/onlineLearningService.js), [feedbackService.js](./src/services/feedbackService.js), [tasteRulesService.js](./src/services/tasteRulesService.js) |
+| **10-Pick Curation, Wildcards, Collection Guard & Taste Rules** | `DEFAULT_RECOMMENDATION_COUNT = 10` over a **39-pick stratified shortlist** (`buildDiversifiedGeminiShortlist`: `25` core + `8` cold `2024–2026` + `6` outliers, strictly `gatePassed` + `passesTasteAvoidGuard` on Slices 2/3 & top-up with single `onDiagnostics`), unbiased `"Curate openly"` prompt (`<= 20,000` chars; `Match: XX%` & `#1–#15` bias removed) + `USER'S STEERABLE TASTE RULES` (never trimmed under compaction) + `Franchise rule:` + `Collection:` metadata + optional `0–2` TMDB/vault/provider/mood/avoid-rule-verified `wildcardPicks` (`verifyAndScoreWildcardPicks` via `fetchBatchFormattedDetailsMap` & `collabCatalogMax`), two-pass soft `selectWithSoftVarietyCaps` (`maxPerDirector: 2`, `maxPerCollection: 1`) & auto-backfill, nested `{ movie, weight, zScore }` relative-dislike lookup + `<=10` non-series mood-stratified anchors + `6–7★` `NEAR MISSES` + `<=5` disliked/dismissed (`already_seen`-exempt) + `<=8` `USER'S WATCHLIST` + `ADDITIONAL TOP FAVORITES` (`11–25`) + `LOVED SERIES / ANIME` + deduplicated `ADDITIONAL VIEWER NOTES` (all remaining `userNote`s) + `userStats`/`topDirectors` in `buildGeminiReRankPrompt`, `recSource` conversion provenance (`vaultStats.js`) & `"Already seen"` -> `QuickRateModal`, `SMART_CACHE_KEY = "cinemavault_smart_cache_v4"` with `MIN_VALID_CACHE_COUNT = 7` & note-aware 8-arg region/vault/taste-rule-scoped `generateProfileHash`, `null`-safe `normalizeMatchScore` fallback, `hydrationCoverage` + `moodShortfall` telemetry, session refresh `excludeIds` rotation (`120`-ID cap, TMDB pages `1..5`) + exhaustion guard, drawer close auto-refresh (`shouldAutoRefreshOnDrawerClose`), anchor film resolver (`resolveRecommendationAnchors`), jargon-free `sanitizeOracleReason`, Oracle `"Taste Rules"` drawer (`cinemavault_taste_rules_v1`), `sendChatMessage(..., tasteRules)`, plus H1 `CURATION_MODEL_CASCADE` & `FAST_INTERACTIVE_CASCADE` (`15s` Flash timeouts) | [geminiService.js](./src/services/geminiService.js), [tasteRulesService.js](./src/services/tasteRulesService.js), [rankerService.js](./src/services/rankerService.js), [oracleViewHelpers.js](./src/services/oracleViewHelpers.js), [vaultStats.js](./src/services/vaultStats.js), [geminiChatService.js](./src/services/geminiChatService.js), [geminiExplanationService.js](./src/services/geminiExplanationService.js), [MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx), [AIChat.jsx](./src/components/AIChat.jsx) |
+| **Serverless `/api/*` Proxies & Search** | Key-isolating Vercel Functions (`api/gemini.js`, `api/tmdb.js`, `api/tmdb-batch.js`, `api/omdb.js`) with explicit model/path allowlists (incl. `/3/search/(movie\|person\|keyword)`, `/3/person/:id[/movie_credits]`, `/3/collection/:id`, & `/3/movie/:id/(recommendations\|similar)`), 40-ID TMDB batching (`concurrency = 6`, single `"tmdb"` rate-limit hit, `s-maxage=86400`), client 30-day IndexedDB detail cache (`getMovieDetailsBatch`), cross-origin blocking (`403`), per-IP sliding-window rate limits (`api/_security.js`), `maxDuration: 60` (`vercel.json`), upstream error secret redaction, automatic direct-vs-proxy client router (`apiTransport.js`), and `AbortController`-guarded dual-engine search (`searchService.js`, `SearchModal.jsx`) | [api/_security.js](./api/_security.js), [api/gemini.js](./api/gemini.js), [api/tmdb.js](./api/tmdb.js), [api/tmdb-batch.js](./api/tmdb-batch.js), [api/omdb.js](./api/omdb.js), [apiTransport.js](./src/services/apiTransport.js), [searchService.js](./src/services/searchService.js) |
+| **Discover Hub, Taste Deck, Backfill & Portability** | Multi-page unwatched TMDB carousels + filterable mosaic grid (`dashboardService.js`, `DashboardPage.jsx`, `HomePosterGrid.jsx`), 30-film interleaved onboarding (`TasteDeckModal.jsx`, `tasteDeckService.js`), 10-tier `QuickRateModal` (`ratingTiers.js`) + shared praise/critique chips (`quickReviewTags.js`, `maxLength = 200` / `MovieDetails.jsx`), canonical cross-ID resolver (`movieIdentity.js`), lazy series-guarded TMDB vault backfill (`backfillMissingTmdbIds`, `isSeriesVaultItem`, `mergeBackfilledMovieMetadata` & `bridgeTmdbToOmdb` preserving `cast`, `writers`, `tagline`, `originCountry`, `spokenLanguages`, `mpaaRating`, `runtimeMinutes`, `keywordNames`, `keywordItems`, `collectionId`/`collectionName`, & overview fallback) + non-blocking `addWatched` hydration, 1–10 vault histogram & recommendation conversion hit-rate (`vaultStats.js`), Letterboxd CSV hardening (`csvImport.js`), & Schema v2 duplicate-safe JSON/CSV diff portability (`vaultPortability.js`, incl. `preferences.tasteRules`) | [dashboardService.js](./src/services/dashboardService.js), [tasteDeckService.js](./src/services/tasteDeckService.js), [ratingTiers.js](./src/services/ratingTiers.js), [quickReviewTags.js](./src/services/quickReviewTags.js), [movieIdentity.js](./src/services/movieIdentity.js), [tmdbService.js](./src/services/tmdbService.js), [vaultPortability.js](./src/services/vaultPortability.js), [vaultStats.js](./src/services/vaultStats.js), [csvImport.js](./src/services/csvImport.js) |
+| **Rating Studio 2.0 (10-Star Rating Stage), Contextual Film Chat, Deep Explore, Rabbit Hole & Compare** | Reusable `StarRatingStage` (`computeStarStageMetrics` wave-cascade motion, `--tier-color` light track, no emoji icons) + live Vault percentile & same-score/nearest benchmark calibration (`computeVaultCalibration`), optional 4-aspect `1–5` Craft Breakdown (`CRAFT_ASPECTS`, `computeCraftAverage`) & Watch Log (`WATCH_FORMATS`, `rewatchCount`, `containsSpoilers`) with null-tombstone clearing (`buildWatchedRatingPayload`), `"Discuss This Film"` deep-link (`/ai?tab=chat&movie=...`) + injection-safe `serializeFilmDossierForPrompt` & spoiler-safe toggle (`filmChatService.js`), URL-synced `/explore` multi-facet TMDB discover workbench (`exploreService.js`, `ExplorePage.jsx`), chronological `CollectionTimeline` + hybrid 64-D `CVEM v1` + TMDB `SimilarFilmsStrip` (`rabbitHoleService.js`), & 2–3 film Side-by-Side Comparison Matrix (`/compare`, `CompareDock`, `CompareModal`, `CompareWorkbench`, `compareService.js`) | [StarRatingStage.jsx](./src/components/StarRatingStage.jsx), [ratingStudioService.js](./src/services/ratingStudioService.js), [filmChatService.js](./src/services/filmChatService.js), [exploreService.js](./src/services/exploreService.js), [rabbitHoleService.js](./src/services/rabbitHoleService.js), [compareService.js](./src/services/compareService.js), [ExplorePage.jsx](./src/pages/ExplorePage.jsx), [ComparePage.jsx](./src/pages/ComparePage.jsx), [CompareWorkbench.jsx](./src/components/CompareWorkbench.jsx) |
+| **Opt-In Supabase Cloud Sync & RLS** | Local-first guest experience with optional Supabase Auth (Email OTP / Magic Link), Postgres 15+ `profiles` & `user_vault_items` schema with `(select auth.uid())` RLS policies and `public`/`anon` revocations, 2-stage `compactVaultListForStorage` quota protection (`safeSetItem`), & lossless timestamped two-way sync (`mergeLocalAndCloudVault`, preserving `recSource` in `metadata` JSONB, honoring cleared `ratingBreakdown`/`watchMeta` tombstones, and preventing multi-device delete resurrection via `deletedKeys` & `lastSyncedAt`) | [supabaseClient.js](./src/services/supabaseClient.js), [vaultSyncService.js](./src/services/vaultSyncService.js), [CloudSyncModal.jsx](./src/components/CloudSyncModal.jsx), [20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql) |
+| **Evaluation & Verification** | Rolling temporal cross-validation (`evaluateRankerRolling`), `NegHit@20` / `Unique@30` / `NDCG@10` / `withinUserAuc` CLI harness `scripts/run_eval.mjs` (incl. `popularity`, `item_knn`, `toy`, & `random` baselines), ablation harness `scripts/experiments/run_ablation.mjs`, vault cold-share analyzer `scripts/experiments/vault_cold_share.mjs` (`--exclude-series`), & automated `node --test` suites covering the service and API layers | [evalHarness.js](./src/services/evalHarness.js), [run_ablation.mjs](./scripts/experiments/run_ablation.mjs), [vault_cold_share.mjs](./scripts/experiments/vault_cold_share.mjs), [tests/](./tests) |
+
+---
+
+## Table of Contents
+
+1. [Executive Summary & Core Philosophy](#1-executive-summary--core-philosophy)
+2. [Why Pure LLM Recommenders Fall Short](#2-why-pure-llm-recommenders-fall-short)
+3. [Mathematical Taste Vector & Local Model Formulation](#3-mathematical-taste-vector--local-model-formulation)
+   - [3.1 Per-User Z-Scored Rating Normalization ($z_i$)](#31-per-user-z-scored-rating-normalization-z_i)
+   - [3.2 Bulk-Import-Safe Exponential Recency Time-Decay ($w_i$)](#32-bulk-import-safe-exponential-recency-time-decay-w_i)
+   - [3.3 Float16 Embeddings (`CVEM` v1), Relative Weight Cutoff, Personas & Repulsion](#33-float16-embeddings-cvem-v1-relative-weight-cutoff-personas--repulsion)
+   - [3.4 Temporally-Weighted Anchor Film Selection](#34-temporally-weighted-anchor-film-selection)
+   - [3.5 Granular Negative Trope Extraction (`without_keywords`) & Ranker Softening](#35-granular-negative-trope-extraction-without_keywords--ranker-softening)
+   - [3.6 Star-Power, Auteur Crew & Watchlist Intent Vectoring](#36-star-power-auteur-crew--watchlist-intent-vectoring)
+   - [3.7 Calibrated Logistic Ranker, Normalization, Metadata Damping & Match Badges](#37-calibrated-logistic-ranker-normalization-metadata-damping--match-badges)
+   - [3.8 Verified Benchmark Milestones, Leakage Audit & Tuning Results](#38-verified-benchmark-milestones-leakage-audit--tuning-results)
+4. [The 5-Bucket Hybrid Retrieval & Recent-Release Reserve Pipeline](#4-the-5-bucket-hybrid-retrieval--recent-release-reserve-pipeline)
+   - [4.1 Bucket B: Keyword Spiritual Successors (`fetchBucketB`)](#41-bucket-b-keyword-spiritual-successors-fetchbucketb)
+   - [4.2 Bucket C: Auteur & Star Power Network (`fetchBucketC`)](#42-bucket-c-auteur--star-power-network-fetchbucketc)
+   - [4.3 Bucket A: Semantic Discover Engine & Mood Calibration Matrix (`fetchBucketA`)](#43-bucket-a-semantic-discover-engine--mood-calibration-matrix-fetchbucketa)
+   - [4.4 Bucket D: Recent-Release Lane (`fetchBucketD`)](#44-bucket-d-recent-release-lane-fetchbucketd)
+   - [4.5 Bucket E: Collaborative Embedding Neighbor Injection (`fetchEmbeddingCandidates`)](#45-bucket-e-collaborative-embedding-neighbor-injection-fetchembeddingcandidates)
+   - [4.6 Dynamic Waterfall Sizing, Cold-Start Bypass & Recent-Release Reserve Selection](#46-dynamic-waterfall-sizing-cold-start-bypass--recent-release-reserve-selection)
+5. [TMDB API Query Grammar & Syntax Rules](#5-tmdb-api-query-grammar--syntax-rules)
+6. [Schema Bridge & Enriched Cinema Extraction (`bridgeTmdbToOmdb` & `fetchTmdbMovieDetails`)](#6-schema-bridge--enriched-cinema-extraction-bridgetmdbtoomdb--fetchtmdbmoviedetails)
+7. [Stage 3 Logistic Ranker, Stratified 39-Pick Open Curation, Wildcards & H1 Cascade](#7-stage-3-calibrated-ranker-stratified-39-pick-open-curation-wildcards--h1-cascade)
+   - [7.1 Stratified 39-Pick Shortlist, Unbiased Prompting, Verified Wildcards & Schema (`buildDiversifiedGeminiShortlist` / `reRankCandidatesWithGemini`)](#71-stratified-39-pick-shortlist-unbiased-prompting-verified-wildcards--schema-builddiversifiedgeminishortlist--buildgeminirerankprompt--rerankcandidateswithgemini)
+   - [7.2 Wildcard Verification (`verifyAndScoreWildcardPicks`), Score Locking (`mergeGeminiExplanationsWithRanker`) & `normalizeMatchScore`](#72-wildcard-verification-verifyandscorewildcardpicks-score-locking-mergegeminiexplanationswithranker--normalizematchscore)
+   - [7.3 Regex Code-Fence Sanitizer (`sanitizeAndParseJSON`)](#73-regex-code-fence-sanitizer-sanitizeandparsejson)
+   - [7.4 H1 Resilient Cascade Architecture, Thinking Config, Timeouts, Cooldowns & Fallbacks](#74-h1-resilient-cascade-architecture-thinking-config-timeouts-cooldowns--fallbacks)
+8. [Smart LRU Cache, Collision Guard & Tiered Quota Recovery](#8-smart-lru-cache-collision-guard--tiered-quota-recovery)
+   - [8.1 Profile-Based Sliding Window Hash (`generateProfileHash`)](#81-profile-based-sliding-window-hash-generateprofilehash)
+   - [8.2 Master ID Cross-Referencing Collision Guard (`getSmartCache`)](#82-master-id-cross-referencing-collision-guard-getsmartcache)
+   - [8.3 500KB LRU Eviction Policy & Tiered LocalStorage Quota Protection](#83-500kb-lru-eviction-policy--tiered-localstorage-quota-protection)
+9. [Universal Streaming Access & Multi-Region Matrix](#9-universal-streaming-access--multi-region-matrix)
+10. [Official Trailer Resolution & Playback Architecture](#10-official-trailer-resolution--playback-architecture)
+11. [Telemetry Analytics & Statistical Algorithms](#11-telemetry-analytics--statistical-algorithms)
+12. [Hardened Letterboxd Portability & Pure CSV Import Engine (`csvImport.js`)](#12-hardened-letterboxd-portability--pure-csv-import-engine-csvimportjs)
+13. [Dual-Engine Search & Strict Env Enforcement](#13-dual-engine-search--strict-env-enforcement)
+14. [Reference Implementations & Test Coverage Matrix](#14-reference-implementations--test-coverage-matrix)
+15. [Rating Deck & Interaction Design](#15-rating-deck--interaction-design)
+16. [Canonical Mood Policy, Custom Vibe Parser & Mood-Rebalanced Ranker (`moodPolicy.js`)](#16-canonical-mood-policy-custom-vibe-parser--mood-rebalanced-ranker-moodpolicyjs)
+17. [Session Refresh Rotation, Exhaustion Guard & Oracle View Helpers (`oracleViewHelpers.js`)](#17-session-refresh-rotation-exhaustion-guard--oracle-view-helpers-oracleviewhelpersjs)
+18. [Serverless `/api/*` Proxy Isolation & Transport Layer (`api/*.js` & `apiTransport.js`)](#18-serverless-api-proxy-isolation--transport-layer-apijs--apitransportjs)
+19. [Editorial Discover Hub, Cross-ID Identity, Taste Deck & Lossless v2 Portability](#19-editorial-discover-hub-cross-id-identity-taste-deck--lossless-v2-portability)
+20. [Opt-In Multi-User Supabase Cloud Sync, Postgres RLS Schema & Merge Engine](#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
+21. [v5.1 Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`)](#21-v51-franchise-collection-guard--steerable-taste-rules-tasterulesservicejs)
+22. [v5.2 Research Hub: Rating Studio 2.0, Contextual Film Chat, Deep Explore Workbench (`/explore`), Rabbit Hole Discovery & Side-by-Side Film Comparison (`/compare`)](#22-v52-research-hub-rating-studio-20-contextual-film-chat-deep-explore-workbench-explore-rabbit-hole-discovery--side-by-side-film-comparison-compare)
+
+---
+
+## 1. Executive Summary & Core Philosophy
+
+Most AI movie tools operate as **unconstrained text generators**: they prompt an LLM with a list of favorite movies and ask it to invent 10 recommendations. This leads to catalog hallucinations (invented release years, false cast members, nonexistent films), stale echo chambers (recommending the same 10 mainstream titles like *Inception* or *Interstellar*), arbitrary uncalibrated match percentages, and broken UI states.
+
+CinemaVault separates **local mathematical taste modeling + multi-bucket verified catalog harvesting + calibrated logistic ranking** from **bounded contextual LLM diversity selection & natural-language explanations**:
+
+```mermaid
+flowchart TD
+    subgraph Phase1 ["1. Data Ingestion, CSV Hardening & Schema Enrichment"]
+        V["User Vault: Ratings, Validated Dates, Keywords, Genres, Cast/Crew IDs"]
+        W["Watchlist: Explicit Future Intent"]
+        CSV["csvImport.js: Watched > Logged Date, Rollover Guard,\nBulk Cluster Suppression (180d Prior), Diary Rewatch Dedupe"] -.-> V
+        SB["Schema Bridge (append_to_response)\nPersists castIds, tmdbKeywords, tmdbGenreIds, streamProviders"] -.->|Enrich Logged Films| V
+    end
+
+    subgraph Phase2 ["2. Mathematical Taste DNA & On-Device CVEM v1 Engine"]
+        V --> Z["Per-User Z-Scores z_i + Decay e^(-0.002 * days)\n(180d Bulk Prior, Future Timestamp Clamp)"]
+        Z --> REL["Relative Weight Cutoff: |w| > 1e-6 * max(|w|)"]
+        REL --> KM["Persona Mixture (beta=20) + 64-D Ridge Fold-In (lambda=20) + Repulsion"]
+        Z --> ANCHOR["Sorted Top Weighted Anchor (Rating >= 9) -> Bucket B"]
+        Z --> GENRE_V["Weighted Genre Affinity Vector"]
+        Z --> CAST_V["Weighted Star Power Actor Vector (castIds)"]
+        Z --> CREW_V["Weighted Auteur Crew Vector (topCrewIds & topCrewMemberId)"]
+        W --> WATCH_V["Watchlist Intent Genre Vector"]
+        V -->|<= 4★ or z < -0.4| HATED_K["Sorted Negative Tropes (without_keywords, lambda_neg = 0.001)"]
+    end
+
+    subgraph Phase3 ["3. 5-Bucket Hybrid Retrieval (Buckets B, C, A, D + E) & Mood Policy"]
+        ANCHOR --> B2["Bucket B: Anchor Keywords\n(vote_average.desc, votes >= 500, target up to 40; 20% max 12 in Mood)"]
+        CREW_V --> B3["Bucket C: Auteur Crew Network\n(with_crew, votes >= 150, target up to 20; 12% max 8 in Mood)"]
+        B2 & B3 --> POOL_SPEC["Merge Specific Pool (N films, Mood-Gated if active)"]
+        GENRE_V & WATCH_V & CAST_V & HATED_K --> B1
+        MOOD["moodPolicy.js: 6-Mood Matrix + Match Vibe Parser\n(withGenres, withoutKeywords, year bounds)"] --> B1
+        POOL_SPEC --> B1["Bucket A: Semantic Discover + Mood Matrix + PROVIDER_FAMILY_MAP"]
+        GENRE_V & HATED_K --> B4["Bucket D: Recent Releases (18m window, popularity.desc,\navg >= 7.0, votes >= 150, no with_cast, max 12; skipped in hidden-gem/legacy era)"]
+        KM --> B5["Bucket E: Aligned CVEM v1 Embedding Neighbors\n(up to 30 in Any Vibe; 15 Mood-Gated under explicit mood)"]
+        B1 & B2 & B3 & B4 & B5 --> CP["Merged Verified TMDB Candidate Pool + Batch Hydration"]
+    end
+
+    subgraph Phase4 ["4. Logistic Ranker + 39-Pick Shortlist + H1 Gemini Cascade & Smart Cache v4"]
+        CP --> RNK["Logistic Ranker: Catalog-Max collabSim (Smooth 0..0.02 -> 0.35x damping in Any Vibe;\n0.35x collab + 1.0x metadata + computeMoodScoreAdjustment + matchesMoodCandidateGate in Mood)\nStrict Provider Verification -> 39-Pick Stratified Shortlist (25 Core + 8 Cold + 6 Outliers; 2 Reserve Slots)\nLocked 50-99% tau=1.45 Display Score + Deterministic matchReasons Badges"]
+        RNK --> GEM["H1 Cascade via /api/gemini or Dev Key: gemini-4-hydrogen (HIGH, 35s)\n-> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash (15s)\nSelect Top 10 Diverse Winners + 0..2 Verified Wildcards + Anchor Titles + Backfill"]
+        GEM --> NORM["Regex JSON Sanitizer + Locked Score & Soft Variety Merger (10 picks)"]
+        NORM --> CACHE["500KB LocalStorage LRU Cache v4 (cinemavault_smart_cache_v4)\n(Region-, Vault- & Taste-Rule-Scoped 8-Arg Hash, Master ID Collision Guard, Floor >= 7 Picks, 24h TTL)"]
+        CACHE --> UI["Curated 10-Pick Oracle List, recSource Telemetry & Optional Cloud Sync"]
+    end
+```
+
+---
+
+## 2. Why Pure LLM Recommenders Fall Short
+
+1. **The Hallucination Trap**: Pure LLMs hallucinate release years, sequels that never existed, and mismatched directors. CinemaVault avoids unverified titles because Gemini selects **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) winners from a pre-verified **39-candidate stratified shortlist** (`25` top ranker + `8` cold `2024–2026` + `6` outliers via `buildDiversifiedGeminiShortlist`, or `30` on the pure deterministic fallback path). Any optional `0–2` outside `wildcardPicks` must pass live TMDB title/year, TV-series, vault-collision, streaming-provider, mood-gate, and avoid-rule verification (`verifyAndScoreWildcardPicks`) before appearing.
+2. **The Echo Chamber Trap**: Simple prompts repeat ubiquitous blockbusters (*The Dark Knight*, *Pulp Fiction*). CinemaVault breaks the echo chamber across five distinct retrieval channels (keyword successors, auteur crew networks, mood-calibrated discovery, 18-month recent acclaim, and 64-D MovieLens 32M nearest neighbors).
+3. **The TMDB `/recommendations` Endpoint Trap**: TMDB's native `/movie/{id}/recommendations` endpoint is a single-seed heuristic based on generic user list co-occurrence. For whole-vault Oracle discovery, CinemaVault combines deep keyword graph discovery (`with_keywords`) sorted by critical acclaim (`vote_average.desc`, `vote_count.gte=500`) with 64-D collaborative persona vectors (while using a norm-safe `CVEM v1` + TMDB `/recommendations` hybrid for single-film *"Movies Like This"* strips on `MovieDetails`).
+4. **The Broad Genre Blacklist Trap**: Banning an entire genre like "Action" because a user hated a superhero movie blocks masterpieces like *Seven Samurai* or *Heat*. CinemaVault instead extracts sorted micro-keywords (*"superhero"*, *"slapstick"*, *"parody"*) from disliked films (`<= 4★` or `zScore < -0.4`), applies surgical `without_keywords` filters, softens keyword penalty weights to `-0.5`, and applies localized collaborative repulsion around disliked neighborhoods.
+5. **The Temporal & Cold-Start Blindspots**:
+   - **Temporal Drift & Decade Decay**: A favorite movie rated 10/10 four years ago shouldn't outweigh recent obsessions ($\lambda = 0.002$ half-life decay), *yet* users whose entire logs span 1999–2005 must not have all weights dropped to zero by a fixed `1e-6` threshold (solved by vault-relative cutoff `1e-6 * maxAbsWeight`).
+   - **Historical Embedding Cutoff**: Collaborative matrices trained on MovieLens 32M cut off around late 2023, giving every 2024–2026 movie `collabSim = 0`. Without **Bucket D**, **Cold-Gated Structured Fallback** (`enableStructuredFallback: true, coldOnly: true`), **Reserve Slot Selection**, and the **8-slot cold `2024–2026` shortlist slice**, high-scoring classics push every new release out of the Top 39 shortlist (or Top 30 deterministic fallback).
+   - **Free-Tier Quota Fragility**: Relying on a single unguarded Gemini model (such as `gemini-4-argon` with `0` free-tier limit or hanging `gemini-3.8-flash` calls) causes hard UI failures. Our H1 error-classified cascade with `35s` timeouts, cooldown backoff, and deterministic math fallback keeps discovery working offline or under quota exhaustion.
+
+---
+
+## 3. Mathematical Taste Vector & Local Model Formulation
+
+To convert static `1–10` star logs into meaningful preference signals across both harsh critics and generous viewers, `extractTasteProfile` (`src/services/tmdbService.js`) delegates rating weight computation to `computeZScoredWeights` (`src/services/scoringUtils.js`) and feeds `embeddingService.js` + `rankerService.js`.
+
+### 3.1 Per-User Z-Scored Rating Normalization ($z_i$)
+To eliminate harsh-vs-generous rater bias and ensure mediocre ratings ($4-5\star$) exert appropriate negative pull when a user's personal mean is $\approx 7.0$, CinemaVault normalizes every rating against the user's personal distribution (`src/services/scoringUtils.js`):
+
+$$\mu = \frac{1}{N}\sum_{i=1}^{N} r_i, \quad \sigma_{\text{eff}} = \max\left(\sqrt{\frac{1}{N}\sum_{i=1}^{N}(r_i - \mu)^2},\; 0.5\right), \quad z_i = \frac{r_i - \mu}{\sigma_{\text{eff}}}$$
+
+- **Zero-Variance Guard:** If all rated films have identical scores ($\sigma_{\text{raw}} = 0$), $z_i$ defaults safely to $+0.5$ (when $r_i \ge 7$), $-0.5$ (when $r_i \le 4$), or $0.0$ without division by zero.
+- **Cold-Start Fallback ($N < 3$):** Uses centered linear scaling $z_i = (r_i - 5.5) / 2.0$.
+
+### 3.2 Bulk-Import-Safe Exponential Recency Time-Decay ($w_i$)
+Every film's z-score is modulated by exponential time-decay (`src/services/scoringUtils.js`):
+
+$$w_i = z_i \cdot e^{-\lambda \cdot \Delta_i}, \quad \lambda = 0.002 \text{ days}^{-1}$$
+
+Where:
+- $\Delta_i = \max\left(0, \frac{t_{\text{now}} - t_i}{86,400,000}\right)$ (elapsed time in days, clamped to $\ge 0$ so clock skew never yields decay $> 1.0$).
+- $\lambda = 0.002$ ($\text{Half-life} = \frac{\ln(2)}{0.002} \approx 346.5\text{ days} \approx 11.5\text{ months}$).
+- **Bulk-Import & Undated Prior ($\Delta_{\text{prior}} = 180\text{ days}$):** Films imported in bulk (`isBulkImported: true`, including clustered Letterboxd `Date` dumps detected by `csvImport.js`) or logged without `dateWatched` are assigned $\Delta_i = 180$ days instead of `Date.now()` ($\Delta_i = 0$), preventing undated backlog imports from overpowering genuinely recent watches.
+
+#### Recency Decay Table ($\lambda = 0.002$):
+- **Day 0 (Today)**: $e^{0} = 1.000$ (100% of z-score weight)
+- **Day 60 (2 Months)**: $e^{-0.12} \approx 0.887$ (88.7% of z-score weight)
+- **Day 180 (6 Months / Bulk Prior)**: $e^{-0.36} \approx 0.698$ (69.8% of z-score weight)
+- **Day 346 (~Half-Life / 11.5 Months)**: $e^{-0.693} \approx 0.500$ (50.0% of z-score weight)
+- **Day 730 (2 Years)**: $e^{-1.46} \approx 0.232$ (23.2% of z-score weight)
+
+### 3.3 Float16 Embeddings (`CVEM` v1), Relative Weight Cutoff, Personas & Repulsion
+CinemaVault ships a zero-dependency IEEE-754 half-precision (`float16`) binary codec (`src/services/embeddingService.js`) backed by an offline MovieLens 32M Truncated SVD trainer (`scripts/colab_train_embeddings.py`, `25,000` items × `64` dimensions, shrinkage `0.5`).
+
+#### Binary File Layout (`/models/item_embeddings_f16.bin`, `3,300,016` Bytes)
+- **Dataset Attribution & Research License Note:** The pre-computed collaborative vectors in `/models/item_embeddings_f16.bin` are derived from the **MovieLens 32M** dataset curated by [GroupLens Research](https://grouplens.org/datasets/movielens/32m/) at the University of Minnesota and are distributed for non-commercial research and educational evaluation in accordance with the MovieLens license terms. CinemaVault's application source code is MIT-licensed.
+- **16-byte Little-Endian Header:** `magic = "CVEM"` (4 B), `version = 1` (`uint32`), `count = 25000` (`uint32`), `dim = 64` (`uint32`).
+- **Packed Item Records ($25,000 \times 132 = 3,300,000$ B):** `[uint32 tmdbId][64 × uint16 IEEE-754 float16]`.
+- **SPA Fallback & Structural Validation (`parseEmbeddingBinary` / `loadDefaultEmbeddingIndex`):** Rejects `text/html` MIME responses (e.g., Vite/SPA 404 fallback), validates `"CVEM"` magic header, dimension bounds (`1..1024`), and exact `byteLength === 16 + count * (4 + dim * 2)`. Returns `null` gracefully if absent.
+
+#### Vault-Relative Weight Cutoff (`getRelativeWeightCutoff`)
+Previously, a fixed threshold `|w| <= 1e-6` silently dropped every film for users whose watches occurred in 1999–2005 (`e^{-0.002 * ~9000} \approx 10^{-8}`). Now (`src/services/embeddingService.js:181-238`), both `computeUserEmbedding` and `computeUserPersonas` compute:
+
+$$\text{maxAbsW} = \max_{i} |w_i|, \qquad \text{cutoff} = 10^{-6} \cdot \text{maxAbsW}$$
+
+Items are skipped only when $|w_i| \le \text{cutoff}$ (returning empty/`null` when $\text{maxAbsW} = 0$). Scaling every weight uniformly by $10^{-8}$ produces identical personas and cosine rankings.
+
+#### Single-Vector Baseline, Mass-Weighted Persona Mixture, 64-D Ridge Fold-In & Repulsion
+- **Single-Vector Weighted Mean (`computeUserEmbedding`):**
+  $$u = \frac{\sum_{i: |w_i| > \text{cutoff}} w_i e_i}{\sum_{i: |w_i| > \text{cutoff}} |w_i|}$$
+  L2-normalized before retrieval.
+- **Mass-Weighted Multi-Persona Clustering (`computePersonaDetails` / `computeUserPersonas`):** Clusters positively weighted liked films into $K \in [1, 4]$ L2-normalized centroids via deterministic Spherical K-Means (`maxIterations = 12`, `splitThreshold = 0.05`) and returns both `{ centroids, masses }` (with `masses` tracking each cluster's normalized positive weight share; `computeUserPersonas` preserves backward compatibility by returning `.centroids`).
+- **Log-Sum-Exp Persona Mixture + Top-3 Blend (`buildCollabSimMapFromIndex`):** Instead of hard winner-take-all `max_k`, aggregates across multi-persona clusters using temperature-scaled log-sum-exp mixture (`personaBeta = 20`):
+  $$\text{personaSim}(c) = \frac{1}{\beta} \log \sum_{k=1}^{K} \exp\left(\beta \, (p_k \cdot e_c) + \ln m_k\right), \quad \text{clusterScore}(c) = \text{blend} \cdot \text{personaSim}(c) + (1 - \text{blend}) \cdot \text{top3LovedWeightedMean}(c)$$
+  with default `personaBlend = 0.70` when $K > 1$ (and `1.0` when $K = 1$).
+- **On-Device `64×64` Ridge Fold-In (`computeUserRidgeEmbedding`):** Across users with $\ge 10$ indexed ratings (`ridgeMinItems = 10`, $\lambda = 20$), solves $(E^\top C E + \lambda I) u = E^\top C z$ via Gaussian elimination with partial pivoting over *all* positive, neutral, and disliked ratings:
+  - Targets $z_i = \text{clip}\left(\frac{r_i - \min(\mu_r, 7.5)}{\max(\sigma_r, 1.0)},\; -2.5,\; 2.5\right)$ (or scaled `(weight / maxAbsWeight) * 2.0` when explicit star ratings are absent), ensuring generous raters still discriminate between `>= 9★` masterpieces and `<= 7★` watches.
+  - Scale-invariant sample confidence $c_i = \text{clip}(0.75 + 0.5 \cdot (|w_i| / \max_j |w_j|),\; 0.5,\; 2.0)$.
+  - L2-normalizes $u$ and blends directly into collaborative similarity with `ridgeBlend = 0.25`:
+    $$\text{collabSim}_{\text{raw}}(c) = (1 - \alpha_{\text{ridge}}) \cdot \text{clusterScore}(c) + \alpha_{\text{ridge}} \cdot (u_{\text{ridge}} \cdot e_c), \quad \alpha_{\text{ridge}} = 0.25$$
+- **Negative Repulsion (`buildRepulsionMapFromIndex` / `computeRepulsion`):** Tracks negatively weighted films ($w_i < 0$) and emits quadratic repulsion when candidate similarity to disliked centroids exceeds `0.35`, multiplied by `repulsion: -1.5` in the ranker.
+- **Stage 2 Content Blending (`blendEmbeddings` / `contentSimService.js`):** Loads optional `/models/content_embeddings_f16.bin` (built by `scripts/build_content_embeddings.mjs`) via `loadDefaultContentIndex` and scores plot/tagline vectors in `buildContentSimMap` (with optional aligned `blendEmbeddings` and opt-in overview bigram fallback).
+- **Optional Cinematic DNA (`CDNA`):** Loads optional `/models/cinematic_dna_u8.bin` via `loadDefaultDnaIndex` and scores mean-centred rubric axes in `buildDnaSimMap` (`dnaSim` feature, default weight `0` until validated).
+
+### 3.4 Temporally-Weighted Anchor Film Selection
+Bucket B requires a high-affinity anchor film to extract thematic keywords. CinemaVault sorts all rated films by $w_i$ (`finalWeight`) descending and filters for top-rated films ($\text{Rating} \ge 9$, configurable `anchorCutoff`) (`src/services/tmdbService.js`):
+
+$$\text{AnchorMovie} = \arg\max_{m \in \text{Rated}, \text{Rating}(m) \ge 9} w_i(m)$$
+
+If the anchor movie only has an `imdbID` (e.g., logged before TMDB schema enrichment), `findTmdbByImdbId` resolves its canonical `tmdbId` on the fly. If no film is rated $\ge 9$, `anchorTmdbId` resolves to `null` and Bucket B's candidate slots are dynamically reallocated to Bucket A.
+
+### 3.5 Granular Negative Trope Extraction (`without_keywords`) & Ranker Softening
+Instead of excluding broad genres, the profiler iterates over movies with $\text{Rating} \le 4$ or $z_i < -0.4$ and accumulates z-magnitude time-decayed trope penalties at half the decay rate ($\lambda_{\text{neg}} = \frac{\lambda}{2} = 0.001$, reflecting that dislikes decay more slowly than passing interests) (`src/services/tmdbService.js`):
+
+$$\text{HatedKeywords}[k] = \sum_{m \in \text{Rated},\; r_m \le 4 \text{ or } z_m < -0.4,\; k \in m.\text{tmdbKeywords}} \max(1, |z_m|) \cdot e^{-\frac{\lambda}{2} \cdot \Delta t_m}$$
+
+Keywords are **sorted descending by accumulated penalty** (fixing an earlier insertion-order bug in `236e0f8`), and the top 5 keyword IDs are passed to TMDB using pipe OR syntax (`without_keywords=9715|10402`), excluding candidates containing *either* hated trope without banning entire genres. In `DEFAULT_RANKER_WEIGHTS`, `negativeKeywordPenalty` was tuned from `-2.0` to **`-0.5`** (`332c21c`) because common tags like *"independent film"* frequently appear across both loved and disliked watches.
+
+### 3.6 Star-Power, Auteur Crew & Watchlist Intent Vectoring
+High-rated films ($\text{Rating} \ge 8$ with $w_i > 0$) contribute their creative personnel and keywords to weighted affinity maps (`src/services/tmdbService.js`):
+- **Star-Power Actors (`topCastIds`):** The top 3 billed cast IDs (`castIds[0..2]`) accumulate $w_i$; the top 2 actors (`topCastIds`) are injected into Bucket A discover queries.
+- **Auteur Directors & Crew (`topCrewIds` / `topCrewMemberId`):** Directors, Cinematographers, Original Music Composers, and Screenwriters accumulate $w_i$ (prioritizing Director during Schema Bridge extraction). The top 3 crew IDs are tracked for ranker `crewMatch`, and `topCrewMemberId` (`topCrewIds[0]`) is queried in Bucket C.
+- **Loved Micro-Keywords (`lovedKeywordIds`):** Top 5 positive keyword IDs (plus normalized `keywordAffinities`) feed the ranker's `keywordOverlap` feature even for Bucket E/A/D candidates.
+- **Watchlist Intent Vectoring (`watchlistGenreIds`):** Unwatched films saved in the user's `watchlist` contribute their top 3 recurring TMDB genre IDs (`watchlistGenreIds`), blending all 3 with `lovedGenreIds` inside Bucket A (`buildBucketAParams`).
+
+### 3.7 Logistic Ranker, Normalization, Metadata Damping & Display Match Scores
+Rather than allowing the LLM to invent match percentages, `rankCandidatePool` (`src/services/rankerService.js`) extracts **12 normalized features** (`11` active weighted features + optional `dnaSim`) across all merged candidates (`DEFAULT_RECOMMENDATION_COUNT = 10`, with `buildDiversifiedGeminiShortlist` composing a stratified shortlist of up to **39** candidates for Gemini — `25` core + `8` cold `2024–2026` + `6` outliers — or `topK = 30` on the deterministic `!ai` fallback path) and computes deterministic ranking logits and order-preserving display scores (see [Section 16](#16-canonical-mood-policy-custom-vibe-parser--mood-rebalanced-ranker-moodpolicyjs) for explicit-mood weight rebalancing and hard candidate gating):
+
+#### Active `DEFAULT_RANKER_WEIGHTS` (`src/services/rankerService.js:18-31` & `public/models/ranker_weights.json`)
+| Feature | Live Weight | Range / Extraction Rule |
+| :--- | :---: | :--- |
+| `bias` | **`-1.1`** | Logistic intercept |
+| `collabSim` | **`+6.4`** | Positive similarities (`0.75 * mixture(beta=20) + 0.25 * ridge(lambda=20)`) scaled by pool-independent `catalog-max` (`minCatalogSize = 50`, fallback `poolMax`) -> `[0, 1]` |
+| `contentSim` | **`+1.4`** | Cosine similarity from `/models/content_embeddings_f16.bin`, or cold-gated structured (`genres/keywords/cast/crew` + overview TF-IDF) cosine similarity when collaborative embeddings are missing (`enableStructuredFallback: true, coldOnly: true`) |
+| `genreOverlap` | **`+0.6`** | Fraction of top 4 loved genres matched (`min(3, lovedGenreIds.length)` denominator, smoothstep-damped `[0, 0.02]` → `0.35x`) |
+| `keywordOverlap` | **`+0.45`** | Continuous affinity-weighted overlap with top 15 IDF-damped, net-positive `keywordAffinities` (with `lovedKeywordIds` fallback or `0.6` proxy for Bucket B) |
+| `crewMatch` | **`+0.7`** | Continuous `[0, 1]` Bayesian-shrunk `crewAffinities[crewPersonId]` (or binary fallback + `0.5` Bucket C proxy) |
+| `castMatch` | **`+0.5`** | Billing-decayed continuous `[0, 1]` Bayesian-shrunk `castAffinities` across candidate `castIds` (or `topCastIds` binary fallback) |
+| `bayesianRatingNorm` | **`+1.8`** | Normalized TMDB Bayesian score `(B - 5.0)/4.5` with `m=500, C=7.0` *(smoothstep-damped `[0, 0.02]` → `0.35x`)* |
+| `noveltyBonus` | **`+0.05`** | `0.5` if `100 <= vote_count <= 4000`, else `0.1` *(zeroed in `computeReserveQualityScore`)* |
+| `negativeKeywordPenalty` | **`-0.5`** | Clamped `[0, 1]` hit indicator against disjoint net-negative `hatedKeywordIds` *(meta IDs suppressed)* |
+| `repulsion` | **`-1.5`** | Quadratic repulsion penalty from disliked embedding neighbors (`cos > 0.35`) |
+| `providerMatch` | **`+0.25`** | `1.0` if `providerMatchedByQuery` or provider intersection, `0.5` if no filter, else `0` |
+| `dnaSim` | **`0`** | Mean-centred `CDNA` axis cosine from `/models/cinematic_dna_u8.bin` *(gated at `0` until validated)* |
+
+#### Pool-Independent `catalog-max` Collaborative Normalization
+Because Bayesian shrinkage ($\frac{\vec{v}}{\|\vec{v}\| + 0.5}$) compresses latent vector norms to prevent low-support items from causing false cosine spikes, raw dot products typically span $[0.05, 0.35]$. Previously, normalizing by `maxPoolCollab` made scores fluctuate whenever an atypical outlier entered or exited the candidate pool. Now (`rankCandidatePool`, `collabNormalization = "catalog-max"`), CinemaVault reads the catalog-wide positive maximum via `getCollabCatalogMax(collabSimMap, minCatalogSize = 50)` (cached via a `WeakMap` over sorted `Float64Array` positives; falling back to `poolMax` only for small `< 50` synthetic unit-test maps) while preserving unscaled similarity in `features.rawCollabSim`:
+
+$$\text{collabScale} = \max\left(\max_{c \in \text{catalog}} \text{collabSim}(c),\; 0.05\right), \quad \text{collabSim}_{\text{norm}} = \begin{cases} \min\left(1.0, \frac{\text{collabSim}}{\text{collabScale}}\right) & \text{if } \text{collabSim} > 0 \\ \text{collabSim} & \text{otherwise} \end{cases}$$
+
+#### Smoothstep Metadata Gating & `0.35x` Damping (`dampingRampMax = 0.02`)
+In a standard linear combination, coarse metadata features like `genreOverlap` and global popularity `bayesianRatingNorm` can overpower collaborative signals, pushing niche 9/10 taste-twins into ranks `#11–#20`. Rather than jumping discontinuously at `0.001`, `scoreCandidate` applies a smoothstep ramp over `rawCollabMag = |rawCollabSim ?? collabSim|` across `[0, 0.02]` (`DEFAULT_METADATA_DAMPING_FACTOR = 0.35`):
+
+$$t = \min\left(1,\; \frac{|\text{rawCollabSim}|}{0.02}\right), \quad s = t^2 (3 - 2t), \quad \text{effectiveDamping} = 1.0 + s \cdot (0.35 - 1.0)$$
+$$\text{logit}_{\text{genre}} = w_{\text{genre}} \cdot x_{\text{genre}} \cdot \text{effectiveDamping}, \qquad \text{logit}_{\text{rating}} = w_{\text{rating}} \cdot x_{\text{rating}} \cdot \text{effectiveDamping}$$
+
+For cold-start or 2024–2026 unindexed releases ($\text{rawCollabSim} = 0$), $\text{effectiveDamping} = 1.0$, so metadata operates at full $1.0\times$ strength alongside cold-gated structured similarity (`contentSim`), easing smoothly into $0.35\times$ collaborative dominance as collaborative signal enters.
+
+#### Order-Preserving Display Score Transform ($\tau = 1.45$) & Deterministic Match Reason Badges
+Ranking order is determined strictly by the unscaled logit (`probability = sigmoid(logit)`), while displayed match scores (`computeDisplayMatchScore`) apply a monotonic temperature-scaled sigmoid transform **`DEFAULT_DISPLAY_TEMPERATURE = 1.45`** mapped into $[50, 99]$ so top picks distribute cleanly without saturating at 99% while preserving exact rank order. Note that `matchScore` is an order-preserving UI relevance score rather than a frequentist probability. Empirical `>= 8★` and `>= 9★` conversion rates are tracked separately via `computeRecommendationHitRate` in `vaultStats.js`.
+
+$$p_{\text{disp}, i} = \frac{1}{1 + e^{-\text{logit}_i / \tau}}, \quad \text{matchScore}_i = \min\left(99,\; \max\left(50,\; \text{round}(50 + 49 \cdot p_{\text{disp}, i})\right)\right) \in [50, 99]$$
+
+`generateMatchReasons(features)` emits up to 3 human-readable badges in priority order:
+- `collabSim >= 0.28`: `🧬 High Taste-Twin Match` *(else if `>= 0.15`: `🤝 Collaborative Taste Pick`)*
+- `crewMatch > 0`: `🎬 Favorite Filmmaker` *(else if `castMatch > 0`: `🎭 Top Cast Match`)*
+- `keywordOverlap >= 0.33`: `🎯 Core Theme Match`
+- `collabSim >= 0.16 && noveltyBonus >= 0.35`: `💎 Personal Cult Pick`
+- `genreOverlap >= 0.66`: `🎪 Genre Bullseye`
+- `bayesianRatingNorm >= 0.72`: `⭐ Critical Acclaim`
+- Fallback if empty: `🔍 Hidden Discovery` (`novelty >= 0.35`) or `✨ Curated Selection`
+
+*(Online bounded pairwise weight learning from logged user actions runs via `derivePersonalizedRankerWeights` in `onlineLearningService.js` over `fitRankerWeights` in `rankerService.js`, requiring defaults `minEvents = 10`, `minPositives = 3`, `minNegatives = 3`, and regularization `l2 = 0.55` before adapting from `DEFAULT_RANKER_WEIGHTS`.)*
+
+### 3.8 Verified Benchmark Milestones, Leakage Audit & Tuning Results
+
+Evaluated via `evaluateRankerRolling` (`src/services/evalHarness.js`) and paired-bootstrap scripts over 4 human MovieLens vaults (556-film TMDB catalog) plus 328 & 300 user MovieLens cohorts enriched with 9,620 real TMDB records:
+
+| Milestone / Audit | Scope | Key Verified Outcome |
+| :--- | :--- | :--- |
+| **0. Popularity Baseline (`pop`)** | 328 MovieLens users (global acclaim/popularity ordering) | `NDCG@10 = 0.0392`, `Recall@20 = 0.0671` (external non-personalized baseline; full ranker achieves `+111% NDCG@10` and `+80% Recall@20` on the same 328-user split) |
+| **1. Original Baseline (`ml-latest-small`)** | 4 human vaults, 9.6k films (2018 cutoff) | `NDCG@10 = 0.062`, `Recall@20 = 0.083`, `Novelty = 1.48` |
+| **2. Initial 32M (Unnormalized)** | 4 human vaults, 25k × 64 index | `NDCG@10 = 0.078`, `Recall@20 = 0.171`, `Novelty = 1.82` |
+| **3. Pool-Normalized + `0.20x` Damped 32M** | 4 human vaults (`Nov 11` → pre-Step 2/3B) | Nov 11: `NDCG@10 = 0.143 (+131%)`, `Recall@20 = 0.242 (+192%)`, `Novelty = 2.24 (+51%)`; current live 4-vault mean (`item_embeddings_f16.bin`): **`NDCG@10 = 0.178`**, **`Recall@20 = 0.250`**, **`Novelty = 2.206`** |
+| **4. Zero-Leakage Colab Verification** | 328 MovieLens users comparing Colab binary vs scrubbed 32M retrain | `clean_ranker` `NDCG@10 = 0.0826` vs `leaky_ranker = 0.0828` (`Δ = +0.00023`, 95% CI `[-0.00197, +0.00236]`, `isSignificant: false`, `ΔRecall@20 = 0`) |
+| **5. `negativeKeywordPenalty = -0.5` vs `-2.0`** | Real `rankCandidatePool` on Orig `328` & Validation `300` users | **Orig 328:** `NDCG +0.0103 [+0.0042, +0.0169]`, `Recall +0.0110 [+0.0052, +0.0177]` (both sig); **Fresh 300:** `Recall +0.0143 [+0.0077, +0.0207]` (sig), `NDCG +0.0058 [-0.000011, +0.0124]` |
+| **6. Relative Cutoff Parity & Rescue** | `328` user top-20 parity + 4 benchmark vaults | `0 / 328` mismatches on normal vaults; rescued `ml-user-263` (`0 -> 4` personas, `0 -> 25,000` scored films) & `ml-user-409` (`0 -> 2` personas, `0 -> 25,000` scored films) |
+| **7. Phase 2 Ablations & v5.0 Offline Tuning (`run_ablation.mjs`, `clean2`)** | `328` primary + `fresh_300` validation cohorts + `4` benchmark vaults (`>= 8★` & `>= 9★`, cold `null` embeddings) | **Exp 1 (Polarity+IDF Keywords):** `328` `>=8★` `NDCG 0.0824` (`>=9★ 0.0974`), Bench `>=8★ NDCG 0.1786`; **Exp 2 (Shrunk Cast/Crew):** `328 >=9★ NDCG 0.1023 (+0.0074 *)`, `P@10 0.0822 (+0.0066 *)`, Bench `>=9★ NDCG 0.2058`; **Exp 3 (Cold Structured Fallback):** Zero regression on `clean2`, `328 null >=9★ NDCG 0.0485 (+0.0136 *)`, `Rec@20 0.0536 (+0.0187 *)`; **Exp 4 (Tuned `DEFAULT_RANKER_WEIGHTS` + `0.35x` Damping):** `328 >=8★ NDCG 0.0849 / Rec@20 0.1241 (+0.0070 *) / Neg@20 0.0024 (-0.0009 *)`, `328 >=9★ NDCG 0.1053 (+0.0104 *) / Rec@20 0.1369 (+0.0095 *) / P@10 0.0875 (+0.0118 *)`, **`fresh_300 >=8★ Rec@20 0.1270 (+0.0107 *)`**, **`fresh_300 >=9★ NDCG 0.1156 (+0.0114 *) / Rec@20 0.1505 (+0.0151 *)`**, **`328 null >=8★ NDCG 0.0415 (+0.0175 *) / Rec@20 0.0576 (+0.0296 *)`**, **`328 null >=9★ NDCG 0.0681 (+0.0331 *) / Rec@20 0.0785 (+0.0436 *)`**, Bench `>=8★ NDCG 0.1611 / Rec@20 0.2542` & `>=9★ Rec@20 0.3833` |
+| **8. Prompt 2 Final Ablation: `catalog-max` + Smooth `[0, 0.02]` Damping + `0.75 * Mixture(beta=20) + 0.25 * Ridge(lambda=20)` (`eval_final.json`, `clean2`)** | `328` primary + `fresh_300` secondary validation cohort + `4` benchmark vaults (`withinUserAuc` + ranking IR vs `post_fixes`) | **`328 >= 8★` (`n=328`):** `NDCG@10 = 0.0909 (+0.0061 *)`, `Rec@20 = 0.1256`, `P@10 = 0.0805`, `Neg@20 = 0.0018`, **`AUC(>=9v<=7) = 0.7335 (+0.0285 *)`**, **`AUC(>=8v<=7) = 0.6994 (+0.0240 *)`**; **`328 >= 9★` (`n=304`):** **`NDCG@10 = 0.1145 (+0.0095 *)`**, **`Rec@20 = 0.1448 (+0.0082 *)`**, **`P@10 = 0.0947 (+0.0076 *)`**, **`AUC(>=9v<=7) = 0.7458 (+0.0301 *)`**; **`fresh_300 >= 8★` (`n=300`):** **`Neg@20 = 0.0032 (-0.0018 *)`**, **`AUC(>=9v<=7) = 0.7218 (+0.0338 *)`**, **`AUC(>=8v<=7) = 0.6788 (+0.0256 *)`**; **`fresh_300 >= 9★` (`n=284`):** **`NDCG@10 = 0.1227 (+0.0067 *)`**, **`Rec@20 = 0.1581`**, **`P@10 = 0.0986 (+0.0077 *)`**, **`AUC(>=9v<=7) = 0.7407 (+0.0302 *)`**; **4 Bench:** `>= 8★ NDCG 0.1776 (+0.0160)` (`ml-user-409 AUC9v7 = 0.9583`), `>= 9★ NDCG 0.2258 (+0.0345)`, `AUC9v7 = 0.6817 (+0.0938)`. *(Step 4 `eraMatch` skipped: near-zero separation `0.0005` vs `-0.0018`.)* |
+
+> **Evaluation Scope & Statistical Caveats:**
+> - **Stage-3 Ranker vs. Stage-4 LLM Scope:** The offline IR metrics above (`NDCG@10`, `Recall@20`, `P@10`, `NegHit@20`, `withinUserAuc`) benchmark the **deterministic Stage 3 ranker** (`rankCandidatePool` / `pipeline: "ranker-fallback"`). When Gemini is active (`pipeline: "gemini"`), it selects 10 diverse titles from the ranker's 39-pick stratified shortlist. Post-selection conversion quality is tracked online via `recSource` telemetry (`computeRecommendationHitRate` in `vaultStats.js`).
+> - **Definition of `*` & Validation Split Reuse:** In rows 7–8, `*` denotes a paired 1,000-resample bootstrap 95% confidence interval on the per-user delta that excludes zero (unadjusted for multiple comparisons across ablation rows). Because `fresh_300` was inspected across Phase 2 / Step 2–3B milestones, it should be interpreted as a **secondary validation cohort** rather than a single-use blind test split.
+> - **Temporal Domain Note:** MovieLens timestamps reflect *rating submission time* (which can occur in backlog sessions), whereas Letterboxd exports record either *watch date* (`Watched Date`) or *diary log date* (`Date`, guarded by `suppressBulkClusteredLoggedDates` in `csvImport.js`).
+
+---
+
+## 4. The 5-Bucket Hybrid Retrieval & Recent-Release Reserve Pipeline
+
+`fetchCandidatePool` (`src/services/tmdbService.js`) coordinates TMDB Buckets `B`, `C`, `A`, and `D`, while `getMovieRecommendations` (`src/services/geminiService.js`) appends `Bucket E` (`fetchEmbeddingCandidates`):
+
+### 4.1 Bucket B: Keyword Spiritual Successors (`fetchBucketB`)
+- **Objective**: Discover high-acclaim films that share core micro-keywords with the user's top $w_i$ anchor film.
+- **Methodology**: Calls `fetchMovieKeywordsAndCrew(anchorTmdbId)` to retrieve the top 3 keyword IDs (`keywords.slice(0, 3).join("|")`) and queries TMDB `/discover/movie` with `sort_by=vote_average.desc`, `vote_average.gte=7.0`, and an acclaim floor of `vote_count.gte=500` across up to 4 pages.
+- **Target Harvest**: Scales dynamically (`min(40, max(8, floor(targetPoolSize * 0.35)))`).
+
+### 4.2 Bucket C: Auteur & Star Power Network (`fetchBucketC`)
+- **Objective**: Harvest films from the user's top-weighted director, cinematographer, composer, or screenwriter.
+- **Methodology**: Queries TMDB with `with_crew={topCrewMemberId}`, `sort_by=vote_average.desc`, and `vote_count.gte=150` across up to 3 pages (executed concurrently with Bucket B via `Promise.all`).
+- **Target Harvest**: Scales dynamically (`min(20, max(4, floor(targetPoolSize * 0.20)))`).
+
+### 4.3 Bucket A: Semantic Discover Engine & Mood Calibration Matrix (`fetchBucketA`)
+- **Objective**: Broad discovery combining weighted genre affinities (`lovedGenreIds`), watchlist intent (`watchlistGenreIds`), active mood vectors, star-power cast (`with_cast`), surgical trope exclusions (`without_keywords`), and regional streaming filters (`with_watch_providers`).
+- **Mood Calibration Matrix (`src/services/moodPolicy.js` -> `MOOD_OPTIONS` consumed identically by `tmdbService.js`, `rankerService.js`, `geminiService.js`, and `MovieRecommendations.jsx`)**:
+
+| Mood ID | TMDB `sort_by` | `vote_count.gte` / `.lte` | `vote_average.gte` | `preferredGenreIds` / `requiredAnyGenreIds` | `withoutGenreIds` (TMDB Exclude) |
+| :--- | :--- | :---: | :---: | :--- | :--- |
+| **`mind-bending`** | `vote_average.desc` | `250` / `—` | `7.5` | Pref: `9648, 878` • Req: `9648, 878, 53` | `10751, 35, 10749` (Family, Comedy, Romance) |
+| **`dark-thriller`** | `popularity.desc` | `120` / `—` | `6.8` | Pref: `80, 53, 9648` • Req: `80, 53, 9648, 27` | `10751, 35, 16, 10402, 12, 878, 14` |
+| **`fun-popcorn`** | `popularity.desc` | `250` / `—` | `6.5` | Pref: `28, 12, 35, 16` • Req: `28, 12, 35, 16` | `99, 27, 10752, 36` |
+| **`comfort-watch`** | `vote_average.desc` | `180` / `—` | `7.2` | Pref: `35, 10751, 10749, 16` • Req: `35, 10751, 10749, 16` | `27, 53, 80, 10752` |
+| **`hidden-gem`** | `vote_average.desc` | `50` / **`2000`** | `7.0` | *(Relies on user taste vector)* | `—` |
+| **`any` (Default)** | `vote_average.desc` *(Bucket A `"any"` uses `popularity.desc`, `150` votes)* | `200` (`150` in Bucket A) / `—` | `6.8` | *(Relies on user taste vector)* | `—` |
+
+When an explicit mood or custom vibe filter (`isExplicitMoodActive`) is active, `buildBucketAParams` also applies `without_genres`, optional `vote_count.lte`, `primary_release_date.gte` / `.lte` from `minYear`/`maxYear`, pagination `page`, `with_watch_monetization_types=flatrate|free|ads`, and **drops the `with_cast` lock** so vault actor affinity never crowds out tone-appropriate films. If `hidden-gem` is selected or `maxYear < currentYear - 2`, `fetchCandidatePool` skips **Bucket D** (`fetchBucketD`) so mainstream recent releases cannot pollute obscure or pre-era queries, scales Buckets B (`20%`, max `12`) and C (`12%`, max `8`) down, and filters Buckets B, C, D, and E through `matchesMoodCandidateGate`.
+
+### 4.4 Bucket D: Recent-Release Lane (`fetchBucketD`)
+- **Objective**: Address the late-2023 MovieLens training cutoff by guaranteeing fresh acclaimed releases from the last 18 months enter the candidate pool without shrinking Buckets A, B, or C.
+- **Query Construction (`buildBucketDParams`, `src/services/tmdbService.js:664-684`)**:
+  - `primary_release_date.gte`: `getRecentReleaseDateFloor(18, now)` (18 months before `now`)
+  - `sort_by`: `"popularity.desc"`
+  - `vote_average.gte`: `"7.0"` (raised quality floor)
+  - `vote_count.gte`: `"150"` (raised acclaim floor)
+  - `with_genres`: `profile.lovedGenreIds.slice(0, 3).join("|")`
+  - `without_keywords`: `profile.hatedKeywordIds.join("|")`
+  - **No `with_cast` lock-in**, honors regional `with_watch_providers` / `watch_region`.
+- **Budget & Isolation**: Fetches up to **2 pages**, capped at **`12` unique candidates** tagged `sourceBucket: "D"` after collision filtering, and appends *after* `basePool` (Buckets B + C + A).
+
+### 4.5 Bucket E: Collaborative Embedding Neighbor Injection (`fetchEmbeddingCandidates`)
+- **Objective**: Retrieve collaborative taste-twins directly from the on-device 25k `CVEM v1` matrix regardless of TMDB discover popularity ordering.
+- **Methodology**: Before excluding seen/existing IDs, `geminiService.js` computes catalog-wide `catalogMax = getCollabCatalogMax(collabSimMap)` (`0.05` floor inside `retrieveAlignedEmbeddingNeighbors`) and `repulsionWeight = Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim` (`1.5 / 6.4`), passing both via options to avoid circular imports while keeping neighbor scoring aligned with Stage 3 (`collabSim = min(1, rawCollabSim / catalogMax)` before subtracting `repulsionWeight * repulsion`). Calls `retrieveAlignedEmbeddingNeighbors(profile.weightedRatings, embeddingIndex, excludeIds, { collabSimMap, repulsionMap, catalogMax, repulsionWeight, topK: 80 })` (built atop Stage 1 `computeUserPersonas` + repulsion scoring) and fetches batched live TMDB `/movie/{id}` details via `getMovieDetailsBatch` (`/api/tmdb-batch` + 30-day IndexedDB cache, honoring `userRegion`, `userProviders`, and mood filters). It injects up to **`30`** unseen items under `"any"` vibe or caps at **`15`** mood-gated neighbors when `isExplicitMoodActive(mood, moodFilters)` is true (`sourceBucket: "Bucket E (Embedding)"`). Then `enrichCandidatePoolMetadata` hydrates all merged Buckets `A–D` (`maxEnrich = candidates.length` via `getMovieDetailsBatch`, skipping transient failures from cache) and tracks `hydrationCoverage` (`hydrated / total` ratio) into `modelInfo` before Stage 3 ranking. Optional binary asset loaders in `contentSimService.js` (`loadDefaultContentIndex`) and `dnaService.js` (`loadDefaultDnaIndex`) share `createSessionBinaryIndexLoader` (`embeddingService.js`). They negative-cache 404 or HTML/invalid-binary responses for the session, clear cached promises on network errors, aborts, or `>= 500` responses so transient failures can retry, and leave `contentIndex === null` routed to the documented `coldOnly` structured fallback for unindexed (`collabSim === 0`) post-2023 releases.
+
+### 4.6 Dynamic Waterfall Sizing, Cold-Start Bypass & Recent-Release Reserve Selection
+1. **Dynamic Slot Calculation**: `fetchCandidatePool` defaults to `targetPoolSize = 60` (clamped `[20, 500]`). If Buckets B & C return $N$ combined unique candidates (`specificPool.length`), Bucket A scales to `max(targetPoolSize - N, 12)`. Under explicit moods, Bucket B targets `min(12, max(2, floor(targetPoolSize * 0.20)))` and Bucket C targets `min(8, max(2, floor(targetPoolSize * 0.12)))`, and Buckets B, C, and D pass through `matchesMoodCandidateGate`.
+2. **Cinephile Critical Fallback**: If a veteran user has already logged most popular titles in a genre (`candidates.length < min(targetCount, 5)` while `sort_by === "popularity.desc"`), Bucket A pivots to `sort_by=vote_average.desc` and `vote_count.gte=500`, scanning additional pages of critically acclaimed cinema without dropping active mood filters.
+3. **Cold-Start Bypass Engine**: For accounts with $< 3$ rated films (`(watchedMovies || []).length < 3`), specific keyword and crew graphs lack statistical significance. CinemaVault bypasses Buckets B & C and routes to Bucket A (`basePool`) + Bucket D recent releases (skipping Bucket D when `hidden-gem` or `maxYear < currentYear - 2`, and gating Bucket D under explicit moods).
+4. **Recent-Release Reserve Selection (`selectWithReserve` & `computeReserveQualityScore`, `src/services/rankerService.js:227-312`)**:
+   - Invoked by `geminiService.js` when ranking `shortlistLimit` (`options.topK || 30`, minimum `targetCount = 10`) candidates for Gemini in **`"any"` vibe** (`RECENT_RELEASE_RESERVE_COUNT = 2`, `RECENT_RELEASE_RESERVE_MONTHS = 18`, `RECENT_RELEASE_MIN_PROB_PERCENTILE = 0.5`). Under an **explicit mood or custom vibe** (`isExplicitMoodActive`), `reRankCandidatesWithGemini` sets `reserveConfig = null` unless explicitly overridden so recent releases cannot override tone or era constraints.
+   - **Step 1 (Head Selection):** Takes the top `headCount = topK - count` candidates strictly by `rankerProbability`.
+   - **Step 2 (Eligibility Gate):** Evaluates remaining recent candidates (`release_date >= minReleaseDate`) that clear `probFloor = max(percentile50(nonCollab), 0.54)`. If the user has `lovedGenreIds`, restricts to `genreOverlap > 0` candidates whenever any exist.
+   - **Step 3 (Aligned Reserve Quality Scorer):** Ranks qualifying recent candidates using `computeReserveQualityScore`:
+     ```javascript
+     export function computeReserveQualityScore(candidate, weights = DEFAULT_RANKER_WEIGHTS, options = {}) {
+       const f = candidate?.features || {};
+       return scoreCandidate({ ...f, noveltyBonus: 0 }, weights || DEFAULT_RANKER_WEIGHTS, options).logit;
+     }
+     ```
+     Zeroing only `noveltyBonus` keeps all feature weights (`crewMatch`, `keywordOverlap`, `genreOverlap`, `bayesianRatingNorm`, `negativeKeywordPenalty`) identical to the main ranker while preventing `> 4,000`-vote acclaimed releases from losing to obscure titles, and `count = 2` prevents displacing `98%` classics for lower-ranked reserves.
+   - **Step 4 (Final Sort):** Fills up to `2` reserve slots (or falls back by ranker order if `< 2` qualify) and sorts the combined shortlist descending by `rankerProbability`.
+
+---
+
+## 5. TMDB API Query Grammar & Syntax Rules
+
+The TMDB `/discover/movie` API enforces specific boolean logic conventions across parameter types:
+
+| Parameter Type | Parameter Name | Delimiter | Boolean Logic | TMDB Example |
+| :--- | :--- | :---: | :---: | :--- |
+| **Genres** | `with_genres` | `\|` (Pipe) | **OR** | `with_genres=28\|878` (Action OR Sci-Fi) |
+| **Keywords** | `with_keywords` | `\|` (Pipe) | **OR** | `with_keywords=9715\|10402` |
+| **Excluded Keywords** | `without_keywords`| `\|` (Pipe) | **OR** | `without_keywords=9715\|10402` |
+| **Cast / Actors** | `with_cast` | `\|` (Pipe) | **OR** | `with_cast=67890\|11122` (Actor A OR Actor B) |
+| **Crew Members** | `with_crew` | N/A | Single ID | `with_crew=12345` (Christopher Nolan) |
+| **Watch Providers** | `with_watch_providers` | `\|` (Pipe) | **OR** | `with_watch_providers=8\|9\|337` (Netflix OR Prime OR Disney+) |
+
+> [!IMPORTANT]
+> - **Conditional Genre Guard**: `with_genres` is only appended when `combinedLoved.length > 0` to prevent malformed empty parameters.
+> - **Excluded Keywords (`without_keywords`)** uses pipe `|` to exclude films containing ANY of the specified trope tags.
+> - **People (`with_cast`)** in TMDB treat comma `,` as **AND** and pipe `|` as **OR** (just like Genres & Keywords). CinemaVault uses `with_cast=A|B` so Bucket A never starves, and omits `with_cast` from Bucket D so recent releases aren't locked to legacy cast lists.
+> - **Watch Providers** take integer provider IDs (`8|9`), NOT monetization strings like `flatrate`. Any discover item returned under an active `with_watch_providers` query is stamped `providerMatchedByQuery: true` so `rankerService.js` awards `providerMatch = 1`.
+> - When `with_watch_providers` is passed, TMDB requires a valid 2-letter ISO `watch_region` code. If `userRegion === "GLOBAL"`, it defaults `watch_region` to `US` when provider filters are active.
+
+---
+
+## 6. Schema Bridge & Enriched Cinema Extraction (`bridgeTmdbToOmdb` & `fetchTmdbMovieDetails`)
+
+CinemaVault enriches every saved or inspected movie record by executing a single-roundtrip TMDB request with `append_to_response=external_ids,credits,videos,keywords,watch/providers` (`src/services/tmdbService.js`), extracting high-resolution assets and structured graph IDs:
+
+```javascript
+/**
+* Resolves the optimal official trailer YouTube key using hierarchical ranking:
+* 1. Official English Trailer
+* 2. Main / Theatrical Trailer by title match
+* 3. General Trailer
+* 4. Teaser Clip
+* 5. First available YouTube video
+*/
+export function extractOfficialTrailerKey(videos = []) {
+  if (!videos || !Array.isArray(videos) || videos.length === 0) return null;
+  const youtubeVideos = videos.filter((v) => v.site === "YouTube" && v.key);
+  if (youtubeVideos.length === 0) return null;
+
+  const officialTrailer = youtubeVideos.find(
+    (v) => v.type === "Trailer" && v.official === true && (v.iso_639_1 === "en" || !v.iso_639_1)
+  );
+  if (officialTrailer) return officialTrailer.key;
+
+  const mainTrailer = youtubeVideos.find((v) => {
+    const name = (v.name || "").toLowerCase();
+    return v.type === "Trailer" && (name.includes("official") || name.includes("main") || name.includes("theatrical"));
+  });
+  if (mainTrailer) return mainTrailer.key;
+
+  const anyTrailer = youtubeVideos.find((v) => v.type === "Trailer");
+  if (anyTrailer) return anyTrailer.key;
+
+  const anyTeaser = youtubeVideos.find((v) => v.type === "Teaser");
+  if (anyTeaser) return anyTeaser.key;
+
+  return youtubeVideos[0].key;
+}
+```
+
+### Persisted Schema Fields (`bridgeTmdbToOmdb`)
+When a user adds a film from recommendations or details to their Vault or Watchlist, `bridgeTmdbToOmdb` persists:
+- `imdbID`: Canonical IMDb ID (`tt...`) or `tmdb_${id}` fallback
+- `tmdbId`: Integer TMDB ID
+- `tmdbGenreIds`: Array of TMDB genre integers (`[28, 878]`)
+- `tmdbKeywords`: Top 10 keyword integer IDs (`data.keywords.keywords.slice(0, 10)`)
+- `castIds`: Top 5 billed actor integer IDs (`data.credits.cast.slice(0, 5)`)
+- `crewPersonId`: Primary Director ID (or fallback Cinematographer / Composer / Screenwriter ID)
+- `streamProviders`: Regional flatrate streaming provider objects (`{ id, name, logo }`)
+- `trailerKey`: Ranked YouTube video key
+
+---
+
+## 7. Stage 3 Calibrated Ranker, Stratified 39-Pick Open Curation, Wildcards & H1 Cascade
+
+### 7.1 Stratified 39-Pick Shortlist, Unbiased Prompting, Verified Wildcards & Schema (`buildDiversifiedGeminiShortlist` / `buildGeminiReRankPrompt` / `reRankCandidatesWithGemini`)
+Before invoking Gemini (`ai` present), `buildDiversifiedGeminiShortlist` (`src/services/rankerService.js`, `DEFAULT_SHORTLIST_DIVERSITY_CONFIG`: `coreLimit: 25`, `coldLimit: 8`, `outlierLimit: 6`, `shortlistLimit: 39`) scores the candidate pool via `rankCandidatePool` (with `{ ...options, onDiagnostics: undefined }` on the unlimited full pass so `onDiagnostics.moodShortfall` fires at most once, keeping `gateRejected` items strictly excluded) and composes a stratified shortlist of up to **39** candidates: top `25` ranker picks + up to `8` cold `2024–2026` releases (`vote_average >= 6.4`, `vote_count >= 40`) + up to `6` greedy director/genre/decade outliers. Pure `rankCandidatePool` ordering and the deterministic `!ai` / fallback path (`rankCandidatePool(..., 30)`) are unchanged. Gemini (`src/services/geminiService.js`) is constrained via `responseMimeType: "application/json"` and `responseSchema` to select **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) diverse winners plus **0–2 optional `wildcardPicks`** (omitted from `required`) and write plain-language personal explanations with explicit vault anchor titles.
+
+`buildGeminiReRankPrompt` builds signal sections strictly bounded **`<= 20,000` chars** (`PROMPT_CHAR_BUDGET = 19200`, `PROMPT_CHAR_LIMIT = 20000`, progressively dropping taglines, tightening plot limits, and binary-searching extra notes before trimming extended sections if needed, while always preserving `USER'S STEERABLE TASTE RULES`):
+1. **`USER TASTE PROFILE`**: Top loved genres (`lovedGenreNames`), top directors (`topDirectors` `string[]` / `{ name }`), statistical rating baseline (`userStats || ratingStats` mean and count, instructing Gemini to treat `<= 5/10` as strong dislikes when the user averages generous scores), selected mood label & `promptDirective`, and any normalized custom vibe constraints (`query`, `withGenres`, `withoutKeywords`, release year bounds). Followed immediately by **`USER'S STEERABLE TASTE RULES (Follow strictly)`** (when active Prefer/Avoid rules exist in `tasteRules`).
+2. **`USER'S FAVORITE ANCHOR FILMS` (up to `10` non-series `>= 8★` films, mood-stratified + deterministic backfill)**: Prioritizes non-series `>= 8★` films whose genres intersect the active mood's `preferredGenreIds` / custom `withGenreIds`, then backfills remaining slots up to 10 with the highest-weighted overall `>= 8★` anchors (`weighted?.weight ?? weighted?.finalWeight`, `userRating`, recency, title), appending optional `userNote` strings (`<= 180` chars).
+3. **`USER'S DISLIKED / DISMISSED FILMS (Avoid similar tone)` (up to `5` films)**: Compact negative tonal guardrails sourced from recent `"dismissed"` events in `feedbackLog` plus watched films rated `<= 4★` or negatively z-scored (`rating < 7 && zScore < -0.4`, unpacking nested `weightedRatings` `{ movie, weight, zScore }` entries via `buildMovieIdentityLookup`), including `[Series]` tags and `userNote` reasons (`<= 180` chars) while excluding any `>= 8★` anchors.
+4. **`RECENT WATCH STREAK`** (up to `3` recent `>= 6★` watches with `[Series]` tags and `<= 120`-char notes), **`NEAR MISSES`** (up to `4` `6–7★` entries with `[Series]` + `<= 180`-char notes), and **`USER'S WATCHLIST`** (up to `8` planned unseen titles marked excluded from candidates).
+5. **Extended Vault Context (`buildExtendedVaultContextSections`)**: Emits **`ADDITIONAL TOP FAVORITES`** (favorites ranks `11–25` non-series `>= 8★`), **`LOVED SERIES / ANIME`** (top `>= 8★` series identified via `isSeriesVaultItem` with notes up to `180` chars), and **`ADDITIONAL VIEWER NOTES`** (all remaining watched films carrying `userNote`, deduplicated against anchors, dislikes, streak, near-misses, additional favorites, and series via `isSameMovie`). Empty sections are omitted.
+6. **`PRE-RANKED CANDIDATE MOVIES (Top <N>)`**: Formatted via `formatCandidatePromptBlock` carrying TMDB ID, title, year, director (`Dir:`), genres, TMDB score/votes, match badges, `[Specs]` (`runtimeMinutes` + up to 2 `spokenLanguages`, falling back to `originCountry` only when languages are absent), top `3` `Cast`, top `5` `Themes`, `Tagline` (`<= 70`), optional `Collection` (`belongs_to_collection` name `<= 60` when `plotLimit >= 80`), and `Plot` (`<= 250`). The block intentionally **omits** `Match: XX%` and `#1–#15` rank-anchoring text under the equal-footing `"Curate openly"` instruction, alongside the explicit **`Franchise rule:`** sequel/collection diversity directive, so Gemini evaluates plot, themes, and voice across all 39 candidates and optionally proposes `0..2` outside `wildcardPicks`:
+
+```json
+{
+  "tasteProfile": {
+    "favoriteGenres": ["Crime", "Thriller", "Drama"],
+    "preferredEra": "1990s - Present",
+    "ratingStyle": "High appreciation for character-driven dialogue and visual pacing."
+  },
+  "recommendations": [
+    {
+      "tmdbId": 680,
+      "title": "Pulp Fiction",
+      "year": "1994",
+      "anchorTitles": ["Reservoir Dogs", "No Country for Old Men"],
+      "reason": "Non-linear neo-noir storytelling and sharp auteur dialogue that mirrors your highest-rated crime thrillers."
+    }
+  ],
+  "wildcardPicks": [
+    {
+      "title": "Decision to Leave",
+      "year": "2022",
+      "anchorTitles": ["No Country for Old Men"],
+      "reason": "Hitchcockian detective obsession and deliberate editing rhythm aligned with your dark thriller favorites."
+    }
+  ]
+}
+```
+
+### 7.2 Wildcard Verification (`verifyAndScoreWildcardPicks`), Score Locking (`mergeGeminiExplanationsWithRanker`) & `normalizeMatchScore`
+When Gemini returns optional `wildcardPicks`, `verifyAndScoreWildcardPicks` (`MAX_WILDCARD_PICKS = 2`, search budget up to `maxWildcards * 2`) validates each outside title against strict TMDB `findTmdbByTitleAndYear` matching + `fetchBatchFormattedDetailsMap` (`tmdbService.js`, including watch providers, `collectionId`/`collectionName`, & `429` safety). It rejects watched/watchlist/pool collisions (`isSameMovie`), TV series, unsupported streaming providers, explicit mood gate mismatches (`matchesMoodCandidateGate`), or active `"avoid"` taste rules (`candidateMatchesAvoidRule`). It scores survivors individually through `rankCandidatePool` using the shared pool's `collabCatalogMax`, active `rankerWeights`, and `tasteRules` (preventing 1-item `collabSim` stretching) while preserving Gemini's sanitized `reason` and resolved `anchorTitles`.
+
+In `mergeGeminiExplanationsWithRanker`, calibrated `matchScore` (`[50, 99]`) and `matchReasons` stay locked to deterministic ranker values so the LLM cannot invent scores. Verified wildcards reserve slots ahead of trailing shortlist picks inside two-pass `selectWithSoftVarietyCaps` (`maxPerDirector = 2`, `maxPerCollection = 1`, unified across `mergeGeminiExplanationsWithRanker` and `buildRankerFallbackResponse`), sorted by calibrated `matchScore`. It also:
+- **Preserves `anchorTitles` & Plain-Language Prose**: Strips leaked internal label strings (e.g., `"95% Taste-Twin Match"`, `"Core Theme Match"`, `"Genre Bullseye"`, `"Cult Classic Overlap"`) via `sanitizeReasonText` before storing `reason`, and passes through 1–3 verbatim `anchorTitles` resolved against the user's vault (`resolveRecommendationAnchors` in `oracleViewHelpers.js`).
+- **Deterministic Top-Up Backfill (`effectiveTarget = 10`)**: If Gemini returns fewer than `targetCount` (`10`) valid recommendations, or wildcards are rejected during TMDB verification, remaining slots auto-backfill without duplicates up to `Math.min(effectiveTarget, topCandidates.length)` from the highest-ranked unused shortlist candidates.
+
+`normalizeMatchScore` is retained strictly as a fallback for the OMDb-only generative pipeline when TMDB is unconfigured. It returns `null` instead of fabricating placeholder percentages when a score is missing, `<= 0`, or a legacy `1–5` number:
+
+```javascript
+export const normalizeMatchScore = (val) => {
+  if (val === null || val === undefined || val === "") return null;
+  const n = typeof val === "number" ? val : parseFloat(val);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n <= 1.0) {
+    const scaled = n <= 0.1 ? n * 1000 : n * 100;
+    return Math.min(99, Math.max(50, Math.round(scaled)));
+  }
+  if (n <= 5) return null;
+  return Math.min(99, Math.max(50, Math.round(n)));
+};
+```
+
+### 7.3 Regex Code-Fence Sanitizer (`sanitizeAndParseJSON`)
+Strips optional markdown code fences (` ```json ... ``` `) before `JSON.parse` (`src/services/geminiService.js:481-489`):
+
+```javascript
+export function sanitizeAndParseJSON(rawText) {
+  if (!rawText) throw new Error("Empty response from AI engine");
+  let cleaned = String(rawText).trim();
+  const jsonMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (jsonMatch) {
+    cleaned = jsonMatch[1].trim();
+  }
+  return JSON.parse(cleaned);
+}
+```
+
+### 7.4 H1 Resilient Cascade Architecture, Thinking Config, Timeouts, Cooldowns & Fallbacks
+Following free-tier testing (where `gemini-4-argon` returned `HTTP 429` with `limit: 0` and `gemini-3.8-flash` timed out on expanded 10-pick JSON payloads under short budgets), CinemaVault runs an **H1 Resilient Cascade** in `executeCascade` (`src/services/geminiService.js`, shared by `geminiChatService.js` and `geminiExplanationService.js`):
+
+1. **Dual-Intent Cascades (`src/services/geminiService.js:20-34`)**:
+   - **`CURATION_MODEL_CASCADE`** (re-ranking & deep explanations):
+     `["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]`
+   - **`FAST_INTERACTIVE_CASCADE`** (concierge chat & mood query parsing):
+     `["gemini-3.5-flash-lite", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]`
+
+2. **Model-Aware `thinkingConfig` & Request Sanitization (`getModelThinkingConfig`)**:
+   - `gemini-4-hydrogen`: `{ thinkingLevel: "HIGH" }` in curation mode and `{ thinkingLevel: "MEDIUM" }` in fast mode (**never `LOW`**), and deletes `temperature`, `frequencyPenalty`, `presencePenalty`, and multi-candidate fields that cause HTTP 400 errors.
+   - `gemini-3-flash-preview`: `{ thinkingLevel: "LOW" }` in curation mode (`8,532 ms` observed on 15-movie JSON schema) and `{ thinkingLevel: "MINIMAL" }` in fast mode (`2,116 ms` observed).
+   - `gemini-3.6-flash` / `gemini-3.8-flash` / `gemini-3.5-flash-lite` / `gemini-3.5-flash`: `{ thinkingLevel: "LOW" }` (`3.5-flash-lite` rejects `thinkingBudget: 0`; `3.6-flash` completed the 15-movie schema in `3,057 ms`).
+   - `gemini-2.5-flash`: `{ thinkingBudget: 0 }`.
+
+3. **AbortController Timeouts, Cascade Latency Cap & Client Alignment (`HYDROGEN_TIMEOUT_MS = 35000`, `maxCascadeDurationMs = 45000`)**:
+   - SDK client initialized via shared factory `createGeminiClient` with `httpOptions: { timeout: 35000 }` when direct `VITE_GEMINI_KEY` is configured in local dev, OR routed through `createProxyGeminiClient` (`/api/gemini`) in browser production builds where no client keys exist (`src/services/apiTransport.js`, shared across `geminiService.js`, `geminiChatService.js`, and `geminiExplanationService.js`).
+   - Per-attempt `AbortController` timers (`getDefaultAttemptTimeoutMs` in `src/services/geminiService.js`) enforce **`35,000 ms`** for `gemini-4-hydrogen` (paired with `"functions": { "api/*.js": { "maxDuration": 60 } }` in `vercel.json` so Vercel does not kill Hydrogen calls at the 10s default) and **`15,000 ms`** across Flash curation models (`gemini-3.5-flash-lite`, `gemini-2.5-flash`, `gemini-3.6-flash`, `gemini-3.8-flash`, `gemini-3-flash-preview`) to accommodate 39-candidate / 10-pick + optional wildcard JSON output without premature aborts.
+   - `executeCascade` additionally enforces a caller-side latency cap `maxCascadeDurationMs` (default **`45,000 ms`**, overridable via `options.maxCascadeDurationMs`, distinct from Vercel's `60s` per-invocation limit). Each attempt's timeout is clamped to `Math.min(requestedTimeout, remainingBudgetMs)`, remaining models are skipped if `< 3,000 ms` remains (`null` returned immediately so deterministic ranker fallback executes), and any timeout caused by the deadline clamp (`err.isCascadeDeadlineClamp`) aborts and returns `null` without penalizing that model in `modelCooldowns`.
+
+4. **H1 Error Taxonomy & Cooldown Backoff (`classifyGeminiError` + `modelCooldowns`)**:
+   Instead of permanently banning a model for an entire session on one error, failures enter temporary cooldown windows. Proxy-layer rate limits abort the cascade cleanly without poisoning upstream model availability:
+
+   | Error Class (`classifyGeminiError`) | Matching Signals | Cooldown Duration |
+   | :--- | :--- | :---: |
+   | `"proxy_rate_limit"` | `err.errorCode === "PROXY_RATE_LIMIT"` (proxy sliding-window `429`) | **No `modelCooldowns` entry**; records `proxyRateLimitedUntilMs` from `Retry-After` and aborts cascade -> `null` |
+   | `"quota"` | HTTP `429`, `RESOURCE_EXHAUSTED`, `"quota"` (upstream Gemini) | Parsed server `retryDelay` if present, else **`600,000 ms`** (10m daily RPD / `limit: 0`) or **`120,000 ms`** (2m RPM) |
+   | `"transient"` | HTTP `503` / `504`, `timeout`, `AbortError`, network failures | **`30,000 ms`** (30s) |
+   | `"invalid_config"` | HTTP `400`, `INVALID_ARGUMENT` | **`1,800,000 ms`** (30m) |
+   | `"auth_fatal"` | HTTP `401` / `403` / `404`, `UNAUTHENTICATED`, `NOT_FOUND` | **`1,800,000 ms`** (30m) |
+
+5. **Working-Model Persistence & Soonest-Expiry Fallback**:
+   - Successful responses clear any cooldown and persist the winning model in `localStorage` (`cinemavault_working_model_curation_v1` / `cinemavault_working_model_fast_v1`) with a `30 min` TTL (`WORKING_MODEL_TTL_MS = 1800000`). Both `getPreferredCascadeModel` and `executeCascade` read the same persisted active model so UI progress indicators match runtime dispatch.
+   - If *every* model in the cascade is inside a cooldown window, `executeCascade` attempts only the single model whose cooldown expires soonest.
+
+6. **Deterministic Ranker Fallback & Secondary OMDb Pipeline**:
+   - If Gemini is unconfigured (keyless / no proxy), returns malformed JSON, or every cloud model in `executeCascade` fails during TMDB curation (`response === null`), `reRankCandidatesWithGemini` returns the **top `10` (`targetCount`) calibrated ranker candidates** (`buildRankerFallbackResponse`, `topCandidates.slice(0, limit)`) with locked `matchScore` and `matchReasons` badges and valid `modelInfo` (`pipeline: "ranker-fallback"`), and does not fall back to `generateWithOmdbFallback` unnecessarily.
+   - If TMDB is unavailable or `fetchCandidatePool` cannot harvest 6+ candidates, `getMovieRecommendations` falls back to `generateWithOmdbFallback` (requesting `targetCount = 10` picks), verifying Gemini picks against OMDb (`fetchRealOMDBData` via `apiTransport.js`) with an in-memory session cache (`omdbMemoryCache`).
+
+7. **UI Active-Model Telemetry (`buildCascadeModelInfo` / `formatRecBadgeSummary` / `ModelUsageBadge`)**:
+   - `executeCascade`, `reRankCandidatesWithGemini`, and `generateWithOmdbFallback` attach structured `modelInfo` (`model`, `displayName`, `pipeline`, `isFallback`, `cooldownModels`, `seq`, `usageMetadata`), persisted alongside cached picks (`cinemavault_recs_model_v1` in `AppContext.jsx`).
+   - `MovieRecommendations.jsx` renders an expandable `"About these picks"` inspector powered by `formatRecBadgeSummary` (`oracleViewHelpers.js`), alongside the toolbar status and `.chat-model-bar` / `.bubble-model-tag` pills in `AIChat.jsx`.
+
+---
+
+## 8. Smart LRU Cache, Collision Guard & Tiered Quota Recovery
+
+### 8.1 Profile-Based Sliding Window Hash (`generateProfileHash`)
+Cache keys are deterministically generated without mutating profile arrays in place, and include `anchorTmdbId`, `topCrewMemberId`, `topCastIds`, optional custom vibe constraints (`buildMoodFilterHashSegment(moodFilters)`), streaming region (`userRegion`, suffix `_reg_<REGION>`), optional vault rating + `userNote` checksum (`buildWatchedHashSegment(watched)` using `hashStringFnv1a`, suffix `_vlt_<count>_<fnv1a36>[:<noteHash>]`), and active taste rules (`buildTasteRulesHashSegment(tasteRules)`, suffix `_tr_<fnv1a36>`). Logging or editing a rating, note, vibe constraint, taste rule, or streaming country immediately invalidates stale cache entries, while empty-note and empty-rule hashes stay byte-identical (`src/services/geminiService.js`):
+
+```javascript
+export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "", watched = [], tasteRules = []) => {
+  const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
+  const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
+  const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
+  const provStr = [...(providers || [])].sort((a, b) => String(a).localeCompare(String(b))).join("-");
+  const anchorStr = String(profile?.anchorTmdbId || "none");
+  const crewStr = String(profile?.topCrewMemberId || "none");
+  const castStr = [...(profile?.topCastIds || [])].sort((a, b) => a - b).join("-");
+  const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
+  const base = `v4_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${anchorStr}_${crewStr}_${castStr}_${cleanMood}`;
+  const filterSegment = buildMoodFilterHashSegment(moodFilters);
+  const withFilter = filterSegment ? `${base}_${filterSegment}` : base;
+  const cleanRegion = typeof userRegion === "string" ? userRegion.trim().toUpperCase() : "";
+  const withRegion = cleanRegion ? `${withFilter}_reg_${cleanRegion}` : withFilter;
+  const vaultSegment = buildWatchedHashSegment(watched);
+  const withVault = vaultSegment ? `${withRegion}_${vaultSegment}` : withRegion;
+  const rulesSegment = buildTasteRulesHashSegment(tasteRules);
+  return rulesSegment ? `${withVault}_${rulesSegment}` : withVault;
+};
+```
+
+*(Calling `generateProfileHash(profile, watchlistGenres, mood, providers)` with 4 arguments produces the exact same base `v4_...` string for backward compatibility. Passing the 7th `watched` and 8th `tasteRules` arguments makes `cinemavault_smart_cache_v4` responsive to every added, updated, toggled, or deleted vault rating and taste rule without disturbing empty-rule hashes.)*
+
+### 8.2 Master ID Cross-Referencing Collision Guard (`getSmartCache`)
+`getSmartCache` reads from `SMART_CACHE_KEY = 'cinemavault_smart_cache_v4'` (migrating away from legacy 6-pick `cinemavault_smart_cache_v3` entries; `AppContext.jsx` also discards stored `cinemavault_recs_v1` sessions with `< 7` items at startup). It validates the 24-hour TTL against all known identifiers (`imdbID`, `tmdbId`, `id`) across both `watched` and `watchlist` arrays, and requires at least **`MIN_VALID_CACHE_COUNT = 7`** valid uncollided recommendations (`src/services/geminiService.js:664-706`):
+
+```javascript
+export function getSmartCache(hash, watched = [], watchlist = []) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(SMART_CACHE_KEY) || '{}');
+    const entry = cache[hash];
+    if (!entry || !entry.data || (Date.now() - (entry.ts || 0) > 24 * 60 * 60 * 1000)) {
+      return null;
+    }
+
+    const currentIds = new Set([
+      ...watched.flatMap(m => [
+        m.imdbID ? String(m.imdbID).toLowerCase() : null,
+        m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
+        m.id ? String(m.id).toLowerCase() : null
+      ]).filter(Boolean),
+      ...watchlist.flatMap(m => [
+        m.imdbID ? String(m.imdbID).toLowerCase() : null,
+        m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
+        m.id ? String(m.id).toLowerCase() : null
+      ]).filter(Boolean)
+    ]);
+
+    const validRecs = (entry.data.recommendations || []).map(rec => ({
+      ...rec,
+      matchScore: normalizeMatchScore(rec.matchScore)
+    })).filter(rec => {
+      const recIds = [
+        rec.imdbID ? String(rec.imdbID).toLowerCase() : null,
+        rec.tmdbId ? String(rec.tmdbId).toLowerCase() : null,
+        rec.id ? String(rec.id).toLowerCase() : null
+      ].filter(Boolean);
+
+      return !recIds.some(id => currentIds.has(id));
     });
-    if (mainTrailer) return mainTrailer.key;
 
-    const anyTrailer = youtubeVideos.find((v) => v.type === "Trailer");
-    if (anyTrailer) return anyTrailer.key;
-
-    const anyTeaser = youtubeVideos.find((v) => v.type === "Teaser");
-    if (anyTeaser) return anyTeaser.key;
-
-    return youtubeVideos[0].key;
-  }
-  ```
-
-  ### Persisted Schema Fields (`bridgeTmdbToOmdb`)
-  When a user adds a film from recommendations or details to their Vault or Watchlist, `bridgeTmdbToOmdb` persists:
-  - `imdbID`: Canonical IMDb ID (`tt...`) or `tmdb_${id}` fallback
-  - `tmdbId`: Integer TMDB ID
-  - `tmdbGenreIds`: Array of TMDB genre integers (`[28, 878]`)
-  - `tmdbKeywords`: Top 10 keyword integer IDs (`data.keywords.keywords.slice(0, 10)`)
-  - `castIds`: Top 5 billed actor integer IDs (`data.credits.cast.slice(0, 5)`)
-  - `crewPersonId`: Primary Director ID (or fallback Cinematographer / Composer / Screenwriter ID)
-  - `streamProviders`: Regional flatrate streaming provider objects (`{ id, name, logo }`)
-  - `trailerKey`: Ranked YouTube video key
-
-  ---
-
-  ## 7. Stage 3 Calibrated Ranker, Stratified 39-Pick Open Curation, Wildcards & H1 Cascade
-
-  ### 7.1 Stratified 39-Pick Shortlist, Unbiased Prompting, Verified Wildcards & Schema (`buildDiversifiedGeminiShortlist` / `buildGeminiReRankPrompt` / `reRankCandidatesWithGemini`)
-  Before invoking Gemini (`ai` present), `buildDiversifiedGeminiShortlist` (`src/services/rankerService.js`, `DEFAULT_SHORTLIST_DIVERSITY_CONFIG`: `coreLimit: 25`, `coldLimit: 8`, `outlierLimit: 6`, `shortlistLimit: 39`) scores the candidate pool via `rankCandidatePool` (with `{ ...options, onDiagnostics: undefined }` on the unlimited full pass so `onDiagnostics.moodShortfall` fires at most once, keeping `gateRejected` items strictly excluded) and composes a stratified shortlist of up to **39** candidates: top `25` ranker picks + up to `8` cold `2024–2026` releases (`vote_average >= 6.4`, `vote_count >= 40`) + up to `6` greedy director/genre/decade outliers. Pure `rankCandidatePool` ordering and the deterministic `!ai` / fallback path (`rankCandidatePool(..., 30)`) remain mathematically untouched. Gemini (`src/services/geminiService.js`) is constrained via `responseMimeType: "application/json"` and `responseSchema` to select **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) diverse winners plus **0–2 optional `wildcardPicks`** (omitted from `required`) and write jargon-free personal explanations with explicit vault anchor titles.
-
-  `buildGeminiReRankPrompt` builds signal sections strictly bounded **`<= 20,000` chars** (`PROMPT_CHAR_BUDGET = 19200`, `PROMPT_CHAR_LIMIT = 20000`, progressively dropping taglines, tightening plot limits, and binary-searching extra notes before trimming extended sections if needed — while always preserving `USER'S STEERABLE TASTE RULES`):
-  1. **`USER TASTE PROFILE`**: Top loved genres (`lovedGenreNames`), top directors (`topDirectors` `string[]` / `{ name }`), statistical rating baseline (`userStats || ratingStats` mean and count, instructing Gemini to treat `<= 5/10` as strong dislikes when the user averages generous scores), selected mood label & `promptDirective`, and any normalized custom vibe constraints (`query`, `withGenres`, `withoutKeywords`, release year bounds). Followed immediately by **`USER'S STEERABLE TASTE RULES (Follow strictly)`** (when active Prefer/Avoid rules exist in `tasteRules`).
-  2. **`USER'S FAVORITE ANCHOR FILMS` (up to `10` non-series `>= 8★` films, mood-stratified + deterministic backfill)**: Prioritizes non-series `>= 8★` films whose genres intersect the active mood's `preferredGenreIds` / custom `withGenreIds`, then backfills remaining slots up to 10 with the highest-weighted overall `>= 8★` anchors (`weighted?.weight ?? weighted?.finalWeight`, `userRating`, recency, title), appending optional `userNote` strings (`<= 180` chars).
-  3. **`USER'S DISLIKED / DISMISSED FILMS (Avoid similar tone)` (up to `5` films)**: Compact negative tonal guardrails sourced from recent `"dismissed"` events in `feedbackLog` plus watched films rated `<= 4★` or negatively z-scored (`rating < 7 && zScore < -0.4`, unpacking nested `weightedRatings` `{ movie, weight, zScore }` entries cleanly via `buildMovieIdentityLookup`), including `[Series]` tags and `userNote` reasons (`<= 180` chars) while excluding any `>= 8★` anchors.
-  4. **`RECENT WATCH STREAK`** (up to `3` recent `>= 6★` watches with `[Series]` tags and `<= 120`-char notes), **`NEAR MISSES`** (up to `4` `6–7★` entries with `[Series]` + `<= 180`-char notes), and **`USER'S WATCHLIST`** (up to `8` planned unseen titles marked excluded from candidates).
-  5. **Extended Vault Context (`buildExtendedVaultContextSections`)**: Emits **`ADDITIONAL TOP FAVORITES`** (favorites ranks `11–25` non-series `>= 8★`), **`LOVED SERIES / ANIME`** (top `>= 8★` series identified via `isSeriesVaultItem` with notes up to `180` chars), and **`ADDITIONAL VIEWER NOTES`** (all remaining watched films carrying `userNote`, deduplicated against anchors, dislikes, streak, near-misses, additional favorites, and series via `isSameMovie`); empty sections are omitted cleanly.
-  6. **`PRE-RANKED CANDIDATE MOVIES (Top <N>)`**: Formatted via `formatCandidatePromptBlock` carrying TMDB ID, title, year, director (`Dir:`), genres, TMDB score/votes, match badges, `[Specs]` (`runtimeMinutes` + up to 2 `spokenLanguages`, falling back to `originCountry` only when languages are absent), top `3` `Cast`, top `5` `Themes`, `Tagline` (`<= 70`), optional `Collection` (`belongs_to_collection` name `<= 60` when `plotLimit >= 80`), and `Plot` (`<= 250`) — intentionally **omitting** `Match: XX%` and `#1–#15` rank-anchoring text under the equal-footing `"Curate openly"` instruction alongside the explicit **`Franchise rule:`** sequel/collection diversity directive so Gemini evaluates plot/themes/voice freely across all 39 candidates and optionally proposes `0..2` outside `wildcardPicks`:
-
-  ```json
-  {
-    "tasteProfile": {
-      "favoriteGenres": ["Crime", "Thriller", "Drama"],
-      "preferredEra": "1990s - Present",
-      "ratingStyle": "High appreciation for character-driven dialogue and visual pacing."
-    },
-    "recommendations": [
-      {
-        "tmdbId": 680,
-        "title": "Pulp Fiction",
-        "year": "1994",
-        "anchorTitles": ["Reservoir Dogs", "No Country for Old Men"],
-        "reason": "Non-linear neo-noir storytelling and sharp auteur dialogue that mirrors your highest-rated crime thrillers."
-      }
-    ],
-    "wildcardPicks": [
-      {
-        "title": "Decision to Leave",
-        "year": "2022",
-        "anchorTitles": ["No Country for Old Men"],
-        "reason": "Hitchcockian detective obsession and deliberate editing rhythm aligned with your dark thriller favorites."
-      }
-    ]
-  }
-  ```
-
-  ### 7.2 Wildcard Verification (`verifyAndScoreWildcardPicks`), Score Locking (`mergeGeminiExplanationsWithRanker`) & `normalizeMatchScore`
-  When Gemini returns optional `wildcardPicks`, `verifyAndScoreWildcardPicks` (`MAX_WILDCARD_PICKS = 2`, search budget up to `maxWildcards * 2`) validates each outside title against strict TMDB `findTmdbByTitleAndYear` matching + `fetchBatchFormattedDetailsMap` (`tmdbService.js`, including watch providers, `collectionId`/`collectionName`, & `429` safety), rejects watched/watchlist/pool collisions (`isSameMovie`), TV series, unsupported streaming providers, explicit mood gate mismatches (`matchesMoodCandidateGate`), or active `"avoid"` taste rules (`candidateMatchesAvoidRule`), and scores survivors individually through `rankCandidatePool` using the shared pool's `collabCatalogMax`, active `rankerWeights`, and `tasteRules` (preventing 1-item `collabSim` stretching) while preserving Gemini's sanitized `reason` and resolved `anchorTitles`.
-
-  In `mergeGeminiExplanationsWithRanker`, calibrated `matchScore` (`[50, 99]`) and `matchReasons` stay locked to deterministic ranker values (preventing LLM score invention), verified wildcards reserve slots ahead of trailing shortlist picks inside two-pass `selectWithSoftVarietyCaps` (`maxPerDirector = 2`, `maxPerCollection = 1`, unified across `mergeGeminiExplanationsWithRanker` and `buildRankerFallbackResponse`) sorted by calibrated `matchScore`, and:
-  - **Preserves `anchorTitles` & Jargon-Free Prose**: Strips leaked internal label strings (e.g., `"95% Taste-Twin Match"`, `"Core Theme Match"`, `"Genre Bullseye"`, `"Cult Classic Overlap"`) via `sanitizeReasonText` before storing `reason`, and passes through 1–3 verbatim `anchorTitles` resolved against the user's vault (`resolveRecommendationAnchors` in `oracleViewHelpers.js`).
-  - **Deterministic Top-Up Backfill (`effectiveTarget = 10`)**: If Gemini returns fewer than `targetCount` (`10`) valid recommendations or wildcards are rejected during TMDB verification, remaining slots auto-backfill without duplicates up to `Math.min(effectiveTarget, topCandidates.length)` from the highest-ranked unused shortlist candidates.
-
-  `normalizeMatchScore` is retained strictly as a fallback for the OMDb-only generative pipeline when TMDB is unconfigured (returning `null` instead of fabricating placeholder percentages when a score is missing, `<= 0`, or a legacy `1–5` number):
-
-  ```javascript
-  export const normalizeMatchScore = (val) => {
-    if (val === null || val === undefined || val === "") return null;
-    const n = typeof val === "number" ? val : parseFloat(val);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    if (n <= 1.0) {
-      const scaled = n <= 0.1 ? n * 1000 : n * 100;
-      return Math.min(99, Math.max(50, Math.round(scaled)));
+    if (validRecs.length >= MIN_VALID_CACHE_COUNT) {
+      return { ...entry.data, recommendations: validRecs };
     }
-    if (n <= 5) return null;
-    return Math.min(99, Math.max(50, Math.round(n)));
-  };
-  ```
-
-  ### 7.3 Regex Code-Fence Sanitizer (`sanitizeAndParseJSON`)
-  Strips optional markdown code fences (` ```json ... ``` `) before `JSON.parse` (`src/services/geminiService.js:481-489`):
-
-  ```javascript
-  export function sanitizeAndParseJSON(rawText) {
-    if (!rawText) throw new Error("Empty response from AI engine");
-    let cleaned = String(rawText).trim();
-    const jsonMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      cleaned = jsonMatch[1].trim();
-    }
-    return JSON.parse(cleaned);
+  } catch (e) {
+    console.warn("SmartCache read failed:", e);
   }
-  ```
-
-  ### 7.4 H1 Resilient Cascade Architecture, Thinking Config, Timeouts, Cooldowns & Fallbacks
-  Following empirical free-tier testing (where `gemini-4-argon` returned `HTTP 429` with `limit: 0` and `gemini-3.8-flash` timed out on expanded 10-pick JSON payloads under short budgets), CinemaVault v5.0 runs an **H1 Resilient Cascade** in `executeCascade` (`src/services/geminiService.js`, shared by `geminiChatService.js` and `geminiExplanationService.js`):
-
-  1. **Dual-Intent Cascades (`src/services/geminiService.js:20-34`)**:
-    - **`CURATION_MODEL_CASCADE`** (re-ranking & deep explanations):
-      `["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]`
-    - **`FAST_INTERACTIVE_CASCADE`** (concierge chat & mood query parsing):
-      `["gemini-3.5-flash-lite", "gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.8-flash"]`
-
-  2. **Model-Aware `thinkingConfig` & Request Sanitization (`getModelThinkingConfig`)**:
-    - `gemini-4-hydrogen`: `{ thinkingLevel: "HIGH" }` in curation mode and `{ thinkingLevel: "MEDIUM" }` in fast mode (**never `LOW`**), and deletes `temperature`, `frequencyPenalty`, `presencePenalty`, and multi-candidate fields that cause HTTP 400 errors.
-    - `gemini-3-flash-preview`: `{ thinkingLevel: "LOW" }` in curation mode (`8,532 ms` observed on 15-movie JSON schema) and `{ thinkingLevel: "MINIMAL" }` in fast mode (`2,116 ms` observed).
-    - `gemini-3.6-flash` / `gemini-3.8-flash` / `gemini-3.5-flash-lite` / `gemini-3.5-flash`: `{ thinkingLevel: "LOW" }` (`3.5-flash-lite` rejects `thinkingBudget: 0`; `3.6-flash` completed 15-movie schema in `3,057 ms`).
-    - `gemini-2.5-flash`: `{ thinkingBudget: 0 }`.
-
-  3. **AbortController Timeouts, Cascade Latency Cap & Client Alignment (`HYDROGEN_TIMEOUT_MS = 35000`, `maxCascadeDurationMs = 45000`)**:
-    - SDK client initialized cleanly via shared factory `createGeminiClient` with `httpOptions: { timeout: 35000 }` when direct `VITE_GEMINI_KEY` is configured in local dev, OR routed transparently through `createProxyGeminiClient` (`/api/gemini`) in browser production builds where zero client keys exist (`src/services/apiTransport.js`, shared across `geminiService.js`, `geminiChatService.js`, and `geminiExplanationService.js`).
-    - Per-attempt `AbortController` timers (`getDefaultAttemptTimeoutMs` in `src/services/geminiService.js`) enforce **`35,000 ms`** for `gemini-4-hydrogen` (paired with `"functions": { "api/*.js": { "maxDuration": 60 } }` in `vercel.json` so Vercel does not kill Hydrogen calls at the 10s default) and **`15,000 ms`** across Flash curation models (`gemini-3.5-flash-lite`, `gemini-2.5-flash`, `gemini-3.6-flash`, `gemini-3.8-flash`, `gemini-3-flash-preview`) to accommodate 39-candidate / 10-pick + optional wildcard JSON output without premature aborts.
-    - `executeCascade` additionally enforces a caller-side UX latency cap `maxCascadeDurationMs` (default **`45,000 ms`**, overridable via `options.maxCascadeDurationMs`, distinct from Vercel's `60s` per-invocation limit): each attempt's timeout is clamped to `Math.min(requestedTimeout, remainingBudgetMs)`, remaining models are skipped if `< 3,000 ms` remains (`null` returned immediately so deterministic ranker fallback executes), and any timeout caused by the deadline clamp (`err.isCascadeDeadlineClamp`) aborts and returns `null` without penalizing that model in `modelCooldowns`.
-
-  4. **H1 Error Taxonomy & Cooldown Backoff (`classifyGeminiError` + `modelCooldowns`)**:
-    Instead of permanently banning a model for an entire session on one error, failures enter temporary cooldown windows (while proxy-layer rate limits abort the cascade cleanly without poisoning upstream model availability):
-
-    | Error Class (`classifyGeminiError`) | Matching Signals | Cooldown Duration |
-    | :--- | :--- | :---: |
-    | `"proxy_rate_limit"` | `err.errorCode === "PROXY_RATE_LIMIT"` (proxy sliding-window `429`) | **No `modelCooldowns` entry**; records `proxyRateLimitedUntilMs` from `Retry-After` and aborts cascade -> `null` |
-    | `"quota"` | HTTP `429`, `RESOURCE_EXHAUSTED`, `"quota"` (upstream Gemini) | Parsed server `retryDelay` if present, else **`600,000 ms`** (10m daily RPD / `limit: 0`) or **`120,000 ms`** (2m RPM) |
-    | `"transient"` | HTTP `503` / `504`, `timeout`, `AbortError`, network failures | **`30,000 ms`** (30s) |
-    | `"invalid_config"` | HTTP `400`, `INVALID_ARGUMENT` | **`1,800,000 ms`** (30m) |
-    | `"auth_fatal"` | HTTP `401` / `403` / `404`, `UNAUTHENTICATED`, `NOT_FOUND` | **`1,800,000 ms`** (30m) |
-
-  5. **Working-Model Persistence & Soonest-Expiry Fallback**:
-    - Successful responses clear any cooldown and persist the winning model in `localStorage` (`cinemavault_working_model_curation_v1` / `cinemavault_working_model_fast_v1`) with a `30 min` TTL (`WORKING_MODEL_TTL_MS = 1800000`). Both `getPreferredCascadeModel` and `executeCascade` read the same persisted active model so UI progress indicators match runtime dispatch.
-    - If *every* model in the cascade is inside a cooldown window, `executeCascade` attempts only the single model whose cooldown expires soonest.
-
-  6. **Deterministic Ranker Fallback & Secondary OMDb Pipeline**:
-    - If Gemini is unconfigured (keyless / no proxy), returns malformed JSON, or every cloud model in `executeCascade` fails during TMDB curation (`response === null`), `reRankCandidatesWithGemini` automatically returns the **top `10` (`targetCount`) calibrated mathematical ranker candidates** (`buildRankerFallbackResponse`, `topCandidates.slice(0, limit)`) with locked `matchScore` and `matchReasons` badges and valid `modelInfo` (`pipeline: "ranker-fallback"`), never falling back unnecessarily to `generateWithOmdbFallback`.
-    - If TMDB is unavailable or `fetchCandidatePool` cannot harvest 6+ candidates, `getMovieRecommendations` falls back to `generateWithOmdbFallback` (requesting `targetCount = 10` picks), verifying Gemini picks against OMDb (`fetchRealOMDBData` via `apiTransport.js`) with an in-memory session cache (`omdbMemoryCache`).
-
-  7. **UI Active-Model Telemetry (`buildCascadeModelInfo` / `formatRecBadgeSummary` / `ModelUsageBadge`)**:
-    - `executeCascade`, `reRankCandidatesWithGemini`, and `generateWithOmdbFallback` attach structured `modelInfo` (`model`, `displayName`, `pipeline`, `isFallback`, `cooldownModels`, `seq`, `usageMetadata`), persisted cleanly alongside cached picks (`cinemavault_recs_model_v1` in `AppContext.jsx`).
-    - `MovieRecommendations.jsx` renders an expandable `"About these picks"` inspector powered by `formatRecBadgeSummary` (`oracleViewHelpers.js`) alongside the toolbar status and `.chat-model-bar` / `.bubble-model-tag` pills in `AIChat.jsx`.
-
-  ---
-
-  ## 8. Smart LRU Cache, Collision Guard & Tiered Quota Recovery
-
-  ### 8.1 Profile-Based Sliding Window Hash (`generateProfileHash`)
-  Cache keys are deterministically generated without mutating profile arrays in place, and include `anchorTmdbId`, `topCrewMemberId`, `topCastIds`, optional custom vibe constraints (`buildMoodFilterHashSegment(moodFilters)`), streaming region (`userRegion`, suffix `_reg_<REGION>`), optional vault rating + `userNote` checksum (`buildWatchedHashSegment(watched)` using `hashStringFnv1a`, suffix `_vlt_<count>_<fnv1a36>[:<noteHash>]`), and active taste rules (`buildTasteRulesHashSegment(tasteRules)`, suffix `_tr_<fnv1a36>`) so logging or editing a rating, note, vibe constraint, taste rule, or streaming country immediately invalidates stale cache entries while keeping empty-note / empty-rule hashes byte-identical (`src/services/geminiService.js`):
-
-  ```javascript
-  export const generateProfileHash = (profile, watchlistGenres = [], mood = "any", providers = [], moodFilters = null, userRegion = "", watched = [], tasteRules = []) => {
-    const lovedStr = [...(profile?.lovedGenreIds || [])].sort((a, b) => a - b).join("-");
-    const hatedStr = [...(profile?.hatedKeywordIds || [])].sort((a, b) => a - b).join("-");
-    const watchStr = [...(watchlistGenres || [])].slice(0, 3).sort((a, b) => a - b).join("-");
-    const provStr = [...(providers || [])].sort((a, b) => String(a).localeCompare(String(b))).join("-");
-    const anchorStr = String(profile?.anchorTmdbId || "none");
-    const crewStr = String(profile?.topCrewMemberId || "none");
-    const castStr = [...(profile?.topCastIds || [])].sort((a, b) => a - b).join("-");
-    const cleanMood = (typeof mood === "string" ? mood : mood?.id || "any").toLowerCase().trim() || "any";
-    const base = `v4_${lovedStr}_${hatedStr}_${watchStr}_${provStr}_${anchorStr}_${crewStr}_${castStr}_${cleanMood}`;
-    const filterSegment = buildMoodFilterHashSegment(moodFilters);
-    const withFilter = filterSegment ? `${base}_${filterSegment}` : base;
-    const cleanRegion = typeof userRegion === "string" ? userRegion.trim().toUpperCase() : "";
-    const withRegion = cleanRegion ? `${withFilter}_reg_${cleanRegion}` : withFilter;
-    const vaultSegment = buildWatchedHashSegment(watched);
-    const withVault = vaultSegment ? `${withRegion}_${vaultSegment}` : withRegion;
-    const rulesSegment = buildTasteRulesHashSegment(tasteRules);
-    return rulesSegment ? `${withVault}_${rulesSegment}` : withVault;
-  };
-  ```
-
-  *(Calling `generateProfileHash(profile, watchlistGenres, mood, providers)` with 4 arguments produces the exact same base `v4_...` string for backward compatibility, while passing the 7th `watched` and 8th `tasteRules` arguments makes `cinemavault_smart_cache_v4` responsive to every added, updated, toggled, or deleted vault rating and taste rule without disturbing empty-rule hashes.)*
-
-  ### 8.2 Master ID Cross-Referencing Collision Guard (`getSmartCache`)
-  `getSmartCache` reads from `SMART_CACHE_KEY = 'cinemavault_smart_cache_v4'` (migrating cleanly away from legacy 6-pick `cinemavault_smart_cache_v3` entries; `AppContext.jsx` also discards stored `cinemavault_recs_v1` sessions with `< 7` items at startup), validates 24-hour TTL against all known identifiers (`imdbID`, `tmdbId`, `id`) across both `watched` and `watchlist` arrays, and requires at least **`MIN_VALID_CACHE_COUNT = 7`** valid uncollided recommendations (`src/services/geminiService.js:664-706`):
-
-  ```javascript
-  export function getSmartCache(hash, watched = [], watchlist = []) {
-    try {
-      const cache = JSON.parse(localStorage.getItem(SMART_CACHE_KEY) || '{}');
-      const entry = cache[hash];
-      if (!entry || !entry.data || (Date.now() - (entry.ts || 0) > 24 * 60 * 60 * 1000)) {
-        return null;
-      }
-
-      const currentIds = new Set([
-        ...watched.flatMap(m => [
-          m.imdbID ? String(m.imdbID).toLowerCase() : null,
-          m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
-          m.id ? String(m.id).toLowerCase() : null
-        ]).filter(Boolean),
-        ...watchlist.flatMap(m => [
-          m.imdbID ? String(m.imdbID).toLowerCase() : null,
-          m.tmdbId ? String(m.tmdbId).toLowerCase() : null,
-          m.id ? String(m.id).toLowerCase() : null
-        ]).filter(Boolean)
-      ]);
-
-      const validRecs = (entry.data.recommendations || []).map(rec => ({
-        ...rec,
-        matchScore: normalizeMatchScore(rec.matchScore)
-      })).filter(rec => {
-        const recIds = [
-          rec.imdbID ? String(rec.imdbID).toLowerCase() : null,
-          rec.tmdbId ? String(rec.tmdbId).toLowerCase() : null,
-          rec.id ? String(rec.id).toLowerCase() : null
-        ].filter(Boolean);
-
-        return !recIds.some(id => currentIds.has(id));
-      });
-
-      if (validRecs.length >= MIN_VALID_CACHE_COUNT) {
-        return { ...entry.data, recommendations: validRecs };
-      }
-    } catch (e) {
-      console.warn("SmartCache read failed:", e);
-    }
-    return null;
-  }
-  ```
-
-  ### 8.3 500KB LRU Eviction Policy & Tiered LocalStorage Quota Protection
-  1. **500KB Cache Cap (`setSmartCache` on `cinemavault_smart_cache_v4`)**: Sorts cache keys by timestamp (`ts`) ascending and evicts the oldest entries in a single pass whenever `serialized.length * 2 > 500 * 1024`.
-  2. **Tiered Quota Recovery (`safeSetItem` in `src/context/AppContext.jsx`)**: Wraps all `localStorage` writes. If `QuotaExceededError` (code `22` / `1014`) is thrown, `safeSetItem` automatically purges non-critical derivative caches in priority order to protect user vault data:
-    1. `cinemavault_smart_cache_v4`
-    2. `cinemavault_smart_cache_v3`
-    3. `cinemavault_explanations_v1`
-    4. `cinemavault_recs_model_v1`
-    5. `cinemavault_recs_v1`
-    6. `cinemavault_recs_hash_v1`
-    7. `cinemavault_feedback_v1`
-  3. **Working-Model Cache Keys**: `cinemavault_working_model_curation_v1` & `cinemavault_working_model_fast_v1` (`30 min` TTL, invalidated automatically on model failure).
-  4. **Storage Envelope & IndexedDB Split (`tmdbCacheService.js`)**: Heavy 30-day TMDB batch enrichment payloads live in IndexedDB (`cinemavault_tmdb_cache_db`), while the primary guest vault (`cinemavault_watched`, `cinemavault_watchlist`) resides in synchronous `localStorage` (`~5 MB` browser origin limit, comfortably supporting typical `500–2,500`-film vaults once derivative caches are evicted; multi-thousand-row hydrated vaults beyond `~5 MB` require cloud sync or future IndexedDB vault migration).
-
-  ---
-
-  ## 9. Universal Streaming Access & Multi-Region Matrix
-
-  ### Supported Streaming Providers & Alias Family Expansion (`POPULAR_WATCH_PROVIDERS` / `PROVIDER_FAMILY_MAP`)
-  TMDB splits several subscription catalogs across ad tiers, kids tiers, and Amazon/Apple/Roku/Showtime channel IDs (e.g., Netflix Standard with Ads `1796`, Amazon Channel Max `1825`, Paramount+ Showtime `2616`). `expandProviderIds` and `buildProviderFilter(..., { expandAliases: true })` expand user selections across `PROVIDER_FAMILY_MAP`, while `matchesWatchProviders(candidate, selectedProviders)` verifies `streamProviders` / `freeProviders` against both expanded provider IDs and lowercase `PROVIDER_NAME_TOKENS`:
-
-  | Provider | Canonical ID | Key | Expanded TMDB Family IDs (`PROVIDER_FAMILY_MAP`) |
-  | :--- | :---: | :---: | :--- |
-  | **Netflix** | `8` | `netflix` | `[8, 1796, 175]` *(Main, Standard with Ads, Kids)* |
-  | **Amazon Prime Video** | `9` | `prime` | `[9, 10, 119, 2100]` |
-  | **Disney+** | `337` | `disney` | `[337, 390]` |
-  | **Max (HBO)** | `1899` | `max` | `[1899, 384, 1825, 29, 31]` *(Max, HBO Max, Max Amazon Channel, HBO Go/Now)* |
-  | **Apple TV+** | `350` | `apple` | `[350, 2, 2243]` |
-  | **Hulu** | `15` | `hulu` | `[15]` |
-  | **Paramount+** | `531` | `paramount` | `[531, 1853, 2303, 2616, 582]` *(Paramount+, Amazon/Apple/Showtime/Roku channels)* |
-  | **Peacock** | `386` | `peacock` | `[386, 387]` |
-  | **Criterion Channel** | `258` | `criterion` | `[258]` |
-  | **Tubi (Free)** | `73` | `tubi` | `[73]` |
-  | **Pluto TV (Free)** | `300` | `pluto` | `[300]` |
-  | **Freevee (Free)** | `573` | `freevee` | `[573, 613, 546]` *(+ `613` alias -> `[613, 546, 573]`)* |
-
-  *(Strict Ranker Provider Gate: When `userProviders` is non-empty, `rankCandidatePool` inspects `matchesWatchProviders` on hydrated candidates — using the verified subset alone when `providerVerified.length >= Math.min(6, topK)`, or putting verified items first followed by unhydrated `providerMatchedByQuery` items when fewer verified items exist.)*
-
-  ### Supported Regions (`AVAILABLE_REGIONS`)
-  `GLOBAL` (Worldwide), `US`, `GB`, `CA`, `AU`, `JP`, `KR`, `FR`, `DE`, `ES`, `IT`, `IN`, `BR`, `MX`, `SE`.
-
-  ---
-
-  ## 10. Official Trailer Resolution & Playback Architecture
-
-  Major movie studios frequently enforce origin-embedding restrictions on official trailers (resulting in iframe `Error 153: Video unavailable`). CinemaVault combines **hierarchical official trailer ranking** with both modal and direct playback options:
-
-  1. **Hierarchy Strategy (`extractOfficialTrailerKey`)**:
-    - `type === "Trailer" && official === true && (iso_639_1 === "en" || !iso_639_1)`
-    - `type === "Trailer" && name matches ("official" | "main" | "theatrical")`
-    - `type === "Trailer"`
-    - `type === "Teaser"`
-    - First available YouTube clip (`youtubeVideos[0].key`)
-  2. **Playback & Fallback**:
-    - Launches either in `TrailerModal.jsx` (portaled to `document.body`) or directly via canonical YouTube watch URL (`https://www.youtube.com/watch?v=${trailerKey}`).
-    - If a film has no TMDB video records, falls back to a pre-encoded YouTube search query: `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' ' + year + ' official trailer')}`.
-
-  ---
-
-  ## 11. Telemetry Analytics & Statistical Algorithms
-
-  ### 1. Rating Delta Histogram (`VaultBanner.jsx` / `vaultStats.js`)
-  Calculates the user's mean deviation from global IMDb baselines (`VaultBanner.jsx` renders `+X.Y vs IMDb` / `-X.Y vs IMDb` alongside exact `1★–10★` histogram bins from `buildRatingHistogramBins`):
-
-  $$\Delta(m) = \text{UserRating}(m) - \text{ImdbRating}(m)$$
-
-  When partitioning $\Delta$ conceptually into 5 contiguous behavioral bands covering $(-\infty, +\infty)$:
-  - **Critical Contrariness** ($\Delta \le -1.5$)
-  - **Mild Skepticism** ($-1.5 < \Delta \le -0.5$)
-  - **Consensus Neutral** ($-0.5 < \Delta < +0.5$)
-  - **Generous Affinity** ($+0.5 \le \Delta < +1.5$)
-  - **Passionate Champion** ($\Delta \ge +1.5$)
-
-  ### 2. Watch Time Aggregator
-  $$\text{TotalMinutes} = \sum_{m \in \text{Watched}} \text{parseRuntimeMinutes}(m.\text{runtime})$$
-
-  Converted into Days, Hours, and Minutes telemetry counters.
-
-  ---
-
-  ## 12. Hardened Letterboxd Portability & Pure CSV Import Engine (`csvImport.js`)
-
-  To eliminate browser/UI coupling and fix timestamp distortion on large vault migrations, all CSV parsing, date validation, bulk cluster suppression, and diary rewatch deduplication were extracted into [src/services/csvImport.js](./src/services/csvImport.js) (tested directly via `node --test`) and wired into `BackupManagerModal.jsx`, `MovieCard.jsx`, and `VaultPage.jsx`:
-
-  - **Export Formats ([`BackupManagerModal.jsx`](./src/components/BackupManagerModal.jsx) & [`vaultPortability.js`](./src/services/vaultPortability.js))**:
-    - **Full JSON Archive (Schema v2)**: Complete `{ schemaVersion: 2, app: "CinemaVault", exportedAt, watched, watchlist, preferences: { userRegion, userWatchProviders } }` state snapshot (`cinemavault_backup.json`).
-    - **Standardized Letterboxd CSV**: `Title,Year,Rating10,WatchedDate,Review`.
-    - **General Vault CSV**: `Title,Year,Type,UserRating,Note,IMDb ID,TMDB ID,Watched Date,Director,Genres,Runtime,IMDb Rating,Poster`.
-  - **Import Engine (`parseCSVImport`, `parseRating`, `BATCH_SIZE = 4`)**:
-    - Automatically parses both numeric ratings (`1–5` scaled to `2–10`, or native `1–10`) and Unicode star strings (`★★★★½` $\rightarrow$ `9`).
-    - Chunks CSV imports into asynchronous batches (`BATCH_SIZE = 4`) to prevent browser and API rate-limit throttling while enriching records with OMDb/TMDB metadata and posters.
-    - **Header-Aware Column Resolution:** Reads Letterboxd headers cleanly so column 3 (`Letterboxd URI`) never leaks into `note` when a `Description`/`Review`/`Notes` header is absent (while preserving positional fallback for headerless CSVs).
-  - **Date Source Priority & Strict Calendar Validation (`parseImportDate`)**:
-    - Prioritizes **`Watched Date`** (`dateSource: "watched"`) over **`Date`** (`dateSource: "logged"`), leaving `dateWatched` and `dateSource` unset when missing, empty, or invalid.
-    - Validates calendar dates strictly (`isValidCalendarYMD`), rejecting impossible rollovers like `2026-02-30` (rather than rolling into March) and rejecting timestamps past `now + 86,400,000 ms` (24-hour timezone tolerance). Accepts injected `now` for deterministic unit testing.
-  - **Clustered Logged-Date Suppression Heuristic (`suppressBulkClusteredLoggedDates`)**:
-    - Named heuristic constants exported from `csvImport.js`: `MIN_CLUSTER_CHECK_ROWS = 10`, `CLUSTER_TOP3_SHARE = 0.30`, `MIN_ORGANIC_SPAN_DAYS = 14`.
-    - When a CSV contains `>= 10` parseable `Date` (`"logged"`) rows, if either the top 3 calendar dates cover `>= 30%` of those rows OR the newest-to-oldest span is `< 14` days, treats the `Date` column as an artificial bulk backlog export: deletes `dateWatched` & `dateSource` and sets `isBulkImported: true` (propagated onto the final record via `buildWatchedRecordFromImport`) so `bulkPriorDays = 180` applies in `scoringUtils.js`. Genuine `"Watched Date"` values are always trusted.
-  - **Diary Rewatch Deduplication (`deduplicateDiaryRows`)**:
-    - Collapses duplicate rows matching normalized `title + year` down to one entry per film using the newest valid `Watched Date` (falling back to later row order when undated).
-    - If the newest rewatch row has no rating (`blank`), retains the **most recent non-empty rating** among that film's earlier diary entries instead of erasing the user's score.
-  - **Quick-Add & Bulk-Move Stamping (`buildQuickAddWatchedMovie` & `buildBulkMoveWatchedItem`)**:
-    - Ensures direct quick-add ratings (`userRating > 0`) and watchlist-to-watched bulk moves receive valid ISO `dateWatched` timestamps when absent.
-  - **Import Modes (with Pre-Apply Diff Preview via `summarizeImportDiff`)**:
-    - **Merge & Update (`merge_update`)**: Appends unseen titles and updates existing entries only when incoming explicit ratings change, preserving notes and explicit metadata.
-    - **Add New Only (`add_new`)**: Preserves all existing vault scores untouched and appends only unseen films.
-    - **Replace Vault (`replace`)**: Replaces local vault state with the imported snapshot (`mergeLocalAndCloudVault` pushes updated state if signed into Supabase).
-
-  ---
-
-  ## 13. Dual-Engine Spotlight Search & Strict Env Enforcement
-
-  ### 13.1 Credential Isolation & Server-First Env Enforcement (`apiTransport.js`)
-  In production Vercel deployments, third-party API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY`) live exclusively inside server environment variables and are **never embedded into Vite's browser bundle (`build/assets/*.js`)**. `src/services/apiTransport.js` routes every request automatically: if an optional local-dev `VITE_*` key exists (`VITE_GEMINI_KEY`, `VITE_TMDB_KEY`, `VITE_OMDB_KEY`), local calls talk directly to Google/TMDB/OMDb; otherwise, browser calls route seamlessly through `/api/gemini`, `/api/tmdb`, and `/api/omdb` serverless proxies (`api/*.js`). Public browser variables are restricted strictly to Supabase publishable credentials (`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, protected by Postgres RLS). See [Section 18](#18-serverless-api-proxy-isolation--transport-layer-apijs--apitransportjs).
-
-  ### 13.2 Dual-Engine Search Waterfall & Race-Safe Deduplication (`searchService.js` & `SearchModal.jsx`)
-  Triggered via `Cmd + K` / `Ctrl + K` or `/` outside editable fields (`App.jsx`), with debounced input, `AbortController` cancellation, and stale request-sequence guards inside `SearchModal.jsx` + pure search logic in `src/services/searchService.js`:
-  1. **Local Vault Instant Hit + Dual Catalog Query**: Matches local `watched` and `watchlist` entries cleanly with normalized ID status flags via `movieIdentity.js` (`imdbID`, `tmdbId`, normalized `title::year`).
-  2. **Primary / Parallel OMDb & TMDB Engines via `apiTransport.js`**: Queries OMDb (`fetchOmdbJson`) and TMDB `/3/search/movie` (`fetchTmdbJson`), deduplicating cross-engine hits and mapping TMDB entries into the unified UI schema (`imdbID: "tmdb_${id}"`, `tmdbId`, `Title`, `Year`, `Poster`) with in-modal Quick Rate actions (`QuickRateModal.jsx`).
-
-  ---
-
-  ## 14. Complete Reference Implementations & Verification Test Matrix
-
-  ### `extractTasteProfile` (v5.0 Net-Polarity Keywords & Shrunk Person Affinities, `src/services/tmdbService.js`)
-  In v5.0, `extractTasteProfile(watched = [], watchlist = [], options = {})` delegates normalization & decay to `computeZScoredWeights` (`src/services/scoringUtils.js`), computes vault-level keyword document-frequency IDF, enforces disjoint net-polarity keyword sets, and applies Bayesian support shrinkage across cast & crew:
-  ```javascript
-  export async function extractTasteProfile(watched = [], watchlist = [], options = {}) {
-    const {
-      now = Date.now(),
-      decayRate = 0.002,
-      anchorCutoff = 9,
-      personShrinkageK = 2
-    } = options;
-    // 1. computeZScoredWeights(watched, { lambda: decayRate, bulkPriorDays: options.bulkPriorDays ?? 180 })
-    //    produces { movie, rating, zScore, daysSince, timeDecay, weight }
-    // 2. positiveWeight = Math.max(0, weight) accumulates genreScores (top 4 lovedGenreIds -> normalized genreAffinities),
-    //    plus legacy >=8★ topCastIds (2) & topCrewMemberId/topCrewIds for Bucket A/C compatibility
-    // 3. Keywords suppress GENERIC_META_KEYWORD_IDS (818, 9663, 179430, 179431, 187056), apply IDF 1/log2(2+df),
-    //    and resolve disjoint netPolarity = pos - neg -> lovedKeywordIds (top 8), keywordAffinities (top 15), hatedKeywordIds (top 5)
-    // 4. Cast (billing decay 1/(1+0.2*idx)) and Crew accumulate net signed weights shrunk by 1/(posCount + k)
-    //    -> crewAffinities (top 15) & castAffinities (top 20)
-    // 5. Return full profile including weightedRatings, affinities, anchors, hatedKeywordIds, watchlistGenreIds, ratingStats
-  }
-  ```
-
-  ### `executeCascade` Resiliency Core (`src/services/geminiService.js`)
-  Key v5.0 guarantees inside `executeCascade(ai, cascade, requestParams, options)`:
-  - Filters out cooling-down models (`isModelInCooldown`), prioritizing `sessionCurationModel` / `sessionFastModel` -> persisted `localStorage` model (`30 min` TTL) -> remaining healthy models; if all are cooling down, probes only the soonest-expiring model.
-  - Applies `getModelThinkingConfig` (`HIGH`/`MEDIUM` on Hydrogen, `MINIMAL`/`LOW` on 3-flash, `LOW` on 3.8/3.6/3.5, `thinkingBudget: 0` on 2.5) and strips `temperature` / `frequencyPenalty` / `presencePenalty` safely.
-  - Races `ai.models.generateContent` against an `AbortController` timeout (`35,000 ms` Hydrogen, `15,000 ms` Flash models), records token telemetry via `spendTracker.record`, and logs H1 error-class cooldowns on failure before returning `null` for clean deterministic fallback.
-
-  ### Service & API Test Verification Matrix (`npm test` -> `311 / 311` Passing across `37` Service & API Suites)
-  > **Test Scope Note:** Automated Node test runner suites (`node --test`) below verify deterministic service-layer, ranking, storage, sync, and serverless API proxy logic (`src/services/*.js`, `api/*.js`). React UI views and interactive flows (`src/components/*.jsx`, `src/pages/*.jsx`) are verified via production Vite builds (`npm run build`) and browser verification rather than JSDOM component unit tests.
-
-  | Test Suite (`tests/*.test.js`) | Verified Coverage |
-  | :--- | :--- |
-  | `tests/aiSpendTracker.test.js` | Gemini token & spend accounting (`canUseArgon()` gate, `record()`, quota budgets) |
-  | `tests/apiProxy.test.js` | Serverless `/api/gemini`, `/api/tmdb` (incl. `/3/collection/:id`, `/3/search/keyword`, & `/3/movie/:id/(recommendations\|similar)` allowlist + traversal blocking), `/api/tmdb-batch`, `/api/omdb` allowlists & 40-ID batching (`<= 6` concurrency, single rate-limit hit, `Cache-Control` + `Vary: Origin`, error redaction), cross-origin `403` blocking & `Sec-Fetch-Site: cross-site` guard without overriding `ALLOWED_ORIGIN` (`api/_security.js`), sliding-window per-IP `429` limits (`20/min` Gemini, `60/min` TMDB/OMDb) emitting `errorCode: "PROXY_RATE_LIMIT"` + `X-RateLimit-Source: proxy`, & `apiTransport.js` direct-vs-proxy + `errorCode`/`retryAfter` forwarding + 30-day IndexedDB batch caching |
-  | `tests/compareService.test.js` | `toCompareStub`, `toggleCompareItem` (`COMPARE_MAX_ITEMS = 3`), `parseCurrencyUsd`/`formatCompactUsd`/`parseRuntimeMins`, `computeCompareOverlap` (shared cast/crew with `personId`, genres, `#keywords`, & pairwise 64-D `CVEM v1` cosine similarity), `buildCompareMatrix` (`0%` RT & `0` Metascore preservation, shortest runtime, revenue/ROI winners, Vault scores, & 64-D `vaultMatchPct`), `buildCompareUrl`/`parseCompareUrlIds`, `resolveExploreGenreId`, `dedupeHydratedMovies`, `addUrlCompareSlot`, `removeUrlCompareSlot` (handling `_notFound` stubs & cross-scheme `tt... <-> tmdb_...` removals), & `hydrateCompareMovieSlot` |
-  | `tests/contentSim.test.js` | Stage 2 `content_embeddings_f16.bin` parsing, `buildContentSimMap`, aligned `blendEmbeddings`, bigram fallback, session negative-caching of missing/non-binary `.bin` (retrying after transient network/abort failures), & cold-gated structured fallback (`enableStructuredFallback`, `coldOnly: true`, verified active when `contentIndex === null`) |
-  | `tests/csvImport.test.js` | `Watched Date` > `Date`, calendar rollover rejection, `+24h` clamp, bulk cluster suppression, diary rewatch rating preservation |
-  | `tests/dashboardService.test.js` | Discover Hero spotlights & carousels, zero-seen collision filtering (`watched` + `watchlist`), cross-row dedupe, `collectCatalogMosaic` |
-  | `tests/dnaService.test.js` | Optional 8-bit `cinematic_dna_u8.bin` feature extraction, graceful missing-binary fallback, & session negative-caching of 404/non-binary `.bin` (retrying after transient network/abort failures) |
-  | `tests/embeddingService.test.js` | `float16` codec roundtrip, SPA HTML rejection, `getRelativeWeightCutoff` `1e-6 * maxW` invariance, Spherical K-Means personas, repulsion, & aligned `catalogMax`-normalized + `repulsionWeight = 1.5/6.4` Bucket E neighbor survival |
-  | `tests/embeddingStep3.test.js` | `computePersonaDetails` fractional cluster masses, log-sum-exp mixture boost (`beta`), & `computeUserRidgeEmbedding` `64×64` separation |
-  | `tests/evalHarness.test.js` | Temporal holdout splits (`temporalHoldoutSplit`), `Recall@20`, `NDCG@10`, `ILD`, `Novelty`, `NegHit@20`, `Unique@30`, deterministic candidate-side masking (`selectMaskedTmdbIds`, `buildMaskedCandidateMapsForEval`, `coldOnly` fallback routing, warm/cold split), isolated `evaluateBucketECohort` recall metrics, & `analyzeVaultColdShare` (`--exclude-series`) |
-  | `tests/evalRanker.test.js` | End-to-end calibrated ranker vs baseline evaluation |
-  | `tests/exploreService.test.js` | `parseExploreSearchParams` / `buildExploreSearchParams` / `buildExploreRoute` (single-encoding `#keyword` chips without `%2520`), `mergeYearDraftIntoFilters`, `deriveExploreViewState` (no stale grid on filter switches, auto-advance up to page `3` when `hideWatched` empties page `1`, & preserved grid on Load-More errors), `buildTmdbDiscoverParams` (`>= 150` vote floor on `vote_average.desc` & `GLOBAL -> US` provider region fallback), `filterExploreResults`, & `getActiveFilterChips` |
-  | `tests/feedbackLogging.test.js` | Preference feedback logging (`added_watchlist`, `dismissed`), feature snapshot sanitation, & quota-safe persistence |
-  | `tests/filmChatService.test.js` | `buildFilmChatRoute` & `parseAiPageParams` deep-link parsing, `serializeFilmDossierForPrompt` (prompt-injection sanitization, `SPOILER-SAFE MODE ACTIVE` vs spoilers allowed, Craft Breakdown & Watch Log formatting), `buildMovieChatStarterPrompts`, `saveFilmFocusCache` / `loadFilmFocusCache`, & `buildChatPromptPayload` `FOCUSED FILM DOSSIER` injection |
-  | `tests/geminiDualEngine.test.js` | `CURATION_MODEL_CASCADE` & `FAST_INTERACTIVE_CASCADE`, thinking config, `35s` Hydrogen & `15s` Flash timeouts, `maxCascadeDurationMs` deadline clamp & `< 3000ms` skip without cooldown, nested `weightedRatings` relative-dislike lookup + mood-stratified anchors + `6–7★` `NEAR MISSES` + disliked/dismissed (`already_seen`-exempt) + real `userStats` / `topDirectors` / `USER'S WATCHLIST` / `ADDITIONAL TOP FAVORITES` (11–25) / `LOVED SERIES / ANIME` / deduplicated `ADDITIONAL VIEWER NOTES` (all remaining notes) + `USER'S STEERABLE TASTE RULES` (retained after extreme budget trimming & injected in `generateWithOmdbFallback`) + `Collection:` & `Franchise rule:` + unbiased candidate formatting (zero `Match: XX%` or `#1–#15` rank bias, `"Curate openly"`, `Specs`, top `3` `Cast`, top `5` `Themes`, `Tagline`, `Collection`, `Plot`, `<= 20,000`-char ceiling) in `buildGeminiReRankPrompt`, optional `wildcardPicks` `responseSchema` typing + `verifyAndScoreWildcardPicks` (strict TMDB/TV/vault/provider/mood/`avoidRules` gates, `collectionId`/`collectionName` propagation, 1-item `collabCatalogMax` invariance, `429` safety & 10/10 backfill), two-pass soft `selectWithSoftVarietyCaps` (`maxPerDirector = 2` & `maxPerCollection = 1` + backfill in `mergeGeminiExplanationsWithRanker` & `buildRankerFallbackResponse`), H1 error classification (`PROXY_RATE_LIMIT` immediate abort without cooldown + session `Retry-After` gate), cooldown backoff, soonest retry, `lastError` safe fallback, `formatModelDisplayName` & `getLastModelInfo` |
-  | `tests/moodPolicy.test.js` | 6-mood `MOOD_OPTIONS` invariants, `normalizeMoodFilters`, deterministic `parseFreeTextMoodFallback`, `matchesMoodCandidateGate`, `buildMoodFilterHashSegment` |
-  | `tests/moodRanker.test.js` | Mood-rebalanced ranker (`collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`), strict `matchesMoodCandidateGate` + `avoidRules` gate exclusion without `gateRejected` padding + `onDiagnostics.moodShortfall`, Bucket A/B/C/D mood gating, strict `PROVIDER_FAMILY_MAP` & `matchesWatchProviders`, `tasteRules` `+0.6`/`-3.5` logit adjustments & empty-rule zero-delta parity, `buildDiversifiedGeminiShortlist` Slice 2/3/top-up avoid guard, `buildBucketAParams` unqualified `without_genres` merge, & zero `"any"` regression |
-  | `tests/movieIdentity.test.js` | Canonical `imdb:`, `tmdb:`, `rawid:`, `ty:` key builders (`buildMovieKeys`), `isSameMovie` cross-ID collision protection, `upsertMovieEntry` & `removeMovieEntries` |
-  | `tests/navHelpers.test.js` | Platform search shortcut hints (`⌘K` vs `Ctrl K`), tabular nav counts, and `getCloudSyncBadgeLabel` states |
-  | `tests/oracleViewHelpers.test.js` | Streaming summary formatting, `formatRecBadgeSummary` (incl. `Metadata` hydration label), `resolveRecommendationAnchors`, `sanitizeOracleReason`, `formatActiveVibeNote`, `nextRefreshExcludeState` (`120` cap, pages `1..5`), `shouldAutoRefreshOnDrawerClose` |
-  | `tests/personService.test.js` | Structured crew ID extraction (`formatTmdbMovieDetails`), OMDb fallback `id: null` safety (`extractMovieCreditPeople`), cast+crew merging & `"Self"` filtering (`normalizePersonCredits`), Vault identity matching (`annotateCreditsWithVaultState`, `computePersonVaultStats`), department/status filtering & rating-safe sorting (`filterAndSortPersonCredits`, `resolvePersonDefaultDepartment`), `/3/search/person` resolution + session caching + `AbortSignal`/`429` handling (`fetchPersonProfileAndCredits`), & `buildPersonProfileRoute` / `shouldCloseMovieDetailOnEscape` guards |
-  | `tests/pipelineBugs.test.js` | Sorted `hatedKeywordIds`, `with_cast` pipe syntax, generous-rater `>= 7★` negative-suppression safeguard, note- & taste-rule-aware 8-arg `generateProfileHash` immutability + empty-note/empty-rule hash preservation + region/filter/vault/`_tr_` suffixing, `belongs_to_collection` -> `collectionId`/`collectionName` extraction & persistence across `formatTmdbMovieDetails`/`bridgeTmdbToOmdb`/`applyDetailsToCandidate`/`mergeBackfilledMovieMetadata`, `normalizeMatchScore -> null` fallback, full-pool hydration (`hydrated` preservation & `hydrationCoverage`), **10-pick** target + backfill, `fetchBatchFormattedDetailsMap` + `verifyAndScoreWildcardPicks` batch TMDB lookup & TV/remake rejection, `cinemavault_smart_cache_v4` (`>= 7` floor), provider matching, refresh exclusion + exhaustion fallback, & lazy `backfillMissingTmdbIds` (IMDb + strict `±1`-year fallback, `isSeriesVaultItem` + `/3/find` `tv_results` skip, `"N/A"` poster guard, `alreadyChecked` cache, `maxLookups` budget, & HTTP `429` stop) |
-  | `tests/quickReviewTags.test.js` | Shared praise & constructive critique `QUICK_REVIEW_TAGS`, whitespace-boundary `hasQuickTagInNote`, contextual `getContextualQuickTags` (<7 critique vs >=7 praise priority), & length-bounded `toggleQuickTagInNote` (`<= 200` in QuickRateModal) |
-  | `tests/rabbitHoleService.test.js` | `normalizeCollectionTimeline` (chronological release sorting, `TBA` placement, `isCurrent` & `watchedCount`/`totalCount`), norm-safe `findEmbeddingNeighborsForMovie` (`normA * normB` cosine for sub-unit shrunk vectors), `shouldLoadRabbitHoleForMovie`, & `buildHybridSimilarFilms` (`hybrid`/`vault-vector`/`tmdb` tagging, real `tt...` IMDb ID preservation, & same-collection sequel demotion) |
-  | `tests/rankerService.test.js` | 12-feature logistic scoring, net-polarity IDF keywords + shrunk cast/crew affinities, collab normalization, `0.35x` metadata damping, `tau = 1.45` display calibration, `ranker_weights.json` parity, `-0.5` neg keyword penalty, `generateMatchReasons`, `fitRankerWeights`, `buildDiversifiedGeminiShortlist` (`25+8+6=39`, `gateRejected` isolation, & single-invocation `onDiagnostics`), & hardened `derivePersonalizedRankerWeights` (`minEvents: 10`, `minPositives: 3`, `minNegatives: 3`, `l2: 0.55`, skipping `already_seen`) |
-  | `tests/rankerStep2.test.js` | `[0, 0.02]` smoothstep damping continuity, pool-outlier invariance under `catalog-max`, & `poolMax` fallback for `< 50` maps |
-  | `tests/ratingStudioService.test.js` | `computeVaultCalibration` (exact-score vs nearest-score benchmarks & percentile wording), `computeStarStageMetrics` (10-star wave-cascade scale/lift physics, fill Ratio & tier tone resolution), `normalizeRatingBreakdown` (`1..5` clamping), `computeCraftAverage`, `normalizeWatchMeta` (`WATCH_FORMATS`), & `buildWatchedRatingPayload` (`markCleared: true` null-tombstone propagation across `upsertMovieEntry`) |
-  | `tests/ratingTiers.test.js` | 10-tier `RATING_TIERS` map (`shortLabel` & `tone` metadata), `prepareQuickRatePayload` & `prepareWatchlistPayload` without fabricated ratings |
-  | `tests/recentReleaseSlots.test.js` | `buildBucketDParams`, `fetchBucketD` quality/vote floors & `<= 12` cap, `selectWithReserve` (`count = 2`), `computeReserveQualityScore` (`noveltyBonus = 0`) |
-  | `tests/scoringUtils.test.js` | Z-score zero-variance & cold-start guards, `bulkPriorDays = 180`, future timestamp clamp, Bayesian acclaim score |
-  | `tests/searchService.test.js` | Dual-engine OMDb + TMDB search normalization, local Vault overlay flags, cross-engine deduplication |
-  | `tests/tasteDeckService.test.js` | Interleaved 30-film `CORE_TASTE_DECK`, live pool top-up, zero-seen exclusions, `shouldAutoShowTasteOnboarding` (`< 3` rated & not dismissed) |
-  | `tests/tasteRulesService.test.js` | Static zero-circular-import verification (`tasteRulesService.js`), unqualified vs. qualified genre negation blacklist guard (`"No slow-burn period dramas"` excludes Drama `18` from `avoidGenreIds` vs `"No horror"` includes `27`), `\bwar\b` vs `"Star Wars"`/`"award"` word-boundary matching, `MAX_TASTE_RULES` capping & deterministic `buildTasteRulesHashSegment`, & offline fallback / mock Gemini auto-drafting preserving pinned rules |
-  | `tests/tmdbRabbitHoleHelpers.test.js` | `formatTmdbMovieDetails` `keywordItems` (`[{ id, name }]`) extraction, `normalizeTmdbItem` `imdbRating` preservation (`"7.8"` vs `"N/A"`), & `AbortError` warning suppression across `fetchCollectionTimeline`, `fetchTmdbMovieRecommendations`, & `searchTmdbKeywords` |
-  | `tests/vaultPortability.test.js` | Schema v2 JSON backup payload (`buildBackupJsonPayload`, incl. `preferences.tasteRules` serialization & legacy backup compatibility), Letterboxd/full CSV serializer (`buildRatingsCsv`), diff summary (`summarizeImportDiff` incl. `tmdb_...`/`tt...` duplicate collapsing without losing `dateWatched` or TMDB metadata), & `resolveCsvRowFallbackRecord` zero fake ratings |
-  | `tests/vaultStats.test.js` | Exact 1–10 `buildRatingHistogramBins` tallying, `attachRecSourceToRecommendations`, `resolveMovieRecSource` watchlist-to-watched provenance, & `computeRecommendationHitRate` (`>= 8★` / `>= 9★` / `meanRating`) |
-  | `tests/vaultSyncService.test.js` | `getCanonicalMovieKey`, Postgres row <-> local mapping (`mapLocalMovieToDbRow`, `mapDbRowToLocalMovie`), timestamp sanitization, keyset-paginated `fetchAllVaultRows` (`2,300` rows) & `pullAndSyncCloudVault` page-error abort guard, lossless `mergeLocalAndCloudVault` (incl. null-tombstone clearing so cleared `ratingBreakdown` / `watchMeta` are never resurrected from older cloud rows), & `recSource` `metadata` JSONB preservation |
-
-  ---
-
-  ## 15. Sculpted 10-Star Cinema Stage & Rating Studio 2.0 (`StarRatingStage.jsx` & `ratingStudioService.js`)
-
-  ### 15.1 Dynamic Taste Anchor Tiers (`ratingTiers.js`, `StarRatingStage.jsx`, `MovieDetails.jsx`)
-  Ratings drive a custom-sculpted 10-star cinema stage (`StarRatingStage.jsx`) with zero OS emojis, pairing tabular numeric readouts (`09 / 10`), semantic tier pills (`shortLabel`), and reactive `--tier-color` atmospheric lighting that articulates each score's role in the taste engine:
-
-  | Rating | Tier Title (`label`) | Pill Badge (`shortLabel`) | Tone (`tone`) | Taste Engine Mechanism | Visual Accent (`color`) |
-  | :---: | :--- | :---: | :---: | :--- | :--- |
-  | **10** | **Masterpiece (Anchor Film)** | `CANON` | `canon` | Sets primary anchor for Bucket B keyword harvest | Brass Gold (`#e2b13c`) |
-  | **9** | **Exceptional Cinema** | `ELITE` | `acclaim` | Eligible elite anchor; strong positive genre boost | Amber Gold (`#f59e0b`) |
-  | **8** | **Great Film** | `GREAT` | `positive` | Accumulates actor (`castIds`) & crew vectors | Emerald (`#10b981`) |
-  | **7** | **Good Watch** | `SOLID` | `warm` | Solid craft, baseline enjoyment & director count | Cyan (`#06b6d4`) |
-  | **6** | **Decent Baseline** | `DECENT` | `balanced` | Watchable with balanced qualities | Purple (`#8b5cf6`) |
-  | **5** | **Mediocre** | `MIXED` | `neutral` | Neutral boundary (`0.00` base z-score pull when at user mean) | Slate (`#94a3b8`) |
-  | **4** | **Flawed** | `FLAWED` | `caution` | Below average; enters negative trope extraction | Orange (`#f97316`) |
-  | **3** | **Disliked** | `WEAK` | `negative` | Trope penalty applied to negative keyword vector & repulsion map | Crimson (`#ef4444`) |
-  | **2** | **Poor Experience** | `POOR` | `harsh` | AI engine suppresses matching motifs | Dark Red (`#dc2626`) |
-  | **1** | **Severe Dislike** | `AVOID` | `reject` | Strict negative weight applied to keywords & repulsion map | Deep Ruby (`#b91c1c`) |
-
-  ### 15.2 Wave-Cascade Star Physics & Synchronized Light Rail (`computeStarStageMetrics`)
-  - **Custom-Beveled 10-Star SVG Stage (`StarRatingStage.jsx`)**: Replaces generic OS emoji banners and split number grids with 10 precision-faceted SVG stars (`role="radiogroup"`, full `ArrowLeft`/`ArrowRight`/`Home`/`End` and `1–9`/`0` keyboard accessibility) shared across `MovieDetails.jsx` and `QuickRateModal.jsx` (`compact` mode).
-  - **Wave-Cascade Hover Physics (`computeStarStageMetrics`)**: Hovering or selecting star $k$ elevates the active star (`scale: 1.26`, `liftPx: -4.5`), applies sympathetic neighbor lift to stars $k \pm 1$ (`scale: 1.12`, `liftPx: -2`), and slightly lifts filled predecessors (`scale: 1.03`, `liftPx: -0.75`) under a spring curve (`cubic-bezier(0.22, 1, 0.36, 1)`).
-  - **Synchronized Light Rail**: A continuous horizontal light rail tracks `fillRatio = activeScore / 10` (`10%–100%`) directly beneath the 10 star columns, illuminated in the active tier's `--tier-color`.
-  - **Floating Cinema Toast Pill (`ToastNotification.jsx`)**: Top-center luxury floating pill notification with quick `Undo` recovery for vault and watchlist deletions.
-
-  ### 15.3 Rating Studio 2.0: Live Vault Calibration, Craft Breakdown & Watch Session Metadata (`ratingStudioService.js`)
-  - **Live Personal Vault Calibration (`computeVaultCalibration`)**: While hovering or selecting `1★–10★`, computes the user's personal Vault percentile (`topPercentile` when `< 50%` rated higher, or `higherOrEqualPct`) and selects up to **2 personal benchmark films** at the exact same score (`exactRateMatch: true`, `"Alongside in your Vault:"`) or nearest rated neighbors (`"Closest rated in your Vault:"`).
-  - **4-Aspect Craft Breakdown (`CRAFT_ASPECTS` & `normalizeRatingBreakdown`)**: Optional `1–5` sub-ratings across `story` (Story & Script), `direction` (Direction & Pacing), `acting` (Performances), and `visuals` (Visuals & Sound), with mean computed via `computeCraftAverage`.
-  - **Watch Session Metadata (`WATCH_FORMATS` & `normalizeWatchMeta`)**: Optional watch format (`streaming`, `theater`, `imax`, `physical`), `rewatch` toggle, and `watchedDate` (`YYYY-MM-DD`, validated via `parseImportDate`).
-  - **Lossless Tombstone Clearing (`buildWatchedRatingPayload({ markCleared: true })`)**: Emits explicit `null` tombstones for cleared `ratingBreakdown` / `watchMeta`, which `upsertMovieEntry` (`movieIdentity.js`) strips into clean keys and `mergeLocalAndCloudVault` (`vaultSyncService.js`) honors when `localIsNewer` so cleared sub-ratings are never resurrected from older cloud rows.
-
-  ---
-
-  ## 16. Canonical Mood Policy, Custom Vibe Parser & Mood-Rebalanced Ranker (`moodPolicy.js`)
-
-  Until v5.0, mood behavior lived solely inside Bucket A TMDB parameters while Buckets B, C, D, Bucket E embeddings, and `rankCandidatePool` scored purely from global vault taste — allowing high `collabSim` or `bayesianRatingNorm` classics to dominate mood queries regardless of tone. CinemaVault now routes every layer through a single source of truth in **[src/services/moodPolicy.js](./src/services/moodPolicy.js)**:
-
-  ### 16.1 Single-Source Mood & Vibe Contracts
-  - **Canonical Output & Cache Thresholds**: `DEFAULT_RECOMMENDATION_COUNT = 10` and `MIN_VALID_CACHE_COUNT = 7`.
-  - **Activation Guard (`isExplicitMoodActive(mood, moodFilters)`)**: Returns `true` strictly when `mood !== "any"` OR `normalizeMoodFilters(moodFilters)` resolves non-empty `moodId` (`!== "any"`), `withGenreIds`, `withoutKeywords`, `minYear`, `maxYear`, or free-text `query`. When `false`, every ranker, reserve-slot, and retrieval heuristic preserves the benchmarked `"any"` pipeline bit-for-bit.
-  - **Deterministic Offline Free-Text Parser (`parseFreeTextMoodFallback(query)`)**: When Gemini is offline or keyless, parses plain-English queries via curated token/synonym maps (`GENRE_NAME_TO_ID`, mood phrases like `"feel-good"`, `"cozy"`, `"dark"`, `"twist"`, `"underrated"`, `"pre-2000"`, `"1990s"`, `"80s"`, and negation phrases like `"not horror"`, `"no gore"`, `"avoid romance"`) into canonical `{ moodId, withGenres, withGenreIds, withoutKeywords, minYear, maxYear, query }`. Live browser requests first try `parseFreeTextMoodWithGemini(aiClient, query)` on `FAST_INTERACTIVE_CASCADE` and fall back cleanly to `parseFreeTextMoodFallback`.
-  - **Hard Candidate Gate (`matchesMoodCandidateGate`)**:
-    1. Excludes any candidate containing preset `withoutGenreIds` (when preset active) or custom `minYear`/`maxYear` violations or `withoutKeywords` haystack matches.
-    2. When custom `withGenreIds` exist (or preset has `requiredAnyGenreIds`), requires at least one matching genre ID (`candGenreSet`).
-    3. Under `"hidden-gem"`, caps `voteCount` at `voteCountLte` (`2000`) once positive vote metadata is present (`> 0`).
-
-  ### 16.2 Mood-Rebalanced Ranker (`computeMoodScoreAdjustment` + `rankCandidatePool`)
-  When `isExplicitMoodActive` is true (`src/services/rankerService.js:480-564`), `rankCandidatePool`:
-  1. **Rebalances Collab vs. Metadata Weights**: Scales `effectiveWeights.collabSim = weights.collabSim * 0.35` and sets `metadataDampingFactor = 1.0` so genre fit and tone outweigh generic vault inertia.
-  2. **Applies `computeMoodScoreAdjustment`**:
-    - Rewards intersection with preset `preferredGenreIds` / custom `withGenreIds` (`+1.6` first match + `+0.6` additional matches, capped `+2.4`), and penalizes missing requested genres (`-2.5`).
-    - Penalizes `discouragedGenreIds` (`-1.4`, capped `-2.6`), applies preset-specific structural checks (e.g., `hidden-gem` awards `+2.6` for `50–1200` votes at `>= 7.2`, `+2.0` up to `2000`, `-3.5` above `2000`), and penalizes custom year violations (`-3.0`) or `withoutKeywords` matches (`-2.5`).
-    - Prepends `🎭 ${preset.label} Fit` badge when `moodAdjustment >= 1.2` and `reasons.length < 3`.
-  3. **Hard Gate Partition**: Partitions scored candidates into `gatePassed` and `gateRejected` using `matchesMoodCandidateGate`, returning strictly `gatePassed` whenever `gatePassed.length >= Math.min(10, topK)` (falling back to `[...gatePassed, ...gateRejected]` only when a narrow filter yields fewer than 10 matches).
-
-  ---
-
-  ## 17. Session Refresh Rotation, Exhaustion Guard & Oracle View Helpers (`oracleViewHelpers.js`)
-
-  **[src/services/oracleViewHelpers.js](./src/services/oracleViewHelpers.js)** isolates pure Oracle presentation, anchor resolution, and refresh pagination from React state in **[src/components/MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx)**:
-
-  - **Refresh Pagination & Exclusion History (`nextRefreshExcludeState`)**: When refreshing within the same mood/vibe key (`forceRefresh = true`), appends shown card IDs (`tmdbId`, `id`, `imdbID`) into a deduplicated rolling `seenIds` buffer capped at **`120` IDs** and cycles TMDB discover pagination sequentially across pages **`1 -> 2 -> 3 -> 4 -> 5 -> 1`**. Switching mood presets or clicking **"Start over"** resets `{ key, seenIds: [], page: 1 }`.
-  - **Exhaustion Guard (`reRankCandidatesWithGemini` & `getMovieRecommendations`)**: If aggressive session exclusions shrink the ranked pool below `Math.min(targetCount, candidates.length)`, unseen items remain sorted at the front while remaining slots pad cleanly from the unexcluded ranked pool so clicking Refresh never produces a blank or truncated page.
-  - **Filter Drawer Auto-Refresh (`shouldAutoRefreshOnDrawerClose`)**: Closing the `"Mood & Streaming"` drawer triggers automatic re-querying whenever `currentHash !== aiRecommendationsHash && !isLoading`, while skipping automatic calls if nothing changed.
-  - **Anchor Chip Verification & AI Jargon Stripping**: `resolveRecommendationAnchors(rec, watched, 3)` matches `rec.anchorIds` and verbatim `rec.anchorTitles` strictly against the user's actual watched library (rendering thumbnail + title + personal star rating under `"Because you rated"`), while `sanitizeOracleReason` strips internal ranking jargon before rendering card copy.
-  - **Legacy 6-Pick Session Discard Guard (`AppContext.jsx`)**: On mount, `AppProvider` discards restored `cinemavault_recs_v1` arrays containing `< 7` items (`parsed.length >= 7`) alongside `cinemavault_smart_cache_v3`, ensuring upgraded users seamlessly migrate onto 10-pick sessions (`cinemavault_smart_cache_v4`).
-
-  ---
-
-  ## 18. Serverless `/api/*` Proxy Isolation, Origin & Rate-Limit Hardening (`api/*.js` & `apiTransport.js`)
-
-  In production, all third-party credentials reside strictly on Vercel Serverless Functions while the browser calls same-origin `/api/*` routes via **[src/services/apiTransport.js](./src/services/apiTransport.js)**. All handlers delegate cross-origin enforcement (`isRequestOriginAllowed` -> `403 Forbidden` when an `Origin` header is present and does not match `host` / `x-forwarded-host`, `localhost` / `127.0.0.1`, Vercel deploy host vars, or `ALLOWED_ORIGIN`; when `Origin` is absent, `Sec-Fetch-Site: cross-site` is rejected without overriding any allowlisted `Origin`, while requests omitting both headers pass through for server-side/test callers) and in-memory per-IP sliding-window rate limiting (`checkSlidingWindowRateLimit` -> `429 Too Many Requests` with `Retry-After`, header `X-RateLimit-Source: proxy`, and JSON `errorCode: "PROXY_RATE_LIMIT"`, forwarded onto thrown client errors by `createProxyGeminiClient`) to **[api/_security.js](./api/_security.js)**:
-
-  | Endpoint / Module | Allowed Requests & Security Guardrails | Env Secret (Server) vs. Dev Fallback |
-  | :--- | :--- | :--- |
-  | **[`api/_security.js`](./api/_security.js)** | Shared `enforceApiSecurity` guard: browser `Origin` mismatch or `Origin`-less `Sec-Fetch-Site: cross-site` returns `403` (never overriding `ALLOWED_ORIGIN`); sliding 60s window enforces `20 req/min` on Gemini and `60 req/min` on TMDB/OMDb per client IP (`429` + `Retry-After` + `X-RateLimit-Source: proxy` + `errorCode: "PROXY_RATE_LIMIT"`) | `ALLOWED_ORIGIN` *(optional CSV allowlist)* |
-  | **`POST` [`api/gemini.js`](./api/gemini.js)** | Origin + **`20 req/min`** per-IP guard; explicit `ALLOWED_GEMINI_MODELS` allowlist (`gemini-4-hydrogen`, `gemini-4-argon`, `gemini-3.5-flash-lite`, `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, `gemini-3.8-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash`); `argon` blocked (`403`) unless `ENABLE_ARGON === "true"`; upstream error messages redact `apiKey` | `GEMINI_API_KEY` *(dev fallback `VITE_GEMINI_KEY`)* |
-  | **`GET` [`api/tmdb.js`](./api/tmdb.js)** | Origin + **`60 req/min`** per-IP guard; strict `ALLOWED_TMDB_PATH_RE` allowlist (`/3/discover/movie`, `/3/search/(movie\|person\|keyword)`, `/3/trending/movie/(day\|week)`, `/3/collection/<id>`, `/3/movie/<id>[/keywords\|credits\|watch/providers\|videos\|release_dates\|external_ids\|recommendations\|similar]`, `/3/person/<id>[/movie_credits]`, `/3/find/<id>`); rejects `..` traversal (`400`), strips client-supplied `api_key`, redacts upstream secrets | `TMDB_API_KEY` *(dev fallback `VITE_TMDB_KEY`)* |
-  | **`GET` [`api/omdb.js`](./api/omdb.js)** | Origin + **`60 req/min`** per-IP guard; requires lookup param (`i`, `t`, or `s`), strips client `apikey`, redacts server secret on failure | `OMDB_API_KEY` *(dev fallback `VITE_OMDB_KEY`)* |
-  | **[`apiTransport.js`](./src/services/apiTransport.js)** | Inspects `resolveTmdbKey()` / `resolveOmdbKey()` / `resolveGeminiKey()`. Calls external APIs directly ONLY when explicit local `VITE_*` dev keys are set; otherwise wraps requests cleanly via `fetchTmdbJson`, `fetchOmdbJson`, `getMovieDetailsBatch` (40-ID chunking + `429` short-circuit + `options.onHttpError`), and `createProxyGeminiClient()` (`AbortSignal`-aware) | Zero secrets in Vite production bundle (`build/assets/*.js`) |
-  | **[`vercel.json`](./vercel.json)** | Sets `"functions": { "api/*.js": { "maxDuration": 60 } }` so `gemini-4-hydrogen` (12–25s latency) is not killed at Vercel's 10s default timeout; SPA rewrite `/((?!api/\|models/).*) -> /index.html` keeps `/api/*` functions and `/models/*.bin` float16 binaries unintercepted with `immutable` 1-year `Cache-Control` headers | Vercel Serverless `maxDuration: 60s` + immutable edge caching |
-
-  > **Serverless Proxy Scope & Operational Trade-offs:**
-  > - **Per-Isolate In-Memory Rate Limiting:** `RATE_LIMIT_BUCKETS` in `api/_security.js` is an in-memory `Map` scoped to each warm Vercel Serverless isolate (protecting against burst loops from a single client without requiring external Redis/Upstash infrastructure, though counters reset across cold starts or horizontal isolate scaling).
-  > - **Non-Browser Caller Behavior:** Requests carrying a browser `Origin` or `Sec-Fetch-Site: cross-site` are strictly validated against the origin allowlist (`403 Forbidden`), while requests omitting both headers pass through to support CLI scripts and Node integration tests (`tests/apiProxy.test.js`).
-  > - **Client-Side Spend Telemetry:** `spendTracker` (`src/services/aiSpendTracker.js`) tracks per-browser daily token/spend budgets (`localStorage`) for UI telemetry and optional Argon gating, while server-side protection relies on `ALLOWED_GEMINI_MODELS`, `ENABLE_ARGON`, and per-IP sliding-window rate limits.
-
-  ---
-
-  ## 19. Live Editorial Discover Hub, Cross-ID Identity, Rapid Taste Deck & Lossless v2 Portability
-
-  - **Editorial Home Discovery Hub ([`dashboardService.js`](./src/services/dashboardService.js), [`DashboardPage.jsx`](./src/pages/DashboardPage.jsx), [`HeroBillboard.jsx`](./src/components/HeroBillboard.jsx), [`HomePosterGrid.jsx`](./src/components/HomePosterGrid.jsx))**:
-    - `loadHomeDiscoveryFeeds` aggregates unwatched Hero spotlight slides (`buildHeroSlides`) and multiple curated TMDB discovery rows (falling back gracefully to disjoint curated `FALLBACK_ROWS` when offline/keyless).
-    - Enforces strict `buildSeenCollisionSet` & `excludeSeenAndPlaced` filtering so films already in `watched` or `watchlist` (by IMDb, TMDB ID, or normalized `title::year`) never repeat across rows or appear as unseen Hero recommendations, and pairs with `HomePosterGrid`'s genre-filterable `"All Films"` mosaic (`collectCatalogMosaic`, paged by 24).
-  - **Canonical Cross-ID Identity Resolver ([`movieIdentity.js`](./src/services/movieIdentity.js))**:
-    - Normalizes across OMDb (`tt...`), TMDB (`tmdb_<id>` or numeric ID), `selectedId`, and normalized `ty:<title>::<year>`.
-    - `isSameMovie(a, b)` prevents same-year title collisions whenever both records carry conflicting explicit `imdbID` or `tmdbId` values, while `upsertMovieEntry` and `removeMovieEntries` keep `AppContext` mutations duplicate-free across mixed ID formats.
-  - **First-Visit Rapid Taste Deck, 10-Tier Quick Rating & Quick Review Tags ([`tasteDeckService.js`](./src/services/tasteDeckService.js), [`TasteDeckModal.jsx`](./src/components/TasteDeckModal.jsx), [`ratingTiers.js`](./src/services/ratingTiers.js), [`quickReviewTags.js`](./src/services/quickReviewTags.js), [`QuickRateModal.jsx`](./src/components/QuickRateModal.jsx))**:
-    - Auto-launches once for new visitors (`shouldAutoShowTasteOnboarding`: `watched.length < 3 && localStorage.getItem("cinemavault_taste_onboarding_dismissed_v1") !== "true"`) and remains on-demand from `NavBar` utility menu & `AIPage` / `DashboardPage` as `"Taste Calibration (30)"`.
-    - Builds a 30-film multi-genre interleaved deck (`CORE_TASTE_DECK` + optional live pool) excluding watched items, with Flashcards and Multi-Genre Grid views, backed by shared `RATING_TIERS` and zero silent fake-rating fabrication (`prepareQuickRatePayload` / `prepareWatchlistPayload`).
-    - `quickReviewTags.js` shares 1-click praise and constructive critique `#tag` chips (`QUICK_REVIEW_TAGS`, `getContextualQuickTags`, `hasQuickTagInNote`, `toggleQuickTagInNote`) across `QuickRateModal` (`maxLength = 200`, AI-note placeholder) and `MovieDetails.jsx` without duplicating tag state logic.
-  - **Schema v2 Lossless Portability & True `1★–10★` Stats ([`vaultPortability.js`](./src/services/vaultPortability.js), [`vaultStats.js`](./src/services/vaultStats.js), [`BackupManagerModal.jsx`](./src/components/BackupManagerModal.jsx))**:
-    - Exports **Schema v2 JSON backups** (`buildBackupJsonPayload`: `{ schemaVersion: 2, app: "CinemaVault", exportedAt, watched, watchlist, preferences: { userRegion, userWatchProviders } }`) alongside full CinemaVault CSV (`Title,Year,Type,UserRating,Note,IMDb ID,TMDB ID,...`) and Letterboxd 10-scale CSV (`buildRatingsCsv`).
-    - `summarizeImportDiff` uses `findSameMovieIndex` + `mergeDuplicateMovieRecord` across `Merge & Update`, `Add New Only`, and `Replace Vault` modes to collapse `tmdb_<id>` / `tt...` duplicates losslessly (retaining `dateWatched`, notes, `recSource`, and TMDB arrays/credits while preferring canonical `tt...` IMDb IDs), while `resolveCsvRowFallbackRecord` keeps unrated CSV rows at `userRating: 0` (routing unrated/watchlist rows cleanly without ever fabricating `5★` or `7★` scores).
-    - `buildRatingHistogramBins` (`vaultStats.js`) tallies exact rounded scores `10★..1★` without clamping `< 6★` rows, preserving visibility into negative repulsion signals, while `attachRecSourceToRecommendations`, `resolveMovieRecSource`, and `computeRecommendationHitRate` track recommendation-to-rating provenance (`recSource` synced in `vault_items.metadata` JSONB) and real-world `>= 8★` / `>= 9★` conversion hit rates.
-  - **Lazy Series-Guarded Vault TMDB Backfill & `addWatched` Hydration ([`tmdbService.js`](./src/services/tmdbService.js), [`AppContext.jsx`](./src/context/AppContext.jsx), [`MovieDetails.jsx`](./src/components/MovieDetails.jsx))**:
-    - `isSeriesVaultItem` detects TV series/episodes (`Type` or `SERIES_YEAR_RANGE_RE`), and `lookupTmdbByImdbInternal` inspects TMDB `/3/find/{imdbId}` `tv_results`, `tv_episode_results`, and `tv_season_results` so legacy TV shows are tagged `Type: "series"` without ever attaching movie TMDB IDs. `findTmdbByTitleAndYear(..., { strict: true })` enforces normalized exact title + `±1`-year bounds.
-    - `backfillMissingTmdbIds(watched, watchlist, options)` (defaults `maxItems = 40`, `maxLookups = maxItems`, `lookupConcurrency` clamped `[1, 4]` defaulting `3`) skips already-complete entries (`hasCompleteTmdbMetadata`) and cached keys (`getVaultBackfillItemKey`), batch-hydrates `tmdbGenreIds`, `tmdbKeywords`, `castIds`, and `crewPersonId` alongside `cast`, `writers`, `tagline`, `originCountry`, `spokenLanguages`, `mpaaRating`, `runtimeMinutes`, `keywordNames`, and overview fallbacks (`applyDetailsToCandidate` / `mergeBackfilledMovieMetadata`) via `getMovieDetailsBatch`, preserves existing `userNote` values and the `"N/A"` poster convention, and stops immediately on HTTP `429` (`onHttpError`) without poison-caching rate-limited items.
-    - On mount in `AppContext.jsx` (`800ms` deferred, `maxItems: 40`, `maxLookups: 15`, checked keys persisted up to `500` in `cinemavault_tmdb_backfill_checked_v1`), backfilled records merge purely into live state (collapsing duplicates and queueing Supabase key transitions), while `addWatched` triggers non-blocking `fetchTmdbMovieDetails` hydration whenever a newly rated movie lacks complete TMDB metadata. `MovieDetails.jsx` also gates fallback `findTmdbByTitleAndYear(..., { strict: true })` behind `!isSeriesVaultItem(omdbData) && !isSeriesVaultItem(watchedItem)` and persists `Type`. (`scripts/experiments/vault_cold_share.mjs --exclude-series` reuses `isSeriesVaultItem` to compute movie-only cold share.)
-
-  ---
-
-  ## 20. Opt-In Multi-User Supabase Cloud Sync, Postgres RLS Schema & Merge Engine
-
-  CinemaVault operates **100% guest-first in `localStorage`** and enables multi-device / multi-user synchronization only when `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY`) are configured (`hasSupabaseConfig()` in **[`supabaseClient.js`](./src/services/supabaseClient.js)**, UI via **[`CloudSyncModal.jsx`](./src/components/CloudSyncModal.jsx)**):
-
-  ### 20.1 Postgres 15+ Schema & Hardened RLS ([`supabase/migrations/20261114000000_init_cinemavault_schema.sql`](./supabase/migrations/20261114000000_init_cinemavault_schema.sql))
-  - **`public.profiles`**: `id uuid primary key references auth.users(id) on delete cascade`, `display_name`, `user_region text not null default 'GLOBAL'`, `preferred_providers integer[] not null default '{}'`, `updated_at`.
-  - **`public.user_vault_items`**: `id bigint generated always as identity primary key`, `user_id uuid not null references auth.users(id) on delete cascade`, `movie_key text not null`, `status check (status in ('watched', 'watchlist'))`, `tmdb_id`, `imdb_id`, `title`, `year`, `poster`, `genre`, `director`, `runtime integer`, `imdb_rating numeric(3,1)`, `user_rating smallint (0..10)`, `user_note`, `date_watched`, `is_bulk_imported`, `metadata jsonb`, `updated_at`, with `unique (user_id, movie_key)` and composite index `user_vault_items_user_status_idx (user_id, status, updated_at desc)`.
-  - **Security & Performance Isolation**:
-    - Trigger function `public.touch_updated_at()` sets `security invoker` and empty `search_path = ''`.
-    - `revoke all ... from public, anon`; `grant select, insert, update, delete ... to authenticated` (+ identity sequence usage).
-    - Explicit per-operation RLS policies (`for select`, `for insert`, `for update`, `for delete` `to authenticated`) wrapping `(select auth.uid()) = id` / `user_id` with `with check` clauses so every signed-in user sees strictly their own vault rows (`auth.uid()` evaluated once per statement).
-
-  ### 20.2 Lossless Two-Way Sync & Conflict Resolution ([`vaultSyncService.js`](./src/services/vaultSyncService.js) & [`AppContext.jsx`](./src/context/AppContext.jsx))
-  - **Deterministic Keying (`getCanonicalMovieKey`)**: Resolves `imdbID -> tmdb_<tmdbId> -> id -> local_<slug>_<year>`, packing all non-SQL fields (e.g., `tmdbKeywords`, `castIds`, `crewPersonId`, `tmdbGenreIds`, `trailerKey`, `streamProviders`, `dateSource`) losslessly into `metadata` JSONB (`mapLocalMovieToDbRow` / `mapDbRowToLocalMovie`).
-  - **Merge Precedence (`mergeLocalAndCloudVault`)**:
-    1. `"watched"` strictly beats `"watchlist"` across local and cloud copies so logged ratings are never downgraded by another device's stale watchlist entry.
-    2. Local guest films absent from cloud are queued in `toUpsertCloud` rather than overwritten on first sign-in.
-    3. Watched conflicts compare `updatedAt` / `dateWatched` timestamps (`parseTimestampMs`) and un-timestamped local explicit ratings, preserving orphaned `userNote` strings cleanly during merge.
-  - **Keyset-Paginated Cloud Pull & Atomic Abort Guard (`fetchAllVaultRows` & `pullAndSyncCloudVault`)**: Cloud pulls paginate `user_vault_items` sequentially via `.order("id", { ascending: true }).gt("id", lastId).limit(1000)` until an empty page is returned, preventing silent PostgREST `1,000`-row truncation on large vaults. If *any* page returns an error, `pullAndSyncCloudVault` throws immediately so sync is marked failed and both `mergeLocalAndCloudVault` and all cloud upserts are skipped (never merging partial cloud snapshots over local ratings).
-  - **Debounced Background Flush & Deletion Semantics (`AppContext.jsx`)**: Incremental local edits/deletes enqueue into `pendingUpsertsRef` / `pendingDeletesRef` and sync cleanly to Supabase when `cloudUser` is authenticated, while `signOutCloud` keeps all local titles intact in browser storage. Note that while sub-fields (`ratingBreakdown`, `watchMeta`) use explicit `null` tombstones inside `metadata` JSONB, full-item removals execute hard `DELETE` statements on `public.user_vault_items` (so an offline secondary device still holding a deleted film in `localStorage` will treat it as an unsynced local addition on next sign-in unless deleted while online).
-
-  ---
-
-  ## 21. v5.1 Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`)
-
-  ### 21.1 Franchise Collection Guard & Vault Collection Persistence ([`tmdbService.js`](./src/services/tmdbService.js), [`AppContext.jsx`](./src/context/AppContext.jsx), [`geminiService.js`](./src/services/geminiService.js))
-  - **Full-Pipeline Collection Extraction:** `formatTmdbMovieDetails` extracts TMDB `belongs_to_collection` into numeric `collectionId` and `collectionName`, and propagates them cleanly across all `bridgeTmdbToOmdb` branches (incl. OMDb & synthetic fallbacks), `pickEnrichedDetails`, `applyDetailsToCandidate`, `mergeBackfilledMovieMetadata`, `AppContext.addWatched` async TMDB hydration, `buildRecommendationEntry`, and `verifyAndScoreWildcardPicks`.
-  - **Two-Pass Variety Capping (`selectWithSoftVarietyCaps`):** Replaces director-only capping in both `mergeGeminiExplanationsWithRanker` and `buildRankerFallbackResponse` (`buildPoolCapItem`, `normalizeDirectorCapKey`, `normalizeCollectionCapKey`), enforcing **`maxPerDirector = 2`** and **`maxPerCollection = 1`** on the primary pass while overflowing gracefully in calibrated priority order only if strict enforcement would leave slots unfilled below `desiredTotal`.
-  - **Prompt Collection Signals:** Candidate lines emit `Collection: <collectionName>` (`<= 60` chars when `plotLimit >= 80`), and `TASK` appends the explicit **`Franchise rule:`** instructing Gemini to keep at most 1 film per franchise/collection and never recommend a numbered sequel or Part 2+ unless an earlier installment exists in the user's Vault.
-
-  ### 21.2 Steerable Taste Rules Engine & UI Drawer ([`tasteRulesService.js`](./src/services/tasteRulesService.js), [`AppContext.jsx`](./src/context/AppContext.jsx), [`MovieRecommendations.jsx`](./src/components/MovieRecommendations.jsx), [`AIChat.jsx`](./src/components/AIChat.jsx))
-  - **Zero Circular Imports & Rule Limits:** [`tasteRulesService.js`](./src/services/tasteRulesService.js) maintains a pure dependency graph importing **only** `moodPolicy.js` at top level (`draftTasteRulesWithGemini` accepts injected `geminiDeps` or dynamically imports `./geminiService.js`), capping rules at **`MAX_TASTE_RULES = 8`** and **`MAX_RULE_TEXT_LENGTH = 140`**.
-  - **Broad Genre Blacklist Protection (`extractRuleSignals`):** Distinguishes unqualified vs. qualified genre negations so `"No horror"` / `"Avoid documentaries"` (even with trailing sentence punctuation stripped by `stripClauseDirectives`) safely contributes TMDB `without_genres` (`27`, `99`), whereas qualified phrases such as `"No slow-burn period dramas"` or `"Avoid cheesy action"` extract specific phrase keywords into `keywords` and leave `avoidGenreIds` empty so Bucket A never wipes out all Drama (`18`) or Action (`28`) titles on TMDB. Phrase checks use hyphen- & space-aware regex word boundaries (`buildPhraseRegex`, matching both `"slow-burn"` and `"slow burn"` while avoiding false hits for `\bwar\b` inside `"Star Wars"` or `"award"`).
-  - **Multi-Stage Recommendation, Ranker, Shortlist, Wildcard & Chat Wiring:**
-    1. **Bucket A (`buildBucketAParams`):** Merges compiled unqualified `avoidGenreIds` with mood `withoutGenreIds` cleanly (respecting mood inclusions).
-    2. **Calibrated Ranker & Explicit Mood Gate (`rankCandidatePool`):** Applies bounded logit shifts (**`+0.6`** on `candidateMatchesPreferRule`, **`-3.5`** on `candidateMatchesAvoidRule`, and strictly `0` change when `tasteRules` is empty), and routes explicit-mood `avoidRules` hits cleanly into `gateRejected` ahead of `gatePassed` ordering and `onDiagnostics.moodShortfall`.
-    3. **Shortlist & Wildcard Gates (`buildDiversifiedGeminiShortlist`, `verifyAndScoreWildcardPicks`):** Slices 2 (`coldLimit`), 3 (`outlierLimit`), and overflow top-up inside the 39-pick shortlist plus verified TMDB wildcards all enforce `candidateMatchesAvoidRule` exclusion so avoided tropes cannot sneak past the core ranker.
-    4. **Prompt, Fallback & Hash (`generateProfileHash`, `buildGeminiReRankPrompt`, `generateWithOmdbFallback`, `sendChatMessage`):** Appends deterministic `buildTasteRulesHashSegment` (`_tr_<fnv1a36>`) as the 8th optional arg to `generateProfileHash`, renders `USER'S STEERABLE TASTE RULES (Follow strictly)` inside both `buildGeminiReRankPrompt` (immune to `<= 20,000`-char compaction) and `generateWithOmdbFallback`, and injects active `[Prefer]`/`[Avoid]` rules into `AIChat` via `sendChatMessage(..., tasteRules)`.
-  - **Auto-Drafting, Protected Persistence, Backup & UI Drawer:** `draftTasteRulesWithGemini` (or deterministic `draftTasteRulesFallback` offline) synthesizes 4–6 actionable rules from liked notes, disliked notes, and dismissal reasons while keeping existing `pinned` rules intact; `AppContext.jsx` persists `cinemavault_taste_rules_v1` **outside** `safeSetItem`'s `purgeOrder` alongside `addTasteRule` / `updateTasteRule` / `deleteTasteRule` / `toggleTasteRuleActive` / `toggleTasteRulePin`; `vaultPortability.js` serializes `preferences.tasteRules` (even when `[]`, supporting Replace-mode clearing without breaking legacy exports lacking `tasteRules`) in Schema v2 JSON backups; and `MovieRecommendations.jsx` (`src/styles/oracle.css`) exposes a collapsible **"Taste Rules"** studio drawer for 1-click AI auto-drafting, adding Prefer/Avoid rules, toggling, pinning, inline editing, and deleting.
-
-  ### 21.3 Interactive Actor, Director & Crew Filmography (`personService.js`, `PersonFilmographyModal.jsx`, `PersonPage.jsx`)
-  - **Proxy & Structured Credit Extraction ([`api/tmdb.js`](./api/tmdb.js), [`tmdbService.js`](./src/services/tmdbService.js), [`personService.js`](./src/services/personService.js)):** `ALLOWED_TMDB_PATH_RE` permits `/3/search/person` and `/3/person/<id>[/movie_credits]` (while blocking path traversal and `trending/person/*`). `formatTmdbMovieDetails` preserves structured `directorDetails`, `writerDetails`, `cinematographerDetails`, and `composerDetails` arrays (`{ id, name, job, department }`), while `extractMovieCreditPeople` normalizes TMDB credits alongside comma-separated OMDb fallbacks tagged with `id: null` (matched on demand via `/3/search/person`) and `MovieDetails.jsx` fixes the synthetic OMDb cast fallback index bug.
-  - **Filmography Normalization, Vault Matching & Session Caching (`personService.js`):** `normalizePersonCredits` deduplicates cast and crew entries per `tmdbId`, filters `"Self"`/talk-show noise cleanly unless documentary-only, annotates rows via `movieIdentity.js` (`annotateCreditsWithVaultState`, preventing same-year title collisions when `tmdbId` differs), computes personal Vault Affinity Stats (`computePersonVaultStats`), filters/sorts cleanly (`filterAndSortPersonCredits` with `<50`-vote protection on `"top_rated"`), and caches resolved person payloads in `personSessionCache`.
-  - **Overlay Modal & `/person/:id` Full Profile ([`PersonFilmographyModal.jsx`](./src/components/PersonFilmographyModal.jsx), [`PersonFilmographyExplorer.jsx`](./src/components/PersonFilmographyExplorer.jsx), [`PersonPage.jsx`](./src/pages/PersonPage.jsx), [`MovieDetails.jsx`](./src/components/MovieDetails.jsx), [`src/styles/person.css`](./src/styles/person.css)):** Clicking any Starring Cast card or Director/Writers/Cinematographer/Score button opens `PersonFilmographyModal` (`zIndex: 8500` strictly below `QuickRateModal` at `9999`, guarded by `shouldCloseMovieDetailOnEscape` and nested-dialog checks) with active department detection (`resolvePersonDefaultDepartment`), inline Vault filters/sorting, `+ Save`, and `★ Rate`; `"View Full Profile →"` navigates cleanly to `/person/:id?dept=<tab>` (`buildPersonProfileRoute`).
-
-  ---
-
-  ## 22. v5.2 Research Hub: Rating Studio 2.0, Contextual Film Chat, Deep Explore Workbench (`/explore`), Rabbit Hole Discovery & Side-by-Side Film Comparison (`/compare`)
-
-  ### 22.1 Rating Studio 2.0 & Contextual "Discuss This Film" AI Chat ([`ratingStudioService.js`](./src/services/ratingStudioService.js), [`filmChatService.js`](./src/services/filmChatService.js), [`geminiChatService.js`](./src/services/geminiChatService.js), [`MovieDetails.jsx`](./src/components/MovieDetails.jsx), [`AIChat.jsx`](./src/components/AIChat.jsx), [`AIPage.jsx`](./src/pages/AIPage.jsx))
-  - **Rating Studio 2.0 (`ratingStudioService.js`)**:
-    - `computeVaultCalibration(watched, targetScore, currentMovie)` returns live personal Vault percentile context (`topPercentile`, `higherOrEqualPct`, `totalRated`) and up to 2 benchmark films at the exact same rating (`exactRateMatch: true`) or nearest rated neighbors.
-    - `normalizeRatingBreakdown` and `computeCraftAverage` manage optional `1–5` Craft Breakdown scores (`story`, `direction`, `acting`, `visuals`), while `normalizeWatchMeta` manages `format` (`streaming`, `theater`, `imax`, `physical`), `rewatch` boolean, and `watchedDate` (`YYYY-MM-DD`).
-    - `buildWatchedRatingPayload({ markCleared: true })` emits explicit `null` tombstones for cleared `ratingBreakdown` / `watchMeta`, stripped into clean keys by `upsertMovieEntry` (`movieIdentity.js`) and honored by `mergeLocalAndCloudVault` (`vaultSyncService.js`) when `localIsNewer` so cleared sub-ratings are never resurrected from older cloud rows.
-  - **Contextual "Discuss This Film" AI Chat (`filmChatService.js` & `geminiChatService.js`)**:
-    - Clicking **"Discuss This Film"** on `MovieDetails.jsx` saves a hydrated dossier in `sessionStorage` (`FILM_CHAT_CACHE_PREFIX = "cinemavault_film_chat_focus_v1:"`) and navigates to `/ai?tab=chat&movie=<imdbID>&tmdbId=<tmdbId>&title=<Title>` (`buildFilmChatRoute` / `parseAiPageParams`).
-    - `serializeFilmDossierForPrompt(movie, vaultEntry, { allowSpoilers })` strips control characters and neutralizes prompt-injection markers (`###`, `SYSTEM:`, `USER:`, `ASSISTANT:`) via `sanitizeLine`, includes full film metadata, Vault status, `ratingBreakdown`, `watchMeta`, and `userNote`, and enforces **`SPOILER-SAFE MODE ACTIVE`** by default for unwatched films until the user toggles **Spoilers Allowed** in the pinned `AIChat.jsx` Film Context Banner (`buildChatPromptPayload`).
-
-  ### 22.2 Deep Filter Workbench (`/explore`, [`exploreService.js`](./src/services/exploreService.js), [`ExplorePage.jsx`](./src/pages/ExplorePage.jsx))
-  - **URL-Synced Multi-Facet Filter Engine (`exploreService.js`)**:
-    - Supports multi-genre pills (`EXPLORE_GENRE_OPTIONS`), decade/year presets (`DECADE_PRESETS` + custom `yearMin`/`yearMax` range inputs with `mergeYearDraftIntoFilters` flushing unblurred typed drafts before Apply/Reset), runtime bands (`RUNTIME_PRESETS`), minimum rating floor (`minRating`), TMDB sort modes (`EXPLORE_SORT_OPTIONS`, automatically raising `vote_count.gte` to **`>= 150`** on `vote_average.desc`), original language (`LANGUAGE_OPTIONS`), origin country (`COUNTRY_OPTIONS`), streaming provider chips (`useWatchProviders: true`, falling back `GLOBAL -> US` for `watch_region`), live TMDB `#keyword` autocomplete (`searchTmdbKeywords` via `/3/search/keyword`), and Vault state toggles (`hideWatched`, `hideWatchlist`).
-    - `buildExploreRoute` delegates encoding to `URLSearchParams` so multi-word `#keyword` chips on `MovieDetails.jsx` never double-encode spaces into `%2520`.
-  - **Race-Safe View-State & Auto-Pagination (`deriveExploreViewState` & `ExplorePage.jsx`)**:
-    - `deriveExploreViewState` ensures filter switches render a clean loading skeleton instead of stale grids, auto-advances up to **3 pages** (`autoAdvanceCap = 3`) when `hideWatched` filters out all 20 items on Page 1 before showing empty state, and preserves already-loaded cards with an inline retry banner if a subsequent `"Load More"` page fails.
-
-  ### 22.3 Rabbit Hole Discovery: Franchise Timelines & Hybrid Similar Strip ([`rabbitHoleService.js`](./src/services/rabbitHoleService.js), [`CollectionTimeline.jsx`](./src/components/CollectionTimeline.jsx), [`SimilarFilmsStrip.jsx`](./src/components/SimilarFilmsStrip.jsx))
-  - **Chronological Franchise Timeline (`normalizeCollectionTimeline` & `CollectionTimeline.jsx`)**:
-    - Fetches `/3/collection/:id` (`fetchCollectionTimeline`), sorts installments chronologically by release date (`TBA` entries placed last), highlights the active film (`isCurrent`), annotates Vault state (`watched` / `watchlist` / `userRating`), and displays a live progress badge (`"{watchedCount} / {totalCount} watched"`).
-  - **Norm-Safe 64-D Vector Neighbors & Hybrid Merge (`findEmbeddingNeighborsForMovie` & `buildHybridSimilarFilms`)**:
-    - Because `public/models/item_embeddings_f16.bin` stores Bayesian-shrunk vectors with L2 norms in `[0.30, 1.00]`, `findEmbeddingNeighborsForMovie` computes true cosine similarity $\frac{u \cdot v}{\|u\|\|v\|}$ (dividing by `normA * normB`) rather than raw dot products so popular high-norm blockbusters cannot crowd out true stylistic neighbors.
-    - `buildHybridSimilarFilms` merges local 64-D `CVEM v1` vector neighbors with TMDB `/recommendations` (falling back to `/similar` when `/recommendations` returns `< 4` items via `fetchTmdbMovieRecommendations`), tags each card with `matchOrigin: "hybrid" | "vault-vector" | "tmdb"`, preserves real `tt...` IMDb IDs over synthetic `tmdb_<id>` strings on overlap, and demotes same-collection sequels already shown in `CollectionTimeline`.
-
-  ### 22.4 Side-by-Side Film Comparison Workbench (`/compare`, [`compareService.js`](./src/services/compareService.js), [`CompareDock.jsx`](./src/components/CompareDock.jsx), [`CompareModal.jsx`](./src/components/CompareModal.jsx), [`CompareWorkbench.jsx`](./src/components/CompareWorkbench.jsx), [`ComparePage.jsx`](./src/pages/ComparePage.jsx))
-  - **Global Tray, Floating Dock & Shareable URLs**:
-    - `AppContext` persists up to **`COMPARE_MAX_ITEMS = 3`** films in `localStorage` (`cinemavault_compare_v1`) with `toggleCompareMovie`, `isInCompare`, `removeFromCompare`, and `clearCompare`.
-    - Every `MovieCard.jsx` and `MovieDetails.jsx` action bar exposes a `⇄ Compare` toggle button; once `>= 1` film is queued, `CompareDock.jsx` floats at the bottom of the viewport with quick-open modal (`CompareModal.jsx`), shareable URL copy (`buildCompareUrl` -> `/compare?ids=...`), and direct `/compare` workbench navigation (`ComparePage.jsx`).
-  - **Winner Matrix, Overlap Signals & 64-D Taste Match (`buildCompareMatrix` & `computeCompareOverlap`)**:
-    - `buildCompareMatrix` computes side-by-side rows and highlights column `leaders` (with tie support) across IMDb, Rotten Tomatoes (preserving `0%`), Metascore (preserving `0`), TMDB score, shortest runtime, box-office revenue, ROI multiple (`revenueUsd / budgetUsd`), personal Vault score & notes, and 64-D `CVEM v1` **Personal Taste Match %** (`vaultMatchPct`).
-    - `computeCompareOverlap` extracts shared actors & directors/writers (`personId`-linked directly to `PersonFilmographyModal`), shared genres (routed via `resolveExploreGenreId` to `/explore?genres=<id>`), shared `#keyword` motifs (`/explore?kw=<id>:<name>`), and pairwise 64-D `CVEM v1` cosine similarity (`pairVectorSims`).
-    - `addUrlCompareSlot`, `removeUrlCompareSlot`, `dedupeHydratedMovies`, and `hydrateCompareMovieSlot` handle URL-only `/compare?ids=...` sessions, `_notFound` error slots, and cross-scheme `tt... <-> tmdb_...` identity resolution cleanly.
-
-  ---
-
-  *Authored by **[Khuzaima](https://github.com/khuzaima175)** for the CinemaVault Project.*
+  return null;
+}
+```
+
+### 8.3 500KB LRU Eviction Policy & Tiered LocalStorage Quota Protection
+1. **500KB Cache Cap (`setSmartCache` on `cinemavault_smart_cache_v4`)**: Sorts cache keys by timestamp (`ts`) ascending and evicts the oldest entries in a single pass whenever `serialized.length * 2 > 500 * 1024`.
+2. **Tiered Quota Recovery (`safeSetItem` in `src/context/AppContext.jsx`)**: Wraps all `localStorage` writes. If `QuotaExceededError` (code `22` / `1014`) is thrown, `safeSetItem` purges non-critical derivative caches in priority order to protect user vault data:
+   1. `cinemavault_smart_cache_v4`
+   2. `cinemavault_smart_cache_v3`
+   3. `cinemavault_explanations_v1`
+   4. `cinemavault_recs_model_v1`
+   5. `cinemavault_recs_v1`
+   6. `cinemavault_recs_hash_v1`
+   7. `cinemavault_feedback_v1`
+3. **Working-Model Cache Keys**: `cinemavault_working_model_curation_v1` & `cinemavault_working_model_fast_v1` (`30 min` TTL, invalidated automatically on model failure).
+4. **Storage Envelope & IndexedDB Split (`tmdbCacheService.js`)**: Heavy 30-day TMDB batch enrichment payloads live in IndexedDB (`cinemavault_tmdb_cache_db`), while the primary guest vault (`cinemavault_watched`, `cinemavault_watchlist`) resides in synchronous `localStorage` (`~5 MB` browser origin limit, comfortably supporting typical `500–2,500`-film vaults once derivative caches are evicted; larger hydrated vaults beyond `~5 MB` require cloud sync or a future IndexedDB vault migration).
+
+---
+
+## 9. Universal Streaming Access & Multi-Region Matrix
+
+### Supported Streaming Providers & Alias Family Expansion (`POPULAR_WATCH_PROVIDERS` / `PROVIDER_FAMILY_MAP`)
+TMDB splits several subscription catalogs across ad tiers, kids tiers, and Amazon/Apple/Roku/Showtime channel IDs (e.g., Netflix Standard with Ads `1796`, Amazon Channel Max `1825`, Paramount+ Showtime `2616`). `expandProviderIds` and `buildProviderFilter(..., { expandAliases: true })` expand user selections across `PROVIDER_FAMILY_MAP`, while `matchesWatchProviders(candidate, selectedProviders)` verifies `streamProviders` / `freeProviders` against both expanded provider IDs and lowercase `PROVIDER_NAME_TOKENS`:
+
+| Provider | Canonical ID | Key | Expanded TMDB Family IDs (`PROVIDER_FAMILY_MAP`) |
+| :--- | :---: | :---: | :--- |
+| **Netflix** | `8` | `netflix` | `[8, 1796, 175]` *(Main, Standard with Ads, Kids)* |
+| **Amazon Prime Video** | `9` | `prime` | `[9, 10, 119, 2100]` |
+| **Disney+** | `337` | `disney` | `[337, 390]` |
+| **Max (HBO)** | `1899` | `max` | `[1899, 384, 1825, 29, 31]` *(Max, HBO Max, Max Amazon Channel, HBO Go/Now)* |
+| **Apple TV+** | `350` | `apple` | `[350, 2, 2243]` |
+| **Hulu** | `15` | `hulu` | `[15]` |
+| **Paramount+** | `531` | `paramount` | `[531, 1853, 2303, 2616, 582]` *(Paramount+, Amazon/Apple/Showtime/Roku channels)* |
+| **Peacock** | `386` | `peacock` | `[386, 387]` |
+| **Criterion Channel** | `258` | `criterion` | `[258]` |
+| **Tubi (Free)** | `73` | `tubi` | `[73]` |
+| **Pluto TV (Free)** | `300` | `pluto` | `[300]` |
+| **Freevee (Free)** | `573` | `freevee` | `[573, 613, 546]` *(+ `613` alias -> `[613, 546, 573]`)* |
+
+*(Strict Ranker Provider Gate: When `userProviders` is non-empty, `rankCandidatePool` inspects `matchesWatchProviders` on hydrated candidates. It uses the verified subset alone when `providerVerified.length >= Math.min(6, topK)`, or puts verified items first followed by unhydrated `providerMatchedByQuery` items when fewer verified items exist.)*
+
+### Supported Regions (`AVAILABLE_REGIONS`)
+`GLOBAL` (Worldwide), `US`, `GB`, `CA`, `AU`, `JP`, `KR`, `FR`, `DE`, `ES`, `IT`, `IN`, `BR`, `MX`, `SE`.
+
+---
+
+## 10. Official Trailer Resolution & Playback Architecture
+
+Major movie studios frequently enforce origin-embedding restrictions on official trailers (resulting in iframe `Error 153: Video unavailable`). CinemaVault combines **hierarchical official trailer ranking** with both modal and direct playback options:
+
+1. **Hierarchy Strategy (`extractOfficialTrailerKey`)**:
+   - `type === "Trailer" && official === true && (iso_639_1 === "en" || !iso_639_1)`
+   - `type === "Trailer" && name matches ("official" | "main" | "theatrical")`
+   - `type === "Trailer"`
+   - `type === "Teaser"`
+   - First available YouTube clip (`youtubeVideos[0].key`)
+2. **Playback & Fallback**:
+   - Launches either in `TrailerModal.jsx` (portaled to `document.body`) or directly via canonical YouTube watch URL (`https://www.youtube.com/watch?v=${trailerKey}`).
+   - If a film has no TMDB video records, falls back to a pre-encoded YouTube search query: `https://www.youtube.com/results?search_query=${encodeURIComponent(title + ' ' + year + ' official trailer')}`.
+
+---
+
+## 11. Telemetry Analytics & Statistical Algorithms
+
+### 1. Rating Delta Histogram (`VaultBanner.jsx` / `vaultStats.js`)
+Calculates the user's mean deviation from global IMDb baselines (`VaultBanner.jsx` renders `+X.Y vs IMDb` / `-X.Y vs IMDb` alongside exact `1★–10★` histogram bins from `buildRatingHistogramBins`):
+
+$$\Delta(m) = \text{UserRating}(m) - \text{ImdbRating}(m)$$
+
+When partitioning $\Delta$ into 5 contiguous behavioral bands covering $(-\infty, +\infty)$:
+- **Critical Contrariness** ($\Delta \le -1.5$)
+- **Mild Skepticism** ($-1.5 < \Delta \le -0.5$)
+- **Consensus Neutral** ($-0.5 < \Delta < +0.5$)
+- **Generous Affinity** ($+0.5 \le \Delta < +1.5$)
+- **Strong Favorite** ($\Delta \ge +1.5$)
+
+### 2. Watch Time Aggregator
+$$\text{TotalMinutes} = \sum_{m \in \text{Watched}} \text{parseRuntimeMinutes}(m.\text{runtime})$$
+
+Converted into Days, Hours, and Minutes counters.
+
+---
+
+## 12. Hardened Letterboxd Portability & Pure CSV Import Engine (`csvImport.js`)
+
+To eliminate browser/UI coupling and fix timestamp distortion on large vault migrations, all CSV parsing, date validation, bulk cluster suppression, and diary rewatch deduplication were extracted into [src/services/csvImport.js](./src/services/csvImport.js) (tested directly via `node --test`) and wired into `BackupManagerModal.jsx`, `MovieCard.jsx`, and `VaultPage.jsx`:
+
+- **Export Formats ([`BackupManagerModal.jsx`](./src/components/BackupManagerModal.jsx) & [`vaultPortability.js`](./src/services/vaultPortability.js))**:
+  - **Full JSON Archive (Schema v2)**: Complete `{ schemaVersion: 2, app: "CinemaVault", exportedAt, watched, watchlist, preferences: { userRegion, userWatchProviders } }` state snapshot (`cinemavault_backup.json`).
+  - **Standardized Letterboxd CSV**: `Title,Year,Rating10,WatchedDate,Review`.
+  - **General Vault CSV**: `Title,Year,Type,UserRating,Note,IMDb ID,TMDB ID,Watched Date,Director,Genres,Runtime,IMDb Rating,Poster`.
+- **Import Engine (`parseCSVImport`, `parseRating`, `BATCH_SIZE = 4`)**:
+  - Parses both numeric ratings (`1–5` scaled to `2–10`, or native `1–10`) and Unicode star strings (`★★★★½` → `9`).
+  - Chunks CSV imports into asynchronous batches (`BATCH_SIZE = 4`) to prevent browser and API rate-limit throttling while enriching records with OMDb/TMDB metadata and posters.
+  - **Header-Aware Column Resolution:** Reads Letterboxd headers so column 3 (`Letterboxd URI`) never leaks into `note` when a `Description`/`Review`/`Notes` header is absent (while preserving positional fallback for headerless CSVs).
+- **Date Source Priority & Strict Calendar Validation (`parseImportDate`)**:
+  - Prioritizes **`Watched Date`** (`dateSource: "watched"`) over **`Date`** (`dateSource: "logged"`), leaving `dateWatched` and `dateSource` unset when missing, empty, or invalid.
+  - Validates calendar dates strictly (`isValidCalendarYMD`), rejecting impossible rollovers like `2026-02-30` (rather than rolling into March) and rejecting timestamps past `now + 86,400,000 ms` (24-hour timezone tolerance). Accepts injected `now` for deterministic unit testing.
+- **Clustered Logged-Date Suppression Heuristic (`suppressBulkClusteredLoggedDates`)**:
+  - Named heuristic constants exported from `csvImport.js`: `MIN_CLUSTER_CHECK_ROWS = 10`, `CLUSTER_TOP3_SHARE = 0.30`, `MIN_ORGANIC_SPAN_DAYS = 14`.
+  - When a CSV contains `>= 10` parseable `Date` (`"logged"`) rows, if either the top 3 calendar dates cover `>= 30%` of those rows OR the newest-to-oldest span is `< 14` days, the `Date` column is treated as an artificial bulk backlog export. The importer deletes `dateWatched` & `dateSource`, sets `isBulkImported: true` (propagated onto the final record via `buildWatchedRecordFromImport`) so `bulkPriorDays = 180` applies in `scoringUtils.js`. Genuine `"Watched Date"` values are always trusted.
+- **Diary Rewatch Deduplication (`deduplicateDiaryRows`)**:
+  - Collapses duplicate rows matching normalized `title + year` down to one entry per film using the newest valid `Watched Date` (falling back to later row order when undated).
+  - If the newest rewatch row has no rating (`blank`), retains the **most recent non-empty rating** among that film's earlier diary entries instead of erasing the user's score.
+- **Quick-Add & Bulk-Move Stamping (`buildQuickAddWatchedMovie` & `buildBulkMoveWatchedItem`)**:
+  - Ensures direct quick-add ratings (`userRating > 0`) and watchlist-to-watched bulk moves receive valid ISO `dateWatched` timestamps when absent.
+- **Import Modes (with Pre-Apply Diff Preview via `summarizeImportDiff`)**:
+  - **Merge & Update (`merge_update`)**: Appends unseen titles and updates existing entries only when incoming explicit ratings change, preserving notes and explicit metadata.
+  - **Add New Only (`add_new`)**: Preserves all existing vault scores untouched and appends only unseen films.
+  - **Replace Vault (`replace`)**: Replaces local vault state with the imported snapshot (`mergeLocalAndCloudVault` pushes updated state if signed into Supabase).
+
+---
+
+## 13. Dual-Engine Search & Strict Env Enforcement
+
+### 13.1 Credential Isolation & Server-First Env Enforcement (`apiTransport.js`)
+In production Vercel deployments, third-party API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY`) live exclusively inside server environment variables and are **never embedded into Vite's browser bundle (`build/assets/*.js`)**. `src/services/apiTransport.js` routes every request automatically: if an optional local-dev `VITE_*` key exists (`VITE_GEMINI_KEY`, `VITE_TMDB_KEY`, `VITE_OMDB_KEY`), local calls talk directly to Google/TMDB/OMDb; otherwise, browser calls route through `/api/gemini`, `/api/tmdb`, and `/api/omdb` serverless proxies (`api/*.js`). Public browser variables are restricted to Supabase publishable credentials (`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, protected by Postgres RLS). See [Section 18](#18-serverless-api-proxy-isolation--transport-layer-apijs--apitransportjs).
+
+### 13.2 Dual-Engine Search Waterfall & Race-Safe Deduplication (`searchService.js` & `SearchModal.jsx`)
+Triggered via `Cmd + K` / `Ctrl + K` or `/` outside editable fields (`App.jsx`), with debounced input, `AbortController` cancellation, and stale request-sequence guards inside `SearchModal.jsx` + pure search logic in `src/services/searchService.js`:
+1. **Local Vault Instant Hit + Dual Catalog Query**: Matches local `watched` and `watchlist` entries with normalized ID status flags via `movieIdentity.js` (`imdbID`, `tmdbId`, normalized `title::year`).
+2. **Parallel OMDb & TMDB Engines via `apiTransport.js`**: Queries OMDb (`fetchOmdbJson`) and TMDB `/3/search/movie` (`fetchTmdbJson`), deduplicating cross-engine hits and mapping TMDB entries into the unified UI schema (`imdbID: "tmdb_${id}"`, `tmdbId`, `Title`, `Year`, `Poster`) with in-modal Quick Rate actions (`QuickRateModal.jsx`).
+
+---
+
+## 14. Reference Implementations & Test Coverage Matrix
+
+### `extractTasteProfile` (v5.0 Net-Polarity Keywords & Shrunk Person Affinities, `src/services/tmdbService.js`)
+In v5.0, `extractTasteProfile(watched = [], watchlist = [], options = {})` delegates normalization & decay to `computeZScoredWeights` (`src/services/scoringUtils.js`), computes vault-level keyword document-frequency IDF, enforces disjoint net-polarity keyword sets, and applies Bayesian support shrinkage across cast & crew:
+
+```javascript
+export async function extractTasteProfile(watched = [], watchlist = [], options = {}) {
+  const {
+    now = Date.now(),
+    decayRate = 0.002,
+    anchorCutoff = 9,
+    personShrinkageK = 2
+  } = options;
+  // 1. computeZScoredWeights(watched, { lambda: decayRate, bulkPriorDays: options.bulkPriorDays ?? 180 })
+  //    produces { movie, rating, zScore, daysSince, timeDecay, weight }
+  // 2. positiveWeight = Math.max(0, weight) accumulates genreScores (top 4 lovedGenreIds -> normalized genreAffinities),
+  //    plus legacy >=8★ topCastIds (2) & topCrewMemberId/topCrewIds for Bucket A/C compatibility
+  // 3. Keywords suppress GENERIC_META_KEYWORD_IDS (818, 9663, 179430, 179431, 187056), apply IDF 1/log2(2+df),
+  //    and resolve disjoint netPolarity = pos - neg -> lovedKeywordIds (top 8), keywordAffinities (top 15), hatedKeywordIds (top 5)
+  // 4. Cast (billing decay 1/(1+0.2*idx)) and Crew accumulate net signed weights shrunk by 1/(posCount + k)
+  //    -> crewAffinities (top 15) & castAffinities (top 20)
+  // 5. Return full profile including weightedRatings, affinities, anchors, hatedKeywordIds, watchlistGenreIds, ratingStats
+}
+```
+
+### `executeCascade` Resiliency Core (`src/services/geminiService.js`)
+Key v5.0 guarantees inside `executeCascade(ai, cascade, requestParams, options)`:
+- Filters out cooling-down models (`isModelInCooldown`), prioritizing `sessionCurationModel` / `sessionFastModel` -> persisted `localStorage` model (`30 min` TTL) -> remaining healthy models. If all are cooling down, it probes only the soonest-expiring model.
+- Applies `getModelThinkingConfig` (`HIGH`/`MEDIUM` on Hydrogen, `MINIMAL`/`LOW` on 3-flash, `LOW` on 3.8/3.6/3.5, `thinkingBudget: 0` on 2.5) and strips `temperature` / `frequencyPenalty` / `presencePenalty` safely.
+- Races `ai.models.generateContent` against an `AbortController` timeout (`35,000 ms` Hydrogen, `15,000 ms` Flash models), records token telemetry via `spendTracker.record`, and logs H1 error-class cooldowns on failure before returning `null` for clean deterministic fallback.
+
+### Test Coverage Matrix
+> **Test Scope Note:** Automated Node test runner suites (`node --test`) below verify deterministic service-layer, ranking, storage, sync, and serverless API proxy logic (`src/services/*.js`, `api/*.js`). React UI views and interactive flows (`src/components/*.jsx`, `src/pages/*.jsx`) are verified via production Vite builds (`npm run build`) and browser testing rather than JSDOM component unit tests.
+
+| Test Suite (`tests/*.test.js`) | Verified Coverage |
+| :--- | :--- |
+| `tests/aiSpendTracker.test.js` | Gemini token & spend accounting (`canUseArgon()` gate, `record()`, quota budgets) |
+| `tests/apiProxy.test.js` | Serverless `/api/gemini`, `/api/tmdb` (incl. `/3/collection/:id`, `/3/search/keyword`, & `/3/movie/:id/(recommendations\|similar)` allowlist + traversal blocking), `/api/tmdb-batch`, `/api/omdb` allowlists & 40-ID batching (`<= 6` concurrency, single rate-limit hit, `Cache-Control` + `Vary: Origin`, error redaction), cross-origin `403` blocking & strict production `Origin` / `Sec-Fetch-Site: same-origin` guard without overriding `ALLOWED_ORIGIN` (`api/_security.js`), sliding-window per-IP `429` limits (`20/min` Gemini, `60/min` TMDB/OMDb) emitting `errorCode: "PROXY_RATE_LIMIT"` + `X-RateLimit-Source: proxy`, & `apiTransport.js` direct-vs-proxy + `errorCode`/`retryAfter` forwarding + 30-day IndexedDB batch caching |
+| `tests/compareService.test.js` | `toCompareStub`, `toggleCompareItem` (`COMPARE_MAX_ITEMS = 3`), `parseCurrencyUsd`/`formatCompactUsd`/`parseRuntimeMins`, `computeCompareOverlap` (shared cast/crew with `personId`, genres, `#keywords`, & pairwise 64-D `CVEM v1` cosine similarity), `buildCompareMatrix` (`0%` RT & `0` Metascore preservation, shortest runtime, revenue/ROI winners, Vault scores, & 64-D `vaultMatchPct`), `buildCompareUrl`/`parseCompareUrlIds`, `resolveExploreGenreId`, `dedupeHydratedMovies`, `addUrlCompareSlot`, `removeUrlCompareSlot` (handling `_notFound` stubs & cross-scheme `tt... <-> tmdb_...` removals), & `hydrateCompareMovieSlot` |
+| `tests/contentSim.test.js` | Stage 2 `content_embeddings_f16.bin` parsing, `buildContentSimMap`, aligned `blendEmbeddings`, bigram fallback, session negative-caching of missing/non-binary `.bin` (retrying after transient network/abort failures), & cold-gated structured fallback (`enableStructuredFallback`, `coldOnly: true`, active when `contentIndex === null`) |
+| `tests/csvImport.test.js` | `Watched Date` > `Date`, calendar rollover rejection, `+24h` clamp, bulk cluster suppression, diary rewatch rating preservation |
+| `tests/dashboardService.test.js` | Discover Hero spotlights & carousels, zero-seen collision filtering (`watched` + `watchlist`), cross-row dedupe, `collectCatalogMosaic` |
+| `tests/dnaService.test.js` | Optional 8-bit `cinematic_dna_u8.bin` feature extraction, graceful missing-binary fallback, & session negative-caching of 404/non-binary `.bin` (retrying after transient network/abort failures) |
+| `tests/embeddingService.test.js` | `float16` codec roundtrip, SPA HTML rejection, `getRelativeWeightCutoff` `1e-6 * maxW` invariance, Spherical K-Means personas, repulsion, & aligned `catalogMax`-normalized + `repulsionWeight = 1.5/6.4` Bucket E neighbor survival |
+| `tests/embeddingStep3.test.js` | `computePersonaDetails` fractional cluster masses, log-sum-exp mixture boost (`beta`), & `computeUserRidgeEmbedding` `64×64` separation |
+| `tests/evalHarness.test.js` | Temporal holdout splits (`temporalHoldoutSplit`), `Recall@20`, `NDCG@10`, `ILD`, `Novelty`, `NegHit@20`, `Unique@30`, deterministic candidate-side masking (`selectMaskedTmdbIds`, `buildMaskedCandidateMapsForEval`, `coldOnly` fallback routing, warm/cold split), isolated `evaluateBucketECohort` recall metrics, & `analyzeVaultColdShare` (`--exclude-series`) |
+| `tests/evalRanker.test.js` | End-to-end calibrated ranker vs baseline evaluation |
+| `tests/exploreService.test.js` | `parseExploreSearchParams` / `buildExploreSearchParams` / `buildExploreRoute` (single-encoding `#keyword` chips without `%2520`), `mergeYearDraftIntoFilters`, `deriveExploreViewState` (no stale grid on filter switches, auto-advance up to page `3` when `hideWatched` empties page `1`, & preserved grid on Load-More errors), `buildTmdbDiscoverParams` (`>= 150` vote floor on `vote_average.desc` & `GLOBAL -> US` provider region fallback), `filterExploreResults`, & `getActiveFilterChips` |
+| `tests/feedbackLogging.test.js` | Preference feedback logging (`added_watchlist`, `dismissed`), feature snapshot sanitation, & quota-safe persistence |
+| `tests/filmChatService.test.js` | `buildFilmChatRoute` & `parseAiPageParams` deep-link parsing, `serializeFilmDossierForPrompt` (prompt-injection sanitization, `SPOILER-SAFE MODE ACTIVE` vs spoilers allowed, Craft Breakdown & Watch Log formatting), `buildMovieChatStarterPrompts`, `saveFilmFocusCache` / `loadFilmFocusCache`, & `buildChatPromptPayload` `FOCUSED FILM DOSSIER` injection |
+| `tests/geminiDualEngine.test.js` | `CURATION_MODEL_CASCADE` & `FAST_INTERACTIVE_CASCADE`, thinking config, `35s` Hydrogen & `15s` Flash timeouts, `maxCascadeDurationMs` deadline clamp & `< 3000ms` skip without cooldown, nested `weightedRatings` relative-dislike lookup + mood-stratified anchors + `6–7★` `NEAR MISSES` + disliked/dismissed (`already_seen`-exempt) + real `userStats` / `topDirectors` / `USER'S WATCHLIST` / `ADDITIONAL TOP FAVORITES` (11–25) / `LOVED SERIES / ANIME` / deduplicated `ADDITIONAL VIEWER NOTES` (all remaining notes) + `USER'S STEERABLE TASTE RULES` (retained after extreme budget trimming & injected in `generateWithOmdbFallback`) + `Collection:` & `Franchise rule:` + unbiased candidate formatting (zero `Match: XX%` or `#1–#15` rank bias, `"Curate openly"`, `Specs`, top `3` `Cast`, top `5` `Themes`, `Tagline`, `Collection`, `Plot`, `<= 20,000`-char ceiling) in `buildGeminiReRankPrompt`, optional `wildcardPicks` `responseSchema` typing + `verifyAndScoreWildcardPicks` (strict TMDB/TV/vault/provider/mood/`avoidRules` gates, `collectionId`/`collectionName` propagation, 1-item `collabCatalogMax` invariance, `429` safety & 10/10 backfill), two-pass soft `selectWithSoftVarietyCaps` (`maxPerDirector = 2` & `maxPerCollection = 1` + backfill in `mergeGeminiExplanationsWithRanker` & `buildRankerFallbackResponse`), H1 error classification (`PROXY_RATE_LIMIT` immediate abort without cooldown + session `Retry-After` gate), cooldown backoff, soonest retry, `lastError` safe fallback, `formatModelDisplayName` & `getLastModelInfo` |
+| `tests/moodPolicy.test.js` | 6-mood `MOOD_OPTIONS` invariants, `normalizeMoodFilters`, deterministic `parseFreeTextMoodFallback`, `matchesMoodCandidateGate`, `buildMoodFilterHashSegment` |
+| `tests/moodRanker.test.js` | Mood-rebalanced ranker (`collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`), strict `matchesMoodCandidateGate` + `avoidRules` gate exclusion without `gateRejected` padding + `onDiagnostics.moodShortfall`, Bucket A/B/C/D mood gating, strict `PROVIDER_FAMILY_MAP` & `matchesWatchProviders`, `tasteRules` `+0.6`/`-3.5` logit adjustments & empty-rule zero-delta parity, `buildDiversifiedGeminiShortlist` Slice 2/3/top-up avoid guard, `buildBucketAParams` unqualified `without_genres` merge, & zero `"any"` regression |
+| `tests/movieIdentity.test.js` | Canonical `imdb:`, `tmdb:`, `rawid:`, `ty:` key builders (`buildMovieKeys`), `isSameMovie` cross-ID collision protection, `upsertMovieEntry` & `removeMovieEntries` |
+| `tests/navHelpers.test.js` | Platform search shortcut hints (`⌘K` vs `Ctrl K`), tabular nav counts, and `getCloudSyncBadgeLabel` states |
+| `tests/oracleViewHelpers.test.js` | Streaming summary formatting, `formatRecBadgeSummary` (incl. `Metadata` hydration label), `resolveRecommendationAnchors`, `sanitizeOracleReason`, `formatActiveVibeNote`, `nextRefreshExcludeState` (`120` cap, pages `1..5`), `shouldAutoRefreshOnDrawerClose` |
+| `tests/personService.test.js` | Structured crew ID extraction (`formatTmdbMovieDetails`), OMDb fallback `id: null` safety (`extractMovieCreditPeople`), cast+crew merging & `"Self"` filtering (`normalizePersonCredits`), Vault identity matching (`annotateCreditsWithVaultState`, `computePersonVaultStats`), department/status filtering & rating-safe sorting (`filterAndSortPersonCredits`, `resolvePersonDefaultDepartment`), `/3/search/person` resolution + session caching + `AbortSignal`/`429` handling (`fetchPersonProfileAndCredits`), & `buildPersonProfileRoute` / `shouldCloseMovieDetailOnEscape` guards |
+| `tests/pipelineBugs.test.js` | Sorted `hatedKeywordIds`, `with_cast` pipe syntax, generous-rater `>= 7★` negative-suppression safeguard, note- & taste-rule-aware 8-arg `generateProfileHash` immutability + empty-note/empty-rule hash preservation + region/filter/vault/`_tr_` suffixing, `belongs_to_collection` -> `collectionId`/`collectionName` extraction & persistence across `formatTmdbMovieDetails`/`bridgeTmdbToOmdb`/`applyDetailsToCandidate`/`mergeBackfilledMovieMetadata`, `normalizeMatchScore -> null` fallback, full-pool hydration (`hydrated` preservation & `hydrationCoverage`), **10-pick** target + backfill, `fetchBatchFormattedDetailsMap` + `verifyAndScoreWildcardPicks` batch TMDB lookup & TV/remake rejection, `cinemavault_smart_cache_v4` (`>= 7` floor), provider matching, refresh exclusion + exhaustion fallback, & lazy `backfillMissingTmdbIds` (IMDb + strict `±1`-year fallback, `isSeriesVaultItem` + `/3/find` `tv_results` skip, `"N/A"` poster guard, `alreadyChecked` cache, `maxLookups` budget, & HTTP `429` stop) |
+| `tests/quickReviewTags.test.js` | Shared praise & constructive critique `QUICK_REVIEW_TAGS`, whitespace-boundary `hasQuickTagInNote`, contextual `getContextualQuickTags` (<7 critique vs >=7 praise priority), & length-bounded `toggleQuickTagInNote` (`<= 200` in QuickRateModal) |
+| `tests/rabbitHoleService.test.js` | `normalizeCollectionTimeline` (chronological release sorting, `TBA` placement, `isCurrent` & `watchedCount`/`totalCount`), norm-safe `findEmbeddingNeighborsForMovie` (`normA * normB` cosine for sub-unit shrunk vectors), `shouldLoadRabbitHoleForMovie`, & `buildHybridSimilarFilms` (`hybrid`/`vault-vector`/`tmdb` tagging, real `tt...` IMDb ID preservation, & same-collection sequel demotion) |
+| `tests/rankerService.test.js` | 12-feature logistic scoring, net-polarity IDF keywords + shrunk cast/crew affinities, collab normalization, `0.35x` metadata damping, `tau = 1.45` display calibration, `ranker_weights.json` parity, `-0.5` neg keyword penalty, `generateMatchReasons`, `fitRankerWeights`, `buildDiversifiedGeminiShortlist` (`25+8+6=39`, `gateRejected` isolation, & single-invocation `onDiagnostics`), & hardened `derivePersonalizedRankerWeights` (`minEvents: 10`, `minPositives: 3`, `minNegatives: 3`, `l2: 0.55`, skipping `already_seen`) |
+| `tests/rankerStep2.test.js` | `[0, 0.02]` smoothstep damping continuity, pool-outlier invariance under `catalog-max`, & `poolMax` fallback for `< 50` maps |
+| `tests/ratingStudioService.test.js` | `computeVaultCalibration` (exact-score vs nearest-score benchmarks & percentile wording), `computeStarStageMetrics` (10-star wave-cascade scale/lift physics, fill ratio & tier tone resolution), `normalizeRatingBreakdown` (`1..5` clamping), `computeCraftAverage`, `normalizeWatchMeta` (`WATCH_FORMATS`), & `buildWatchedRatingPayload` (`markCleared: true` null-tombstone propagation across `upsertMovieEntry`) |
+| `tests/ratingTiers.test.js` | 10-tier `RATING_TIERS` map (`shortLabel` & `tone` metadata), `prepareQuickRatePayload` & `prepareWatchlistPayload` without fabricated ratings |
+| `tests/recentReleaseSlots.test.js` | `buildBucketDParams`, `fetchBucketD` quality/vote floors & `<= 12` cap, `selectWithReserve` (`count = 2`), `computeReserveQualityScore` (`noveltyBonus = 0`) |
+| `tests/scoringUtils.test.js` | Z-score zero-variance & cold-start guards, `bulkPriorDays = 180`, future timestamp clamp, Bayesian acclaim score |
+| `tests/searchService.test.js` | Dual-engine OMDb + TMDB search normalization, local Vault overlay flags, cross-engine deduplication |
+| `tests/tasteDeckService.test.js` | Interleaved 30-film `CORE_TASTE_DECK`, live pool top-up, zero-seen exclusions, `shouldAutoShowTasteOnboarding` (`< 3` rated & not dismissed) |
+| `tests/tasteRulesService.test.js` | Static zero-circular-import verification (`tasteRulesService.js`), unqualified vs. qualified genre negation blacklist guard (`"No slow-burn period dramas"` excludes Drama `18` from `avoidGenreIds` vs `"No horror"` includes `27`), `\bwar\b` vs `"Star Wars"`/`"award"` word-boundary matching, `MAX_TASTE_RULES` capping & deterministic `buildTasteRulesHashSegment`, & offline fallback / mock Gemini auto-drafting preserving pinned rules |
+| `tests/tmdbRabbitHoleHelpers.test.js` | `formatTmdbMovieDetails` `keywordItems` (`[{ id, name }]`) extraction, `normalizeTmdbItem` `imdbRating` preservation (`"7.8"` vs `"N/A"`), & `AbortError` warning suppression across `fetchCollectionTimeline`, `fetchTmdbMovieRecommendations`, & `searchTmdbKeywords` |
+| `tests/vaultPortability.test.js` | Schema v2 JSON backup payload (`buildBackupJsonPayload`, incl. `preferences.tasteRules` serialization & legacy backup compatibility), Letterboxd/full CSV serializer (`buildRatingsCsv`), diff summary (`summarizeImportDiff` incl. `tmdb_...`/`tt...` duplicate collapsing without losing `dateWatched` or TMDB metadata), & `resolveCsvRowFallbackRecord` zero fake ratings |
+| `tests/vaultStats.test.js` | Exact 1–10 `buildRatingHistogramBins` tallying, `attachRecSourceToRecommendations`, `resolveMovieRecSource` watchlist-to-watched provenance, & `computeRecommendationHitRate` (`>= 8★` / `>= 9★` / `meanRating` + `byPipeline: { gemini, rankerFallback }` split) |
+| `tests/vaultSyncService.test.js` | `getCanonicalMovieKey`, Postgres row <-> local mapping (`mapLocalMovieToDbRow`, `mapDbRowToLocalMovie`), timestamp sanitization, keyset-paginated `fetchAllVaultRows` (`2,300` rows) & `pullAndSyncCloudVault` page-error abort guard, lossless `mergeLocalAndCloudVault` (incl. null-tombstone clearing, multi-device delete tombstones via `deletedKeys` & `lastSyncedAt`), `compactVaultMovieForStorage` / `compactVaultListForStorage` 2-stage quota compaction, & `recSource` `metadata` JSONB preservation |
+
+---
+
+## 15. 10-Star Rating Stage & Rating Studio 2.0 (`StarRatingStage.jsx` & `ratingStudioService.js`)
+
+### 15.1 Taste Anchor Tiers (`ratingTiers.js`, `StarRatingStage.jsx`, `MovieDetails.jsx`)
+Ratings drive a 10-star rating stage (`StarRatingStage.jsx`) with no emoji icons. It pairs a tabular numeric readout (`09 / 10`), a semantic tier pill (`shortLabel`), and a reactive `--tier-color` accent that shows how each score feeds the taste engine:
+
+| Rating | Tier Title (`label`) | Pill Badge (`shortLabel`) | Tone (`tone`) | Taste Engine Mechanism | Visual Accent (`color`) |
+| :---: | :--- | :---: | :---: | :--- | :--- |
+| **10** | **Masterpiece (Anchor Film)** | `CANON` | `canon` | Sets primary anchor for Bucket B keyword harvest | Brass Gold (`#e2b13c`) |
+| **9** | **Exceptional Cinema** | `ELITE` | `acclaim` | Eligible elite anchor; strong positive genre boost | Amber Gold (`#f59e0b`) |
+| **8** | **Great Film** | `GREAT` | `positive` | Accumulates actor (`castIds`) & crew vectors | Emerald (`#10b981`) |
+| **7** | **Good Watch** | `SOLID` | `warm` | Solid craft, baseline enjoyment & director count | Cyan (`#06b6d4`) |
+| **6** | **Decent Baseline** | `DECENT` | `balanced` | Watchable with balanced qualities | Purple (`#8b5cf6`) |
+| **5** | **Mediocre** | `MIXED` | `neutral` | Neutral boundary (`0.00` base z-score pull when at user mean) | Slate (`#94a3b8`) |
+| **4** | **Flawed** | `FLAWED` | `caution` | Below average; enters negative trope extraction | Orange (`#f97316`) |
+| **3** | **Disliked** | `WEAK` | `negative` | Trope penalty applied to negative keyword vector & repulsion map | Crimson (`#ef4444`) |
+| **2** | **Poor Experience** | `POOR` | `harsh` | AI engine suppresses matching motifs | Dark Red (`#dc2626`) |
+| **1** | **Severe Dislike** | `AVOID` | `reject` | Strict negative weight applied to keywords & repulsion map | Deep Ruby (`#b91c1c`) |
+
+### 15.2 Wave-Cascade Star Motion & Synchronized Light Rail (`computeStarStageMetrics`)
+- **Faceted 10-Star SVG Stage (`StarRatingStage.jsx`)**: Replaces emoji banners and split number grids with 10 faceted SVG stars (`role="radiogroup"`, `ArrowLeft`/`ArrowRight`/`Home`/`End` and `1–9`/`0` keyboard support) shared across `MovieDetails.jsx` and `QuickRateModal.jsx` (`compact` mode).
+- **Wave-Cascade Hover Motion (`computeStarStageMetrics`)**: Hovering or selecting star $k$ raises the active star (`scale: 1.26`, `liftPx: -4.5`), applies a smaller lift to neighbors $k \pm 1$ (`scale: 1.12`, `liftPx: -2`), and slightly lifts filled predecessors (`scale: 1.03`, `liftPx: -0.75`) under a spring curve (`cubic-bezier(0.22, 1, 0.36, 1)`).
+- **Synchronized Light Rail**: A continuous horizontal rail tracks `fillRatio = activeScore / 10` (`10%–100%`) directly beneath the 10 star columns, lit in the active tier's `--tier-color`.
+- **Floating Toast Pill (`ToastNotification.jsx`)**: Top-center floating pill notification with an `Undo` action for vault and watchlist deletions.
+
+### 15.3 Rating Studio 2.0: Live Vault Calibration, Craft Breakdown & Watch Session Metadata (`ratingStudioService.js`)
+- **Live Personal Vault Calibration (`computeVaultCalibration`)**: While hovering or selecting `1★–10★`, computes the user's personal Vault percentile (`topPercentile` when `< 50%` rated higher, or `higherOrEqualPct`) and selects up to **2 personal benchmark films** at the exact same score (`exactRateMatch: true`, `"Alongside in your Vault:"`) or nearest rated neighbors (`"Closest rated in your Vault:"`).
+- **4-Aspect Craft Breakdown (`CRAFT_ASPECTS` & `normalizeRatingBreakdown`)**: Optional `1–5` sub-ratings across `story` (Story & Script), `direction` (Direction & Pacing), `acting` (Performances), and `visuals` (Visuals & Sound), with mean computed via `computeCraftAverage`.
+- **Watch Session Metadata (`WATCH_FORMATS` & `normalizeWatchMeta`)**: Optional watch format (`streaming`, `theater`, `imax`, `physical`), `rewatch` toggle, and `watchedDate` (`YYYY-MM-DD`, validated via `parseImportDate`).
+- **Tombstone Clearing (`buildWatchedRatingPayload({ markCleared: true })`)**: Emits explicit `null` tombstones for cleared `ratingBreakdown` / `watchMeta`, which `upsertMovieEntry` (`movieIdentity.js`) strips into clean keys and `mergeLocalAndCloudVault` (`vaultSyncService.js`) honors when `localIsNewer`, so cleared sub-ratings are never resurrected from older cloud rows.
+
+---
+
+## 16. Canonical Mood Policy, Custom Vibe Parser & Mood-Rebalanced Ranker (`moodPolicy.js`)
+
+Until v5.0, mood behavior lived solely inside Bucket A TMDB parameters, while Buckets B, C, D, Bucket E embeddings, and `rankCandidatePool` scored purely from global vault taste. This allowed high `collabSim` or `bayesianRatingNorm` classics to dominate mood queries regardless of tone. CinemaVault now routes every layer through a single source of truth in **[src/services/moodPolicy.js](./src/services/moodPolicy.js)**:
+
+### 16.1 Single-Source Mood & Vibe Contracts
+- **Canonical Output & Cache Thresholds**: `DEFAULT_RECOMMENDATION_COUNT = 10` and `MIN_VALID_CACHE_COUNT = 7`.
+- **Activation Guard (`isExplicitMoodActive(mood, moodFilters)`)**: Returns `true` strictly when `mood !== "any"` OR `normalizeMoodFilters(moodFilters)` resolves non-empty `moodId` (`!== "any"`), `withGenreIds`, `withoutKeywords`, `minYear`, `maxYear`, or free-text `query`. When `false`, every ranker, reserve-slot, and retrieval heuristic preserves the benchmarked `"any"` pipeline bit-for-bit.
+- **Deterministic Offline Free-Text Parser (`parseFreeTextMoodFallback(query)`)**: When Gemini is offline or keyless, parses plain-English queries via curated token/synonym maps (`GENRE_NAME_TO_ID`, mood phrases like `"feel-good"`, `"cozy"`, `"dark"`, `"twist"`, `"underrated"`, `"pre-2000"`, `"1990s"`, `"80s"`, and negation phrases like `"not horror"`, `"no gore"`, `"avoid romance"`) into canonical `{ moodId, withGenres, withGenreIds, withoutKeywords, minYear, maxYear, query }`. Live browser requests first try `parseFreeTextMoodWithGemini(aiClient, query)` on `FAST_INTERACTIVE_CASCADE` and fall back to `parseFreeTextMoodFallback`.
+- **Hard Candidate Gate (`matchesMoodCandidateGate`)**:
+  1. Excludes any candidate containing preset `withoutGenreIds` (when preset active), custom `minYear`/`maxYear` violations, or `withoutKeywords` haystack matches.
+  2. When custom `withGenreIds` exist (or preset has `requiredAnyGenreIds`), requires at least one matching genre ID (`candGenreSet`).
+  3. Under `"hidden-gem"`, caps `voteCount` at `voteCountLte` (`2000`) once positive vote metadata is present (`> 0`).
+
+### 16.2 Mood-Rebalanced Ranker (`computeMoodScoreAdjustment` + `rankCandidatePool`)
+When `isExplicitMoodActive` is true (`src/services/rankerService.js:480-564`), `rankCandidatePool`:
+1. **Rebalances Collab vs. Metadata Weights**: Scales `effectiveWeights.collabSim = weights.collabSim * 0.35` and sets `metadataDampingFactor = 1.0` so genre fit and tone outweigh generic vault inertia.
+2. **Applies `computeMoodScoreAdjustment`**:
+   - Rewards intersection with preset `preferredGenreIds` / custom `withGenreIds` (`+1.6` first match + `+0.6` additional matches, capped `+2.4`), and penalizes missing requested genres (`-2.5`).
+   - Penalizes `discouragedGenreIds` (`-1.4`, capped `-2.6`), applies preset-specific structural checks (e.g., `hidden-gem` awards `+2.6` for `50–1200` votes at `>= 7.2`, `+2.0` up to `2000`, `-3.5` above `2000`), and penalizes custom year violations (`-3.0`) or `withoutKeywords` matches (`-2.5`).
+   - Prepends `🎭 ${preset.label} Fit` badge when `moodAdjustment >= 1.2` and `reasons.length < 3`.
+3. **Hard Gate Partition**: Partitions scored candidates into `gatePassed` and `gateRejected` using `matchesMoodCandidateGate`, returning strictly `gatePassed` whenever `gatePassed.length >= Math.min(10, topK)` (falling back to `[...gatePassed, ...gateRejected]` only when a narrow filter yields fewer than 10 matches).
+
+---
+
+## 17. Session Refresh Rotation, Exhaustion Guard & Oracle View Helpers (`oracleViewHelpers.js`)
+
+**[src/services/oracleViewHelpers.js](./src/services/oracleViewHelpers.js)** isolates pure Oracle presentation, anchor resolution, and refresh pagination from React state in **[src/components/MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx)**:
+
+- **Refresh Pagination & Exclusion History (`nextRefreshExcludeState`)**: When refreshing within the same mood/vibe key (`forceRefresh = true`), appends shown card IDs (`tmdbId`, `id`, `imdbID`) into a deduplicated rolling `seenIds` buffer capped at **`120` IDs** and cycles TMDB discover pagination sequentially across pages **`1 -> 2 -> 3 -> 4 -> 5 -> 1`**. Switching mood presets or clicking **"Start over"** resets `{ key, seenIds: [], page: 1 }`.
+- **Exhaustion Guard (`reRankCandidatesWithGemini` & `getMovieRecommendations`)**: If session exclusions shrink the ranked pool below `Math.min(targetCount, candidates.length)`, unseen items stay at the front while remaining slots pad from the unexcluded ranked pool, so clicking Refresh never produces a blank or truncated page.
+- **Filter Drawer Auto-Refresh (`shouldAutoRefreshOnDrawerClose`)**: Closing the `"Mood & Streaming"` drawer triggers automatic re-querying whenever `currentHash !== aiRecommendationsHash && !isLoading`, and skips the call if nothing changed.
+- **Anchor Chip Verification & AI Jargon Stripping**: `resolveRecommendationAnchors(rec, watched, 3)` matches `rec.anchorIds` and verbatim `rec.anchorTitles` strictly against the user's actual watched library (rendering thumbnail + title + personal star rating under `"Because you rated"`), while `sanitizeOracleReason` strips internal ranking jargon before rendering card copy.
+- **Legacy 6-Pick Session Discard Guard (`AppContext.jsx`)**: On mount, `AppProvider` discards restored `cinemavault_recs_v1` arrays containing `< 7` items (`parsed.length >= 7`) alongside `cinemavault_smart_cache_v3`, so upgraded users migrate onto 10-pick sessions (`cinemavault_smart_cache_v4`).
+
+---
+
+## 18. Serverless `/api/*` Proxy Isolation, Origin & Rate-Limit Hardening (`api/*.js` & `apiTransport.js`)
+
+In production, all third-party credentials reside on Vercel Serverless Functions, while the browser calls same-origin `/api/*` routes via **[src/services/apiTransport.js](./src/services/apiTransport.js)**. All handlers delegate cross-origin enforcement to **[api/_security.js](./api/_security.js)**:
+- `isRequestOriginAllowed` returns `403 Forbidden` when an `Origin` header is present and does not match `host` / `x-forwarded-host`, `localhost` / `127.0.0.1`, Vercel deploy host variables, or `ALLOWED_ORIGIN`.
+- When `Origin` is absent, `Sec-Fetch-Site: same-origin` / `same-site` is allowed while `cross-site` / `none` is rejected. Headerless requests such as `curl` are rejected in production/Vercel runtimes and remain allowed in local `node --test` unit runs.
+- In-memory per-IP sliding-window rate limiting (`checkSlidingWindowRateLimit`) returns `429 Too Many Requests` with `Retry-After`, header `X-RateLimit-Source: proxy`, and JSON `errorCode: "PROXY_RATE_LIMIT"`, which `createProxyGeminiClient` forwards onto thrown client errors.
+
+| Endpoint / Module | Allowed Requests & Security Guardrails | Env Secret (Server) vs. Dev Fallback |
+| :--- | :--- | :--- |
+| **[`api/_security.js`](./api/_security.js)** | Shared `enforceApiSecurity` guard: browser `Origin` mismatch, non-same-origin `Sec-Fetch-Site`, or headerless `curl` in production returns `403` (never overriding `ALLOWED_ORIGIN`); sliding 60s window enforces `20 req/min` on Gemini and `60 req/min` on TMDB/OMDb per client IP (`429` + `Retry-After` + `X-RateLimit-Source: proxy` + `errorCode: "PROXY_RATE_LIMIT"`) | `ALLOWED_ORIGIN` *(optional CSV allowlist)* |
+| **`POST` [`api/gemini.js`](./api/gemini.js)** | Origin + **`20 req/min`** per-IP guard; explicit `ALLOWED_GEMINI_MODELS` allowlist (`gemini-4-hydrogen`, `gemini-4-argon`, `gemini-3.5-flash-lite`, `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, `gemini-3.8-flash`, `gemini-3-flash-preview`, `gemini-2.5-flash`); `argon` blocked (`403`) unless `ENABLE_ARGON === "true"`; upstream error messages redact `apiKey` | `GEMINI_API_KEY` *(dev fallback `VITE_GEMINI_KEY`)* |
+| **`GET` [`api/tmdb.js`](./api/tmdb.js)** | Origin + **`60 req/min`** per-IP guard; strict `ALLOWED_TMDB_PATH_RE` allowlist (`/3/discover/movie`, `/3/search/(movie\|person\|keyword)`, `/3/trending/movie/(day\|week)`, `/3/collection/<id>`, `/3/movie/<id>[/keywords\|credits\|watch/providers\|videos\|release_dates\|external_ids\|recommendations\|similar]`, `/3/person/<id>[/movie_credits]`, `/3/find/<id>`); rejects `..` traversal (`400`), strips client-supplied `api_key`, redacts upstream secrets | `TMDB_API_KEY` *(dev fallback `VITE_TMDB_KEY`)* |
+| **`GET` [`api/omdb.js`](./api/omdb.js)** | Origin + **`60 req/min`** per-IP guard; requires lookup param (`i`, `t`, or `s`), strips client `apikey`, redacts server secret on failure | `OMDB_API_KEY` *(dev fallback `VITE_OMDB_KEY`)* |
+| **[`apiTransport.js`](./src/services/apiTransport.js)** | Inspects `resolveTmdbKey()` / `resolveOmdbKey()` / `resolveGeminiKey()`. Calls external APIs directly ONLY when explicit local `VITE_*` dev keys are set; otherwise wraps requests via `fetchTmdbJson`, `fetchOmdbJson`, `getMovieDetailsBatch` (40-ID chunking + `429` short-circuit + `options.onHttpError`), and `createProxyGeminiClient()` (`AbortSignal`-aware) | Zero secrets in Vite production bundle (`build/assets/*.js`) |
+| **[`vercel.json`](./vercel.json)** | Sets `"functions": { "api/*.js": { "maxDuration": 60 } }` so `gemini-4-hydrogen` (12–25s latency) is not killed at Vercel's 10s default timeout; SPA rewrite `/((?!api/\|models/).*) -> /index.html` keeps `/api/*` functions and `/models/*.bin` float16 binaries unintercepted with `immutable` 1-year `Cache-Control` headers | Vercel Serverless `maxDuration: 60s` + immutable edge caching |
+
+> **Serverless Proxy Scope & Operational Trade-offs:**
+> - **Per-Isolate In-Memory Rate Limiting:** `RATE_LIMIT_BUCKETS` in `api/_security.js` is an in-memory `Map` scoped to each warm Vercel Serverless isolate. It protects against burst loops from a single client without requiring external Redis/Upstash infrastructure, though counters reset across cold starts or horizontal isolate scaling.
+> - **Production Strict Origin / Sec-Fetch-Site Mode (`isStrictOriginMode`):** In production/Vercel deployments (`NODE_ENV === "production"` or `VERCEL*` env vars), requests lacking both a matching `Origin` and `Sec-Fetch-Site: same-origin` / `same-site` (such as `curl` or automated scripts) are rejected with `403 Forbidden`. Local non-production test runners (`node --test`) may omit both headers.
+> - **Client-Side Spend Telemetry:** `spendTracker` (`src/services/aiSpendTracker.js`) tracks per-browser daily token/spend budgets (`localStorage`) for UI telemetry and optional Argon gating. Server-side protection relies on `ALLOWED_GEMINI_MODELS`, `ENABLE_ARGON`, and per-IP sliding-window rate limits.
+
+---
+
+## 19. Editorial Discover Hub, Cross-ID Identity, Taste Deck & Lossless v2 Portability
+
+- **Editorial Home Discovery Hub ([`dashboardService.js`](./src/services/dashboardService.js), [`DashboardPage.jsx`](./src/pages/DashboardPage.jsx), [`HeroBillboard.jsx`](./src/components/HeroBillboard.jsx), [`HomePosterGrid.jsx`](./src/components/HomePosterGrid.jsx))**:
+  - `loadHomeDiscoveryFeeds` aggregates unwatched Hero spotlight slides (`buildHeroSlides`) and multiple curated TMDB discovery rows (falling back to disjoint curated `FALLBACK_ROWS` when offline or keyless).
+  - Enforces `buildSeenCollisionSet` & `excludeSeenAndPlaced` filtering so films already in `watched` or `watchlist` (by IMDb, TMDB ID, or normalized `title::year`) never repeat across rows or appear as unseen Hero recommendations. It pairs with `HomePosterGrid`'s genre-filterable `"All Films"` mosaic (`collectCatalogMosaic`, paged by 24).
+- **Canonical Cross-ID Identity Resolver ([`movieIdentity.js`](./src/services/movieIdentity.js))**:
+  - Normalizes across OMDb (`tt...`), TMDB (`tmdb_<id>` or numeric ID), `selectedId`, and normalized `ty:<title>::<year>`.
+  - `isSameMovie(a, b)` prevents same-year title collisions whenever both records carry conflicting explicit `imdbID` or `tmdbId` values, while `upsertMovieEntry` and `removeMovieEntries` keep `AppContext` mutations duplicate-free across mixed ID formats.
+- **First-Visit Taste Deck, 10-Tier Quick Rating & Quick Review Tags ([`tasteDeckService.js`](./src/services/tasteDeckService.js), [`TasteDeckModal.jsx`](./src/components/TasteDeckModal.jsx), [`ratingTiers.js`](./src/services/ratingTiers.js), [`quickReviewTags.js`](./src/services/quickReviewTags.js), [`QuickRateModal.jsx`](./src/components/QuickRateModal.jsx))**:
+  - Auto-launches once for new visitors (`shouldAutoShowTasteOnboarding`: `watched.length < 3 && localStorage.getItem("cinemavault_taste_onboarding_dismissed_v1") !== "true"`) and stays available on demand from the `NavBar` utility menu and `AIPage` / `DashboardPage` as `"Taste Calibration (30)"`.
+  - Builds a 30-film multi-genre interleaved deck (`CORE_TASTE_DECK` + optional live pool) excluding watched items, with Flashcards and Multi-Genre Grid views, backed by shared `RATING_TIERS` and no fabricated ratings (`prepareQuickRatePayload` / `prepareWatchlistPayload`).
+  - `quickReviewTags.js` shares 1-click praise and constructive critique `#tag` chips (`QUICK_REVIEW_TAGS`, `getContextualQuickTags`, `hasQuickTagInNote`, `toggleQuickTagInNote`) across `QuickRateModal` (`maxLength = 200`, AI-note placeholder) and `MovieDetails.jsx` without duplicating tag state logic.
+- **Schema v2 Lossless Portability & `1★–10★` Stats ([`vaultPortability.js`](./src/services/vaultPortability.js), [`vaultStats.js`](./src/services/vaultStats.js), [`BackupManagerModal.jsx`](./src/components/BackupManagerModal.jsx))**:
+  - Exports **Schema v2 JSON backups** (`buildBackupJsonPayload`: `{ schemaVersion: 2, app: "CinemaVault", exportedAt, watched, watchlist, preferences: { userRegion, userWatchProviders } }`) alongside full CinemaVault CSV (`Title,Year,Type,UserRating,Note,IMDb ID,TMDB ID,...`) and Letterboxd 10-scale CSV (`buildRatingsCsv`).
+  - `summarizeImportDiff` uses `findSameMovieIndex` + `mergeDuplicateMovieRecord` across `Merge & Update`, `Add New Only`, and `Replace Vault` modes to collapse `tmdb_<id>` / `tt...` duplicates losslessly. It retains `dateWatched`, notes, `recSource`, and TMDB arrays/credits while preferring canonical `tt...` IMDb IDs. `resolveCsvRowFallbackRecord` keeps unrated CSV rows at `userRating: 0`, routing unrated/watchlist rows cleanly without fabricating `5★` or `7★` scores.
+  - `buildRatingHistogramBins` (`vaultStats.js`) tallies exact rounded scores `10★..1★` without clamping `< 6★` rows, preserving visibility into negative repulsion signals. `attachRecSourceToRecommendations`, `resolveMovieRecSource`, and `computeRecommendationHitRate` track recommendation-to-rating provenance (`recSource` synced in `vault_items.metadata` JSONB) and real-world `>= 8★` / `>= 9★` conversion rates split by `byPipeline: { gemini, rankerFallback }`.
+- **Lazy Series-Guarded Vault TMDB Backfill & `addWatched` Hydration ([`tmdbService.js`](./src/services/tmdbService.js), [`AppContext.jsx`](./src/context/AppContext.jsx), [`MovieDetails.jsx`](./src/components/MovieDetails.jsx))**:
+  - `isSeriesVaultItem` detects TV series/episodes (`Type` or `SERIES_YEAR_RANGE_RE`). `lookupTmdbByImdbInternal` inspects TMDB `/3/find/{imdbId}` `tv_results`, `tv_episode_results`, and `tv_season_results` so legacy TV shows are tagged `Type: "series"` without ever attaching movie TMDB IDs. `findTmdbByTitleAndYear(..., { strict: true })` enforces normalized exact title + `±1`-year bounds.
+  - `backfillMissingTmdbIds(watched, watchlist, options)` (defaults `maxItems = 40`, `maxLookups = maxItems`, `lookupConcurrency` clamped `[1, 4]` defaulting to `3`) skips already-complete entries (`hasCompleteTmdbMetadata`) and cached keys (`getVaultBackfillItemKey`). It batch-hydrates `tmdbGenreIds`, `tmdbKeywords`, `castIds`, and `crewPersonId` alongside `cast`, `writers`, `tagline`, `originCountry`, `spokenLanguages`, `mpaaRating`, `runtimeMinutes`, `keywordNames`, and overview fallbacks (`applyDetailsToCandidate` / `mergeBackfilledMovieMetadata`) via `getMovieDetailsBatch`. It preserves existing `userNote` values and the `"N/A"` poster convention, and stops immediately on HTTP `429` (`onHttpError`) without poison-caching rate-limited items.
+  - On mount in `AppContext.jsx` (`800ms` deferred, `maxItems: 40`, `maxLookups: 15`, checked keys persisted up to `500` in `cinemavault_tmdb_backfill_checked_v1`), backfilled records merge into live state (collapsing duplicates and queueing Supabase key transitions). `addWatched` triggers non-blocking `fetchTmdbMovieDetails` hydration whenever a newly rated movie lacks complete TMDB metadata. `MovieDetails.jsx` gates fallback `findTmdbByTitleAndYear(..., { strict: true })` behind `!isSeriesVaultItem(omdbData) && !isSeriesVaultItem(watchedItem)` and persists `Type`. (`scripts/experiments/vault_cold_share.mjs --exclude-series` reuses `isSeriesVaultItem` to compute movie-only cold share.)
+
+---
+
+## 20. Opt-In Multi-User Supabase Cloud Sync, Postgres RLS Schema & Merge Engine
+
+CinemaVault operates **guest-first in `localStorage`** and enables multi-device / multi-user synchronization only when `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY`) are configured (`hasSupabaseConfig()` in **[`supabaseClient.js`](./src/services/supabaseClient.js)**, UI via **[`CloudSyncModal.jsx`](./src/components/CloudSyncModal.jsx)**):
+
+### 20.1 Postgres 15+ Schema & RLS ([`supabase/migrations/20261114000000_init_cinemavault_schema.sql`](./supabase/migrations/20261114000000_init_cinemavault_schema.sql))
+- **`public.profiles`**: `id uuid primary key references auth.users(id) on delete cascade`, `display_name`, `user_region text not null default 'GLOBAL'`, `preferred_providers integer[] not null default '{}'`, `updated_at`.
+- **`public.user_vault_items`**: `id bigint generated always as identity primary key`, `user_id uuid not null references auth.users(id) on delete cascade`, `movie_key text not null`, `status check (status in ('watched', 'watchlist'))`, `tmdb_id`, `imdb_id`, `title`, `year`, `poster`, `genre`, `director`, `runtime integer`, `imdb_rating numeric(3,1)`, `user_rating smallint (0..10)`, `user_note`, `date_watched`, `is_bulk_imported`, `metadata jsonb`, `updated_at`, with `unique (user_id, movie_key)` and composite index `user_vault_items_user_status_idx (user_id, status, updated_at desc)`.
+- **Security & Performance Isolation**:
+  - Trigger function `public.touch_updated_at()` sets `security invoker` and empty `search_path = ''`.
+  - `revoke all ... from public, anon`; `grant select, insert, update, delete ... to authenticated` (plus identity sequence usage).
+  - Explicit per-operation RLS policies (`for select`, `for insert`, `for update`, `for delete` `to authenticated`) wrapping `(select auth.uid()) = id` / `user_id` with `with check` clauses, so each signed-in user sees only their own vault rows (`auth.uid()` evaluated once per statement).
+
+### 20.2 Two-Way Sync & Conflict Resolution ([`vaultSyncService.js`](./src/services/vaultSyncService.js) & [`AppContext.jsx`](./src/context/AppContext.jsx))
+- **Deterministic Keying (`getCanonicalMovieKey`)**: Resolves `imdbID -> tmdb_<tmdbId> -> id -> local_<slug>_<year>`, packing all non-SQL fields (e.g., `tmdbKeywords`, `castIds`, `crewPersonId`, `tmdbGenreIds`, `trailerKey`, `streamProviders`, `dateSource`) into `metadata` JSONB (`mapLocalMovieToDbRow` / `mapDbRowToLocalMovie`) without loss.
+- **Merge Precedence (`mergeLocalAndCloudVault`)**:
+  1. `"watched"` beats `"watchlist"` across local and cloud copies, so logged ratings are never downgraded by another device's stale watchlist entry.
+  2. Local guest films absent from cloud are queued in `toUpsertCloud` rather than overwritten on first sign-in. Local items older than `lastSyncedAt` (`cinemavault_last_synced_at_v1`) that are absent from `cloudRows` (deleted on another device) or present in `deletedKeys` (`cinemavault_deleted_keys_v1`) are dropped instead of resurrecting.
+  3. Watched conflicts compare `updatedAt` / `dateWatched` timestamps (`parseTimestampMs`) and un-timestamped local explicit ratings, preserving orphaned `userNote` strings during merge.
+- **Keyset-Paginated Cloud Pull & Abort Guard (`fetchAllVaultRows` & `pullAndSyncCloudVault`)**: Cloud pulls paginate `user_vault_items` sequentially via `.order("id", { ascending: true }).gt("id", lastId).limit(1000)` until an empty page is returned, preventing silent PostgREST `1,000`-row truncation on large vaults. If *any* page returns an error, `pullAndSyncCloudVault` throws immediately, so sync is marked failed and both `mergeLocalAndCloudVault` and all cloud upserts are skipped (never merging partial cloud snapshots over local ratings).
+- **Debounced Background Flush, Multi-Device Delete Tombstones & 2-Stage Storage Compaction (`AppContext.jsx` & `vaultSyncService.js`)**: Incremental local edits and deletes enqueue into `pendingUpsertsRef` / `pendingDeletesRef` and record timestamps in `cinemavault_deleted_keys_v1` (`deletedKeysRef`). `pullAndSyncCloudVault` executes `.delete()` for `toDeleteCloud` and updates `cinemavault_last_synced_at_v1`, so cross-device deletions never resurrect. To keep 2,300+ film vaults well below browser `localStorage` (`~5 MB`) ceilings, `safeSetItem` runs `compactVaultListForStorage` (`Stage 1` stripping redundant prose and provider arrays cached in 30-day IndexedDB `tmdbCacheService.js`, plus `Stage 2` aggressive compaction on `QuotaExceededError`), while retaining all ranker (`tmdbKeywords`, `castIds`, `crewPersonId`, `tmdbGenreIds`) and Rating Studio (`ratingBreakdown`, `watchMeta`, `userNote`, `recSource`) fields.
+
+---
+
+## 21. v5.1 Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`)
+
+### 21.1 Franchise Collection Guard & Vault Collection Persistence ([`tmdbService.js`](./src/services/tmdbService.js), [`AppContext.jsx`](./src/context/AppContext.jsx), [`geminiService.js`](./src/services/geminiService.js))
+- **Full-Pipeline Collection Extraction:** `formatTmdbMovieDetails` extracts TMDB `belongs_to_collection` into numeric `collectionId` and `collectionName`, and propagates them across all `bridgeTmdbToOmdb` branches (incl. OMDb & synthetic fallbacks), `pickEnrichedDetails`, `applyDetailsToCandidate`, `mergeBackfilledMovieMetadata`, `AppContext.addWatched` async TMDB hydration, `buildRecommendationEntry`, and `verifyAndScoreWildcardPicks`.
+- **Two-Pass Variety Capping (`selectWithSoftVarietyCaps`):** Replaces director-only capping in both `mergeGeminiExplanationsWithRanker` and `buildRankerFallbackResponse` (`buildPoolCapItem`, `normalizeDirectorCapKey`, `normalizeCollectionCapKey`), enforcing **`maxPerDirector = 2`** and **`maxPerCollection = 1`** on the primary pass. It overflows in calibrated priority order only when strict enforcement would leave slots unfilled below `desiredTotal`.
+- **Prompt Collection Signals:** Candidate lines emit `Collection: <collectionName>` (`<= 60` chars when `plotLimit >= 80`), and `TASK` appends the explicit **`Franchise rule:`**, instructing Gemini to keep at most 1 film per franchise/collection and never recommend a numbered sequel or Part 2+ unless an earlier installment exists in the user's Vault.
+
+### 21.2 Steerable Taste Rules Engine & UI Drawer ([`tasteRulesService.js`](./src/services/tasteRulesService.js), [`AppContext.jsx`](./src/context/AppContext.jsx), [`MovieRecommendations.jsx`](./src/components/MovieRecommendations.jsx), [`AIChat.jsx`](./src/components/AIChat.jsx))
+- **Zero Circular Imports & Rule Limits:** [`tasteRulesService.js`](./src/services/tasteRulesService.js) keeps a pure dependency graph, importing **only** `moodPolicy.js` at top level (`draftTasteRulesWithGemini` accepts injected `geminiDeps` or dynamically imports `./geminiService.js`), and caps rules at **`MAX_TASTE_RULES = 8`** and **`MAX_RULE_TEXT_LENGTH = 140`**.
+- **Broad Genre Blacklist Protection (`extractRuleSignals`):** Distinguishes unqualified from qualified genre negations. `"No horror"` / `"Avoid documentaries"` (with trailing sentence punctuation stripped by `stripClauseDirectives`) contribute TMDB `without_genres` (`27`, `99`). Qualified phrases such as `"No slow-burn period dramas"` or `"Avoid cheesy action"` extract specific phrase keywords into `keywords` and leave `avoidGenreIds` empty, so Bucket A never wipes out all Drama (`18`) or Action (`28`) titles on TMDB. Phrase checks use hyphen- and space-aware regex word boundaries (`buildPhraseRegex`, matching both `"slow-burn"` and `"slow burn"` while avoiding false hits for `\bwar\b` inside `"Star Wars"` or `"award"`).
+- **Multi-Stage Recommendation, Ranker, Shortlist, Wildcard & Chat Wiring:**
+  1. **Bucket A (`buildBucketAParams`):** Merges compiled unqualified `avoidGenreIds` with mood `withoutGenreIds` cleanly, respecting mood inclusions.
+  2. **Calibrated Ranker & Explicit Mood Gate (`rankCandidatePool`):** Applies bounded logit shifts (**`+0.6`** on `candidateMatchesPreferRule`, **`-3.5`** on `candidateMatchesAvoidRule`, and strictly `0` change when `tasteRules` is empty), and routes explicit-mood `avoidRules` hits into `gateRejected` ahead of `gatePassed` ordering and `onDiagnostics.moodShortfall`.
+  3. **Shortlist & Wildcard Gates (`buildDiversifiedGeminiShortlist`, `verifyAndScoreWildcardPicks`):** Slices 2 (`coldLimit`), 3 (`outlierLimit`), and overflow top-up inside the 39-pick shortlist, plus verified TMDB wildcards, all enforce `candidateMatchesAvoidRule` exclusion so avoided tropes cannot sneak past the core ranker.
+  4. **Prompt, Fallback & Hash (`generateProfileHash`, `buildGeminiReRankPrompt`, `generateWithOmdbFallback`, `sendChatMessage`):** Appends deterministic `buildTasteRulesHashSegment` (`_tr_<fnv1a36>`) as the 8th optional arg to `generateProfileHash`, renders `USER'S STEERABLE TASTE RULES (Follow strictly)` inside both `buildGeminiReRankPrompt` (immune to `<= 20,000`-char compaction) and `generateWithOmdbFallback`, and injects active `[Prefer]`/`[Avoid]` rules into `AIChat` via `sendChatMessage(..., tasteRules)`.
+- **Auto-Drafting, Persistence, Backup & UI Drawer:** `draftTasteRulesWithGemini` (or deterministic `draftTasteRulesFallback` offline) drafts 4–6 actionable rules from liked notes, disliked notes, and dismissal reasons while keeping existing `pinned` rules intact. `AppContext.jsx` persists `cinemavault_taste_rules_v1` **outside** `safeSetItem`'s `purgeOrder`, alongside `addTasteRule` / `updateTasteRule` / `deleteTasteRule` / `toggleTasteRuleActive` / `toggleTasteRulePin`. `vaultPortability.js` serializes `preferences.tasteRules` (even when `[]`, supporting Replace-mode clearing without breaking legacy exports lacking `tasteRules`) in Schema v2 JSON backups. `MovieRecommendations.jsx` (`src/styles/oracle.css`) exposes a collapsible **"Taste Rules"** drawer for 1-click AI drafting, adding Prefer/Avoid rules, toggling, pinning, inline editing, and deleting.
+
+### 21.3 Actor, Director & Crew Filmography (`personService.js`, `PersonFilmographyModal.jsx`, `PersonPage.jsx`)
+- **Proxy & Structured Credit Extraction ([`api/tmdb.js`](./api/tmdb.js), [`tmdbService.js`](./src/services/tmdbService.js), [`personService.js`](./src/services/personService.js)):** `ALLOWED_TMDB_PATH_RE` permits `/3/search/person` and `/3/person/<id>[/movie_credits]` (while blocking path traversal and `trending/person/*`). `formatTmdbMovieDetails` preserves structured `directorDetails`, `writerDetails`, `cinematographerDetails`, and `composerDetails` arrays (`{ id, name, job, department }`). `extractMovieCreditPeople` normalizes TMDB credits alongside comma-separated OMDb fallbacks tagged with `id: null` (matched on demand via `/3/search/person`), and `MovieDetails.jsx` fixes the synthetic OMDb cast fallback index bug.
+- **Filmography Normalization, Vault Matching & Session Caching (`personService.js`):** `normalizePersonCredits` deduplicates cast and crew entries per `tmdbId`, filters `"Self"`/talk-show noise unless documentary-only, annotates rows via `movieIdentity.js` (`annotateCreditsWithVaultState`, preventing same-year title collisions when `tmdbId` differs), computes personal Vault Affinity Stats (`computePersonVaultStats`), and filters and sorts (`filterAndSortPersonCredits` with `<50`-vote protection on `"top_rated"`). Resolved person payloads are cached in `personSessionCache`.
+- **Overlay Modal & `/person/:id` Full Profile ([`PersonFilmographyModal.jsx`](./src/components/PersonFilmographyModal.jsx), [`PersonFilmographyExplorer.jsx`](./src/components/PersonFilmographyExplorer.jsx), [`PersonPage.jsx`](./src/pages/PersonPage.jsx), [`MovieDetails.jsx`](./src/components/MovieDetails.jsx), [`src/styles/person.css`](./src/styles/person.css)):** Clicking any Starring Cast card or Director/Writers/Cinematographer/Score button opens `PersonFilmographyModal` (`zIndex: 8500`, strictly below `QuickRateModal` at `9999`, guarded by `shouldCloseMovieDetailOnEscape` and nested-dialog checks) with active department detection (`resolvePersonDefaultDepartment`), inline Vault filters/sorting, `+ Save`, and `★ Rate`. `"View Full Profile →"` navigates to `/person/:id?dept=<tab>` (`buildPersonProfileRoute`).
+
+---
+
+## 22. v5.2 Research Hub: Rating Studio 2.0, Contextual Film Chat, Deep Explore Workbench (`/explore`), Rabbit Hole Discovery & Side-by-Side Film Comparison (`/compare`)
+
+### 22.1 Rating Studio 2.0 & Contextual "Discuss This Film" AI Chat ([`ratingStudioService.js`](./src/services/ratingStudioService.js), [`filmChatService.js`](./src/services/filmChatService.js), [`geminiChatService.js`](./src/services/geminiChatService.js), [`MovieDetails.jsx`](./src/components/MovieDetails.jsx), [`AIChat.jsx`](./src/components/AIChat.jsx), [`AIPage.jsx`](./src/pages/AIPage.jsx))
+- **Rating Studio 2.0 (`ratingStudioService.js`)**:
+  - `computeVaultCalibration(watched, targetScore, currentMovie)` returns live personal Vault percentile context (`topPercentile`, `higherOrEqualPct`, `totalRated`) and up to 2 benchmark films at the exact same rating (`exactRateMatch: true`) or nearest rated neighbors.
+  - `normalizeRatingBreakdown` and `computeCraftAverage` manage optional `1–5` Craft Breakdown scores (`story`, `direction`, `acting`, `visuals`). `normalizeWatchMeta` manages `format` (`streaming`, `theater`, `imax`, `physical`), the `rewatch` boolean, and `watchedDate` (`YYYY-MM-DD`).
+  - `buildWatchedRatingPayload({ markCleared: true })` emits explicit `null` tombstones for cleared `ratingBreakdown` / `watchMeta`, stripped into clean keys by `upsertMovieEntry` (`movieIdentity.js`) and honored by `mergeLocalAndCloudVault` (`vaultSyncService.js`) when `localIsNewer`, so cleared sub-ratings are never resurrected from older cloud rows.
+- **Contextual "Discuss This Film" AI Chat (`filmChatService.js` & `geminiChatService.js`)**:
+  - Clicking **"Discuss This Film"** on `MovieDetails.jsx` saves a hydrated dossier in `sessionStorage` (`FILM_CHAT_CACHE_PREFIX = "cinemavault_film_chat_focus_v1:"`) and navigates to `/ai?tab=chat&movie=<imdbID>&tmdbId=<tmdbId>&title=<Title>` (`buildFilmChatRoute` / `parseAiPageParams`).
+  - `serializeFilmDossierForPrompt(movie, vaultEntry, { allowSpoilers })` strips control characters and neutralizes prompt-injection markers (`###`, `SYSTEM:`, `USER:`, `ASSISTANT:`) via `sanitizeLine`. It includes full film metadata, Vault status, `ratingBreakdown`, `watchMeta`, and `userNote`, and enforces **`SPOILER-SAFE MODE ACTIVE`** by default for unwatched films until the user toggles **Spoilers Allowed** in the pinned `AIChat.jsx` Film Context Banner (`buildChatPromptPayload`).
+
+### 22.2 Deep Filter Workbench (`/explore`, [`exploreService.js`](./src/services/exploreService.js), [`ExplorePage.jsx`](./src/pages/ExplorePage.jsx))
+- **URL-Synced Multi-Facet Filter Engine (`exploreService.js`)**:
+  - Supports multi-genre pills (`EXPLORE_GENRE_OPTIONS`), decade/year presets (`DECADE_PRESETS` + custom `yearMin`/`yearMax` range inputs, with `mergeYearDraftIntoFilters` flushing unblurred typed drafts before Apply/Reset), runtime bands (`RUNTIME_PRESETS`), minimum rating floor (`minRating`), TMDB sort modes (`EXPLORE_SORT_OPTIONS`, automatically raising `vote_count.gte` to **`>= 150`** on `vote_average.desc`), original language (`LANGUAGE_OPTIONS`), origin country (`COUNTRY_OPTIONS`), streaming provider chips (`useWatchProviders: true`, falling back `GLOBAL -> US` for `watch_region`), live TMDB `#keyword` autocomplete (`searchTmdbKeywords` via `/3/search/keyword`), and Vault state toggles (`hideWatched`, `hideWatchlist`).
+  - `buildExploreRoute` delegates encoding to `URLSearchParams`, so multi-word `#keyword` chips on `MovieDetails.jsx` never double-encode spaces into `%2520`.
+- **Race-Safe View-State & Auto-Pagination (`deriveExploreViewState` & `ExplorePage.jsx`)**:
+  - `deriveExploreViewState` ensures filter switches render a clean loading skeleton instead of stale grids. It auto-advances up to **3 pages** (`autoAdvanceCap = 3`) when `hideWatched` filters out all 20 items on Page 1 before showing the empty state, and preserves already-loaded cards with an inline retry banner if a subsequent `"Load More"` page fails.
+
+### 22.3 Rabbit Hole Discovery: Franchise Timelines & Hybrid Similar Strip ([`rabbitHoleService.js`](./src/services/rabbitHoleService.js), [`CollectionTimeline.jsx`](./src/components/CollectionTimeline.jsx), [`SimilarFilmsStrip.jsx`](./src/components/SimilarFilmsStrip.jsx))
+- **Chronological Franchise Timeline (`normalizeCollectionTimeline` & `CollectionTimeline.jsx`)**:
+  - Fetches `/3/collection/:id` (`fetchCollectionTimeline`), sorts installments chronologically by release date (`TBA` entries placed last), highlights the active film (`isCurrent`), annotates Vault state (`watched` / `watchlist` / `userRating`), and displays a live progress badge (`"{watchedCount} / {totalCount} watched"`).
+- **Norm-Safe 64-D Vector Neighbors & Hybrid Merge (`findEmbeddingNeighborsForMovie` & `buildHybridSimilarFilms`)**:
+  - Because `public/models/item_embeddings_f16.bin` stores Bayesian-shrunk vectors with L2 norms in `[0.30, 1.00]`, `findEmbeddingNeighborsForMovie` computes true cosine similarity $\frac{u \cdot v}{\|u\|\|v\|}$ (dividing by `normA * normB`) rather than raw dot products, so popular high-norm blockbusters cannot crowd out true stylistic neighbors.
+  - `buildHybridSimilarFilms` merges local 64-D `CVEM v1` vector neighbors with TMDB `/recommendations` (falling back to `/similar` when `/recommendations` returns `< 4` items via `fetchTmdbMovieRecommendations`), tags each card with `matchOrigin: "hybrid" | "vault-vector" | "tmdb"`, preserves real `tt...` IMDb IDs over synthetic `tmdb_<id>` strings on overlap, and demotes same-collection sequels already shown in `CollectionTimeline`.
+
+### 22.4 Side-by-Side Film Comparison Workbench (`/compare`, [`compareService.js`](./src/services/compareService.js), [`CompareDock.jsx`](./src/components/CompareDock.jsx), [`CompareModal.jsx`](./src/components/CompareModal.jsx), [`CompareWorkbench.jsx`](./src/components/CompareWorkbench.jsx), [`ComparePage.jsx`](./src/pages/ComparePage.jsx))
+- **Global Tray, Floating Dock & Shareable URLs**:
+  - `AppContext` persists up to **`COMPARE_MAX_ITEMS = 3`** films in `localStorage` (`cinemavault_compare_v1`) with `toggleCompareMovie`, `isInCompare`, `removeFromCompare`, and `clearCompare`.
+  - Every `MovieCard.jsx` and `MovieDetails.jsx` action bar exposes a `⇄ Compare` toggle button. Once `>= 1` film is queued, `CompareDock.jsx` floats at the bottom of the viewport with a quick-open modal (`CompareModal.jsx`), shareable URL copy (`buildCompareUrl` -> `/compare?ids=...`), and direct `/compare` workbench navigation (`ComparePage.jsx`).
+- **Winner Matrix, Overlap Signals & 64-D Taste Match (`buildCompareMatrix` & `computeCompareOverlap`)**:
+  - `buildCompareMatrix` computes side-by-side rows and highlights column `leaders` (with tie support) across IMDb, Rotten Tomatoes (preserving `0%`), Metascore (preserving `0`), TMDB score, shortest runtime, box-office revenue, ROI multiple (`revenueUsd / budgetUsd`), personal Vault score & notes, and 64-D `CVEM v1` **Personal Taste Match %** (`vaultMatchPct`).
+  - `computeCompareOverlap` extracts shared actors & directors/writers (`personId`-linked directly to `PersonFilmographyModal`), shared genres (routed via `resolveExploreGenreId` to `/explore?genres=<id>`), shared `#keyword` motifs (`/explore?kw=<id>:<name>`), and pairwise 64-D `CVEM v1` cosine similarity (`pairVectorSims`).
+  - `addUrlCompareSlot`, `removeUrlCompareSlot`, `dedupeHydratedMovies`, and `hydrateCompareMovieSlot` handle URL-only `/compare?ids=...` sessions, `_notFound` error slots, and cross-scheme `tt... <-> tmdb_...` identity resolution.
+
+---

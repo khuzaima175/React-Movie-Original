@@ -35,16 +35,41 @@ function normalizeHostCandidate(rawHost = "") {
   }
 }
 
+function isStrictOriginMode(options = {}) {
+  if (typeof options?.strictOrigin === "boolean") return options.strictOrigin;
+  if (process.env.ALLOW_ORIGINLESS_PROXY === "true") return false;
+  if (process.env.ENFORCE_STRICT_ORIGIN === "true") return true;
+  return (
+    process.env.NODE_ENV === "production" ||
+    Boolean(
+      process.env.VERCEL ||
+      process.env.VERCEL_ENV ||
+      process.env.VERCEL_URL ||
+      process.env.VERCEL_PROJECT_PRODUCTION_URL
+    )
+  );
+}
+
 /**
- * Checks whether the request Origin header (when present) is allowed.
- * Requests without an Origin header (e.g. server-side callers, Node tests, curl)
- * are allowed so server proxies remain usable outside CORS browser contexts.
+ * Checks whether the request Origin / Sec-Fetch-Site headers are allowed.
+ * - When `Origin` is present, it must match localhost, the request host, Vercel deployment hosts,
+ *   or `ALLOWED_ORIGIN`.
+ * - When `Origin` is absent, `Sec-Fetch-Site: same-origin` (or `same-site`) is allowed, while
+ *   `cross-site` / `none` is always rejected.
+ * - Requests omitting BOTH `Origin` and `Sec-Fetch-Site` (e.g. `curl` or bot scripts) are rejected
+ *   with `403` in production / Vercel runtimes, while permitted in local `node --test` unit runs.
  */
-export function isRequestOriginAllowed(req) {
+export function isRequestOriginAllowed(req, options = {}) {
   const rawOrigin = getHeader(req, "origin");
   if (!rawOrigin) {
     const secFetchSite = String(getHeader(req, "sec-fetch-site") || "").trim().toLowerCase();
-    return secFetchSite !== "cross-site";
+    if (secFetchSite === "same-origin" || secFetchSite === "same-site") {
+      return true;
+    }
+    if (secFetchSite !== "") {
+      return false;
+    }
+    return !isStrictOriginMode(options);
   }
 
   let parsedOrigin;
