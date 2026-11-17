@@ -1553,3 +1553,441 @@
   height: 2rem;
   width: 22rem;
 }
+
+/* ============================================================
+   PHASE 4 — Toast progress, press feedback, dock motion
+   ============================================================ */
+
+/* Framer now drives the toast's x/y transform, so drop the CSS centering */
+.cinema-toast-wrapper {
+  transform: none;
+}
+
+.cinema-toast-pill {
+  position: relative;
+  overflow: hidden;
+}
+
+.cinema-toast-progress {
+  position: absolute;
+  left: 1.4rem;
+  right: 1.4rem;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.cinema-toast-progress-bar {
+  display: block;
+  height: 100%;
+  background: rgba(243, 241, 235, 0.55);
+  transform-origin: left center;
+  animation-name: cv-toast-countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.cinema-toast-wrapper:hover .cinema-toast-progress-bar,
+.cinema-toast-wrapper:focus-within .cinema-toast-progress-bar {
+  animation-play-state: paused;
+}
+
+@keyframes cv-toast-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Tactile press feedback on primary actions */
+.btn-hero-primary,
+.btn-hero-secondary,
+.btn-quick-save,
+.btn-quick-cancel,
+.btn-quick-watchlist,
+.btn-card-action,
+.btn-carousel-arrow,
+.btn-hero-arrow {
+  transition-property: background-color, color, border-color, opacity, transform, box-shadow;
+}
+
+.btn-hero-primary:active,
+.btn-hero-secondary:active,
+.btn-quick-save:not(:disabled):active,
+.btn-quick-cancel:active,
+.btn-quick-watchlist:active,
+.btn-card-action:active,
+.btn-carousel-arrow:active,
+.btn-hero-arrow:active {
+  transform: scale(0.96);
+}
+
+/* Light sweep across primary hero button on hover (desktop only) */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .btn-hero-primary {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .btn-hero-primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.85) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 0.7s var(--ease-out);
+  }
+
+  .btn-hero-primary:not(.added):hover::after {
+    transform: translateX(120%);
+  }
+}
+
+/* Compare dock: slide-up entrance and chip pop-in */
+.compare-dock-wrap {
+  animation: cv-dock-in 0.4s var(--ease-out) both;
+}
+
+.compare-dock-chip {
+  animation: cv-chip-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes cv-dock-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-50%, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes cv-chip-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ============================================================
+   PHASE 5 & 6 — Detail page, roulette, mobile bar, 404, grain
+   ============================================================ */
+
+/* ── Movie detail: parallax backdrop + fading title as you scroll ────────── */
+.luxury-detail-card .movie-backdrop-hero .movie-backdrop-img {
+  transform: translate3d(0, calc(var(--hero-progress, 0) * 14%), 0) scale(calc(1.04 + var(--hero-progress, 0) * 0.06));
+  transition: none;
+  will-change: transform;
+}
+
+.luxury-detail-card .movie-backdrop-hero .movie-hero-title-group {
+  opacity: calc(1 - var(--hero-progress, 0) * 1.3);
+}
+
+@keyframes cv-hero-title-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.luxury-detail-card .movie-hero-title {
+  animation: cv-hero-title-in 0.7s var(--ease-out) 0.1s backwards;
+}
+
+.luxury-detail-card .movie-hero-chips {
+  animation: cv-hero-title-in 0.7s var(--ease-out) 0.22s backwards;
+}
+
+/* Sticky mini title bar */
+.movie-sticky-bar {
+  position: fixed;
+  top: var(--nav-h);
+  left: 0;
+  right: 0;
+  z-index: 39;
+  background: rgba(13, 14, 17, 0.88);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+  border-bottom: 1px solid var(--hairline);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+.movie-sticky-inner {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  height: 5.2rem;
+}
+
+.movie-sticky-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.movie-sticky-back:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.movie-sticky-thumb {
+  width: 3.2rem;
+  height: 4.4rem;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.movie-sticky-text {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.movie-sticky-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-1);
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.movie-sticky-year {
+  color: var(--text-3);
+  font-size: 1.3rem;
+}
+
+/* ── Cinema Roulette ─────────────────────────────────────────────────────── */
+.roulette-card.is-spinning {
+  filter: blur(0.6px);
+}
+
+.roulette-card.is-settled {
+  filter: none;
+}
+
+.roulette-burst {
+  position: absolute;
+  left: 4.8rem; /* centred on the poster thumbnail */
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.roulette-burst i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--s);
+  height: var(--s);
+  margin: calc(var(--s) / -2);
+  border-radius: 50%;
+  background: var(--text-1);
+  opacity: 0;
+  animation: cv-burst 0.9s var(--ease-out) forwards;
+}
+
+@keyframes cv-burst {
+  0% {
+    opacity: 0.95;
+    transform: rotate(var(--a)) translateX(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(var(--d)) scale(0.3);
+  }
+}
+
+/* ── Empty state: slow rotating dashed ring around the reel icon ─────────── */
+.empty-state-enhanced .empty-icon {
+  position: relative;
+}
+
+.empty-state-enhanced .empty-icon::before {
+  content: "";
+  position: absolute;
+  inset: -1.4rem;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 50%;
+  animation: cv-spin-slow 24s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes cv-spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── 404 ─────────────────────────────────────────────────────────────────── */
+.notfound-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - var(--nav-h) - 18rem);
+  padding-top: 6rem;
+  padding-bottom: 6rem;
+}
+
+.notfound-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+  max-width: 56rem;
+  text-align: center;
+}
+
+.notfound-reel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 7.2rem;
+  height: 7.2rem;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 50%;
+  color: var(--text-2);
+}
+
+.notfound-code {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+}
+
+.notfound-title {
+  margin: 0;
+  color: var(--text-1);
+  font-size: clamp(2.8rem, 4vw, 4.4rem);
+  font-weight: 600;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.notfound-copy {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 1.5rem;
+}
+
+.notfound-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.4rem;
+}
+
+.notfound-actions a {
+  text-decoration: none;
+}
+
+/* ── Film grain (static; one tiny tiled SVG, no animation cost) ──────────── */
+.animated-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+/* ── Mobile tab bar: glass + sliding indicator ───────────────────────────── */
+@media (max-width: 900px) {
+  .mobile-stream-bar {
+    background: rgba(13, 14, 17, 0.78);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  .mobile-tab.active::before {
+    content: none;
+  }
+
+  .mobile-tab-pill {
+    position: absolute;
+    top: 0;
+    left: 28%;
+    right: 28%;
+    height: 2px;
+    background: var(--text-1);
+    border-radius: 0 0 2px 2px;
+  }
+
+  .movie-sticky-bar {
+    top: var(--nav-h);
+  }
+
+  .movie-sticky-inner {
+    height: 4.8rem;
+  }
+}
+
+/* ── Add-to-vault flight: target bump + rating burst placement ───────────── */
+@keyframes cv-bump {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.28);
+  }
+  65% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.cv-bump {
+  animation: cv-bump 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Particle burst anchored on the rating crest (reuses roulette particle keyframes) */
+.star-stage-score-block {
+  position: relative;
+}
+
+.roulette-burst.star-burst {
+  left: 2.4rem;
+  top: 50%;
+}
+
+.roulette-burst.star-burst i {
+  background: var(--accent);
+}

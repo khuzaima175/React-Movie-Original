@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button, Menu, StatCell, Tabs } from "./ui";
+import AnimatedNumber from "./ui/AnimatedNumber";
 import { buildRatingHistogramBins } from "../services/vaultStats";
 
 export default function VaultBanner({
@@ -180,7 +181,7 @@ export default function VaultBanner({
                       fill="currentColor"
                       aria-hidden="true"
                     />
-                    <span>{avgUser}</span>
+                    <AnimatedNumber value={avgUser} />
                   </>
                 }
               />

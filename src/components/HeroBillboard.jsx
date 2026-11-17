@@ -12,6 +12,7 @@ import { MetaLine } from "./ui";
 import { buildSeenCollisionSet } from "../services/dashboardService";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
 import { prepareWatchlistPayload } from "../services/ratingTiers";
+import { flyToVault } from "../services/flyToVault";
 import { EASE, riseIn, staggerContainer, wordReveal } from "../motion";
 
 const SLIDE_MS = 8000;
@@ -96,16 +97,18 @@ function HeroCarousel({
   const isWatched = [...slideKeys].some((k) => watchedSet.has(k));
   const isWatchlisted = [...slideKeys].some((k) => watchlistSet.has(k));
 
-  function handlePrimaryAction() {
+  function handlePrimaryAction(e) {
     if (!slide) return;
     if (!isWatched && onAddToWatchlist) {
       if (!isWatchlisted) {
         onAddToWatchlist(prepareWatchlistPayload(slide));
+        flyToVault(e?.currentTarget, slide.poster);
       }
       return;
     }
     if (!isWatched && onAddWatched) {
       onAddWatched(buildQuickAddWatchedMovie(slide));
+      flyToVault(e?.currentTarget, slide.poster);
     }
   }
 

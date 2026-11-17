@@ -43,6 +43,29 @@ function NavTab({ to, end = false, children }) {
   );
 }
 
+function MobileTab({ to, end = false, icon: Icon, label }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <motion.span
+              layoutId="mobile-tab-pill"
+              className="mobile-tab-pill"
+              transition={{ type: "spring", stiffness: 480, damping: 36 }}
+            />
+          )}
+          <Icon size={18} aria-hidden="true" />
+          <span>{label}</span>
+        </>
+      )}
+    </NavLink>
+  );
+}
 function useScrolled(threshold = 8) {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -165,38 +188,10 @@ export default function NavBar({
       </header>
 
       <nav className="mobile-stream-bar" role="navigation" aria-label="Mobile Navigation">
-        <NavLink
-          to="/"
-          end
-          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
-        >
-          <Film size={18} aria-hidden="true" />
-          <span>Discover</span>
-        </NavLink>
-
-        <NavLink
-          to="/explore"
-          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
-        >
-          <SlidersHorizontal size={18} aria-hidden="true" />
-          <span>Explore</span>
-        </NavLink>
-
-        <NavLink
-          to="/vault"
-          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
-        >
-          <Bookmark size={18} aria-hidden="true" />
-          <span>Vault</span>
-        </NavLink>
-
-        <NavLink
-          to="/ai"
-          className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
-        >
-          <Compass size={18} aria-hidden="true" />
-          <span>Oracle</span>
-        </NavLink>
+        <MobileTab to="/" end icon={Film} label="Discover" />
+        <MobileTab to="/explore" icon={SlidersHorizontal} label="Explore" />
+        <MobileTab to="/vault" icon={Bookmark} label="Vault" />
+        <MobileTab to="/ai" icon={Compass} label="Oracle" />
 
         <button
           type="button"

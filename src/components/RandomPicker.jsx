@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Modal } from "./ui/Modal";
 import { Button } from "./ui/Button";
 import { useApp } from "../context/AppContext";
@@ -11,8 +11,16 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
   const [source, setSource] = useState("watchlist"); // "watchlist" | "watched"
   const [isSpinning, setIsSpinning] = useState(false);
   const [pickedMovie, setPickedMovie] = useState(null);
+  const [settleKey, setSettleKey] = useState(0);
 
   const activePool = source === "watchlist" ? watchlist : watched;
+
+  const timersRef = useRef([]);
+  const clearTimers = () => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  };
+  useEffect(() => clearTimers, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -23,31 +31,43 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
       }
       setPickedMovie(null);
       setIsSpinning(false);
+      setSettleKey(0);
+    } else {
+      clearTimers();
     }
   }, [isOpen, watchlist.length, watched.length]);
 
   function handleRoll() {
     if (activePool.length === 0) return;
-
+    clearTimers();
     setIsSpinning(true);
     setPickedMovie(null);
 
-    let counter = 0;
-    const maxSteps = 14;
-    const intervalTime = 75;
+    // Decelerating spin: each step waits a bit longer, like a slot reel settling.
+    const steps = 16;
+    let elapsed = 0;
+    let lastIndex = -1;
+    const pick = () => {
+      let idx = Math.floor(Math.random() * activePool.length);
+      if (activePool.length > 1 && idx === lastIndex) idx = (idx + 1) % activePool.length;
+      lastIndex = idx;
+      return activePool[idx];
+    };
 
-    const interval = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * activePool.length);
-      setPickedMovie(activePool[randomIndex]);
-      counter++;
-      if (counter >= maxSteps) {
-        clearInterval(interval);
-        // Final random pick
-        const finalIndex = Math.floor(Math.random() * activePool.length);
-        setPickedMovie(activePool[finalIndex]);
-        setIsSpinning(false);
-      }
-    }, intervalTime);
+    for (let i = 0; i < steps; i++) {
+      const delay = 55 + Math.pow(i / (steps - 1), 2.4) * 260;
+      elapsed += delay;
+      const isLast = i === steps - 1;
+      timersRef.current.push(
+        setTimeout(() => {
+          setPickedMovie(pick());
+          if (isLast) {
+            setIsSpinning(false);
+            setSettleKey((k) => k + 1);
+          }
+        }, elapsed)
+      );
+    }
   }
 
   if (!isOpen) return null;
@@ -119,11 +139,31 @@ export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2.4rem", borderRadius: "1.2rem", border: "1px solid rgba(255, 255, 255, 0.1)", background: "rgba(28, 29, 32, 0.6)", minHeight: "260px", textAlign: "center" }}>
           {pickedMovie ? (
             <motion.div
-              key={pickedMovie.imdbID || pickedMovie.id || pickedMovie.title}
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "2rem", width: "100%", maxWidth: "420px", textAlign: "left" }}
+              key={`${pickedMovie.imdbID || pickedMovie.id || pickedMovie.title}-${isSpinning ? "spin" : "done"}`}
+              initial={{ y: isSpinning ? -22 : 10, opacity: 0, scale: isSpinning ? 1 : 0.9 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              transition={
+                isSpinning
+                  ? { duration: 0.09, ease: "easeOut" }
+                  : { type: "spring", stiffness: 380, damping: 18 }
+              }
+              className={isSpinning ? "roulette-card is-spinning" : "roulette-card is-settled"}
+              style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "2rem", width: "100%", maxWidth: "420px", textAlign: "left", position: "relative" }}
             >
+              {!isSpinning && settleKey > 0 && (
+                <span className="roulette-burst" key={settleKey} aria-hidden="true">
+                  {Array.from({ length: 14 }).map((_, i) => (
+                    <i
+                      key={i}
+                      style={{
+                        "--a": `${(360 / 14) * i}deg`,
+                        "--d": `${70 + (i % 3) * 18}px`,
+                        "--s": `${i % 2 ? 5 : 3}px`
+                      }}
+                    />
+                  ))}
+                </span>
+              )}
               <div style={{ width: "9.6rem", height: "14.4rem", flexShrink: 0, borderRadius: "0.8rem", overflow: "hidden", border: "1px solid rgba(255, 255, 255, 0.12)", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
                 <PosterImage
                   src={pickedMovie.poster || pickedMovie.Poster}

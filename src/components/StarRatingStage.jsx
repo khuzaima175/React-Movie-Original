@@ -15,6 +15,7 @@ export default function StarRatingStage({
   ariaLabel = "Rate this film from 1 to 10"
 }) {
   const [justPickedScore, setJustPickedScore] = useState(0);
+  const [burstKey, setBurstKey] = useState(0);
 
   const metrics = computeStarStageMetrics(value, hoverValue);
   const { activeScore, fillPercent, isHovering, stars } = metrics;
@@ -22,6 +23,7 @@ export default function StarRatingStage({
 
   function handleSelectScore(score) {
     setJustPickedScore(score);
+    if (score >= 9) setBurstKey((k) => k + 1);
     onChange?.(score);
     onHoverChange?.(0);
   }
@@ -82,6 +84,20 @@ export default function StarRatingStage({
       {/* Unified Atmospheric Hero Score Stage (Zero OS Emojis) */}
       <div className="star-stage-hero">
         <div className="star-stage-score-block">
+          {burstKey > 0 && (
+            <span className="roulette-burst star-burst" key={burstKey} aria-hidden="true">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <i
+                  key={i}
+                  style={{
+                    "--a": `${(360 / 12) * i}deg`,
+                    "--d": `${38 + (i % 3) * 10}px`,
+                    "--s": `${i % 2 ? 4 : 3}px`
+                  }}
+                />
+              ))}
+            </span>
+          )}
           <div className="star-stage-crest" aria-hidden="true">
             <svg viewBox="0 0 24 24" className="star-stage-crest-svg">
               <path

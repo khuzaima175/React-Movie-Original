@@ -124,10 +124,6 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
       item: targetItem,
       tab: activeTab,
     });
-
-    setTimeout(() => {
-      setToast(null);
-    }, 5000);
   }
 
   function handleUndo(item) {

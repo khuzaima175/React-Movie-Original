@@ -3,6 +3,7 @@ import { Bookmark, Check, Star } from "lucide-react";
 import { Modal } from "./ui/Modal";
 import PosterImage from "./PosterImage";
 import StarRatingStage from "./StarRatingStage";
+import { flyToVault } from "../services/flyToVault";
 import { buildSeenCollisionSet } from "../services/dashboardService";
 import {
   prepareQuickRatePayload,
@@ -53,9 +54,15 @@ export default function QuickRateModal({
   const activeRating = hoverRating || selectedRating || 0;
   const quickTags = getContextualQuickTags(activeRating);
 
+  function flyPoster() {
+    const el = document.querySelector(".quick-rate-poster-thumb");
+    flyToVault(el, poster);
+  }
+
   function handleSaveToVault() {
     const payload = prepareQuickRatePayload({ ...movie, userNote: note }, selectedRating);
     if (!payload) return;
+    flyPoster();
     onSaveWatched?.(payload);
     onClose?.();
   }
@@ -63,6 +70,7 @@ export default function QuickRateModal({
   function handlePlanToWatch() {
     const payload = prepareWatchlistPayload(movie);
     if (!payload) return;
+    flyPoster();
     onAddToWatchlist?.(payload);
     onClose?.();
   }

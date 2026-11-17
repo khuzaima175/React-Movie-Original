@@ -19,6 +19,7 @@ import MoviePage from "./pages/MoviePage";
 import PersonPage from "./pages/PersonPage";
 import VaultPage from "./pages/VaultPage";
 import AIPage from "./pages/AIPage";
+import NotFoundPage from "./pages/NotFoundPage";
 import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
@@ -217,7 +218,7 @@ function AppContent() {
             }
           />
           <Route path="/ai" element={<AIPage onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")} />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
           </motion.div>
         </AnimatePresence>

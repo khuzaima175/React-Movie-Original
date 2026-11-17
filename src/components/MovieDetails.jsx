@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
+import { HeroParallaxController, StickyTitleBar } from "./MovieDetailEffects";
 import PersonFilmographyModal from "./PersonFilmographyModal";
 import CollectionTimeline from "./CollectionTimeline";
 import SimilarFilmsStrip from "./SimilarFilmsStrip";
@@ -644,8 +645,15 @@ export default function MovieDetails({
         <ErrorMessage message={error} />
       ) : movie ? (
         <div className="netflix-modal-card luxury-detail-card">
+          <StickyTitleBar
+            title={movie.title}
+            poster={movie.poster}
+            year={movie.year}
+            onBack={onCloseMovie}
+          />
           {/* Top Hero Cinematic Backdrop Banner */}
           <div className="movie-backdrop-hero">
+            <HeroParallaxController />
             {movie.backdrop ? (
               <img
                 src={movie.backdrop}
