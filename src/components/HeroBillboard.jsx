@@ -143,7 +143,20 @@ function HeroCarousel({
   const contentStyle = prefersReducedMotion ? undefined : { y: contentY, opacity: contentOpacity };
 
   return (
-    <section className="hero-billboard-wrap page-rail" aria-label="Featured Film Billboard">
+    <section className="hero-billboard-wrap page-rail hero-has-glow" aria-label="Featured Film Billboard">
+      {/* Ambient glow: the same (already cached) backdrop, blurred, bleeding past the card edges */}
+      <AnimatePresence>
+        <motion.div
+          key={`glow-${slideId || safeIndex}`}
+          className="hero-glow"
+          aria-hidden="true"
+          style={{ backgroundImage: `url(${hasBackdrop ? slide.backdrop : slide.poster || ""})` }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.42 }}
+          exit={{ opacity: 0, transition: { duration: 0.6 } }}
+          transition={{ duration: 1.1, ease: EASE }}
+        />
+      </AnimatePresence>
       <motion.div
         ref={heroRef}
         className="hero-billboard"

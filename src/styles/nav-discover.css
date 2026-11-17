@@ -2043,3 +2043,30 @@
   transform: scale(1.05);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
+
+/* ── Hero ambient glow ───────────────────────────────────────────────────── */
+.hero-has-glow {
+  position: relative;
+  isolation: isolate;
+}
+
+.hero-glow {
+  position: absolute;
+  z-index: -1;
+  top: 6rem;
+  left: calc(var(--page-gutter) + 2rem);
+  right: calc(var(--page-gutter) + 2rem);
+  bottom: -3rem;
+  background-size: cover;
+  background-position: center;
+  filter: blur(60px) saturate(1.5);
+  border-radius: var(--r-lg);
+  pointer-events: none;
+  will-change: opacity;
+}
+
+@media (max-width: 700px) {
+  .hero-glow {
+    filter: blur(40px) saturate(1.4);
+  }
+}
