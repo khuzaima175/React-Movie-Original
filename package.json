@@ -20,6 +20,7 @@
   "scripts": {
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build",
+    "check:secrets": "node scripts/check_secrets_in_history.mjs",
     "start": "vite",
     "build": "vite build",
     "serve": "vite preview",
