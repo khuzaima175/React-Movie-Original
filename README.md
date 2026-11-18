@@ -154,7 +154,7 @@ Click any cast member or crew credit to open their filmography in an overlay, wi
 
 - `Cmd + K` (Mac) or `Ctrl + K` (Windows and Linux), or `/` outside text fields, opens search.
 - Search queries OMDb and TMDB in parallel, merges results, and marks films already in your vault.
-- Trailers prefer an official English trailer, then other trailers, then teasers. Playback opens in a modal or on YouTube. Films with no trailer data link to a YouTube search.
+- Trailers prefer an official English trailer, then other trailers, then teasers. Playback opens on YouTube. Films with no trailer data link to a YouTube search.
 
 ### 11. Interface & Two Editions
 

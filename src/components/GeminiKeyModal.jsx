@@ -3,6 +3,7 @@ import { Eye, EyeOff, ExternalLink, KeyRound, ShieldCheck, Trash2 } from "lucide
 import { Modal } from "./ui/Modal";
 import { Button } from "./ui/Button";
 import { getUserGeminiKey, setUserGeminiKey } from "../services/apiTransport";
+import { resetSessionWorkingModels } from "../services/geminiService";
 
 /**
  * Optional browser-local Gemini API key modal for visitors who want personal quota
@@ -24,6 +25,7 @@ export default function GeminiKeyModal({ isOpen, onClose, onChanged }) {
   const handleSave = (e) => {
     e.preventDefault();
     const stored = setUserGeminiKey(value);
+    resetSessionWorkingModels({ clearStorage: true });
     setHasSavedKey(Boolean(stored));
     onChanged?.(Boolean(stored));
     onClose?.();
@@ -31,6 +33,7 @@ export default function GeminiKeyModal({ isOpen, onClose, onChanged }) {
 
   const handleClear = () => {
     setUserGeminiKey("");
+    resetSessionWorkingModels({ clearStorage: true });
     setValue("");
     setHasSavedKey(false);
     onChanged?.(false);

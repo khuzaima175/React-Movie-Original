@@ -13,7 +13,7 @@ export default function SampleVaultBanner() {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--r-md)] border border-[var(--hairline-strong)] bg-[var(--surface-2)] px-4 py-3 text-[1.3rem] text-[var(--text-2)]"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--r-lg)] border border-[var(--hairline-strong)] bg-[var(--surface-2)] px-4 py-3 text-[1.3rem] text-[var(--text-2)]"
     >
       <div className="flex items-center gap-2.5">
         <Sparkles size={15} className="shrink-0 text-[var(--text-1)]" aria-hidden="true" />

@@ -5,7 +5,8 @@ import { computeZScoredWeights } from "../src/services/scoringUtils.js";
 import {
   SAMPLE_VAULT_MIN_WATCHED,
   buildSampleVault,
-  isSampleItem
+  isSampleItem,
+  mergeSampleVault
 } from "../src/services/sampleVaultService.js";
 
 test("buildSampleVault returns >=14 rated films with integer ratings 1-10 and at least two <= 4", () => {
@@ -72,4 +73,35 @@ test("computeZScoredWeights on the sample is non-degenerate and isSampleItem is 
 
   assert.equal(isSampleItem({ imdbID: "tt0133093", title: "The Matrix" }), false);
   assert.equal(isSampleItem(null), false);
+});
+
+test("mergeSampleVault preserves overlapping real user ratings and watchlist entries so clear keeps them intact", () => {
+  const realWatched = [
+    { imdbID: "tt0816692", title: "Interstellar", userRating: 6, userNote: "My real note" }
+  ];
+  const realWatchlist = [
+    { imdbID: "tt0114369", title: "Se7en" }
+  ];
+
+  const { watched, watchlist } = mergeSampleVault({
+    currentWatched: realWatched,
+    currentWatchlist: realWatchlist,
+    now: Date.UTC(2026, 10, 18)
+  });
+
+  const interstellar = watched.find((m) => m.imdbID === "tt0816692");
+  assert.equal(interstellar.userRating, 6);
+  assert.equal(interstellar.userNote, "My real note");
+  assert.equal(isSampleItem(interstellar), false);
+
+  const seven = watchlist.find((m) => m.imdbID === "tt0114369");
+  assert.ok(seven);
+  assert.equal(isSampleItem(seven), false);
+
+  const remainingWatchedAfterClear = watched.filter((m) => !isSampleItem(m));
+  const remainingWatchlistAfterClear = watchlist.filter((m) => !isSampleItem(m));
+  assert.equal(remainingWatchedAfterClear.length, 1);
+  assert.equal(remainingWatchedAfterClear[0].userRating, 6);
+  assert.equal(remainingWatchlistAfterClear.length, 1);
+  assert.equal(remainingWatchlistAfterClear[0].imdbID, "tt0114369");
 });

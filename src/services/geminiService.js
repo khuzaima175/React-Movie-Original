@@ -53,7 +53,7 @@ import {
     buildDnaSimMap
 } from "./dnaService.js";
 import { compileActiveTasteRules, candidateMatchesAvoidRule, buildTasteRulesHashSegment } from "./tasteRulesService.js";
-import { isPersonalEdition } from "./debugFlags.js";
+import { isDebugUiEnabled } from "./debugFlags.js";
 
 export const CURATION_MODEL_CASCADE = [
     "gemini-4-hydrogen",
@@ -77,7 +77,7 @@ export const PUBLIC_CURATION_CASCADE = [
  * Selects curation cascade priority: Flash-Lite first in public/commercial mode
  * to stretch daily free-tier quota, Hydrogen first in personal/debug mode.
  */
-export function getCurationCascade({ personal = isPersonalEdition() } = {}) {
+export function getCurationCascade({ personal = isDebugUiEnabled() } = {}) {
     return personal ? CURATION_MODEL_CASCADE : PUBLIC_CURATION_CASCADE;
 }
 
@@ -516,7 +516,7 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
     const cascadeType = options.cascadeType || "curation";
     const getNow = typeof options.now === "function" ? options.now : clockFn;
     const startNowMs = getNow();
-    if (proxyRateLimitedUntilMs > startNowMs) {
+    if (ai?.isProxy && proxyRateLimitedUntilMs > startNowMs) {
         return null;
     }
 
@@ -916,7 +916,7 @@ export function resolveResultModelInfo(result, cascadeType = "curation") {
         };
     }
     return buildCascadeModelInfo(
-        cascadeType === "fast" ? FAST_INTERACTIVE_CASCADE : CURATION_MODEL_CASCADE,
+        cascadeType === "fast" ? FAST_INTERACTIVE_CASCADE : getCurationCascade(),
         null,
         cascadeType,
         "ranker-fallback"
@@ -2544,7 +2544,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
     ) {
         try {
             const preliminaryModelInfo = {
-                ...buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-preliminary"),
+                ...buildCascadeModelInfo(getCurationCascade(), null, "curation", "ranker-preliminary"),
                 hydrationCoverage,
                 fallbackMode: "ranker-preliminary",
                 pipeline: "ranker-preliminary",

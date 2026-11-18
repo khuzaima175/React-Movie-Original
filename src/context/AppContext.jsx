@@ -29,7 +29,7 @@ import {
   mapLocalMovieToDbRow,
   pullAndSyncCloudVault
 } from "../services/vaultSyncService.js";
-import { buildSampleVault, isSampleItem } from "../services/sampleVaultService.js";
+import { isSampleItem, mergeSampleVault } from "../services/sampleVaultService.js";
 
 const AppContext = createContext(null);
 const VAULT_STORAGE_KEYS = new Set(["watchedMovies", "watchlist"]);
@@ -944,6 +944,7 @@ export function AppProvider({ children }) {
       },
       clearStudioKeys
     );
+    delete mergedEntry.isSample;
 
     setWatched((prev) => upsertMovieEntry(prev, mergedEntry, { clearKeys: clearStudioKeys }));
     setWatchlist((prev) => removeMovieEntries(prev, mergedEntry).nextList);
@@ -1222,15 +1223,11 @@ export function AppProvider({ children }) {
       return { ok: false, reason: "vault-not-empty" };
     }
 
-    const { watched: sampleWatched, watchlist: sampleWatchlist } = buildSampleVault();
-    const nextWatched = sampleWatched.reduce(
-      (acc, entry) => upsertMovieEntry(acc, entry),
-      currentWatched
-    );
-    const currentWatchlist = watchlistRef.current || [];
-    const nextWatchlist = sampleWatchlist
-      .filter((entry) => !nextWatched.some((w) => isSameMovie(w, entry)))
-      .reduce((acc, entry) => upsertMovieEntry(acc, entry), currentWatchlist);
+    const { watched: nextWatched, watchlist: nextWatchlist } = mergeSampleVault({
+      currentWatched,
+      currentWatchlist: watchlistRef.current || [],
+      isSameMovieFn: isSameMovie
+    });
 
     watchedRef.current = nextWatched;
     watchlistRef.current = nextWatchlist;

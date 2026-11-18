@@ -1,4 +1,5 @@
 import { CORE_TASTE_DECK } from "./tasteDeckService.js";
+import { isSameMovie } from "./movieIdentity.js";
 import { prepareQuickRatePayload, prepareWatchlistPayload } from "./ratingTiers.js";
 
 export const SAMPLE_VAULT_MIN_WATCHED = 14;
@@ -71,4 +72,33 @@ export function buildSampleVault({ now = Date.now() } = {}) {
   }
 
   return { watched, watchlist };
+}
+
+/**
+ * Merges demo sample entries alongside existing user items without overwriting real ratings
+ * or stamping `isSample: true` onto items the visitor already rated or queued.
+ */
+export function mergeSampleVault({
+  currentWatched = [],
+  currentWatchlist = [],
+  now = Date.now(),
+  isSameMovieFn = isSameMovie
+} = {}) {
+  const { watched: sampleWatched, watchlist: sampleWatchlist } = buildSampleVault({ now });
+  const existingWatched = Array.isArray(currentWatched) ? currentWatched : [];
+  const existingWatchlist = Array.isArray(currentWatchlist) ? currentWatchlist : [];
+
+  const nonCollidingWatched = sampleWatched.filter(
+    (entry) => !existingWatched.some((w) => isSameMovieFn(w, entry))
+  );
+  const nextWatched = [...existingWatched, ...nonCollidingWatched];
+
+  const nonCollidingWatchlist = sampleWatchlist.filter(
+    (entry) =>
+      !nextWatched.some((w) => isSameMovieFn(w, entry)) &&
+      !existingWatchlist.some((wl) => isSameMovieFn(wl, entry))
+  );
+  const nextWatchlist = [...existingWatchlist, ...nonCollidingWatchlist];
+
+  return { watched: nextWatched, watchlist: nextWatchlist };
 }

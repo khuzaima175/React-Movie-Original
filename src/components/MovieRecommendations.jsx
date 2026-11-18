@@ -16,7 +16,7 @@ import {
   createGeminiClient,
   parseFreeTextMoodWithGemini
 } from "../services/geminiService";
-import { isDebugUiEnabled, isPersonalEdition } from "../services/debugFlags";
+import { isDebugUiEnabled } from "../services/debugFlags";
 import { hasUserGeminiKey, resolveGeminiKey } from "../services/apiTransport";
 import {
   bridgeTmdbToOmdb,
@@ -209,8 +209,7 @@ export default function MovieRecommendations({
   );
 
   const debug = isDebugUiEnabled();
-  const personalEdition = isPersonalEdition();
-  const queuedModel = getPreferredCascadeModel(getCurationCascade({ personal: personalEdition }), "curation");
+  const queuedModel = getPreferredCascadeModel(getCurationCascade({ personal: debug }), "curation");
   const displayedModelInfo = aiModelInfo || getLastModelInfo("curation");
   const { summaryText: streamingSummary, hasCustomFilter: hasStreamingFilter } = formatStreamingSummary(
     userRegion,

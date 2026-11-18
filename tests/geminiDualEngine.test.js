@@ -2166,3 +2166,91 @@ test("getCurationCascade puts flash-lite first in public edition and hydrogen fi
     assert.equal(gem.getCurationCascade({ personal: false })[0], "gemini-3.5-flash-lite");
     assert.equal(gem.getCurationCascade({ personal: true })[0], "gemini-4-hydrogen");
 });
+
+test("proxy_rate_limit blocks subsequent proxy calls but never blocks a personal BYOK client", async () => {
+    resetSessionWorkingModels({ clearStorage: true });
+    let proxyCalls = 0;
+    let byokCalls = 0;
+
+    const proxyClient = {
+        isProxy: true,
+        models: {
+            generateContent: async () => {
+                proxyCalls += 1;
+                throw Object.assign(new Error("Daily limit reached"), {
+                    status: 429,
+                    errorCode: "PROXY_RATE_LIMIT",
+                    retryAfter: "86400"
+                });
+            }
+        }
+    };
+
+    const byokClient = {
+        models: {
+            generateContent: async () => {
+                byokCalls += 1;
+                return { text: "BYOK reply" };
+            }
+        }
+    };
+
+    try {
+        const resProxy1 = await executeCascade(
+            proxyClient,
+            ["gemini-3.5-flash-lite"],
+            { contents: "hi" },
+            { cascadeType: "curation", storage: null, now: () => 10_000 }
+        );
+        assert.equal(resProxy1, null);
+        assert.equal(proxyCalls, 1);
+
+        // Second proxy call inside 24h window short-circuits immediately.
+        const resProxy2 = await executeCascade(
+            proxyClient,
+            ["gemini-3.5-flash-lite"],
+            { contents: "hi" },
+            { cascadeType: "curation", storage: null, now: () => 20_000 }
+        );
+        assert.equal(resProxy2, null);
+        assert.equal(proxyCalls, 1);
+
+        // Direct BYOK client must NOT be blocked by proxyRateLimitedUntilMs.
+        const resByok = await executeCascade(
+            byokClient,
+            ["gemini-3.5-flash-lite"],
+            { contents: "hi" },
+            { cascadeType: "curation", storage: null, now: () => 20_000 }
+        );
+        assert.equal(resByok?.text, "BYOK reply");
+        assert.equal(byokCalls, 1);
+    } finally {
+        resetSessionWorkingModels({ clearStorage: true });
+    }
+});
+
+test("getCurationCascade respects sticky debug flag (?debug=1 / localStorage cv_debug_ui)", async () => {
+    const gem = await import("../src/services/geminiService.js");
+    const prevStorage = globalThis.localStorage;
+    try {
+        globalThis.localStorage = {
+            getItem: (k) => (k === "cv_debug_ui" ? "1" : null),
+            setItem: () => {},
+            removeItem: () => {}
+        };
+        assert.equal(gem.getCurationCascade()[0], "gemini-4-hydrogen");
+
+        globalThis.localStorage = {
+            getItem: () => null,
+            setItem: () => {},
+            removeItem: () => {}
+        };
+        assert.equal(gem.getCurationCascade()[0], "gemini-3.5-flash-lite");
+    } finally {
+        if (prevStorage === undefined) {
+            delete globalThis.localStorage;
+        } else {
+            globalThis.localStorage = prevStorage;
+        }
+    }
+});

@@ -183,6 +183,7 @@ export function createProxyGeminiClient(options = {}) {
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : fetch;
 
   return {
+    isProxy: true,
     models: {
       async generateContent({ model, contents, config } = {}) {
         const { abortSignal, ...serializableConfig } = config || {};
