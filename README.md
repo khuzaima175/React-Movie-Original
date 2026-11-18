@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![CinemaVault Preview](assets/movie_vault.png)
+![CinemaVault Preview](assets/screenshots/discover.png)
 
 A local-first film tracker and recommender. It combines an on-device taste model, multi-bucket TMDB retrieval, and Gemini-based curation, with optional Supabase sync.
 
@@ -57,7 +57,17 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 
 ## Screenshots
 
-*Gallery screenshots captured cleanly from the Public Edition coming in the final media pass.*
+| Discover & Spotlight | Explore Workbench |
+| :---: | :---: |
+| ![Discover Spotlight and Watchlist](assets/screenshots/discover.png) | ![Explore Catalog Filters](assets/screenshots/explore.png) |
+
+| Film Oracle Picks | My Vault & Taste Insights |
+| :---: | :---: |
+| ![Film Oracle Recommendations](assets/screenshots/oracle.png) | ![My Vault and Insights](assets/screenshots/vault.png) |
+
+| 10-Star Rating Studio | Side-by-Side Comparison |
+| :---: | :---: |
+| ![Movie Detail Rating Studio](assets/screenshots/movie-rating-studio.png) | ![3-Film Comparison Matrix](assets/screenshots/compare.png) |
 
 ---
 

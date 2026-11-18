@@ -40,3 +40,25 @@ export function formatDocumentTitle(section) {
   const cleaned = typeof section === "string" ? section.trim() : "";
   return cleaned ? `${cleaned} | CinemaVault` : "CinemaVault";
 }
+
+export function resolveMenuAlignment(
+  preferredAlign = "right",
+  triggerRect = null,
+  viewportWidth = 0,
+  panelWidth = 260
+) {
+  const normalized = preferredAlign === "left" ? "left" : "right";
+  if (!triggerRect || !viewportWidth) return normalized;
+
+  const margin = 16;
+  const fitsRight = triggerRect.right - panelWidth >= margin;
+  const fitsLeft = triggerRect.left + panelWidth <= viewportWidth - margin;
+
+  if (normalized === "right" && !fitsRight && fitsLeft) {
+    return "left";
+  }
+  if (normalized === "left" && !fitsLeft && fitsRight) {
+    return "right";
+  }
+  return normalized;
+}

@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
+import { resolveMenuAlignment } from '../../services/navHelpers';
 
 const MenuContext = createContext(null);
 
@@ -61,9 +62,27 @@ Menu.Trigger = function MenuTrigger({ children, className = '', ...props }) {
 };
 
 Menu.Panel = function MenuPanel({ children, align = 'right' }) {
-  const { isOpen, panelRef } = useContext(MenuContext);
+  const { isOpen, triggerRef, panelRef } = useContext(MenuContext);
+  const [resolvedAlign, setResolvedAlign] = useState(align);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setResolvedAlign(align);
+      return;
+    }
+    const triggerEl = triggerRef.current;
+    if (!triggerEl || typeof window === 'undefined') {
+      setResolvedAlign(align);
+      return;
+    }
+    const measuredWidth = panelRef.current?.offsetWidth || 260;
+    setResolvedAlign(
+      resolveMenuAlignment(align, triggerEl.getBoundingClientRect(), window.innerWidth, measuredWidth)
+    );
+  }, [isOpen, align, triggerRef, panelRef]);
+
   const alignClass =
-    align === 'right' ? 'right-0 origin-top-right' : 'left-0 origin-top-left';
+    resolvedAlign === 'right' ? 'right-0 origin-top-right' : 'left-0 origin-top-left';
 
   return (
     <AnimatePresence>
@@ -74,7 +93,7 @@ Menu.Panel = function MenuPanel({ children, align = 'right' }) {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: -6 }}
           transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-          className={`absolute ${alignClass} z-[200] mt-[0.8rem] min-w-[26rem] w-max max-w-[32rem] rounded-[12px] bg-[#14161b]/98 backdrop-blur-xl border border-white/10 shadow-[0_18px_42px_rgba(0,0,0,0.78)] focus:outline-none p-[0.65rem]`}
+          className={`absolute ${alignClass} z-[200] mt-[0.8rem] min-w-[26rem] w-max max-w-[min(32rem,calc(100vw-2rem))] rounded-[12px] bg-[#14161b]/98 backdrop-blur-xl border border-white/10 shadow-[0_18px_42px_rgba(0,0,0,0.78)] focus:outline-none p-[0.65rem]`}
           role="menu"
         >
           {children}

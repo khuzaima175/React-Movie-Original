@@ -6,7 +6,8 @@ import {
   formatVaultNavCount,
   hasBrowserHistory,
   goBackOrHome,
-  formatDocumentTitle
+  formatDocumentTitle,
+  resolveMenuAlignment
 } from "../src/services/navHelpers.js";
 
 test("getSearchShortcutHint adapts shortcut glyph to OS platform", () => {
@@ -58,4 +59,19 @@ test("formatDocumentTitle formats section titles and falls back to CinemaVault",
   assert.equal(formatDocumentTitle("My Vault"), "My Vault | CinemaVault");
   assert.equal(formatDocumentTitle(), "CinemaVault");
   assert.equal(formatDocumentTitle("  "), "CinemaVault");
+});
+
+test("resolveMenuAlignment flips right-aligned menu to left when trigger wraps near left edge on narrow viewport", () => {
+  assert.equal(
+    resolveMenuAlignment("right", { left: 32, right: 68 }, 390, 260),
+    "left"
+  );
+  assert.equal(
+    resolveMenuAlignment("right", { left: 1320, right: 1356 }, 1440, 260),
+    "right"
+  );
+  assert.equal(
+    resolveMenuAlignment("left", { left: 300, right: 356 }, 390, 260),
+    "right"
+  );
 });
