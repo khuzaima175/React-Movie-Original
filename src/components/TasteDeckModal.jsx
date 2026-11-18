@@ -10,6 +10,7 @@ import {
   Grid,
   Layers,
   SkipForward,
+  Sparkles,
   Star,
   Upload,
   X
@@ -36,7 +37,8 @@ export default function TasteDeckModal({
   onOpenImport
 }) {
   const navigate = useNavigate();
-  const { watched = [], watchlist = [], addWatched, addToWatchlist } = useApp();
+  const { watched = [], watchlist = [], addWatched, addToWatchlist, cloudUser, loadSampleVault } = useApp();
+  const canTrySampleVault = !cloudUser && watched.length < 3;
 
   const [mode, setMode] = useState(initialMode);
   const [deck, setDeck] = useState([]);
@@ -259,6 +261,20 @@ export default function TasteDeckModal({
                 <span>20+ Film Wall</span>
               </button>
             </div>
+
+            {canTrySampleVault && (
+              <button
+                type="button"
+                className="taste-deck-import-btn"
+                onClick={() => {
+                  const res = loadSampleVault();
+                  if (res?.ok) handleDismissAll();
+                }}
+              >
+                <Sparkles size={14} aria-hidden="true" />
+                <span>Try a sample vault</span>
+              </button>
+            )}
 
             {onOpenImport && (
               <button

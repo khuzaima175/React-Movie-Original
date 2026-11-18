@@ -29,6 +29,7 @@ import {
   mapLocalMovieToDbRow,
   pullAndSyncCloudVault
 } from "../services/vaultSyncService.js";
+import { buildSampleVault, isSampleItem } from "../services/sampleVaultService.js";
 
 const AppContext = createContext(null);
 const VAULT_STORAGE_KEYS = new Set(["watchedMovies", "watchlist"]);
@@ -393,8 +394,9 @@ export function AppProvider({ children }) {
 
     try {
       const nowIso = new Date().toISOString();
-      if (upsertEntries.length > 0) {
-        const rows = upsertEntries.map(([, entry]) =>
+      const nonSampleUpserts = upsertEntries.filter(([, entry]) => !isSampleItem(entry?.movie));
+      if (nonSampleUpserts.length > 0) {
+        const rows = nonSampleUpserts.map(([, entry]) =>
           mapLocalMovieToDbRow(
             entry.movie,
             entry.status,
@@ -1207,6 +1209,45 @@ export function AppProvider({ children }) {
   const openCompareModal = useCallback(() => setIsCompareOpen(true), []);
   const closeCompareModal = useCallback(() => setIsCompareOpen(false), []);
 
+  const hasSampleData =
+    (watched || []).some((m) => isSampleItem(m)) ||
+    (watchlist || []).some((m) => isSampleItem(m));
+
+  const loadSampleVault = useCallback(() => {
+    if (cloudUserRef.current || cloudUser) {
+      return { ok: false, reason: "signed-in" };
+    }
+    const currentWatched = watchedRef.current || [];
+    if (currentWatched.length >= 3) {
+      return { ok: false, reason: "vault-not-empty" };
+    }
+
+    const { watched: sampleWatched, watchlist: sampleWatchlist } = buildSampleVault();
+    const nextWatched = sampleWatched.reduce(
+      (acc, entry) => upsertMovieEntry(acc, entry),
+      currentWatched
+    );
+    const currentWatchlist = watchlistRef.current || [];
+    const nextWatchlist = sampleWatchlist
+      .filter((entry) => !nextWatched.some((w) => isSameMovie(w, entry)))
+      .reduce((acc, entry) => upsertMovieEntry(acc, entry), currentWatchlist);
+
+    watchedRef.current = nextWatched;
+    watchlistRef.current = nextWatchlist;
+    setWatched(nextWatched);
+    setWatchlist(nextWatchlist);
+    return { ok: true };
+  }, [cloudUser]);
+
+  const clearSampleVault = useCallback(() => {
+    const nextWatched = (watchedRef.current || []).filter((m) => !isSampleItem(m));
+    const nextWatchlist = (watchlistRef.current || []).filter((m) => !isSampleItem(m));
+    watchedRef.current = nextWatched;
+    watchlistRef.current = nextWatchlist;
+    setWatched(nextWatched);
+    setWatchlist(nextWatchlist);
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -1214,6 +1255,9 @@ export function AppProvider({ children }) {
         setWatched,
         watchlist: watchlist || [],
         setWatchlist,
+        hasSampleData,
+        loadSampleVault,
+        clearSampleVault,
         userRegion,
         setUserRegion,
         userWatchProviders,

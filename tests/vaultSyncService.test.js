@@ -452,3 +452,44 @@ test("compactVaultMovieForStorage and compactVaultListForStorage shrink 2,300+ f
   assert.equal(aggressive.tmdbKeywords.length, 20);
   assert.equal(aggressive.castIds.length, 10);
 });
+
+test("isSample survives a local → DB row → local round trip", () => {
+  const sampleMovie = {
+    imdbID: "tt0816692",
+    tmdbId: 157336,
+    title: "Interstellar",
+    year: "2014",
+    userRating: 10,
+    isSample: true
+  };
+  const dbRow = mapLocalMovieToDbRow(sampleMovie, "watched", "user-123");
+  const restored = mapDbRowToLocalMovie(dbRow);
+  assert.equal(restored.isSample, true);
+});
+
+test("mergeLocalAndCloudVault excludes isSample items so sample vaults never sync to Supabase", () => {
+  const localWatched = [
+    { imdbID: "tt0816692", title: "Interstellar", userRating: 10, isSample: true },
+    { imdbID: "tt0133093", title: "The Matrix", userRating: 9 }
+  ];
+  const localWatchlist = [
+    { imdbID: "tt0114369", title: "Se7en", isSample: true }
+  ];
+
+  const merged = mergeLocalAndCloudVault({
+    localWatched,
+    localWatchlist,
+    cloudRows: [],
+    userId: "user-123"
+  });
+
+  assert.deepEqual(
+    merged.mergedWatched.map((m) => m.imdbID),
+    ["tt0133093"]
+  );
+  assert.equal(merged.mergedWatchlist.length, 0);
+  assert.deepEqual(
+    merged.toUpsertCloud.map((row) => row.movie_key),
+    ["tt0133093"]
+  );
+});

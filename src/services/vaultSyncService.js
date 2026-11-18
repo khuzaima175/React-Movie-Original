@@ -330,6 +330,7 @@ export function mergeLocalAndCloudVault({
   const toUpsertMap = new Map();
 
   for (const localMovie of localWatched || []) {
+    if (localMovie?.isSample) continue;
     const key = getCanonicalMovieKey(localMovie);
     if (!key) continue;
     const localMs = parseTimestampMs(localMovie.updatedAt || localMovie.dateWatched || localMovie.dateAdded);
@@ -396,6 +397,7 @@ export function mergeLocalAndCloudVault({
   }
 
   for (const localSaved of localWatchlist || []) {
+    if (localSaved?.isSample) continue;
     const key = getCanonicalMovieKey(localSaved);
     if (!key || resolvedWatchedMap.has(key)) continue;
     const localMs = parseTimestampMs(localSaved.updatedAt || localSaved.dateAdded || localSaved.dateWatched);

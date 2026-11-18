@@ -137,8 +137,11 @@ export default function MovieRecommendations({
     aiFeedbackLog,
     saveAiRecommendations,
     addAiFeedback,
-    addWatched
+    addWatched,
+    cloudUser,
+    loadSampleVault
   } = useApp();
+  const canTrySampleVault = !cloudUser && watched.length < 3;
 
   const [isLoading, setIsLoading] = useState(false);
   const [isEnhancingWithGemini, setIsEnhancingWithGemini] = useState(false);
@@ -1049,6 +1052,12 @@ export default function MovieRecommendations({
           {!isDrawer && watched.length < 5 && onOpenTasteDeck && (
             <Button variant="secondary" size="lg" onClick={onOpenTasteDeck}>
               <span>Taste Calibration (30)</span>
+            </Button>
+          )}
+
+          {!isDrawer && canTrySampleVault && (
+            <Button variant="secondary" size="lg" onClick={() => loadSampleVault()}>
+              <span>Try a sample vault</span>
             </Button>
           )}
 

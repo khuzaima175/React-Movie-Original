@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import MovieRecommendations from "../components/MovieRecommendations";
 import AIChat from "../components/AIChat";
+import SampleVaultBanner from "../components/SampleVaultBanner";
 import { Button, Tabs } from "../components/ui";
 import {
   parseAiPageParams,
@@ -236,6 +237,8 @@ export default function AIPage({ onOpenTasteDeck }) {
             />
           </div>
         </header>
+
+        <SampleVaultBanner />
 
         <main className="ai-page-body">
           {aiSection === "recs" && (

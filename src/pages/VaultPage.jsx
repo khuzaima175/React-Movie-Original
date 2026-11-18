@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import VaultBanner from "../components/VaultBanner";
 import VaultBulkBar from "../components/VaultBulkBar";
+import SampleVaultBanner from "../components/SampleVaultBanner";
 import MovieCard from "../components/MovieCard";
 import WatchedMoviesList from "../components/WatchedMoviesList";
 import BackupManagerModal from "../components/BackupManagerModal";
@@ -25,8 +26,10 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
     addToWatchlist,
     hasCloudConfig,
     cloudUser,
-    cloudSyncStatus
+    cloudSyncStatus,
+    loadSampleVault
   } = useApp();
+  const canTrySampleVault = !cloudUser && watched.length < 3;
 
   const [activeTab, setActiveTab] = useState(
     searchParams.get("tab") === "watchlist" ? "watchlist" : "watched"
@@ -238,6 +241,8 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
         totalCount={currentList.length}
       />
 
+      <SampleVaultBanner />
+
       {/* ── 2. Main Collection Grid / List View ── */}
       <div className="vault-collection-body">
         {filtered.length > 0 ? (
@@ -294,9 +299,20 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
                   <Film size={32} className="empty-icon-quiet" aria-hidden="true" />
                   <h3>Your Vault is Empty</h3>
                   <p>Rate films you have watched to unlock taste insights and recommendations.</p>
-                  <button type="button" className="btn-empty-cta" onClick={() => navigate("/")}>
-                    <Compass size={16} aria-hidden="true" /> Explore Movies
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button type="button" className="btn-empty-cta" onClick={() => navigate("/")}>
+                      <Compass size={16} aria-hidden="true" /> Explore Movies
+                    </button>
+                    {canTrySampleVault && (
+                      <button
+                        type="button"
+                        className="btn-empty-cta"
+                        onClick={() => loadSampleVault()}
+                      >
+                        Try a sample vault
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             ) : (
