@@ -5,12 +5,11 @@ import VaultBanner from "../components/VaultBanner";
 import VaultBulkBar from "../components/VaultBulkBar";
 import MovieCard from "../components/MovieCard";
 import WatchedMoviesList from "../components/WatchedMoviesList";
-import EmptyState from "../components/EmptyState";
 import BackupManagerModal from "../components/BackupManagerModal";
 import ToastNotification from "../components/ToastNotification";
 import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
-import { Bookmark, Film, Compass } from "lucide-react";
+import { Bookmark, Film, Compass, Search } from "lucide-react";
 
 export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -300,8 +299,11 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
               )
             ) : (
               <div className="filter-empty-card">
-                <EmptyState message="No films match your search or genre filter." icon="🔍" />
+                <Search size={32} className="empty-icon-quiet" aria-hidden="true" />
+                <h3>No films match your filters</h3>
+                <p>Try clearing your search query or switching back to all genres.</p>
                 <button
+                  type="button"
                   className="btn-clear-filters-cta"
                   onClick={() => {
                     setSearchQuery("");

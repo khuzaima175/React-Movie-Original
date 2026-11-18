@@ -831,7 +831,8 @@
 }
 
 .watchlist-empty-card h3,
-.watched-empty-card h3 {
+.watched-empty-card h3,
+.filter-empty-card h3 {
   margin: 0;
   color: var(--text-1);
   font-size: 2rem;
@@ -839,7 +840,8 @@
 }
 
 .watchlist-empty-card p,
-.watched-empty-card p {
+.watched-empty-card p,
+.filter-empty-card p {
   margin: 0;
   color: var(--text-2);
   font-size: 1.4rem;
