@@ -1,9 +1,54 @@
-function readConfiguredKey(name) {
-  const key = import.meta.env?.[name] || globalThis.process?.env?.[name];
+export const USER_GEMINI_KEY_STORAGE = "cv_user_gemini_key";
+
+function readConfiguredKey(name, envOverride = null) {
+  const key = envOverride
+    ? envOverride[name]
+    : (import.meta.env?.[name] || globalThis.process?.env?.[name]);
   if (!key || key === "undefined" || key === "null" || String(key).trim() === "") {
     return "";
   }
   return String(key).trim();
+}
+
+function resolveBrowserStorage(storageOverride) {
+  if (storageOverride !== undefined) return storageOverride;
+  try {
+    if (typeof globalThis.localStorage !== "undefined" && globalThis.localStorage) {
+      return globalThis.localStorage;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function getUserGeminiKey(storage = resolveBrowserStorage()) {
+  if (!storage || typeof storage.getItem !== "function") return "";
+  try {
+    const val = storage.getItem(USER_GEMINI_KEY_STORAGE);
+    return typeof val === "string" ? val.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+export function setUserGeminiKey(key = "", storage = resolveBrowserStorage()) {
+  const cleaned = typeof key === "string" ? key.trim() : "";
+  if (!storage) return cleaned;
+  try {
+    if (cleaned) {
+      storage.setItem?.(USER_GEMINI_KEY_STORAGE, cleaned);
+    } else {
+      storage.removeItem?.(USER_GEMINI_KEY_STORAGE);
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return cleaned;
+}
+
+export function hasUserGeminiKey(storage = resolveBrowserStorage()) {
+  return Boolean(getUserGeminiKey(storage));
 }
 
 export function isBrowserRuntime() {
@@ -18,8 +63,10 @@ export function resolveOmdbKey() {
   return readConfiguredKey("VITE_OMDB_KEY");
 }
 
-export function resolveGeminiKey() {
-  return readConfiguredKey("VITE_GEMINI_KEY");
+export function resolveGeminiKey(options = {}) {
+  const userKey = getUserGeminiKey(options?.storage);
+  if (userKey) return userKey;
+  return readConfiguredKey("VITE_GEMINI_KEY", options?.env || null);
 }
 
 export function hasTmdbBackend(options = {}) {

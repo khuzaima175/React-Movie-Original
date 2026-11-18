@@ -5,8 +5,9 @@ import { sendChatMessage } from "../services/geminiChatService";
 import { buildMovieChatStarterPrompts } from "../services/filmChatService";
 import { findMatchingMovie } from "../services/movieIdentity";
 import { getCanonicalMovieKey } from "../services/vaultSyncService";
-import { fetchOmdbJson } from "../services/apiTransport";
+import { fetchOmdbJson, hasUserGeminiKey } from "../services/apiTransport";
 import { isDebugUiEnabled } from "../services/debugFlags";
+import GeminiKeyModal from "./GeminiKeyModal";
 import {
   getFallbackPoster,
   generateFallbackId,
@@ -27,7 +28,8 @@ import {
   ShieldCheck,
   Eye,
   X,
-  ExternalLink
+  ExternalLink,
+  KeyRound
 } from "lucide-react";
 
 const SUGGESTED_PROMPTS = [
@@ -204,6 +206,8 @@ export default function AIChat({
   const { watchlist: contextWatchlist, tasteRules } = useApp();
   const activeWatchlist = watchlistProp || contextWatchlist || [];
   const debug = isDebugUiEnabled();
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [usingOwnKey, setUsingOwnKey] = useState(() => hasUserGeminiKey());
 
   const focusedKey = useMemo(() => {
     if (focusKey) return focusKey;
@@ -603,8 +607,24 @@ export default function AIChat({
               <Send size={16} />
             </button>
           </div>
+          <div className="flex justify-end px-1 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsKeyModalOpen(true)}
+              className="inline-flex items-center gap-1.5 text-[1.2rem] text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors bg-transparent border-0 cursor-pointer"
+            >
+              <KeyRound size={12} aria-hidden="true" />
+              <span>{usingOwnKey ? "Personal AI key active" : "Use your own Gemini key"}</span>
+            </button>
+          </div>
         </form>
       </div>
+
+      <GeminiKeyModal
+        isOpen={isKeyModalOpen}
+        onClose={() => setIsKeyModalOpen(false)}
+        onChanged={(active) => setUsingOwnKey(Boolean(active))}
+      />
     </div>
   );
 }

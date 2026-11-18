@@ -17,7 +17,7 @@ import {
   parseFreeTextMoodWithGemini
 } from "../services/geminiService";
 import { isDebugUiEnabled, isPersonalEdition } from "../services/debugFlags";
-import { resolveGeminiKey } from "../services/apiTransport";
+import { hasUserGeminiKey, resolveGeminiKey } from "../services/apiTransport";
 import {
   bridgeTmdbToOmdb,
   extractTasteProfile,
@@ -53,6 +53,7 @@ import {
 } from "../services/tasteRulesService";
 import PosterImage from "./PosterImage";
 import QuickRateModal from "./QuickRateModal";
+import GeminiKeyModal from "./GeminiKeyModal";
 import { Button, MetaLine } from "./ui";
 import {
   Sparkles,
@@ -72,7 +73,8 @@ import {
   Info,
   Pin,
   Pencil,
-  Trash2
+  Trash2,
+  KeyRound
 } from "lucide-react";
 
 const DISMISS_REASONS = [
@@ -129,6 +131,8 @@ export default function MovieRecommendations({
   const [showDnaDetails, setShowDnaDetails] = useState(false);
   const [showFilterDeck, setShowFilterDeck] = useState(false);
   const [showAboutPicks, setShowAboutPicks] = useState(false);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [usingOwnKey, setUsingOwnKey] = useState(() => hasUserGeminiKey());
   const [customMoodQuery, setCustomMoodQuery] = useState("");
   const [activeMoodFilters, setActiveMoodFilters] = useState(null);
   const [isParsingMood, setIsParsingMood] = useState(false);
@@ -1164,6 +1168,17 @@ export default function MovieRecommendations({
                 )}
               </Button>
 
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsKeyModalOpen(true)}
+                title={usingOwnKey ? "Using your browser-stored Gemini key" : "Use your own free Gemini key (optional)"}
+              >
+                <KeyRound size={13} aria-hidden="true" />
+                <span>{usingOwnKey ? "Personal key active" : "AI key"}</span>
+              </Button>
+
               <div className="recs-sort-controls">
                 <select
                   className="recs-sort-select"
@@ -1181,7 +1196,16 @@ export default function MovieRecommendations({
 
           {pipelineNotice && (
             <p className="mood-parse-note" role="status">
-              {pipelineNotice}
+              {pipelineNotice}{" "}
+              {!usingOwnKey && (
+                <button
+                  type="button"
+                  className="streaming-link-btn"
+                  onClick={() => setIsKeyModalOpen(true)}
+                >
+                  Use your own Gemini key
+                </button>
+              )}
             </p>
           )}
 
@@ -1438,6 +1462,12 @@ export default function MovieRecommendations({
         watchlist={watchlist}
         onClose={() => setQuickRateRec(null)}
         onSaveWatched={addWatched}
+      />
+
+      <GeminiKeyModal
+        isOpen={isKeyModalOpen}
+        onClose={() => setIsKeyModalOpen(false)}
+        onChanged={(active) => setUsingOwnKey(Boolean(active))}
       />
     </div>
   );
