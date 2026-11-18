@@ -6,6 +6,7 @@ import { buildMovieChatStarterPrompts } from "../services/filmChatService";
 import { findMatchingMovie } from "../services/movieIdentity";
 import { getCanonicalMovieKey } from "../services/vaultSyncService";
 import { fetchOmdbJson } from "../services/apiTransport";
+import { isDebugUiEnabled } from "../services/debugFlags";
 import {
   getFallbackPoster,
   generateFallbackId,
@@ -202,6 +203,7 @@ export default function AIChat({
 }) {
   const { watchlist: contextWatchlist, tasteRules } = useApp();
   const activeWatchlist = watchlistProp || contextWatchlist || [];
+  const debug = isDebugUiEnabled();
 
   const focusedKey = useMemo(() => {
     if (focusKey) return focusKey;
@@ -381,26 +383,28 @@ export default function AIChat({
   return (
     <div className="ai-chat-wrapper">
       <div className="ai-chat-container">
-        <div
-          className={`chat-model-bar ${activeChatModelInfo?.isFallback ? "fallback" : ""}`}
-          title={
-            activeChatModelInfo?.cooldownModels?.length
-              ? `Skipped/Fallback from: ${activeChatModelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ")}`
-              : "Active Film Companion Gemini cascade model"
-          }
-        >
-          <Cpu size={12} />
-          <span>
-            {activeChatModelInfo?.model
-              ? `${activeChatModelInfo.isFallback ? "Fallback Model" : "Active Model"}: ${formatModelDisplayName(activeChatModelInfo.model)} (${activeChatModelInfo.model})`
-              : (() => {
-                  const queued = getPreferredCascadeModel(FAST_INTERACTIVE_CASCADE, "fast");
-                  return queued
-                    ? `Queued Model: ${formatModelDisplayName(queued)} (${queued})`
-                    : "All Gemini models in cooldown";
-                })()}
-          </span>
-        </div>
+        {debug && (
+          <div
+            className={`chat-model-bar ${activeChatModelInfo?.isFallback ? "fallback" : ""}`}
+            title={
+              activeChatModelInfo?.cooldownModels?.length
+                ? `Skipped/Fallback from: ${activeChatModelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ")}`
+                : "Active Film Companion Gemini cascade model"
+            }
+          >
+            <Cpu size={12} />
+            <span>
+              {activeChatModelInfo?.model
+                ? `${activeChatModelInfo.isFallback ? "Fallback Model" : "Active Model"}: ${formatModelDisplayName(activeChatModelInfo.model)} (${activeChatModelInfo.model})`
+                : (() => {
+                    const queued = getPreferredCascadeModel(FAST_INTERACTIVE_CASCADE, "fast");
+                    return queued
+                      ? `Queued Model: ${formatModelDisplayName(queued)} (${queued})`
+                      : "All Gemini models in cooldown";
+                  })()}
+            </span>
+          </div>
+        )}
 
         {/* Focused Film Context Bar */}
         {focusedMovie && (
@@ -511,7 +515,7 @@ export default function AIChat({
                   )}
 
                   <div className="bubble-meta-row">
-                    {msg.role === "model" && msg.modelInfo?.model ? (
+                    {debug && msg.role === "model" && msg.modelInfo?.model ? (
                       <span
                         className={`bubble-model-tag ${msg.modelInfo.isFallback ? "fallback" : ""}`}
                         title={
