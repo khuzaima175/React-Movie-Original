@@ -17,6 +17,7 @@ import {
 } from "../services/tmdbService";
 import { fetchOmdbJson } from "../services/apiTransport";
 import { SlidersHorizontal } from "lucide-react";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 function normalizeResolvedFocusMovie(rawMovie, parsedParams = {}) {
   if (!rawMovie && !parsedParams.movieKey && !parsedParams.tmdbId) return null;
@@ -73,6 +74,7 @@ export default function AIPage({ onOpenTasteDeck }) {
   }, [aiSection, parsedParams]);
 
   const [fetchedFocusState, setFetchedFocusState] = useState({ key: null, movie: null });
+  useDocumentTitle("Film Oracle");
   const fetchedFocus = fetchedFocusState?.key === lookupKey ? fetchedFocusState.movie : null;
 
   useEffect(() => {

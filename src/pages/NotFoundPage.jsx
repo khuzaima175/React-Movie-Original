@@ -2,8 +2,10 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Film, Home, Compass } from "lucide-react";
 import { EASE, riseIn, staggerContainer } from "../motion";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function NotFoundPage() {
+  useDocumentTitle("Page not found");
   return (
     <div className="notfound-page page-rail">
       <motion.div

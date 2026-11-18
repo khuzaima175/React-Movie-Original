@@ -5,7 +5,8 @@ import {
   getCloudSyncBadgeLabel,
   formatVaultNavCount,
   hasBrowserHistory,
-  goBackOrHome
+  goBackOrHome,
+  formatDocumentTitle
 } from "../src/services/navHelpers.js";
 
 test("getSearchShortcutHint adapts shortcut glyph to OS platform", () => {
@@ -51,4 +52,10 @@ test("goBackOrHome navigates -1 when history exists and goes home with replace o
 
   goBackOrHome(navigate, false);
   assert.deepEqual(calls[1], { to: "/", opts: { replace: true } });
+});
+
+test("formatDocumentTitle formats section titles and falls back to CinemaVault", () => {
+  assert.equal(formatDocumentTitle("My Vault"), "My Vault | CinemaVault");
+  assert.equal(formatDocumentTitle(), "CinemaVault");
+  assert.equal(formatDocumentTitle("  "), "CinemaVault");
 });

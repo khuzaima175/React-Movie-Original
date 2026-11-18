@@ -10,8 +10,10 @@ import ToastNotification from "../components/ToastNotification";
 import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
 import { Bookmark, Film, Compass, Search } from "lucide-react";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
+  useDocumentTitle("My Vault");
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const {

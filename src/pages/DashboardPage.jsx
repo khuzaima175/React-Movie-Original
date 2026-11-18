@@ -8,8 +8,10 @@ import RowSkeleton from "../components/RowSkeleton";
 import HomePosterGrid from "../components/HomePosterGrid";
 import QuickRateModal from "../components/QuickRateModal";
 import { loadHomeDiscoveryFeeds } from "../services/dashboardService";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function DashboardPage({ onOpenTasteDeck }) {
+  useDocumentTitle("Discover");
   const navigate = useNavigate();
   const { watched = [], watchlist = [], userRegion = "GLOBAL", addWatched, addToWatchlist } = useApp();
   const [feeds, setFeeds] = useState({ heroSlides: [], rows: [], mosaicPool: [], isLive: false });

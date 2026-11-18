@@ -35,3 +35,8 @@ export function goBackOrHome(navigate, canGoBack = hasBrowserHistory()) {
     navigate("/", { replace: true });
   }
 }
+
+export function formatDocumentTitle(section) {
+  const cleaned = typeof section === "string" ? section.trim() : "";
+  return cleaned ? `${cleaned} | CinemaVault` : "CinemaVault";
+}
