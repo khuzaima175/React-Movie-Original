@@ -3,6 +3,12 @@ import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { sendChatMessage } from "../services/geminiChatService";
 import { buildMovieChatStarterPrompts } from "../services/filmChatService";
+import {
+  parseMovieCardsFromText,
+  parseChatMessageBlocks,
+  buildCompanionStarterPrompts,
+  buildCompanionFollowUpPrompts
+} from "../services/chatCardHelpers";
 import { findMatchingMovie } from "../services/movieIdentity";
 import { getCanonicalMovieKey } from "../services/vaultSyncService";
 import { fetchOmdbJson, hasUserGeminiKey } from "../services/apiTransport";
@@ -29,25 +35,36 @@ import {
   Eye,
   X,
   ExternalLink,
-  KeyRound
+  KeyRound,
+  RotateCcw,
+  Film,
+  ArrowUpRight
 } from "lucide-react";
-
-const SUGGESTED_PROMPTS = [
-  "Something like Inception",
-  "Which directors do I love?",
-  "Best 90s thrillers?",
-  "Surprise me with a hidden gem"
-];
 
 const inlineMovieCache = new Map();
 
-function InlineMovieCard({ title, year }) {
-  const { watchlist, addToWatchlist } = useApp();
+function InlineMovieCard({ title, year, watched = [], watchlist = [] }) {
+  const { addToWatchlist } = useApp();
   const [movieData, setMovieData] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
 
-  const inWatchlist = watchlist?.some(
-    (m) => m.title.toLowerCase() === title.toLowerCase()
+  const probeCandidate = useMemo(
+    () => ({
+      title,
+      year,
+      imdbID: movieData?.imdbID || null
+    }),
+    [title, year, movieData?.imdbID]
+  );
+
+  const watchedMatch = useMemo(
+    () => findMatchingMovie(watched, probeCandidate),
+    [watched, probeCandidate]
+  );
+
+  const watchlistMatch = useMemo(
+    () => findMatchingMovie(watchlist, probeCandidate),
+    [watchlist, probeCandidate]
   );
 
   useEffect(() => {
@@ -85,7 +102,16 @@ function InlineMovieCard({ title, year }) {
     };
   }, [title, year]);
 
+  const routeId =
+    movieData?.imdbID ||
+    watchedMatch?.imdbID ||
+    watchlistMatch?.imdbID ||
+    (watchedMatch?.tmdbId ? `tmdb_${watchedMatch.tmdbId}` : null) ||
+    (watchlistMatch?.tmdbId ? `tmdb_${watchlistMatch.tmdbId}` : null);
+  const detailPath = routeId ? `/movie/${encodeURIComponent(routeId)}` : null;
+
   const handleAdd = () => {
+    if (watchedMatch || watchlistMatch || isAdding) return;
     setIsAdding(true);
     const movieObj = {
       imdbID: movieData?.imdbID || generateFallbackId(title, year),
@@ -96,49 +122,79 @@ function InlineMovieCard({ title, year }) {
           ? movieData.Poster
           : getFallbackPoster(title),
       runtime: movieData?.Runtime || "N/A",
+      genre: movieData?.Genre || "",
       imdbRating: movieData?.imdbRating || "N/A",
       userRating: 0
     };
     addToWatchlist(movieObj);
-    setTimeout(() => setIsAdding(false), 400);
+    setTimeout(() => setIsAdding(false), 350);
   };
+
+  const posterContent = (
+    <PosterImage
+      src={movieData?.Poster || watchedMatch?.poster || watchlistMatch?.poster}
+      title={movieData?.Title || title}
+      className="inline-poster-img"
+    />
+  );
+
+  const ratingScore = Number(watchedMatch?.userRating);
 
   return (
     <div className="chat-inline-movie-card">
-      <div className="inline-poster-wrapper">
-        <PosterImage
-          src={movieData?.Poster}
-          title={title}
-          className="inline-poster-img"
-        />
-      </div>
+      {detailPath ? (
+        <Link to={detailPath} className="inline-poster-wrapper inline-poster-link" aria-label={`Open ${movieData?.Title || title}`}>
+          {posterContent}
+        </Link>
+      ) : (
+        <div className="inline-poster-wrapper">{posterContent}</div>
+      )}
+
       <div className="inline-info">
-        <h5 className="inline-title">{movieData?.Title || title}</h5>
+        {detailPath ? (
+          <Link to={detailPath} className="inline-title-link">
+            <h5 className="inline-title">{movieData?.Title || title}</h5>
+            <ArrowUpRight size={13} className="inline-title-arrow" aria-hidden="true" />
+          </Link>
+        ) : (
+          <h5 className="inline-title">{movieData?.Title || title}</h5>
+        )}
+
         <span className="inline-meta">
           {movieData?.Year || year || "N/A"}{" "}
-          {movieData?.Genre ? `• ${movieData.Genre.split(",")[0]}` : ""}
+          {movieData?.Genre ? `• ${movieData.Genre.split(",")[0].trim()}` : ""}
         </span>
+
         {movieData?.imdbRating && movieData.imdbRating !== "N/A" && (
           <div className="inline-rating">
-            <Star size={12} fill="currentColor" />
+            <Star size={12} fill="currentColor" aria-hidden="true" />
             <span>{movieData.imdbRating}</span>
           </div>
         )}
       </div>
-      <button
-        className={`btn-inline-add ${inWatchlist ? "added" : ""}`}
-        onClick={handleAdd}
-        disabled={inWatchlist || isAdding}
-      >
-        {inWatchlist ? <Check size={14} /> : <Plus size={14} />}
-        <span>{inWatchlist ? "Added" : "Watchlist"}</span>
-      </button>
+
+      {watchedMatch ? (
+        <span className="inline-vault-badge" title="Already in your Watched Vault">
+          <Star size={12} fill="currentColor" aria-hidden="true" />
+          <span>{Number.isFinite(ratingScore) && ratingScore > 0 ? `${Math.round(ratingScore)}/10` : "Watched"}</span>
+        </span>
+      ) : (
+        <button
+          type="button"
+          className={`btn-inline-add ${watchlistMatch ? "added" : ""}`}
+          onClick={handleAdd}
+          disabled={Boolean(watchlistMatch) || isAdding}
+        >
+          {watchlistMatch ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+          <span>{watchlistMatch ? "In Watchlist" : "Watchlist"}</span>
+        </button>
+      )}
     </div>
   );
 }
 
 // Convert basic **bold** and *italic* markers cleanly without HTML injection
-function renderFormattedChatText(text) {
+function renderInlineSegments(text) {
   if (!text) return null;
   const parts = String(text).split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g);
   return parts.map((part, idx) => {
@@ -152,24 +208,52 @@ function renderFormattedChatText(text) {
   });
 }
 
-// Extract movie recommendations like **Movie Title** (Year) or "Movie Title" (Year)
-function parseMovieCardsFromText(text) {
-  if (!text) return [];
-  const regex = /(?:\*\*([^*]+)\*\*|\"([^\"]+)\")\s*\(((?:19|20)\d\d)\)/g;
-  const movies = [];
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    const title = match[1] || match[2];
-    const year = match[3];
-    if (title && !movies.some((m) => m.title.toLowerCase() === title.toLowerCase())) {
-      movies.push({ title: title.trim(), year });
-    }
+function ChatMessageBody({ text }) {
+  const blocks = useMemo(() => parseChatMessageBlocks(text), [text]);
+  if (blocks.length === 0) {
+    return <p className="bubble-text">{renderInlineSegments(text)}</p>;
   }
-  return movies.slice(0, 3); // cap at 3 inline cards per bubble
+
+  return (
+    <div className="chat-md-blocks">
+      {blocks.map((block, idx) => {
+        if (block.type === "heading") {
+          return (
+            <h4 key={idx} className="chat-md-heading">
+              {renderInlineSegments(block.text)}
+            </h4>
+          );
+        }
+        if (block.type === "ol") {
+          return (
+            <ol key={idx} className="chat-md-list is-ordered">
+              {block.items.map((item, itemIdx) => (
+                <li key={itemIdx}>{renderInlineSegments(item)}</li>
+              ))}
+            </ol>
+          );
+        }
+        if (block.type === "ul") {
+          return (
+            <ul key={idx} className="chat-md-list">
+              {block.items.map((item, itemIdx) => (
+                <li key={itemIdx}>{renderInlineSegments(item)}</li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={idx} className="bubble-text">
+            {renderInlineSegments(block.text)}
+          </p>
+        );
+      })}
+    </div>
+  );
 }
 
 const GENERAL_WELCOME_TEXT =
-  "Hello! I've analyzed your viewing history. Ask me for personalized recommendations, director deep-dives, or hidden gems!";
+  "Ready when you are. Ask for unseen picks tuned to your Vault, have me choose from your Watchlist tonight, compare directors, or build a double feature.";
 
 function buildThreadWelcomeMessage(focusedMovie, isWatched, spoilerSafe) {
   const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -203,7 +287,13 @@ export default function AIChat({
   focusedMovie = null,
   onClearFocusedMovie = null
 }) {
-  const { watchlist: contextWatchlist, tasteRules } = useApp();
+  const {
+    watchlist: contextWatchlist,
+    tasteRules,
+    aiFeedbackLog,
+    userRegion,
+    userWatchProviders
+  } = useApp();
   const activeWatchlist = watchlistProp || contextWatchlist || [];
   const debug = isDebugUiEnabled();
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
@@ -236,7 +326,6 @@ export default function AIChat({
     : true;
 
   const threadKey = focusedKey || "__general__";
-
   const [threadsByKey, setThreadsByKey] = useState({});
 
   const messages = useMemo(() => {
@@ -251,6 +340,7 @@ export default function AIChat({
   const [error, setError] = useState(false);
   const [activeChatModelInfo, setActiveChatModelInfo] = useState(() => getLastModelInfo("fast"));
   const chatContainerRef = useRef(null);
+  const composerRef = useRef(null);
 
   useEffect(() => {
     setError(false);
@@ -262,14 +352,36 @@ export default function AIChat({
     }
   }, [messages, isLoading, threadKey]);
 
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [input]);
+
   const activeStarterPrompts = useMemo(() => {
-    if (!focusedMovie) return SUGGESTED_PROMPTS;
-    const prompts = buildMovieChatStarterPrompts(focusedMovie, {
-      isWatched: focusedIsWatched,
-      spoilerSafe
+    if (focusedMovie) {
+      const prompts = buildMovieChatStarterPrompts(focusedMovie, {
+        isWatched: focusedIsWatched,
+        spoilerSafe
+      });
+      if (prompts.length > 0) return prompts;
+    }
+    return buildCompanionStarterPrompts({
+      watched,
+      watchlist: activeWatchlist
     });
-    return prompts.length > 0 ? prompts : SUGGESTED_PROMPTS;
-  }, [focusedMovie, focusedIsWatched, spoilerSafe]);
+  }, [focusedMovie, focusedIsWatched, spoilerSafe, watched, activeWatchlist]);
+
+  const followUpPrompts = useMemo(
+    () =>
+      buildCompanionFollowUpPrompts({
+        watchedCount: watched.length,
+        watchlistCount: activeWatchlist.length,
+        hasFocusedMovie: Boolean(focusedMovie)
+      }),
+    [watched.length, activeWatchlist.length, focusedMovie]
+  );
 
   const focusMovieRoute = useMemo(() => {
     if (!focusedMovie) return null;
@@ -279,6 +391,11 @@ export default function AIChat({
     return routeId ? `/movie/${encodeURIComponent(routeId)}` : null;
   }, [focusedMovie]);
 
+  const activeRuleCount = useMemo(
+    () => (Array.isArray(tasteRules) ? tasteRules.filter((r) => r && r.enabled !== false).length : 0),
+    [tasteRules]
+  );
+
   const handleToggleSpoilerSafe = () => {
     if (!focusedKey) return;
     setSpoilerPrefsByKey((prev) => ({
@@ -287,8 +404,19 @@ export default function AIChat({
     }));
   };
 
+  const handleResetThread = () => {
+    if (isLoading) return;
+    setError(false);
+    setThreadsByKey((prev) => {
+      if (!prev[threadKey]) return prev;
+      const next = { ...prev };
+      delete next[threadKey];
+      return next;
+    });
+  };
+
   const handleSendMessage = async (textToSend) => {
-    const query = textToSend || input.trim();
+    const query = (textToSend ?? input).trim();
     if (!query || isLoading) return;
 
     if (!textToSend) setInput("");
@@ -325,13 +453,21 @@ export default function AIChat({
           }
         : null;
 
+      const chatOptions = {
+        watchlist: activeWatchlist,
+        feedbackLog: aiFeedbackLog,
+        userRegion: userRegion || "US",
+        userWatchProviders: userWatchProviders || [],
+        ...(focusedMovie ? { spoilerSafe } : {})
+      };
+
       const responseText = await sendChatMessage(
         query,
         seededMessages.slice(1),
         watched,
         tasteRules,
         activeMoviePayload,
-        focusedMovie ? { spoilerSafe } : {}
+        chatOptions
       );
       const latestFast = getLastModelInfo("fast");
       const turnModelInfo = latestFast && latestFast.seq > prevSeq ? latestFast : null;
@@ -384,9 +520,55 @@ export default function AIChat({
     handleSendMessage();
   };
 
+  const handleComposerKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const hasConversationTurns = messages.length > 1;
+
   return (
     <div className="ai-chat-wrapper">
       <div className="ai-chat-container">
+        {/* Clean Editorial Workspace Header */}
+        <div className="chat-companion-header">
+          <div className="chat-context-strip">
+            <Film size={14} className="chat-context-icon" aria-hidden="true" />
+            <span className="chat-context-label">
+              Tuned to <strong>{watched.length}</strong> rated
+              {activeWatchlist.length > 0 ? <> · <strong>{activeWatchlist.length}</strong> queued</> : null}
+              {userRegion ? <> · {userRegion}</> : null}
+              {activeRuleCount > 0 ? <> · {activeRuleCount} rules</> : null}
+            </span>
+          </div>
+
+          <div className="chat-header-controls">
+            <button
+              type="button"
+              onClick={() => setIsKeyModalOpen(true)}
+              className={`chat-header-btn ${usingOwnKey ? "is-active" : ""}`}
+            >
+              <KeyRound size={12} aria-hidden="true" />
+              <span>{usingOwnKey ? "Personal key" : "AI key"}</span>
+            </button>
+
+            {hasConversationTurns && (
+              <button
+                type="button"
+                onClick={handleResetThread}
+                disabled={isLoading}
+                className="chat-header-btn"
+                title="Start a fresh conversation thread"
+              >
+                <RotateCcw size={12} aria-hidden="true" />
+                <span>New chat</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {debug && (
           <div
             className={`chat-model-bar ${activeChatModelInfo?.isFallback ? "fallback" : ""}`}
@@ -492,6 +674,7 @@ export default function AIChat({
             </div>
           </div>
         )}
+
         {/* Messages list */}
         <div className="chat-messages" ref={chatContainerRef} aria-live="polite">
           {messages.map((msg, index) => {
@@ -507,13 +690,23 @@ export default function AIChat({
                 )}
 
                 <div className={`chat-bubble ${msg.role} ${msg.isError ? "error" : ""}`}>
-                  <p className="bubble-text">{renderFormattedChatText(msg.text)}</p>
+                  {msg.role === "model" ? (
+                    <ChatMessageBody text={msg.text} />
+                  ) : (
+                    <p className="bubble-text">{renderInlineSegments(msg.text)}</p>
+                  )}
 
-                  {/* Render inline movie cards if Oracle recommended movies */}
+                  {/* Render interactive film cards matched against Vault & Watchlist */}
                   {detectedMovies.length > 0 && (
                     <div className="chat-inline-movies-grid">
                       {detectedMovies.map((m, i) => (
-                        <InlineMovieCard key={i} title={m.title} year={m.year} />
+                        <InlineMovieCard
+                          key={`${m.title}-${m.year || i}`}
+                          title={m.title}
+                          year={m.year}
+                          watched={watched}
+                          watchlist={activeWatchlist}
+                        />
                       ))}
                     </div>
                   )}
@@ -564,18 +757,19 @@ export default function AIChat({
           )}
         </div>
 
-        {/* Suggested Prompt Chips */}
+        {/* Starter Prompts before multi-turn engagement */}
         {messages.length <= 2 && !isLoading && (
           <div className="chat-prompts-container">
-            <span className="prompts-label">{focusedMovie ? `Explore ${focusedMovie.title}:` : "Suggested prompts:"}</span>
+            <span className="prompts-label">{focusedMovie ? `Explore ${focusedMovie.title}:` : "Try asking:"}</span>
             <div className="prompts-chips">
               {activeStarterPrompts.map((promptText, idx) => (
                 <button
+                  type="button"
                   key={`${threadKey}-${idx}`}
                   className="prompt-chip"
                   onClick={() => handleSendMessage(promptText)}
                 >
-                  <Sparkles size={13} />
+                  <Sparkles size={13} aria-hidden="true" />
                   <span>{promptText}</span>
                 </button>
               ))}
@@ -583,20 +777,38 @@ export default function AIChat({
           </div>
         )}
 
-        {/* Docked Input Form */}
+        {/* Adaptive Follow-Ups after multi-turn replies */}
+        {messages.length > 2 && !isLoading && (
+          <div className="chat-followups-strip">
+            {followUpPrompts.map((promptText, idx) => (
+              <button
+                type="button"
+                key={`followup-${idx}`}
+                className="chat-followup-chip"
+                onClick={() => handleSendMessage(promptText)}
+              >
+                <span>{promptText}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Docked Auto-Expanding Input Form */}
         <form className="chat-input-form" onSubmit={handleFormSubmit}>
           <div className="chat-input-wrapper">
-            <input
-              type="text"
+            <textarea
+              ref={composerRef}
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleComposerKeyDown}
               placeholder={
                 focusedMovie
-                  ? `Ask about ${focusedMovie.title} (craft, themes, spoilers ${spoilerSafe ? "off" : "on"})...`
-                  : "Ask Oracle for movie recommendations, director insights..."
+                  ? `Ask about ${focusedMovie.title} (spoilers ${spoilerSafe ? "off" : "on"})...`
+                  : "Ask about movies, your Watchlist, directors..."
               }
               disabled={isLoading}
-              className="chat-text-input"
+              className="chat-text-input chat-textarea"
             />
             <button
               type="submit"
@@ -607,23 +819,13 @@ export default function AIChat({
               <Send size={16} />
             </button>
           </div>
-          <div className="flex justify-end px-1 pt-2">
-            <button
-              type="button"
-              onClick={() => setIsKeyModalOpen(true)}
-              className="inline-flex items-center gap-1.5 text-[1.2rem] text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors bg-transparent border-0 cursor-pointer"
-            >
-              <KeyRound size={12} aria-hidden="true" />
-              <span>{usingOwnKey ? "Personal AI key active" : "Use your own Gemini key"}</span>
-            </button>
-          </div>
         </form>
       </div>
 
       <GeminiKeyModal
         isOpen={isKeyModalOpen}
         onClose={() => setIsKeyModalOpen(false)}
-        onChanged={(active) => setUsingOwnKey(Boolean(active))}
+        onChanged={(hasKey) => setUsingOwnKey(Boolean(hasKey))}
       />
     </div>
   );

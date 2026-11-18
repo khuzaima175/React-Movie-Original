@@ -117,3 +117,54 @@ test("saveFilmFocusCache and loadFilmFocusCache gracefully survive missing or co
   mem.set("cinemavault_film_chat_focus_v1:corrupt", "{bad json");
   assert.equal(loadFilmFocusCache("corrupt", mockStorage), null);
 });
+
+test("buildChatPromptPayload includes watchlist, dismissed/already-seen exclusions, region, and stays bounded for large vaults without emoji", () => {
+  const bigWatched = Array.from({ length: 220 }, (_, i) => ({
+    imdbID: `tt1000${i}`,
+    title: `Vault Film ${i}`,
+    year: String(1990 + (i % 35)),
+    genre: i % 2 === 0 ? "Sci-Fi, Drama" : "Crime, Thriller",
+    director: i % 5 === 0 ? "Denis Villeneuve" : `Director ${i % 20}`,
+    userRating: (i % 10) + 1,
+    dateWatched: `2026-0${(i % 9) + 1}-15`
+  }));
+
+  const watchlist = [
+    { imdbID: "tt0114369", title: "Se7en", year: "1995", imdbRating: "8.6" },
+    { imdbID: "tt0482571", title: "The Prestige", year: "2006", imdbRating: "8.5" }
+  ];
+
+  const feedbackLog = [
+    { action: "already_seen", title: "Shutter Island", year: "2010" },
+    { action: "dismissed", title: "Tenet", year: "2020", reason: "Not for me" }
+  ];
+
+  const longHistory = Array.from({ length: 20 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "model",
+    text: `Turn ${i}: ` + "cinema discussion ".repeat(20)
+  }));
+
+  const payload = buildChatPromptPayload(
+    "Pick something from my watchlist or recommend 5 unseen thrillers",
+    longHistory,
+    bigWatched,
+    [{ id: "r1", text: "Slow-burn atmospheric mystery", polarity: "prefer", enabled: true }],
+    null,
+    {
+      watchlist,
+      feedbackLog,
+      userRegion: "GB",
+      userWatchProviders: [8, 337]
+    }
+  );
+
+  assert.match(payload, /USER'S WATCHLIST/);
+  assert.match(payload, /Se7en \(1995\)/);
+  assert.match(payload, /DISMISSED \/ ALREADY SEEN/);
+  assert.match(payload, /Shutter Island \(2010\)/);
+  assert.match(payload, /Tenet \(2020\)/);
+  assert.match(payload, /STREAMING REGION: GB/);
+  assert.match(payload, /NEVER recommend titles already listed in USER'S WATCHED VAULT or DISMISSED/i);
+  assert.ok(payload.length < 35000, `Expected bounded payload < 35000 chars, got ${payload.length}`);
+  assert.equal(/\p{Extended_Pictographic}/u.test(payload), false);
+});
