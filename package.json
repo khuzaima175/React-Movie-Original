@@ -7,9 +7,6 @@
     "@google/genai": "^1.34.0",
     "@supabase/supabase-js": "2.119.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
     "framer-motion": "^12.23.26",
     "lucide-react": "^1.28.0",
     "prop-types": "^15.8.1",
@@ -18,19 +15,13 @@
     "react-router-dom": "^6.22.3"
   },
   "scripts": {
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d build",
     "check:secrets": "node scripts/check_secrets_in_history.mjs",
     "start": "vite",
+    "start:personal": "vite --mode personal",
     "build": "vite build",
+    "build:personal": "vite build --mode personal",
     "serve": "vite preview",
     "test": "node --test"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
   },
   "browserslist": {
     "production": [
@@ -46,7 +37,6 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
-    "gh-pages": "^6.3.0",
     "tailwindcss": "^4.1.16",
     "vite": "^5.1.4"
   }
