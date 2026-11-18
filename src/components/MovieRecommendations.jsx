@@ -8,8 +8,7 @@ import {
   generateFallbackId,
   getSmartCache,
   setSmartCache,
-  CURATION_MODEL_CASCADE,
-  formatModelDisplayName,
+  getCurationCascade,
   getLastModelInfo,
   getPreferredCascadeModel,
   resolveResultModelInfo,
@@ -17,6 +16,7 @@ import {
   createGeminiClient,
   parseFreeTextMoodWithGemini
 } from "../services/geminiService";
+import { isDebugUiEnabled, isPersonalEdition } from "../services/debugFlags";
 import { resolveGeminiKey } from "../services/apiTransport";
 import {
   bridgeTmdbToOmdb,
@@ -27,6 +27,7 @@ import {
 import {
   formatStreamingSummary,
   formatRecBadgeSummary,
+  buildOracleLoadingSteps,
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
@@ -175,7 +176,9 @@ export default function MovieRecommendations({
     recommendations.length > 0
   );
 
-  const queuedModel = getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation");
+  const debug = isDebugUiEnabled();
+  const personalEdition = isPersonalEdition();
+  const queuedModel = getPreferredCascadeModel(getCurationCascade({ personal: personalEdition }), "curation");
   const displayedModelInfo = aiModelInfo || getLastModelInfo("curation");
   const { summaryText: streamingSummary, hasCustomFilter: hasStreamingFilter } = formatStreamingSummary(
     userRegion,
@@ -184,14 +187,11 @@ export default function MovieRecommendations({
     POPULAR_WATCH_PROVIDERS
   );
 
-  const loadingSteps = [
-    watched.length >= 3
-      ? `Analyzing ${watched.length} rated films with time-weighted affinities...`
-      : "Preparing initial taste calibration...",
-    "Querying TMDB discovery candidates...",
-    "Ranking films against your vault history...",
-    `Curating final picks via ${queuedModel ? formatModelDisplayName(queuedModel) : "Local Ranker"}...`
-  ];
+  const loadingSteps = buildOracleLoadingSteps({
+    watchedCount: watched.length,
+    queuedModel,
+    debug
+  });
 
   useEffect(() => {
     let timer;
@@ -580,7 +580,7 @@ export default function MovieRecommendations({
     !displayedModelInfo.fromCache
       ? { ...displayedModelInfo, fromCache: true }
       : displayedModelInfo;
-  const badgeSummary = formatRecBadgeSummary(effectiveModelInfo, isCacheValid, queuedModel);
+  const badgeSummary = formatRecBadgeSummary(effectiveModelInfo, isCacheValid, queuedModel, { debug });
 
   const renderStudioDeck = (isDrawer = false) => (
     <div className={`ai-studio-deck ${isDrawer ? "drawer-mode" : ""}`}>
@@ -1106,7 +1106,7 @@ export default function MovieRecommendations({
               <button
                 type="button"
                 className="about-picks-trigger"
-                title={badgeSummary.tooltip}
+                title={debug ? badgeSummary.tooltip : undefined}
                 onClick={() => setShowAboutPicks((prev) => !prev)}
                 aria-expanded={showAboutPicks}
               >
@@ -1117,7 +1117,7 @@ export default function MovieRecommendations({
               {isEnhancingWithGemini && (
                 <span className="oracle-enhancing-pill" role="status" aria-live="polite">
                   <Loader2 size={12} className="spin-icon" aria-hidden="true" />
-                  <span>Enhancing with Gemini curation…</span>
+                  <span>{debug ? "Enhancing with Gemini curation…" : "Refining picks with AI…"}</span>
                 </span>
               )}
 
@@ -1134,7 +1134,7 @@ export default function MovieRecommendations({
                       <strong>Pool coverage:</strong> {badgeSummary.hydrationLabel}
                     </div>
                   )}
-                  <div>{badgeSummary.tooltip}</div>
+                  {debug && <div>{badgeSummary.tooltip}</div>}
                 </div>
               )}
             </div>

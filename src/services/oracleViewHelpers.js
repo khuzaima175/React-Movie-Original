@@ -58,11 +58,34 @@ function formatHydrationLabel(hydrationCoverage) {
   return `${hydrated}/${total} films hydrated (${pct}%)`;
 }
 
-export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedModel = null) {
+export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedModel = null, { debug = false } = {}) {
   const cached = Boolean(isCacheValid);
   const freshnessLabel = cached ? "Saved Picks" : "Fresh Picks";
   const freshnessTone = cached ? "cached" : "stale";
   const hydrationLabel = formatHydrationLabel(modelInfo?.hydrationCoverage);
+
+  if (!debug) {
+    const hasAiModel = Boolean(modelInfo?.model);
+    const modelLabel = hasAiModel ? "AI Curated" : "On-Device Engine";
+    const tooltipParts = [
+      hasAiModel
+        ? "Curated by AI from a shortlist verified against TMDB"
+        : "Ranked on-device from your taste profile"
+    ];
+    if (modelInfo?.fromCache || cached) {
+      tooltipParts.push("Saved from your last session");
+    }
+    if (hydrationLabel) {
+      tooltipParts.push(`Metadata: ${hydrationLabel}`);
+    }
+    return {
+      freshnessLabel,
+      freshnessTone,
+      modelLabel,
+      hydrationLabel,
+      tooltip: tooltipParts.join(" | ")
+    };
+  }
 
   if (!modelInfo || !modelInfo.model) {
     const tooltipParts = modelInfo
@@ -120,6 +143,32 @@ export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedMod
     hydrationLabel,
     tooltip: parts.join(" | ")
   };
+}
+
+/**
+ * Generates the four Oracle loading progress messages, hiding raw model slugs in public mode.
+ */
+export function buildOracleLoadingSteps({ watchedCount = 0, queuedModel = null, debug = false } = {}) {
+  const step1 =
+    watchedCount >= 3
+      ? `Analyzing ${watchedCount} rated films with time-weighted affinities...`
+      : "Preparing initial taste calibration...";
+
+  let step4;
+  if (debug) {
+    step4 = `Curating final picks via ${queuedModel ? formatModelDisplayName(queuedModel) : "Local Ranker"}...`;
+  } else {
+    step4 = queuedModel
+      ? "Curating your final 10 picks..."
+      : "Ranking your final picks on-device...";
+  }
+
+  return [
+    step1,
+    "Querying TMDB discovery candidates...",
+    "Ranking films against your vault history...",
+    step4
+  ];
 }
 
 /**

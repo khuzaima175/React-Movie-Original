@@ -4,6 +4,7 @@ import { AVAILABLE_REGIONS, POPULAR_WATCH_PROVIDERS } from "../src/services/tmdb
 import {
   formatStreamingSummary,
   formatRecBadgeSummary,
+  buildOracleLoadingSteps,
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
@@ -47,13 +48,13 @@ test("formatStreamingSummary marks region-only or provider-only selections as cu
 });
 
 test("formatRecBadgeSummary returns Local Ranker and user-friendly freshness labels for keyless fallback", () => {
-  const fresh = formatRecBadgeSummary({ model: null, pipeline: "local-ranker" }, false);
+  const fresh = formatRecBadgeSummary({ model: null, pipeline: "local-ranker" }, false, null, { debug: true });
   assert.equal(fresh.modelLabel, "Local Ranker");
   assert.equal(fresh.freshnessLabel, "Fresh Picks");
   assert.equal(fresh.freshnessTone, "stale");
   assert.match(fresh.tooltip, /Offline Fallback|local-ranker/i);
 
-  const cached = formatRecBadgeSummary(null, true);
+  const cached = formatRecBadgeSummary(null, true, null, { debug: true });
   assert.equal(cached.modelLabel, "Local Ranker");
   assert.equal(cached.freshnessLabel, "Saved Picks");
   assert.equal(cached.freshnessTone, "cached");
@@ -69,7 +70,9 @@ test("formatRecBadgeSummary hides raw model slugs and LRU cache text from visibl
       usageMetadata: { totalTokenCount: 1420 },
       cooldownModels: [{ model: "gemini-3.5-flash-lite", reason: "429" }]
     },
-    true
+    true,
+    null,
+    { debug: true }
   );
 
   assert.equal(summary.modelLabel, "Gemini 4 Hydrogen");
@@ -85,10 +88,52 @@ test("formatRecBadgeSummary hides raw model slugs and LRU cache text from visibl
 test("formatRecBadgeSummary prefixes fallback models cleanly", () => {
   const summary = formatRecBadgeSummary(
     { model: "gemini-3.5-flash-lite", isFallback: true },
-    false
+    false,
+    null,
+    { debug: true }
   );
   assert.equal(summary.modelLabel, "Fallback: Gemini 3.5 Flash-Lite");
   assert.equal(summary.freshnessLabel, "Fresh Picks");
+});
+
+test("formatRecBadgeSummary default mode never leaks model slugs, token counts or cache jargon", () => {
+  const summary = formatRecBadgeSummary(
+    {
+      model: "gemini-4-hydrogen",
+      isFallback: true,
+      pipeline: "gemini-curation",
+      fromCache: true,
+      usageMetadata: { totalTokenCount: 1420 },
+      cooldownModels: [{ model: "gemini-3.5-flash-lite", reason: "429" }]
+    },
+    true
+  );
+
+  assert.equal(summary.modelLabel, "AI Curated");
+  assert.equal(summary.freshnessLabel, "Saved Picks");
+  assert.equal(/gemini|\d{4}|429|500KB/i.test(summary.modelLabel + " " + summary.tooltip), false);
+});
+
+test("formatRecBadgeSummary default mode without a model labels On-Device Engine", () => {
+  const summary = formatRecBadgeSummary({ model: null, pipeline: "ranker-fallback" }, false);
+  assert.equal(summary.modelLabel, "On-Device Engine");
+  assert.match(summary.tooltip, /Ranked on-device from your taste profile/);
+});
+
+test("buildOracleLoadingSteps switches final step copy by debug mode and queued model", () => {
+  const publicAiSteps = buildOracleLoadingSteps({ watchedCount: 12, queuedModel: "gemini-3.5-flash-lite" });
+  assert.equal(publicAiSteps.length, 4);
+  assert.equal(publicAiSteps[3], "Curating your final 10 picks...");
+
+  const offlineSteps = buildOracleLoadingSteps({ watchedCount: 2, queuedModel: null });
+  assert.equal(offlineSteps[3], "Ranking your final picks on-device...");
+
+  const debugSteps = buildOracleLoadingSteps({
+    watchedCount: 12,
+    queuedModel: "gemini-4-hydrogen",
+    debug: true
+  });
+  assert.equal(debugSteps[3], "Curating final picks via Gemini 4 Hydrogen...");
 });
 
 test("resolveRecommendationAnchors prioritizes explicit IDs/titles, prose mentions, then genre-aligned fallback", () => {
@@ -201,7 +246,7 @@ test("shouldAutoRefreshOnDrawerClose refreshes only when closing drawer with sta
 });
 
 test("formatRecBadgeSummary formats hydrationCoverage when present and returns null hydrationLabel otherwise", () => {
-  const withoutCov = formatRecBadgeSummary({ model: "gemini-4-hydrogen", pipeline: "gemini-curation" }, false);
+  const withoutCov = formatRecBadgeSummary({ model: "gemini-4-hydrogen", pipeline: "gemini-curation" }, false, null, { debug: true });
   assert.equal(withoutCov.hydrationLabel, null);
 
   const withCov = formatRecBadgeSummary(
@@ -210,7 +255,9 @@ test("formatRecBadgeSummary formats hydrationCoverage when present and returns n
       pipeline: "gemini-curation",
       hydrationCoverage: { hydrated: 78, total: 80, ratio: 0.975, percent: 98 }
     },
-    false
+    false,
+    null,
+    { debug: true }
   );
   assert.equal(withCov.hydrationLabel, "78/80 films hydrated (98%)");
   assert.match(withCov.tooltip, /Metadata: 78\/80 films hydrated \(98%\)/);

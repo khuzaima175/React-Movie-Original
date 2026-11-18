@@ -2160,3 +2160,9 @@ test("getMovieRecommendations invokes onStage3Ready with instant local ranker to
     assert.equal(finalResult.recommendations.length, 10);
     assert.equal(finalResult.modelInfo?.fallbackMode, "gemini-curation");
 });
+
+test("getCurationCascade puts flash-lite first in public edition and hydrogen first in personal edition", async () => {
+    const gem = await import("../src/services/geminiService.js");
+    assert.equal(gem.getCurationCascade({ personal: false })[0], "gemini-3.5-flash-lite");
+    assert.equal(gem.getCurationCascade({ personal: true })[0], "gemini-4-hydrogen");
+});

@@ -24,6 +24,7 @@ import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
 } from "./services/tasteDeckService";
+import { syncDebugFlagFromSearch } from "./services/debugFlags";
 import { motion, AnimatePresence, MotionConfig, useScroll, useSpring } from "framer-motion";
 import { pageTransition } from "./motion";
 
@@ -63,6 +64,10 @@ function AppContent() {
   const didCheckOnboardingRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    syncDebugFlagFromSearch({ search: location.search });
+  }, [location.search]);
 
   useEffect(() => {
     if (didCheckOnboardingRef.current) return;

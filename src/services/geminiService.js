@@ -52,11 +52,8 @@ import {
     loadDefaultDnaIndex,
     buildDnaSimMap
 } from "./dnaService.js";
-import {
-    compileActiveTasteRules,
-    candidateMatchesAvoidRule,
-    buildTasteRulesHashSegment
-} from "./tasteRulesService.js";
+import { compileActiveTasteRules, candidateMatchesAvoidRule, buildTasteRulesHashSegment } from "./tasteRulesService.js";
+import { isPersonalEdition } from "./debugFlags.js";
 
 export const CURATION_MODEL_CASCADE = [
     "gemini-4-hydrogen",
@@ -66,6 +63,23 @@ export const CURATION_MODEL_CASCADE = [
     "gemini-2.5-flash",
     "gemini-3.8-flash"
 ];
+
+export const PUBLIC_CURATION_CASCADE = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-3.8-flash",
+    "gemini-4-hydrogen"
+];
+
+/**
+ * Selects curation cascade priority: Flash-Lite first in public/commercial mode
+ * to stretch daily free-tier quota, Hydrogen first in personal/debug mode.
+ */
+export function getCurationCascade({ personal = isPersonalEdition() } = {}) {
+    return personal ? CURATION_MODEL_CASCADE : PUBLIC_CURATION_CASCADE;
+}
 
 export const FAST_INTERACTIVE_CASCADE = [
     "gemini-3.5-flash-lite",
@@ -2503,8 +2517,9 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         : null;
 
     if (!ai) {
+        const cascade = getCurationCascade();
         const rankerFallbackInfo = {
-            ...buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback"),
+            ...buildCascadeModelInfo(cascade, null, "curation", "ranker-fallback"),
             hydrationCoverage
         };
         lastCurationModelInfo = rankerFallbackInfo;
@@ -2605,10 +2620,11 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         }
     };
 
+    const activeCascade = getCurationCascade();
     const prevSeq = lastCurationModelInfo?.seq || 0;
     const response = await executeCascade(
         ai,
-        CURATION_MODEL_CASCADE,
+        activeCascade,
         { contents: prompt, config: generationConfig },
         { cascadeType: "curation" }
     );
@@ -2616,7 +2632,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
     const activeRunModelInfo = {
         ...(response
             ? buildCascadeModelInfo(
-                CURATION_MODEL_CASCADE,
+                activeCascade,
                 lastCurationModelInfo?.seq > prevSeq ? lastCurationModelInfo.model : sessionCurationModel,
                 "curation",
                 "gemini-curation",
@@ -2625,7 +2641,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
                     seq: lastCurationModelInfo?.seq || prevSeq
                 }
             )
-            : buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "ranker-fallback")),
+            : buildCascadeModelInfo(activeCascade, null, "curation", "ranker-fallback")),
         hydrationCoverage
     };
     lastCurationModelInfo = activeRunModelInfo;
@@ -2706,7 +2722,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         console.warn("Gemini JSON parse/merge failed, falling back to local calibrated ranker:", parseErr);
         const fallbackInfo = {
             ...buildCascadeModelInfo(
-                CURATION_MODEL_CASCADE,
+                getCurationCascade(),
                 null,
                 "curation",
                 "ranker-fallback",
@@ -2784,21 +2800,22 @@ ${fallbackRuleLines.length > 0 ? `\nUSER'S STEERABLE TASTE RULES (Follow strictl
         }
     };
 
+    const omdbCascade = getCurationCascade();
     const prevOmdbSeq = lastCurationModelInfo?.seq || 0;
     const response = await executeCascade(
         ai,
-        CURATION_MODEL_CASCADE,
+        omdbCascade,
         { contents: prompt, config: generationConfig },
         { cascadeType: "curation" }
     );
 
     if (!response) {
-        lastCurationModelInfo = buildCascadeModelInfo(CURATION_MODEL_CASCADE, null, "curation", "gemini-omdb-fallback");
+        lastCurationModelInfo = buildCascadeModelInfo(omdbCascade, null, "curation", "gemini-omdb-fallback");
         throw new Error("Fallback recommendation generation failed");
     }
 
     const omdbModelInfo = buildCascadeModelInfo(
-        CURATION_MODEL_CASCADE,
+        omdbCascade,
         lastCurationModelInfo?.seq > prevOmdbSeq ? lastCurationModelInfo.model : sessionCurationModel,
         "curation",
         "gemini-omdb-fallback",
