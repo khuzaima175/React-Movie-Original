@@ -7529,8 +7529,8 @@ a.clickable-research-chip:hover {
   align-items: stretch;
   gap: 1.6rem;
   overflow-x: auto;
-  overflow-y: hidden;
-  padding: 0.4rem 0.2rem 1.4rem;
+  overscroll-behavior-x: contain;
+  padding: 0.4rem 0 1.4rem;
   scroll-snap-type: x proximity;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;

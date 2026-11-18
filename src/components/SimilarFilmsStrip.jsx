@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Sparkles, ArrowRight } from "lucide-react";
 import MovieCard from "./MovieCard";
 import { buildExploreRoute } from "../services/exploreService";
+import { useHorizontalWheelScroll } from "../hooks/useHorizontalWheelScroll";
 
 const ORIGIN_LABEL = {
   hybrid: "Strong Match",
@@ -17,6 +18,8 @@ export default function SimilarFilmsStrip({
   onSelectMovie,
   onQuickRate
 }) {
+  const stripRef = useHorizontalWheelScroll([films?.length || 0, loading]);
+
   if (loading && (!films || films.length === 0)) {
     return (
       <section className="rabbit-hole-section" aria-label="Similar Films Loading">
@@ -62,7 +65,7 @@ export default function SimilarFilmsStrip({
         </Link>
       </div>
 
-      <div className="similar-films-strip" role="list">
+      <div ref={stripRef} className="similar-films-strip" role="list">
         {films.map((film) => {
           const targetId = film.imdbID || film.id || `tmdb_${film.tmdbId}`;
           const originTag = ORIGIN_LABEL[film.matchOrigin] || null;

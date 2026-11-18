@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
 import { shouldShowCarouselArrows } from "../services/dashboardService";
 import { useScrollReveal } from "../hooks/useScrollReveal";
+import { useHorizontalWheelScroll } from "../hooks/useHorizontalWheelScroll";
 
 export default function MovieCarouselRow({
   title,
@@ -19,6 +20,7 @@ export default function MovieCarouselRow({
   const [canScroll, setCanScroll] = useState(false);
   const [edges, setEdges] = useState({ start: false, end: true });
   const [revealRef, isRevealed] = useScrollReveal();
+  useHorizontalWheelScroll([movies.length], scrollRef);
 
   function updateEdges() {
     const el = scrollRef.current;

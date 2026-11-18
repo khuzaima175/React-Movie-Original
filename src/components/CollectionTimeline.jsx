@@ -1,8 +1,11 @@
 import { Link } from "react-router-dom";
 import { Check, Bookmark, Star, Layers } from "lucide-react";
 import PosterImage from "./PosterImage";
+import { useHorizontalWheelScroll } from "../hooks/useHorizontalWheelScroll";
 
 export default function CollectionTimeline({ timeline, loading = false }) {
+  const stripRef = useHorizontalWheelScroll([timeline?.parts?.length || 0, loading]);
+
   if (loading && !timeline) {
     return (
       <section className="rabbit-hole-section" aria-label="Franchise Timeline Loading">
@@ -50,7 +53,7 @@ export default function CollectionTimeline({ timeline, loading = false }) {
         </div>
       </div>
 
-      <div className="collection-timeline-strip" role="list">
+      <div ref={stripRef} className="collection-timeline-strip" role="list">
         {timeline.parts.map((part, idx) => {
           const targetId = part.imdbID || `tmdb_${part.tmdbId}`;
           const cardBody = (
