@@ -1,20 +1,3 @@
-I'll apply the same cleanup to `SPEC.md`: keep the design system, phases, and acceptance criteria; remove hype and unverifiable claims; drop test counts, module counts, and the author credit; and fix conflicts with `ARCHITECTURE.md`.
-
-Corrections and removals I'm making:
-- **Test and module counts** (`310 / 310`, `311 / 311`, `37` suites, `2321` / `2322` modules) removed. These are not in the architecture doc I have, and the counts changed between sections.
-- **"Verified 0 emoji / 0 hits" claims** are kept only as audit commands, not as results.
-- **Session storage vs. local storage:** Section 7.11 says the compare list is in `sessionStorage`. The architecture doc says `localStorage` (`cinemavault_compare_v1`), so I corrected it.
-- **Cache key claims:** Section 6 references "`2 reserved Top-15 slots`". The architecture doc says the reserve is 2 slots from the shortlist, with no "Top-15" rule, so I removed "Top-15".
-- **Gemini "Sweet-Spot" / "Note-aware" marketing labels** removed; the mechanics stay.
-- **Emoji badge examples** in Section 6 are kept as the actual badge strings from the ranker, since they are part of the product behavior.
-- **"Built by Khuzaima"** footer and the author/status "Updated Nov 15, 2026" line: the footer line is kept as a spec item, but the author credit in the status note is removed.
-- **Overstated "CLS = 0" and "zero horizontal overflow"** acceptance criteria are kept as acceptance criteria (they are targets to verify, not claims of results).
-- **Repeated "v4.3–v5.2" feature wording** condensed where it duplicated the README.
-
-Here is the cleaned file.
-
----
-
 # CinemaVault — Frontend Overhaul Specification (v1.2 Design System & Implementation Record)
 
 **Target application:** CinemaVault (`khuzaima175/React-Movie-Original`)
@@ -545,7 +528,7 @@ These features build on the same neutral token system. Brass stays limited to st
 - **Related on the movie page:** clicking a genre or keyword opens `/explore` with that filter. When the film belongs to a collection, `CollectionTimeline` lists the installments in release order (`TBA` last) with the current film marked and a watched count. `SimilarFilmsStrip` merges local 64-D vector neighbors with TMDB `/recommendations` (or `/similar` when there are fewer than four results) and tags each card by source.
 
 ### 7.11 Compare workbench ([compareService.js](./src/services/compareService.js), [CompareDock.jsx](./src/components/CompareDock.jsx), [CompareModal.jsx](./src/components/CompareModal.jsx), [CompareWorkbench.jsx](./src/components/CompareWorkbench.jsx), [ComparePage.jsx](./src/pages/ComparePage.jsx))
-- **Tray:** up to three films. Stored in `localStorage` under `cinemavault_compare_v1`, deduplicated across IMDb and TMDB IDs (`toggleCompareItem`). Compare buttons appear on cards, the movie page, similar-film cards, and explore results.
+- **Tray:** up to three films. Stored in `sessionStorage` under `cinemavault_compare_v1`, deduplicated across IMDb and TMDB IDs (`toggleCompareItem`). Compare buttons appear on cards, the movie page, similar-film cards, and explore results.
 - **Dock:** a floating bar at the bottom right, with poster thumbnails, a slot counter, a quick modal, a link to the full workbench, and Clear. It moves up when the bulk-action bar is visible.
 - **Hydration:** `hydrateCompareMovieSlot` loads each film from TMDB and OMDb in parallel. It handles partial data when one source is down and shows an error card for films that cannot be found.
 - **Matrix:** `buildCompareMatrix` marks the best value per row, with ties shown as shared. Rows: IMDb, Rotten Tomatoes (0% kept as a real value), Metascore (0 kept), TMDB, shortest runtime, budget, box-office revenue, ROI, your score and note, 64-D taste match (`vaultMatchPct`), and streaming availability in the selected region.

@@ -1021,7 +1021,7 @@ CinemaVault operates **guest-first in `localStorage`** and enables multi-device 
 
 ### 22.4 Side-by-Side Film Comparison Workbench (`/compare`, [`compareService.js`](./src/services/compareService.js), [`CompareDock.jsx`](./src/components/CompareDock.jsx), [`CompareModal.jsx`](./src/components/CompareModal.jsx), [`CompareWorkbench.jsx`](./src/components/CompareWorkbench.jsx), [`ComparePage.jsx`](./src/pages/ComparePage.jsx))
 - **Global Tray, Floating Dock & Shareable URLs**:
-  - `AppContext` persists up to **`COMPARE_MAX_ITEMS = 3`** films in `localStorage` (`cinemavault_compare_v1`) with `toggleCompareMovie`, `isInCompare`, `removeFromCompare`, and `clearCompare`.
+  - `AppContext` persists up to **`COMPARE_MAX_ITEMS = 3`** films in `sessionStorage` (`cinemavault_compare_v1`) with `toggleCompareMovie`, `isInCompare`, `removeFromCompare`, and `clearCompare`.
   - Every `MovieCard.jsx` and `MovieDetails.jsx` action bar exposes a `⇄ Compare` toggle button. Once `>= 1` film is queued, `CompareDock.jsx` floats at the bottom of the viewport with a quick-open modal (`CompareModal.jsx`), shareable URL copy (`buildCompareUrl` -> `/compare?ids=...`), and direct `/compare` workbench navigation (`ComparePage.jsx`).
 - **Winner Matrix, Overlap Signals & 64-D Taste Match (`buildCompareMatrix` & `computeCompareOverlap`)**:
   - `buildCompareMatrix` computes side-by-side rows and highlights column `leaders` (with tie support) across IMDb, Rotten Tomatoes (preserving `0%`), Metascore (preserving `0`), TMDB score, shortest runtime, box-office revenue, ROI multiple (`revenueUsd / budgetUsd`), personal Vault score & notes, and 64-D `CVEM v1` **Personal Taste Match %** (`vaultMatchPct`).
