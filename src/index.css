@@ -3496,8 +3496,8 @@
   gap: 0.6rem;
 }
 
-.score-emoji {
-  font-size: 1.5rem;
+.score-icon {
+  flex-shrink: 0;
 }
 
 .score-source-name {

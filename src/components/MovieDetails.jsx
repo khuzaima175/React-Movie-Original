@@ -63,6 +63,7 @@ import {
   Plus,
   Check,
   Award,
+  Gauge,
   Film,
   User,
   Clapperboard,
@@ -1152,7 +1153,7 @@ export default function MovieDetails({
                 {movie.rottenTomatoes && (
                   <div className="score-matrix-card rt-card">
                     <div className="score-card-header">
-                      <span className="score-emoji">🍅</span>
+                      <Gauge size={16} className="score-icon text-[var(--text-3)]" aria-hidden="true" />
                       <span className="score-source-name">Rotten Tomatoes</span>
                     </div>
                     <div className="score-card-value">
