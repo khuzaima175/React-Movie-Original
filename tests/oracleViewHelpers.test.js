@@ -5,6 +5,7 @@ import {
   formatStreamingSummary,
   formatRecBadgeSummary,
   buildOracleLoadingSteps,
+  describePipelineNotice,
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
@@ -261,4 +262,13 @@ test("formatRecBadgeSummary formats hydrationCoverage when present and returns n
   );
   assert.equal(withCov.hydrationLabel, "78/80 films hydrated (98%)");
   assert.match(withCov.tooltip, /Metadata: 78\/80 films hydrated \(98%\)/);
+});
+
+test("describePipelineNotice explains capacity fallback only when pipeline is ranker-fallback", () => {
+  assert.equal(
+    describePipelineNotice({ pipeline: "ranker-fallback", model: null }),
+    "Shared AI curation is at capacity, so these picks come from your on-device taste model."
+  );
+  assert.equal(describePipelineNotice({ pipeline: "gemini-curation", model: "gemini-3.5-flash-lite" }), null);
+  assert.equal(describePipelineNotice(null), null);
 });

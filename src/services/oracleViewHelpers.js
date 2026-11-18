@@ -146,6 +146,16 @@ export function formatRecBadgeSummary(modelInfo, isCacheValid = false, queuedMod
 }
 
 /**
+ * Explains calmly when shared AI curation fell back to the on-device hybrid ranker.
+ */
+export function describePipelineNotice(modelInfo) {
+  if (modelInfo?.pipeline === "ranker-fallback") {
+    return "Shared AI curation is at capacity, so these picks come from your on-device taste model.";
+  }
+  return null;
+}
+
+/**
  * Generates the four Oracle loading progress messages, hiding raw model slugs in public mode.
  */
 export function buildOracleLoadingSteps({ watchedCount = 0, queuedModel = null, debug = false } = {}) {

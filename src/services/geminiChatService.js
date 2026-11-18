@@ -81,6 +81,30 @@ export function buildChatPromptPayload(
 /**
  * Sends a message to the AI movie assistant with user context.
  */
+/**
+ * Maps raw Gemini/proxy/network errors to calm, emoji-free user-facing chat messages.
+ */
+export function mapChatErrorToMessage(error) {
+    const parts = [
+        error?.errorCode,
+        error?.error?.errorCode,
+        error?.message,
+        error?.error?.message,
+        typeof error === "string" ? error : ""
+    ].filter(Boolean).join(" ");
+
+    if (/RESOURCE_EXHAUSTED|quota|All chat models failed|PROXY_RATE_LIMIT/i.test(parts)) {
+        return "Shared AI companion is at capacity right now. Try again in a few minutes, or use your own free Gemini key.";
+    }
+    if (/API Key|401/i.test(parts)) {
+        return "The AI service is not configured on this deployment.";
+    }
+    if (/network|fetch/i.test(parts)) {
+        return "Connection issue. Check your internet and try again.";
+    }
+    return "Something went wrong. Please try again in a moment.";
+}
+
 export const sendChatMessage = async (
     userMessage,
     chatHistory,
@@ -90,7 +114,9 @@ export const sendChatMessage = async (
     chatOptions = {}
 ) => {
     const ai = createGeminiClient(resolveGeminiKey());
-    if (!ai) throw new Error("Gemini API Key missing");
+    if (!ai) {
+        return mapChatErrorToMessage(new Error("Gemini API Key missing"));
+    }
 
     const prompt = buildChatPromptPayload(
         userMessage,
@@ -120,20 +146,6 @@ export const sendChatMessage = async (
         return text;
     } catch (error) {
         console.error("Chat Error:", error);
-        const errorMessage = error.message || "";
-
-        if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("quota")) {
-            return "🎬 AI is taking a coffee break! The API quota has been exceeded. Please try again later or update your API key.";
-        }
-
-        if (errorMessage.includes("API Key") || errorMessage.includes("401")) {
-            return "🔑 Invalid API key. Please check your Gemini API key configuration.";
-        }
-
-        if (errorMessage.includes("network") || errorMessage.includes("fetch")) {
-            return "📡 Connection issue. Please check your internet and try again.";
-        }
-
-        return "🍿 Oops! Something went wrong. Please try again in a moment.";
+        return mapChatErrorToMessage(error);
     }
 };

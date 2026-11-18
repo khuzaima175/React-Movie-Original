@@ -28,6 +28,7 @@ import {
   formatStreamingSummary,
   formatRecBadgeSummary,
   buildOracleLoadingSteps,
+  describePipelineNotice,
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
@@ -581,6 +582,7 @@ export default function MovieRecommendations({
       ? { ...displayedModelInfo, fromCache: true }
       : displayedModelInfo;
   const badgeSummary = formatRecBadgeSummary(effectiveModelInfo, isCacheValid, queuedModel, { debug });
+  const pipelineNotice = describePipelineNotice(effectiveModelInfo);
 
   const renderStudioDeck = (isDrawer = false) => (
     <div className={`ai-studio-deck ${isDrawer ? "drawer-mode" : ""}`}>
@@ -1176,6 +1178,12 @@ export default function MovieRecommendations({
               </div>
             </div>
           </div>
+
+          {pipelineNotice && (
+            <p className="mood-parse-note" role="status">
+              {pipelineNotice}
+            </p>
+          )}
 
           {/* Single-Column Editorial Curated List */}
           <ul className="recommendation-list-editorial">
