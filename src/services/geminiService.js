@@ -2897,7 +2897,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
     // 2. Primary Engine: Dynamic Waterfall TMDB Retrieval + Gemini Re-Ranking
     if (hasTmdb) {
         try {
-            onProgress?.("Harvesting 3-bucket verified candidate catalogue from TMDB...");
+            onProgress?.("Finding candidates across your taste profile...");
             const candidates = hasInjectedCandidates
                 ? options.candidates
                 : await fetchCandidatePool(profile, mood, watchedMovies, watchlist, {
@@ -3004,7 +3004,6 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     watched: watchedMovies,
                     watchlist
                 });
-                console.log(`✅ TMDB 3-Bucket + Gemini engine completed (${result.recommendations?.length} films)`);
                 return result;
             }
         } catch (tmdbErr) {

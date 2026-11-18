@@ -61,7 +61,7 @@ function triggerFileDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function enrichCsvRowMetadata(row, apiKey) {
+async function enrichCsvRowMetadata(row) {
   const alreadyHasRichMetadata = Boolean(
     row.imdbId &&
     row.poster &&
@@ -73,15 +73,12 @@ async function enrichCsvRowMetadata(row, apiKey) {
   }
 
   let omdbData = null;
-  if (hasOmdbBackend({ apiKey }) || Boolean(apiKey)) {
+  if (hasOmdbBackend()) {
     try {
       const omdbQuery = row.imdbId && /^tt\d+$/i.test(row.imdbId)
         ? { i: row.imdbId }
         : { t: row.title, ...(row.year ? { y: row.year } : {}) };
-      const res = await fetchOmdbJson({
-        ...omdbQuery,
-        ...(apiKey ? { apikey: apiKey } : {})
-      });
+      const res = await fetchOmdbJson(omdbQuery);
       if (res && res.Response === "True") {
         omdbData = res;
       }
@@ -138,7 +135,6 @@ export default function BackupManagerModal({
   onClose
 }) {
   const {
-    apiKey,
     watched = [],
     watchlist = [],
     setWatched,
@@ -309,7 +305,7 @@ export default function BackupManagerModal({
             title: row.title
           });
 
-          const enriched = await enrichCsvRowMetadata(row, apiKey);
+          const enriched = await enrichCsvRowMetadata(row);
           const resolved = resolveCsvRowFallbackRecord(enriched);
           if (resolved.status === "watched") {
             incomingWatched.push(resolved.record);

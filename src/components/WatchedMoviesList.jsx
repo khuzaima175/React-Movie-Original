@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import PosterImage from "./PosterImage";
-import { Star, Clock, X, CheckSquare, Square, Film } from "lucide-react";
+import { Star, Clock, X, CheckSquare, Square } from "lucide-react";
 
 export default function WatchedMoviesList({
   watched = [],

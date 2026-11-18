@@ -4,7 +4,7 @@ import { Button } from "./ui/Button";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
 import { Dices, Film, Bookmark, Star, ArrowRight, RotateCw } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 export default function RandomPicker({ isOpen, onClose, onSelectMovie }) {
   const { watchlist = [], watched = [] } = useApp();

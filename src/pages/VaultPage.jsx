@@ -6,7 +6,6 @@ import VaultBulkBar from "../components/VaultBulkBar";
 import SampleVaultBanner from "../components/SampleVaultBanner";
 import MovieCard from "../components/MovieCard";
 import WatchedMoviesList from "../components/WatchedMoviesList";
-import BackupManagerModal from "../components/BackupManagerModal";
 import ToastNotification from "../components/ToastNotification";
 import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
@@ -40,7 +39,6 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [viewMode, setViewMode] = useState("grid"); // "grid" or "list"
   const [isManageMode, setIsManageMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
-  const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [quickAddMovie, setQuickAddMovie] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -223,7 +221,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
           setIsManageMode((prev) => !prev);
           setSelectedIds([]);
         }}
-        onOpenBackup={() => (onOpenBackup ? onOpenBackup() : setIsBackupOpen(true))}
+        onOpenBackup={onOpenBackup}
         onOpenCloudSync={onOpenCloudSync}
         hasCloudConfig={hasCloudConfig}
         cloudUser={cloudUser}
@@ -354,11 +352,6 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
       )}
 
       {/* ── 6. Modals & Toast Notifications ── */}
-      <BackupManagerModal
-        isOpen={isBackupOpen}
-        onClose={() => setIsBackupOpen(false)}
-      />
-
       <QuickRateModal
         movie={quickAddMovie}
         watched={watched}

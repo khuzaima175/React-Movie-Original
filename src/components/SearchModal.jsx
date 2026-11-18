@@ -30,7 +30,7 @@ export default function SearchModal({
   onSelectMovie,
   onQuickRate
 }) {
-  const { apiKey, watched = [], watchlist = [], addToWatchlist } = useApp();
+  const { watched = [], watchlist = [], addToWatchlist } = useApp();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [trendingPosters, setTrendingPosters] = useState([]);
@@ -90,7 +90,6 @@ export default function SearchModal({
           query: trimmed,
           watched,
           watchlist,
-          apiKey,
           signal: controller.signal
         });
         if (!controller.signal.aborted) {
@@ -110,7 +109,7 @@ export default function SearchModal({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [query, isOpen, apiKey, watched, watchlist]);
+  }, [query, isOpen, watched, watchlist]);
 
   const filteredResults = useMemo(() => {
     if (activeFilter === "vault") return results.filter((item) => item.inVault);
