@@ -33,7 +33,7 @@ function parseJsonBody(rawBody) {
 }
 
 export default async function handler(req, res) {
-  if (!enforceApiSecurity(req, res, { bucket: "gemini", maxRequests: 20, windowMs: 60_000 })) {
+  if (!(await enforceApiSecurity(req, res, { bucket: "gemini", maxRequests: 20, windowMs: 60_000 }))) {
     return;
   }
 

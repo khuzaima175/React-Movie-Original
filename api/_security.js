@@ -1,3 +1,5 @@
+import { createRateStore, resetMemoryRateStore } from "./_rateStore.js";
+
 const DEFAULT_LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const RATE_LIMIT_BUCKETS = new Map();
 const MAX_TRACKED_KEYS = 5000;
@@ -182,11 +184,22 @@ export function checkSlidingWindowRateLimit(
   };
 }
 
+function writeRateLimitResponse(res, retryAfterSec = 60) {
+  if (typeof res?.setHeader === "function") {
+    res.setHeader("Retry-After", String(retryAfterSec));
+    res.setHeader("X-RateLimit-Source", "proxy");
+  }
+  res.status(429).json({
+    error: "Too many requests. Please try again shortly.",
+    errorCode: "PROXY_RATE_LIMIT"
+  });
+}
+
 /**
- * Enforces cross-origin blocking (403) and per-IP sliding-window rate limiting (429).
+ * Enforces cross-origin blocking (403) and sliding-window + optional durable daily rate limiting (429).
  * Returns `true` if request may proceed, or `false` after writing the error response.
  */
-export function enforceApiSecurity(
+export async function enforceApiSecurity(
   req,
   res,
   { bucket = "default", maxRequests = 60, windowMs = 60_000, now = Date.now() } = {}
@@ -196,16 +209,56 @@ export function enforceApiSecurity(
     return false;
   }
 
+  const store = req?.rateStore && typeof req.rateStore.hit === "function"
+    ? req.rateStore
+    : createRateStore();
+
+  const clientIp = getClientIp(req);
+
+  if (store.durable) {
+    const windowSec = Math.max(1, Math.ceil((Number(windowMs) || 60_000) / 1000));
+    const perMinute = await store.hit(`${bucket}:min:${clientIp}`, {
+      limit: Math.max(1, Number(maxRequests) || 60),
+      windowSec,
+      now
+    });
+    if (!perMinute.allowed) {
+      writeRateLimitResponse(res, perMinute.retryAfterSec);
+      return false;
+    }
+
+    if (bucket === "gemini") {
+      const utcDay = new Date(now).toISOString().slice(0, 10);
+      const perIpDailyLimit = Math.max(1, Number(process.env.GEMINI_DAILY_PER_IP) || 30);
+      const globalDailyLimit = Math.max(1, Number(process.env.GEMINI_DAILY_GLOBAL) || 450);
+
+      const perIpDaily = await store.hit(`gemini:day:${utcDay}:ip:${clientIp}`, {
+        limit: perIpDailyLimit,
+        windowSec: 86400,
+        now
+      });
+      if (!perIpDaily.allowed) {
+        writeRateLimitResponse(res, perIpDaily.retryAfterSec);
+        return false;
+      }
+
+      const globalDaily = await store.hit(`gemini:day:${utcDay}:global`, {
+        limit: globalDailyLimit,
+        windowSec: 86400,
+        now
+      });
+      if (!globalDaily.allowed) {
+        writeRateLimitResponse(res, globalDaily.retryAfterSec);
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   const rl = checkSlidingWindowRateLimit(req, { bucket, maxRequests, windowMs, now });
   if (!rl.allowed) {
-    if (typeof res?.setHeader === "function") {
-      res.setHeader("Retry-After", String(rl.retryAfterSec));
-      res.setHeader("X-RateLimit-Source", "proxy");
-    }
-    res.status(429).json({
-      error: "Too many requests. Please try again shortly.",
-      errorCode: "PROXY_RATE_LIMIT"
-    });
+    writeRateLimitResponse(res, rl.retryAfterSec);
     return false;
   }
 
@@ -217,4 +270,5 @@ export function enforceApiSecurity(
  */
 export function resetRateLimitBuckets() {
   RATE_LIMIT_BUCKETS.clear();
+  resetMemoryRateStore();
 }

@@ -66,7 +66,7 @@ async function mapWithConcurrency(items, concurrency, worker) {
 export default async function handler(req, res) {
   res.setHeader?.("Vary", "Origin");
 
-  if (!enforceApiSecurity(req, res, { bucket: "tmdb", maxRequests: 60, windowMs: 60_000 })) {
+  if (!(await enforceApiSecurity(req, res, { bucket: "tmdb", maxRequests: 60, windowMs: 60_000 }))) {
     return;
   }
 

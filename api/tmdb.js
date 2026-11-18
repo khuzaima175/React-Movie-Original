@@ -9,7 +9,7 @@ function sanitizeUpstreamMessage(message, secret) {
 }
 
 export default async function handler(req, res) {
-  if (!enforceApiSecurity(req, res, { bucket: "tmdb", maxRequests: 60, windowMs: 60_000 })) {
+  if (!(await enforceApiSecurity(req, res, { bucket: "tmdb", maxRequests: 60, windowMs: 60_000 }))) {
     return;
   }
 

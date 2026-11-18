@@ -1039,3 +1039,111 @@ test("api/gemini request guard rejects oversized or empty contents and sanitizes
     else process.env.GEMINI_API_KEY = prevGemini;
   }
 });
+
+test("rateStore uses memory when Upstash env is missing", async () => {
+  const { createRateStore } = await import("../api/_rateStore.js");
+  const store = createRateStore({ env: {} });
+  assert.equal(store.durable, false);
+
+  const key = `test:mem:${Date.now()}`;
+  const r1 = await store.hit(key, { limit: 2, windowSec: 60 });
+  const r2 = await store.hit(key, { limit: 2, windowSec: 60 });
+  const r3 = await store.hit(key, { limit: 2, windowSec: 60 });
+  assert.equal(r1.allowed, true);
+  assert.equal(r2.allowed, true);
+  assert.equal(r3.allowed, false);
+});
+
+test("rateStore posts INCR+EXPIRE pipeline to Upstash and denies when count exceeds limit", async () => {
+  const { createRateStore } = await import("../api/_rateStore.js");
+  let capturedUrl = "";
+  let capturedInit = null;
+
+  const store = createRateStore({
+    env: {
+      UPSTASH_REDIS_REST_URL: "https://redis.upstash.example/",
+      UPSTASH_REDIS_REST_TOKEN: "UPSTASH_TEST_TOKEN"
+    },
+    fetchFn: async (url, init) => {
+      capturedUrl = String(url);
+      capturedInit = init;
+      return new Response(JSON.stringify([{ result: 3 }, { result: 1 }]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+  });
+
+  assert.equal(store.durable, true);
+  const res = await store.hit("gemini:day:test", { limit: 2, windowSec: 86400 });
+  assert.equal(res.allowed, false);
+  assert.equal(res.remaining, 0);
+  assert.equal(capturedUrl, "https://redis.upstash.example/pipeline");
+  assert.equal(capturedInit.method, "POST");
+  assert.equal(capturedInit.headers.Authorization, "Bearer UPSTASH_TEST_TOKEN");
+  assert.deepEqual(JSON.parse(capturedInit.body), [
+    ["INCR", "gemini:day:test"],
+    ["EXPIRE", "gemini:day:test", 86400, "NX"]
+  ]);
+});
+
+test("rateStore falls back to memory when Upstash fetch throws", async () => {
+  const { createRateStore } = await import("../api/_rateStore.js");
+  const store = createRateStore({
+    env: {
+      UPSTASH_REDIS_REST_URL: "https://redis.upstash.example",
+      UPSTASH_REDIS_REST_TOKEN: "UPSTASH_TEST_TOKEN"
+    },
+    fetchFn: async () => {
+      throw new Error("network timeout");
+    }
+  });
+
+  assert.equal(store.durable, true);
+  const res = await store.hit(`test:fallback:${Date.now()}`, { limit: 2, windowSec: 60 });
+  assert.equal(res.allowed, true);
+});
+
+test("gemini handler returns 429 PROXY_RATE_LIMIT when the global daily cap is hit", async () => {
+  resetRateLimitBuckets();
+  const prevGemini = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "SERVER_GEMINI_SECRET";
+  try {
+    const res = createMockRes();
+    let modelCalled = false;
+    await geminiHandler(
+      {
+        method: "POST",
+        headers: { "x-forwarded-for": "198.51.100.130" },
+        body: { model: "gemini-3.5-flash-lite", contents: "hello" },
+        rateStore: {
+          durable: true,
+          async hit(key) {
+            if (String(key).includes(":global")) {
+              return { allowed: false, remaining: 0, retryAfterSec: 3600 };
+            }
+            return { allowed: true, remaining: 5, retryAfterSec: 0 };
+          }
+        },
+        aiFactory: () => ({
+          models: {
+            generateContent: async () => {
+              modelCalled = true;
+              return { text: "ok" };
+            }
+          }
+        })
+      },
+      res
+    );
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.errorCode, "PROXY_RATE_LIMIT");
+    assert.equal(res.headers["Retry-After"], "3600");
+    assert.equal(res.headers["X-RateLimit-Source"], "proxy");
+    assert.equal(modelCalled, false);
+  } finally {
+    resetRateLimitBuckets();
+    if (prevGemini === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGemini;
+  }
+});
