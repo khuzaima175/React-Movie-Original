@@ -6,6 +6,7 @@ import {
   formatRecBadgeSummary,
   buildOracleLoadingSteps,
   describePipelineNotice,
+  selectStudioBackdropPoster,
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
@@ -271,4 +272,23 @@ test("describePipelineNotice explains capacity fallback only when pipeline is ra
   );
   assert.equal(describePipelineNotice({ pipeline: "gemini-curation", model: "gemini-3.5-flash-lite" }), null);
   assert.equal(describePipelineNotice(null), null);
+});
+
+test("selectStudioBackdropPoster returns highest-rated film poster ignoring N/A posters", () => {
+  const watched = [
+    { imdbID: "tt1", title: "Top No Poster", userRating: 10, dateWatched: "2026-11-10T00:00:00Z", poster: "N/A" },
+    { imdbID: "tt2", title: "Older Nine", userRating: 9, dateWatched: "2025-01-01T00:00:00Z", poster: "https://img/older9.jpg" },
+    { imdbID: "tt3", title: "Newer Nine", userRating: 9, dateWatched: "2026-11-01T00:00:00Z", poster: "https://img/newer9.jpg" },
+    { imdbID: "tt4", title: "Eight", userRating: 8, dateWatched: "2026-11-12T00:00:00Z", poster: "https://img/eight.jpg" }
+  ];
+  assert.equal(selectStudioBackdropPoster(watched), "https://img/newer9.jpg");
+});
+
+test("selectStudioBackdropPoster returns null for empty or posterless watched arrays", () => {
+  assert.equal(selectStudioBackdropPoster([]), null);
+  assert.equal(selectStudioBackdropPoster(null), null);
+  assert.equal(
+    selectStudioBackdropPoster([{ imdbID: "tt1", userRating: 10, poster: "N/A" }]),
+    null
+  );
 });

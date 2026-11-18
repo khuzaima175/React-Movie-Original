@@ -29,6 +29,7 @@ import {
   formatRecBadgeSummary,
   buildOracleLoadingSteps,
   describePipelineNotice,
+  selectStudioBackdropPoster,
   resolveRecommendationAnchors,
   sanitizeOracleReason,
   formatActiveVibeNote,
@@ -74,8 +75,31 @@ import {
   Pin,
   Pencil,
   Trash2,
-  KeyRound
+  KeyRound,
+  Film,
+  Orbit,
+  Moon,
+  Flame,
+  Heart,
+  Gem,
+  Tv,
+  Search
 } from "lucide-react";
+
+const MOOD_ICON_MAP = {
+  any: Film,
+  "mind-bending": Orbit,
+  "dark-thriller": Moon,
+  "fun-popcorn": Flame,
+  "comfort-watch": Heart,
+  "hidden-gem": Gem
+};
+
+const VIBE_EXAMPLE_PROMPTS = [
+  "like Drive but quieter",
+  "90s neo-noir",
+  "smart sci-fi under 2h"
+];
 
 const DISMISS_REASONS = [
   "Already seen",
@@ -587,9 +611,22 @@ export default function MovieRecommendations({
       : displayedModelInfo;
   const badgeSummary = formatRecBadgeSummary(effectiveModelInfo, isCacheValid, queuedModel, { debug });
   const pipelineNotice = describePipelineNotice(effectiveModelInfo);
+  const studioBackdropPoster = selectStudioBackdropPoster(watched);
 
   const renderStudioDeck = (isDrawer = false) => (
     <div className={`ai-studio-deck ${isDrawer ? "drawer-mode" : ""}`}>
+      {studioBackdropPoster && !isDrawer && (
+        <div className="studio-deck-backdrop" aria-hidden="true">
+          <img
+            src={studioBackdropPoster}
+            alt=""
+            className="studio-deck-backdrop-img"
+            loading="lazy"
+          />
+          <div className="studio-deck-backdrop-scrim" />
+        </div>
+      )}
+
       {isDrawer && (
         <div className="deck-drawer-header">
           <h3 className="deck-drawer-title">Mood &amp; Streaming</h3>
@@ -609,6 +646,7 @@ export default function MovieRecommendations({
         <div className="vibe-chips-grid">
           {MOOD_OPTIONS.map((mood) => {
             const isSelected = selectedMood === mood.id;
+            const MoodIcon = MOOD_ICON_MAP[mood.id] || Film;
             return (
               <button
                 key={mood.id}
@@ -621,10 +659,18 @@ export default function MovieRecommendations({
                   refreshStateRef.current = { key: "", seenIds: [], page: 1 };
                 }}
               >
+                <span className="vibe-icon-box" aria-hidden="true">
+                  <MoodIcon size={16} />
+                </span>
                 <div className="vibe-meta">
                   <strong className="vibe-title">{mood.label}</strong>
                   <span className="vibe-sub">{mood.desc}</span>
                 </div>
+                {isSelected && (
+                  <span className="vibe-active-check" aria-hidden="true">
+                    <Check size={12} />
+                  </span>
+                )}
               </button>
             );
           })}
@@ -637,6 +683,7 @@ export default function MovieRecommendations({
             handleApplyFreeTextMood();
           }}
         >
+          <Search size={15} className="mood-query-icon" aria-hidden="true" />
           <input
             type="text"
             className="mood-query-input"
@@ -653,13 +700,29 @@ export default function MovieRecommendations({
           >
             {isParsingMood ? "Matching..." : "Match Vibe"}
           </Button>
-          {moodParseNote && <span className="mood-parse-note">{moodParseNote}</span>}
         </form>
+
+        <div className="mood-example-pills" aria-label="Example vibes">
+          <span className="mood-examples-label">Try:</span>
+          {VIBE_EXAMPLE_PROMPTS.map((samplePrompt) => (
+            <button
+              key={samplePrompt}
+              type="button"
+              className="mood-example-pill"
+              onClick={() => setCustomMoodQuery(samplePrompt)}
+            >
+              {samplePrompt}
+            </button>
+          ))}
+        </div>
+
+        {moodParseNote && <span className="mood-parse-note">{moodParseNote}</span>}
       </div>
 
       <div className="vibe-selection-block">
         <div className={`streaming-summary-bar ${hasStreamingFilter ? "is-custom" : ""}`}>
           <div className="streaming-summary-info">
+            <Tv size={14} className="summary-row-icon" aria-hidden="true" />
             <span className="vibe-label">Where to watch</span>
             <span aria-hidden="true">·</span>
             <span className="streaming-summary-value">{streamingSummary}</span>
@@ -754,6 +817,7 @@ export default function MovieRecommendations({
       <div className="taste-rules-section">
         <div className="taste-rules-summary-bar">
           <div className="streaming-summary-info">
+            <SlidersHorizontal size={14} className="summary-row-icon" aria-hidden="true" />
             <span className="streaming-summary-label">Taste Rules</span>
             <span aria-hidden="true">·</span>
             <span className="streaming-summary-value">

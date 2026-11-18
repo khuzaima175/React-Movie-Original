@@ -156,6 +156,32 @@ export function describePipelineNotice(modelInfo) {
 }
 
 /**
+ * Selects the highest-rated film poster from the user's vault as a subtle Studio Deck wash.
+ */
+export function selectStudioBackdropPoster(watched) {
+  if (!Array.isArray(watched) || watched.length === 0) return null;
+  let bestPoster = null;
+  let bestRating = -Infinity;
+  let bestDateMs = -Infinity;
+
+  for (const movie of watched) {
+    const poster = String(movie?.poster || movie?.Poster || "").trim();
+    if (!poster || poster === "N/A") continue;
+    const rating = Number(movie?.userRating ?? movie?.UserRating ?? 0);
+    const parsedDate = Date.parse(String(movie?.dateWatched || ""));
+    const dateMs = Number.isFinite(parsedDate) ? parsedDate : 0;
+
+    if (rating > bestRating || (rating === bestRating && dateMs > bestDateMs)) {
+      bestPoster = poster;
+      bestRating = rating;
+      bestDateMs = dateMs;
+    }
+  }
+
+  return bestPoster;
+}
+
+/**
  * Generates the four Oracle loading progress messages, hiding raw model slugs in public mode.
  */
 export function buildOracleLoadingSteps({ watchedCount = 0, queuedModel = null, debug = false } = {}) {
