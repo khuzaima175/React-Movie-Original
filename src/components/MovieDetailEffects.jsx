@@ -2,6 +2,16 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import PosterImage from "./PosterImage";
+import { landPosterFlight } from "../services/posterFlight";
+
+/** Renders nothing. Lands a pending clicked-poster ghost onto the detail poster. */
+export function PosterArrival() {
+  useEffect(() => {
+    const target = document.querySelector(".netflix-modal-poster-wrap");
+    if (target) landPosterFlight(target);
+  }, []);
+  return null;
+}
 
 /**
  * Renders nothing. While mounted inside `.movie-backdrop-hero` it writes a

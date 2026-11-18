@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
-import { HeroParallaxController, StickyTitleBar } from "./MovieDetailEffects";
+import { HeroParallaxController, StickyTitleBar, PosterArrival } from "./MovieDetailEffects";
 import PersonFilmographyModal from "./PersonFilmographyModal";
 import CollectionTimeline from "./CollectionTimeline";
 import SimilarFilmsStrip from "./SimilarFilmsStrip";
@@ -749,6 +749,7 @@ export default function MovieDetails({
             {/* Left Column: Poster & Luxury Rating Deck */}
             <div className="netflix-modal-left">
               <div className="netflix-modal-poster-wrap elevated-poster-card">
+                <PosterArrival />
                 <PosterImage src={movie.poster} title={movie.title} alt={`${movie.title} poster`} />
               </div>
 

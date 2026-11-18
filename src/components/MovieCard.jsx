@@ -6,6 +6,7 @@ import { useOptionalApp } from "../context/AppContext";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
 import { isSameMovie } from "../services/movieIdentity";
 import { useScrollReveal } from "../hooks/useScrollReveal";
+import { startPosterFlight } from "../services/posterFlight";
 
 export default function MovieCard({
   movie,
@@ -67,6 +68,7 @@ export default function MovieCard({
       e.stopPropagation();
       onToggleSelect?.(id);
     } else if (onSelectMovie) {
+      startPosterFlight(posterRef.current, poster);
       onSelectMovie(id);
     }
   }
@@ -232,6 +234,7 @@ export default function MovieCard({
                   className="btn-card-action ghost"
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (onSelectMovie) startPosterFlight(posterRef.current, poster);
                     onSelectMovie?.(id);
                   }}
                   title="View details"
