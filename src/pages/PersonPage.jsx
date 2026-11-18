@@ -16,6 +16,7 @@ import {
   fetchPersonProfileAndCredits,
   resolvePersonDefaultDepartment
 } from "../services/personService";
+import { goBackOrHome, hasBrowserHistory } from "../services/navHelpers";
 
 const BIO_COLLAPSE_THRESHOLD = 320;
 
@@ -144,11 +145,7 @@ export default function PersonPage({ onQuickRate }) {
   }
 
   function handleGoBack() {
-    if (window.history.length > 1) {
-      navigate(-1);
-    } else {
-      navigate("/");
-    }
+    goBackOrHome(navigate, hasBrowserHistory());
   }
 
   const bioText = String(person?.biography || "").trim();

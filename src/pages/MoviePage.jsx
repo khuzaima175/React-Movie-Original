@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import { goBackOrHome, hasBrowserHistory } from "../services/navHelpers";
 import MovieDetails from "../components/MovieDetails";
 
 export default function MoviePage({ onQuickRate }) {
@@ -25,7 +26,7 @@ export default function MoviePage({ onQuickRate }) {
   }
 
   function handleClose() {
-    navigate(-1);
+    goBackOrHome(navigate, hasBrowserHistory());
   }
 
   return (

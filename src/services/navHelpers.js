@@ -22,3 +22,16 @@ export function getCloudSyncBadgeLabel({ configured = false, userEmail = null, s
   if (status === "syncing") return "Syncing...";
   return "Synced";
 }
+
+export function hasBrowserHistory(historyLike = globalThis.history) {
+  return Number(historyLike?.state?.idx) > 0;
+}
+
+export function goBackOrHome(navigate, canGoBack = hasBrowserHistory()) {
+  if (typeof navigate !== "function") return;
+  if (canGoBack) {
+    navigate(-1);
+  } else {
+    navigate("/", { replace: true });
+  }
+}

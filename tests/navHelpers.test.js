@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   getSearchShortcutHint,
   getCloudSyncBadgeLabel,
-  formatVaultNavCount
+  formatVaultNavCount,
+  hasBrowserHistory,
+  goBackOrHome
 } from "../src/services/navHelpers.js";
 
 test("getSearchShortcutHint adapts shortcut glyph to OS platform", () => {
@@ -31,4 +33,22 @@ test("getCloudSyncBadgeLabel distinguishes guest, synced user, and syncing state
     getCloudSyncBadgeLabel({ configured: true, userEmail: "khuzaima@example.com", status: "idle" }),
     "Synced"
   );
+});
+
+test("hasBrowserHistory checks React Router state.idx safely", () => {
+  assert.equal(hasBrowserHistory({ state: { idx: 0 } }), false);
+  assert.equal(hasBrowserHistory({}), false);
+  assert.equal(hasBrowserHistory(undefined), false);
+  assert.equal(hasBrowserHistory({ state: { idx: 2 } }), true);
+});
+
+test("goBackOrHome navigates -1 when history exists and goes home with replace otherwise", () => {
+  const calls = [];
+  const navigate = (to, opts) => calls.push({ to, opts });
+
+  goBackOrHome(navigate, true);
+  assert.deepEqual(calls[0], { to: -1, opts: undefined });
+
+  goBackOrHome(navigate, false);
+  assert.deepEqual(calls[1], { to: "/", opts: { replace: true } });
 });

@@ -8,6 +8,7 @@ import {
   parseCompareUrlIds,
   removeUrlCompareSlot
 } from "../services/compareService";
+import { goBackOrHome, hasBrowserHistory } from "../services/navHelpers";
 import CompareWorkbench from "../components/CompareWorkbench";
 
 export default function ComparePage({ onQuickRate }) {
@@ -83,7 +84,7 @@ export default function ComparePage({ onQuickRate }) {
           <button
             type="button"
             className="compare-back-link"
-            onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/"))}
+            onClick={() => goBackOrHome(navigate, hasBrowserHistory())}
           >
             <ArrowLeft size={15} aria-hidden="true" />
             <span>Back</span>
