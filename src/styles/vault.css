@@ -709,6 +709,14 @@
   box-shadow: var(--sh-3);
 }
 
+@media (max-width: 900px) {
+  .vault-bulk-floating-bar {
+    bottom: calc(7.2rem + env(safe-area-inset-bottom, 0px));
+    width: calc(100vw - 2rem);
+    justify-content: center;
+  }
+}
+
 .bulk-bar-info {
   display: flex;
   align-items: center;
