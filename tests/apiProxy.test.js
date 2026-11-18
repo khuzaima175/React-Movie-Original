@@ -950,3 +950,92 @@ test("api/tmdb handler allows collection, keyword search, recommendations, and s
     else process.env.TMDB_API_KEY = prevTmdb;
   }
 });
+
+test("api/gemini request guard rejects oversized or empty contents and sanitizes config", async () => {
+  resetRateLimitBuckets();
+  const prevGemini = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "SERVER_GEMINI_SECRET";
+  try {
+    let calls = 0;
+    let capturedArgs = null;
+    const makeAi = () => ({
+      models: {
+        generateContent: async (args) => {
+          calls += 1;
+          capturedArgs = args;
+          return { text: "ok", usageMetadata: null };
+        }
+      }
+    });
+
+    const oversizedRes = createMockRes();
+    await geminiHandler(
+      {
+        method: "POST",
+        headers: { "x-forwarded-for": "198.51.100.120" },
+        body: { model: "gemini-3.5-flash-lite", contents: "x".repeat(60005) },
+        aiFactory: makeAi
+      },
+      oversizedRes
+    );
+    assert.equal(oversizedRes.statusCode, 413);
+    assert.equal(calls, 0);
+
+    const emptyStrRes = createMockRes();
+    await geminiHandler(
+      {
+        method: "POST",
+        headers: { "x-forwarded-for": "198.51.100.121" },
+        body: { model: "gemini-3.5-flash-lite", contents: "   " },
+        aiFactory: makeAi
+      },
+      emptyStrRes
+    );
+    assert.equal(emptyStrRes.statusCode, 400);
+    assert.equal(calls, 0);
+
+    const clampRes = createMockRes();
+    await geminiHandler(
+      {
+        method: "POST",
+        headers: { "x-forwarded-for": "198.51.100.122" },
+        body: {
+          model: "gemini-3.5-flash-lite",
+          contents: "hi",
+          config: {
+            temperature: 0.2,
+            tools: [{ googleSearch: {} }],
+            toolConfig: { any: true },
+            cachedContent: "caches/123",
+            maxOutputTokens: 1000000
+          }
+        },
+        aiFactory: makeAi
+      },
+      clampRes
+    );
+    assert.equal(clampRes.statusCode, 200);
+    assert.equal("tools" in capturedArgs.config, false);
+    assert.equal("toolConfig" in capturedArgs.config, false);
+    assert.equal("cachedContent" in capturedArgs.config, false);
+    assert.equal(capturedArgs.config.maxOutputTokens, 16384);
+    assert.equal(capturedArgs.config.temperature, 0.2);
+
+    const nullConfigRes = createMockRes();
+    await geminiHandler(
+      {
+        method: "POST",
+        headers: { "x-forwarded-for": "198.51.100.123" },
+        body: { model: "gemini-3.5-flash-lite", contents: "hello", config: null },
+        aiFactory: makeAi
+      },
+      nullConfigRes
+    );
+    assert.equal(nullConfigRes.statusCode, 200);
+    assert.deepEqual(capturedArgs.config, { maxOutputTokens: 16384 });
+  } finally {
+    resetRateLimitBuckets();
+    if (prevGemini === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGemini;
+  }
+});

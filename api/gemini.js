@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { enforceApiSecurity } from "./_security.js";
+import { sanitizeGeminiRequest } from "./_geminiGuard.js";
 
 export const ALLOWED_GEMINI_MODELS = new Set([
   "gemini-4-hydrogen",
@@ -49,11 +50,16 @@ export default async function handler(req, res) {
   }
 
   const model = typeof body?.model === "string" ? body.model.trim() : "";
-  if (!model || !ALLOWED_GEMINI_MODELS.has(model) || body?.contents === undefined) {
-    return res.status(400).json({ error: "Unsupported or invalid Gemini model, or missing contents" });
+  if (!model || !ALLOWED_GEMINI_MODELS.has(model)) {
+    return res.status(400).json({ error: "Unsupported or invalid Gemini model" });
   }
   if (model.includes("argon") && !isServerArgonEnabled()) {
     return res.status(403).json({ error: "Argon model is disabled on this server" });
+  }
+
+  const guarded = sanitizeGeminiRequest(body);
+  if (!guarded.ok) {
+    return res.status(guarded.status).json({ error: guarded.error });
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_KEY || "").trim();
@@ -68,8 +74,8 @@ export default async function handler(req, res) {
   try {
     const response = await ai.models.generateContent({
       model,
-      contents: body.contents,
-      config: body.config || {}
+      contents: guarded.contents,
+      config: guarded.config
     });
     return res.status(200).json({
       text: response?.text ?? "",
