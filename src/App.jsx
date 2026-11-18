@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { Suspense, lazy, useState, useEffect, useRef } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -12,14 +12,16 @@ import TasteDeckModal from "./components/TasteDeckModal";
 import CloudSyncModal from "./components/CloudSyncModal";
 import CompareDock from "./components/CompareDock";
 import CompareModal from "./components/CompareModal";
+import RouteFallback from "./components/RouteFallback";
 import DashboardPage from "./pages/DashboardPage";
-import ExplorePage from "./pages/ExplorePage";
-import ComparePage from "./pages/ComparePage";
-import MoviePage from "./pages/MoviePage";
-import PersonPage from "./pages/PersonPage";
-import VaultPage from "./pages/VaultPage";
-import AIPage from "./pages/AIPage";
 import NotFoundPage from "./pages/NotFoundPage";
+
+const ExplorePage = lazy(() => import("./pages/ExplorePage"));
+const ComparePage = lazy(() => import("./pages/ComparePage"));
+const MoviePage = lazy(() => import("./pages/MoviePage"));
+const PersonPage = lazy(() => import("./pages/PersonPage"));
+const VaultPage = lazy(() => import("./pages/VaultPage"));
+const AIPage = lazy(() => import("./pages/AIPage"));
 import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
@@ -199,6 +201,7 @@ function AppContent() {
             animate="animate"
             exit="exit"
           >
+        <Suspense fallback={<RouteFallback />}>
         <Routes location={location}>
           <Route
             path="/"
@@ -225,6 +228,7 @@ function AppContent() {
           <Route path="/ai" element={<AIPage onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")} />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </Suspense>
           </motion.div>
         </AnimatePresence>
       </main>
