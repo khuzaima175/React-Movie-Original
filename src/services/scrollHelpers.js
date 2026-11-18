@@ -1,7 +1,8 @@
 /**
  * Pure wheel-to-horizontal-scroll helpers for cinema poster carousels & film strips.
- * Yields vertical scroll back to the page when non-overflowing, during native
- * trackpad horizontal gestures, or at the start/end bounds of the strip.
+ * Converts vertical mouse-wheel deltas into smooth frame-rate-independent horizontal
+ * momentum while yielding cleanly back to vertical page scroll at edges, on
+ * non-overflowing rails, and during native trackpad horizontal gestures.
  */
 
 export function computeHorizontalWheelDelta({
@@ -45,17 +46,88 @@ export function computeHorizontalWheelDelta({
   return scaled;
 }
 
-export function attachHorizontalWheelScroll(el) {
+function prefersReducedMotion(explicitFlag) {
+  if (typeof explicitFlag === "boolean") return explicitFlag;
+  try {
+    return Boolean(
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function attachHorizontalWheelScroll(el, options = {}) {
   if (!el || typeof el.addEventListener !== "function") {
     return () => {};
   }
 
+  const multiplier = Number.isFinite(options.multiplier) ? options.multiplier : 1.25;
+  const speed = Number.isFinite(options.speed) && options.speed > 0 ? options.speed : 11.5;
+  const rafFn =
+    typeof options.requestAnimationFrameFn === "function"
+      ? options.requestAnimationFrameFn
+      : typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : null;
+  const cancelRafFn =
+    typeof options.cancelAnimationFrameFn === "function"
+      ? options.cancelAnimationFrameFn
+      : typeof cancelAnimationFrame === "function"
+        ? cancelAnimationFrame
+        : null;
+
+  let rafId = null;
+  let currentLeft = 0;
+  let targetLeft = 0;
+  let lastTs = null;
+  let savedSnapType = null;
+
+  const restoreSnap = () => {
+    if (savedSnapType !== null && el.style) {
+      el.style.scrollSnapType = savedSnapType;
+      savedSnapType = null;
+    }
+  };
+
+  const stopAnimation = () => {
+    if (rafId !== null && cancelRafFn) {
+      cancelRafFn(rafId);
+    }
+    rafId = null;
+    lastTs = null;
+    restoreSnap();
+  };
+
+  const step = (ts) => {
+    const dt = lastTs === null ? 0.016 : Math.min(0.05, Math.max(0.001, (ts - lastTs) / 1000));
+    lastTs = ts;
+
+    const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+    targetLeft = Math.max(0, Math.min(maxScrollLeft, targetLeft));
+
+    const diff = targetLeft - currentLeft;
+    if (Math.abs(diff) <= 0.6) {
+      el.scrollLeft = targetLeft;
+      stopAnimation();
+      return;
+    }
+
+    const alpha = 1 - Math.exp(-speed * dt);
+    currentLeft += diff * alpha;
+    el.scrollLeft = currentLeft;
+    rafId = rafFn(step);
+  };
+
   const handleWheel = (e) => {
+    const activeLeft = rafId !== null ? targetLeft : el.scrollLeft;
     const horizontalDelta = computeHorizontalWheelDelta({
       deltaX: e.deltaX,
       deltaY: e.deltaY,
       deltaMode: e.deltaMode,
-      scrollLeft: el.scrollLeft,
+      scrollLeft: activeLeft,
       scrollWidth: el.scrollWidth,
       clientWidth: el.clientWidth,
       clientHeight: el.clientHeight
@@ -65,11 +137,38 @@ export function attachHorizontalWheelScroll(el) {
 
     e.preventDefault();
     const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
-    el.scrollLeft = Math.max(0, Math.min(maxScrollLeft, el.scrollLeft + horizontalDelta));
+    const scaledDelta = horizontalDelta * multiplier;
+
+    if (prefersReducedMotion(options.reducedMotion) || !rafFn) {
+      const next = Math.max(0, Math.min(maxScrollLeft, el.scrollLeft + scaledDelta));
+      el.scrollLeft = next;
+      return;
+    }
+
+    if (rafId === null) {
+      currentLeft = el.scrollLeft;
+      targetLeft = currentLeft;
+      lastTs = null;
+      if (el.style) {
+        savedSnapType = el.style.scrollSnapType ?? "";
+        el.style.scrollSnapType = "none";
+      }
+      rafId = rafFn(step);
+    }
+
+    targetLeft = Math.max(0, Math.min(maxScrollLeft, targetLeft + scaledDelta));
+  };
+
+  const handlePointerDown = () => {
+    if (rafId !== null) stopAnimation();
   };
 
   el.addEventListener("wheel", handleWheel, { passive: false });
+  el.addEventListener("pointerdown", handlePointerDown);
+
   return () => {
+    stopAnimation();
     el.removeEventListener("wheel", handleWheel);
+    el.removeEventListener("pointerdown", handlePointerDown);
   };
 }
