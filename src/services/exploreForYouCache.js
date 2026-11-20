@@ -1,4 +1,4 @@
-import { getSupabaseClient } from "./supabaseClient.js";
+import { getSupabaseClientAsync } from "./supabaseClient.js";
 
 export const EXPLORE_FOR_YOU_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const IDB_NAME = "cinemavault_explore_for_you_v1";
@@ -193,7 +193,7 @@ export async function loadExploreForYouCache({
   }
 
   if (!userId || hasSampleData) return null;
-  const supabase = supabaseClient !== undefined ? supabaseClient : getSupabaseClient();
+  const supabase = supabaseClient !== undefined ? supabaseClient : await getSupabaseClientAsync();
   if (!supabase) return null;
 
   try {
@@ -258,7 +258,7 @@ export async function saveExploreForYouCache({
   });
 
   if (!userId || hasSampleData) return;
-  const supabase = supabaseClient !== undefined ? supabaseClient : getSupabaseClient();
+  const supabase = supabaseClient !== undefined ? supabaseClient : await getSupabaseClientAsync();
   if (!supabase) return;
 
   try {
