@@ -198,7 +198,7 @@ test("local explore For You cache keys pools by profileHash so switching vaults 
 });
 
 
-test("local cache keeps expanded 250+ film For You pools while Supabase upsert caps at <= 120 items", async () => {
+test("local cache keeps expanded 250+ film For You pools while Supabase upsert caps at <= 250 items", async () => {
   const now = 1_800_000_000_000;
   await clearExploreForYouCache();
 
@@ -233,5 +233,5 @@ test("local cache keeps expanded 250+ film For You pools while Supabase upsert c
   const localHit = await loadExploreForYouCache({ profileHash: "hash_expanded_260", now: now + 1000 });
   assert.equal(localHit?.items?.length, 260, "Local cache must retain full 260-film math-ranked library");
   assert.ok(upsertedPayload, "Supabase upsert must still run for authenticated non-sample user");
-  assert.equal(upsertedPayload.items.length, 120, "Supabase JSONB payload must stay <= 120 items to satisfy RLS CHECK constraint");
+  assert.equal(upsertedPayload.items.length, 250, "Supabase JSONB payload must cap at 250 items to satisfy RLS CHECK constraint (<= 260)");
 });

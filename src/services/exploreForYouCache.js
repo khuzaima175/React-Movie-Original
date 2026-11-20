@@ -4,7 +4,7 @@ export const EXPLORE_FOR_YOU_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const IDB_NAME = "cinemavault_explore_for_you_v1";
 const IDB_STORE = "pools";
 const MAX_LOCAL_CACHED_ITEMS = 300;
-const MAX_CLOUD_CACHED_ITEMS = 120;
+const MAX_CLOUD_CACHED_ITEMS = 250;
 const MAX_LOCAL_POOLS = 5;
 
 const memoryFallbackStore = new Map();

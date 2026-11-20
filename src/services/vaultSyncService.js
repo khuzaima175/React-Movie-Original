@@ -554,3 +554,161 @@ export async function pullAndSyncCloudVault(
 
   return merged;
 }
+
+function sanitizeProvidersArray(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const num = Number(item);
+    if (Number.isSafeInteger(num) && num > 0 && !seen.has(num)) {
+      seen.add(num);
+      out.push(num);
+    }
+  }
+  return out;
+}
+
+function sanitizeTasteRulesArray(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((r) => r && typeof r === "object" && String(r.text || "").trim().length > 0)
+    .slice(0, 8)
+    .map((r, idx) => ({
+      id: String(r.id || `rule_${idx + 1}`).slice(0, 64),
+      text: String(r.text || "").trim().slice(0, 140),
+      polarity: r.polarity === "avoid" ? "avoid" : "prefer",
+      pinned: Boolean(r.pinned),
+      active: r.active !== false,
+      source: r.source === "ai" ? "ai" : "user",
+      updatedAt: Number(r.updatedAt) || Date.now()
+    }));
+}
+
+/**
+ * Merges local guest/device preferences with a cloud `public.profiles` row.
+ * Preserves non-default local guest preferences on first sign-in while adopting
+ * cloud preferences on fresh devices or when cloud was updated after `lastSyncedAt`.
+ */
+export function mergeProfilePreferences({ local = {}, cloud = null, lastSyncedAt = null } = {}) {
+  const localDisplay = String(local?.displayName || "").trim();
+  const localRegion = String(local?.userRegion || "GLOBAL").trim().toUpperCase() || "GLOBAL";
+  const localProviders = sanitizeProvidersArray(local?.userWatchProviders);
+  const localRules = sanitizeTasteRulesArray(local?.tasteRules);
+
+  if (!cloud || typeof cloud !== "object") {
+    return {
+      displayName: localDisplay,
+      userRegion: localRegion,
+      userWatchProviders: localProviders,
+      tasteRules: localRules,
+      shouldUpsertCloud: true
+    };
+  }
+
+  const cloudDisplay = String(cloud.display_name || "").trim();
+  const cloudRegion = String(cloud.user_region || "GLOBAL").trim().toUpperCase() || "GLOBAL";
+  const cloudProviders = sanitizeProvidersArray(cloud.preferred_providers);
+  const cloudRules = sanitizeTasteRulesArray(cloud.taste_rules);
+
+  const cloudUpdatedMs = Date.parse(cloud.updated_at || "");
+  const lastSyncMs = Date.parse(lastSyncedAt || "");
+  const cloudNewerThanSync =
+    Number.isFinite(cloudUpdatedMs) && Number.isFinite(lastSyncMs) && cloudUpdatedMs > lastSyncMs;
+
+  let displayName = cloudDisplay || localDisplay;
+  let userRegion = cloudRegion;
+  let userWatchProviders = cloudProviders;
+  let tasteRules = cloudRules;
+
+  if (!cloudNewerThanSync) {
+    if (localRegion !== "GLOBAL" && cloudRegion === "GLOBAL") {
+      userRegion = localRegion;
+    } else if (localRegion !== "GLOBAL" && lastSyncedAt) {
+      userRegion = localRegion;
+    }
+
+    if (localProviders.length > 0 && cloudProviders.length === 0) {
+      userWatchProviders = localProviders;
+    } else if (localProviders.length > 0 && lastSyncedAt) {
+      userWatchProviders = localProviders;
+    }
+
+    if (localRules.length > 0 && cloudRules.length === 0) {
+      tasteRules = localRules;
+    } else if (localRules.length > 0 && lastSyncedAt) {
+      tasteRules = localRules;
+    }
+
+    if (localDisplay && !cloudDisplay) {
+      displayName = localDisplay;
+    }
+  }
+
+  const shouldUpsertCloud =
+    displayName !== cloudDisplay ||
+    userRegion !== cloudRegion ||
+    JSON.stringify(userWatchProviders) !== JSON.stringify(cloudProviders) ||
+    JSON.stringify(tasteRules) !== JSON.stringify(cloudRules);
+
+  return {
+    displayName,
+    userRegion,
+    userWatchProviders,
+    tasteRules,
+    shouldUpsertCloud
+  };
+}
+
+/**
+ * Pulls `public.profiles` for `userId`, merges with local preferences, and upserts back
+ * if the profile row is missing or local preferences are richer.
+ */
+export async function pullAndSyncProfilePreferences(
+  client,
+  { userId, localPrefs = {}, lastSyncedAt = null } = {}
+) {
+  if (!client || !userId) {
+    return mergeProfilePreferences({ local: localPrefs, cloud: null, lastSyncedAt });
+  }
+
+  const { data: cloudRow, error: selectError } = await client
+    .from("profiles")
+    .select("id, display_name, user_region, preferred_providers, taste_rules, updated_at")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (selectError) {
+    throw selectError instanceof Error
+      ? selectError
+      : new Error(selectError?.message || "Failed to load cloud profile.");
+  }
+
+  const merged = mergeProfilePreferences({
+    local: localPrefs,
+    cloud: cloudRow || null,
+    lastSyncedAt
+  });
+
+  if (!cloudRow || merged.shouldUpsertCloud) {
+    const { error: upsertError } = await client
+      .from("profiles")
+      .upsert(
+        {
+          id: userId,
+          display_name: merged.displayName || null,
+          user_region: merged.userRegion,
+          preferred_providers: merged.userWatchProviders,
+          taste_rules: merged.tasteRules
+        },
+        { onConflict: "id" }
+      );
+    if (upsertError) {
+      throw upsertError instanceof Error
+        ? upsertError
+        : new Error(upsertError?.message || "Failed to save cloud profile.");
+    }
+  }
+
+  return merged;
+}

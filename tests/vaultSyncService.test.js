@@ -8,7 +8,9 @@ import {
   mapDbRowToLocalMovie,
   mergeLocalAndCloudVault,
   fetchAllVaultRows,
-  pullAndSyncCloudVault
+  pullAndSyncCloudVault,
+  mergeProfilePreferences,
+  pullAndSyncProfilePreferences
 } from "../src/services/vaultSyncService.js";
 
 test("mapLocalMovieToDbRow and mapDbRowToLocalMovie round-trip ratings, notes, and recommendation metadata losslessly", () => {
@@ -492,4 +494,94 @@ test("mergeLocalAndCloudVault excludes isSample items so sample vaults never syn
     merged.toUpsertCloud.map((row) => row.movie_key),
     ["tt0133093"]
   );
+});
+
+test("mergeProfilePreferences preserves local non-default region/providers/tasteRules on first sign-in and adopts cloud values when local is default", () => {
+  const firstSignIn = mergeProfilePreferences({
+    local: {
+      displayName: "",
+      userRegion: "US",
+      userWatchProviders: [8],
+      tasteRules: [{ id: "r1", text: "No horror", polarity: "avoid", active: true }]
+    },
+    cloud: {
+      display_name: "Alex",
+      user_region: "GLOBAL",
+      preferred_providers: [],
+      taste_rules: [],
+      updated_at: "2026-11-19T00:00:00Z"
+    },
+    lastSyncedAt: null
+  });
+  assert.equal(firstSignIn.displayName, "Alex");
+  assert.equal(firstSignIn.userRegion, "US");
+  assert.deepEqual(firstSignIn.userWatchProviders, [8]);
+  assert.equal(firstSignIn.tasteRules.length, 1);
+  assert.equal(firstSignIn.shouldUpsertCloud, true);
+
+  const freshDevice = mergeProfilePreferences({
+    local: { displayName: "", userRegion: "GLOBAL", userWatchProviders: [], tasteRules: [] },
+    cloud: {
+      display_name: "Alex",
+      user_region: "GB",
+      preferred_providers: [8, 9],
+      taste_rules: [{ id: "r2", text: "Prefer neo-noir", polarity: "prefer", active: true }],
+      updated_at: "2026-11-20T00:00:00Z"
+    },
+    lastSyncedAt: null
+  });
+  assert.equal(freshDevice.displayName, "Alex");
+  assert.equal(freshDevice.userRegion, "GB");
+  assert.deepEqual(freshDevice.userWatchProviders, [8, 9]);
+  assert.equal(freshDevice.tasteRules.length, 1);
+  assert.equal(freshDevice.shouldUpsertCloud, false);
+});
+
+test("pullAndSyncProfilePreferences fetches cloud profile and upserts when local has richer preferences", async () => {
+  let upserted = null;
+  const mockSupabase = {
+    from(table) {
+      assert.equal(table, "profiles");
+      return {
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: {
+                id: "u1",
+                display_name: "Khuzaima",
+                user_region: "GLOBAL",
+                preferred_providers: [],
+                taste_rules: [],
+                updated_at: "2026-11-19T00:00:00Z"
+              },
+              error: null
+            })
+          })
+        }),
+        upsert: async (payload) => {
+          upserted = payload;
+          return { error: null };
+        }
+      };
+    }
+  };
+
+  const result = await pullAndSyncProfilePreferences(mockSupabase, {
+    userId: "u1",
+    localPrefs: {
+      displayName: "",
+      userRegion: "US",
+      userWatchProviders: [8, 337],
+      tasteRules: [{ id: "r1", text: "Prefer slow-burn thrillers", polarity: "prefer", active: true }]
+    },
+    lastSyncedAt: null
+  });
+
+  assert.equal(result.displayName, "Khuzaima");
+  assert.equal(result.userRegion, "US");
+  assert.deepEqual(result.userWatchProviders, [8, 337]);
+  assert.equal(result.tasteRules.length, 1);
+  assert.ok(upserted);
+  assert.equal(upserted.user_region, "US");
+  assert.equal(upserted.taste_rules.length, 1);
 });
