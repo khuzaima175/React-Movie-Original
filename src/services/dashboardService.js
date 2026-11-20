@@ -225,8 +225,40 @@ async function fetchMultiPageTmdb(tmdbCaller, path, queryParams = {}, pages = [1
   return pageResponses.flatMap((res) => (Array.isArray(res?.results) ? res.results : []));
 }
 
+export function getTodayIsoDate(now = Date.now()) {
+  const date = new Date(now);
+  return Number.isNaN(date.getTime())
+    ? new Date().toISOString().slice(0, 10)
+    : date.toISOString().slice(0, 10);
+}
+
+function isReleasedOnOrBefore(rawItem, maxIsoDate) {
+  const rawDate = String(rawItem?.release_date || rawItem?.releaseDate || "").trim().slice(0, 10);
+  if (!rawDate || !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return true;
+  return rawDate <= maxIsoDate;
+}
+
+function pruneStaleHomeFeedCaches(storage, activeKey) {
+  if (!storage || typeof storage.length !== "number" || typeof storage.key !== "function") return;
+  const prefix = `${HOME_FEEDS_CACHE_KEY}::`;
+  const stale = [];
+  for (let i = 0; i < storage.length; i += 1) {
+    const k = storage.key(i);
+    if (k && k !== activeKey && (k === HOME_FEEDS_CACHE_KEY || k.startsWith(prefix))) {
+      stale.push(k);
+    }
+  }
+  for (const k of stale) {
+    try {
+      storage.removeItem(k);
+    } catch {
+      // ignore
+    }
+  }
+}
+
 function buildCacheStorageKey(watched = [], watchlist = [], userRegion = "US", now = Date.now()) {
-  const day = new Date(now).toISOString().slice(0, 10);
+  const day = getTodayIsoDate(now);
   const signature = `${watched.length}:${watchlist.length}:${watched[0]?.imdbID || ""}:${watchlist[0]?.imdbID || ""}`;
   return `${HOME_FEEDS_CACHE_KEY}::${day}::${userRegion}::${signature}`;
 }
@@ -242,13 +274,19 @@ export async function loadHomeDiscoveryFeeds({
 } = {}) {
   const resolveStorage = storage || (typeof window !== "undefined" ? window.localStorage : null);
   const cacheKey = buildCacheStorageKey(watched, watchlist, userRegion, now);
+  const todayIso = getTodayIsoDate(now);
 
   if (resolveStorage) {
     try {
       const raw = resolveStorage.getItem(cacheKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.rows) && now - Number(parsed.cachedAt || 0) < CACHE_TTL_MS) {
+        if (
+          parsed &&
+          parsed.releaseGuardVersion === 2 &&
+          Array.isArray(parsed.rows) &&
+          now - Number(parsed.cachedAt || 0) < CACHE_TTL_MS
+        ) {
           return {
             heroSlides: parsed.heroSlides || [],
             rows: parsed.rows,
@@ -289,6 +327,7 @@ export async function loadHomeDiscoveryFeeds({
             ...(lovedGenres ? { with_genres: lovedGenres } : {}),
             "vote_average.gte": 7.6,
             "vote_count.gte": 1000,
+            "primary_release_date.lte": todayIso,
             sort_by: "vote_average.desc",
             ...regionParam
           }
@@ -307,6 +346,7 @@ export async function loadHomeDiscoveryFeeds({
           path: "/3/discover/movie",
           params: {
             "primary_release_date.gte": recentFloor,
+            "primary_release_date.lte": todayIso,
             "vote_count.gte": 80,
             sort_by: "popularity.desc",
             ...regionParam
@@ -333,6 +373,7 @@ export async function loadHomeDiscoveryFeeds({
             "vote_average.gte": 7.4,
             "vote_count.gte": 300,
             "vote_count.lte": 4500,
+            "primary_release_date.lte": todayIso,
             sort_by: "vote_average.desc"
           }
         },
@@ -344,6 +385,7 @@ export async function loadHomeDiscoveryFeeds({
           params: {
             with_genres: "53|80|9648",
             "vote_count.gte": 600,
+            "primary_release_date.lte": todayIso,
             sort_by: "vote_average.desc"
           }
         },
@@ -355,6 +397,7 @@ export async function loadHomeDiscoveryFeeds({
           params: {
             with_genres: "878|14",
             "vote_count.gte": 600,
+            "primary_release_date.lte": todayIso,
             sort_by: "vote_average.desc"
           }
         },
@@ -367,6 +410,7 @@ export async function loadHomeDiscoveryFeeds({
             without_original_language: "en",
             "vote_average.gte": 7.4,
             "vote_count.gte": 400,
+            "primary_release_date.lte": todayIso,
             sort_by: "vote_average.desc"
           }
         }
@@ -382,6 +426,7 @@ export async function loadHomeDiscoveryFeeds({
       const liveRows = [];
       for (const { lane, raw } of laneResults) {
         const cards = raw
+          .filter((item) => isReleasedOnOrBefore(item, todayIso))
           .map(toDashboardCardItem)
           .filter((item) => item.poster);
         const deduped = excludeSeenAndPlaced(cards, seenSet, placedSet).slice(0, 20);
@@ -401,7 +446,11 @@ export async function loadHomeDiscoveryFeeds({
         const payload = { heroSlides, rows: liveRows, mosaicPool, isLive: true };
         if (resolveStorage) {
           try {
-            resolveStorage.setItem(cacheKey, JSON.stringify({ ...payload, cachedAt: now }));
+            pruneStaleHomeFeedCaches(resolveStorage, cacheKey);
+            resolveStorage.setItem(
+              cacheKey,
+              JSON.stringify({ ...payload, cachedAt: now, releaseGuardVersion: 2 })
+            );
           } catch {
             // storage quota exhausted is non-fatal
           }

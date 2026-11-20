@@ -94,6 +94,7 @@ export default function MovieDetails({
   onAddToWatchlist,
   onRemoveWatchlist,
   onQuickRate,
+  onTitleResolved,
   watched = [],
   watchlist = []
 }) {
@@ -480,14 +481,18 @@ export default function MovieDetails({
     };
   }, [selectedId, userRegion]);
 
-  // Document title sync
+  // Document title sync (delegates to MoviePage's useDocumentTitle when provided)
   useEffect(() => {
-    if (!movie?.title) return;
+    if (!movie?.title) return undefined;
+    if (typeof onTitleResolved === "function") {
+      onTitleResolved(movie.title);
+      return undefined;
+    }
     document.title = `${movie.title} | CinemaVault`;
     return () => {
       document.title = "CinemaVault";
     };
-  }, [movie?.title]);
+  }, [movie?.title, onTitleResolved]);
 
   // ESC key listener to close
   useEffect(() => {

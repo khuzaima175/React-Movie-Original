@@ -7,7 +7,8 @@ import {
   buildHeroSlides,
   loadHomeDiscoveryFeeds,
   shouldShowCarouselArrows,
-  collectCatalogMosaic
+  collectCatalogMosaic,
+  getTodayIsoDate
 } from "../src/services/dashboardService.js";
 
 function createMemoryStorage() {
@@ -316,4 +317,67 @@ test("collectCatalogMosaic filters items by selectedGenre case-insensitively, pr
   const sciFi = collectCatalogMosaic({ rows, selectedGenre: "sci-fi", limit: 10 });
   assert.equal(sciFi.totalCount, 2);
   assert.deepEqual(sciFi.items.map((m) => m.title), ["Alpha", "Gamma"]);
+});
+
+
+test("loadHomeDiscoveryFeeds applies primary_release_date.lte todayIso on live discover lanes and excludes future releases", async () => {
+  const pinnedNow = Date.UTC(2026, 10, 20, 12, 0, 0);
+  const expectedIso = "2026-11-20";
+  assert.equal(getTodayIsoDate(pinnedNow), expectedIso);
+
+  const recordedDiscoverCalls = [];
+  const fetchTmdb = async (path, params = {}) => {
+    if (path === "/3/discover/movie") {
+      recordedDiscoverCalls.push({ path, params });
+    }
+    return {
+      results: [
+        {
+          id: 50001,
+          title: "Toy Story 5",
+          release_date: "2027-06-19",
+          vote_average: 8.8,
+          genre_ids: [16, 18],
+          poster_path: "/ts5.jpg",
+          backdrop_path: "/ts5_bg.jpg"
+        },
+        {
+          id: 50002,
+          title: "Released Classic",
+          release_date: "2025-10-10",
+          vote_average: 8.1,
+          genre_ids: [18],
+          poster_path: "/rc.jpg",
+          backdrop_path: "/rc_bg.jpg"
+        }
+      ]
+    };
+  };
+
+  const result = await loadHomeDiscoveryFeeds({
+    watched: [{ imdbID: "tt0111161", title: "Shawshank", year: "1994", genre: "Drama", userRating: 10 }],
+    watchlist: [],
+    userRegion: "US",
+    hasBackend: true,
+    fetchTmdb,
+    now: pinnedNow,
+    storage: createMemoryStorage()
+  });
+
+  assert.ok(recordedDiscoverCalls.length >= 6);
+  const nonClassicCalls = recordedDiscoverCalls.filter(
+    (c) => c.params["primary_release_date.lte"] !== "2014-12-31"
+  );
+  assert.ok(nonClassicCalls.length >= 5);
+  for (const call of nonClassicCalls) {
+    assert.equal(
+      call.params["primary_release_date.lte"],
+      expectedIso,
+      `Expected primary_release_date.lte=${expectedIso} on discover query ${JSON.stringify(call.params)}`
+    );
+  }
+
+  const allTitles = result.rows.flatMap((r) => r.movies.map((m) => m.title));
+  assert.equal(allTitles.includes("Toy Story 5"), false, "Future unreleased film must be excluded");
+  assert.equal(allTitles.includes("Released Classic"), true);
 });

@@ -24,101 +24,23 @@ import {
   toggleCompareItem
 } from "../services/compareService.js";
 import {
-  compactVaultListForStorage,
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
   pullAndSyncCloudVault
 } from "../services/vaultSyncService.js";
 import { isSampleItem, mergeSampleVault } from "../services/sampleVaultService.js";
+import { STORAGE_PURGE_ORDER, safeSetStorageItem } from "../services/storageEviction.js";
+
+export { STORAGE_PURGE_ORDER };
 
 const AppContext = createContext(null);
-const VAULT_STORAGE_KEYS = new Set(["watchedMovies", "watchlist"]);
 const DELETED_VAULT_KEYS_STORAGE = "cinemavault_deleted_keys_v1";
 const LAST_SYNCED_AT_STORAGE = "cinemavault_last_synced_at_v1";
 
 /**
  * Safe LocalStorage setter with tiered LRU eviction policy & 2-stage vault compaction.
- * 1. Compacts `watchedMovies` / `watchlist` automatically so 2,000+ film vaults stay slim.
- * 2. Evicts derivative AI caches first on `QuotaExceededError`.
- * 3. Falls back to aggressive vault compaction (stripping plots/cast strings cached in IndexedDB)
- *    if the vault itself approaches the ~5 MB browser origin ceiling.
  */
-export const safeSetItem = (key, value) => {
-  const payload =
-    VAULT_STORAGE_KEYS.has(key) && Array.isArray(value)
-      ? compactVaultListForStorage(value, { aggressive: false })
-      : value;
-  const serialized = JSON.stringify(payload);
-  try {
-    localStorage.setItem(key, serialized);
-    return true;
-  } catch (e) {
-    if (e.name === "QuotaExceededError" || e.code === 22 || e.code === 1014) {
-      console.warn("⚠️ LocalStorage quota exceeded. Purging non-critical AI caches to protect user vault...");
-      
-      const purgeOrder = [
-        "cinemavault_smart_cache_v4",
-        "cinemavault_smart_cache_v3",
-        "cinemavault_explanations_v1",
-        "cinemavault_recs_model_v1",
-        "cinemavault_recs_v1",
-        "cinemavault_recs_hash_v1",
-        "cinemavault_feedback_v1"
-      ];
-
-      for (const purgeKey of purgeOrder) {
-        if (purgeKey !== key) {
-          localStorage.removeItem(purgeKey);
-          try {
-            localStorage.setItem(key, serialized);
-            console.log(`✅ Recovered storage by purging ${purgeKey}`);
-            return true;
-          } catch (_) {
-            // Continue to next eviction candidate
-          }
-        }
-      }
-
-      // Stage 2 recovery: aggressively compact existing vault lists in localStorage
-      try {
-        for (const vKey of VAULT_STORAGE_KEYS) {
-          if (vKey === key) continue;
-          const rawExisting = localStorage.getItem(vKey);
-          if (rawExisting && rawExisting !== "undefined") {
-            const parsedExisting = JSON.parse(rawExisting);
-            if (Array.isArray(parsedExisting)) {
-              localStorage.setItem(
-                vKey,
-                JSON.stringify(compactVaultListForStorage(parsedExisting, { aggressive: true }))
-              );
-            }
-          }
-        }
-        const retryPayload =
-          VAULT_STORAGE_KEYS.has(key) && Array.isArray(value)
-            ? JSON.stringify(compactVaultListForStorage(value, { aggressive: true }))
-            : serialized;
-        localStorage.setItem(key, retryPayload);
-        console.log(`✅ Recovered storage via Stage-2 aggressive vault compaction for ${key}`);
-        return true;
-      } catch (_) {
-        // Proceed to critical error dispatch
-      }
-
-      console.error("❌ Critical: Storage completely full even after derivative cache eviction.");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("storage-critical-error", {
-            detail: "Your browser storage is nearly full. Please export a JSON backup from My Vault > Portability."
-          })
-        );
-      }
-      return false;
-    }
-    console.error(`Storage error saving ${key}:`, e);
-    return false;
-  }
-};
+export const safeSetItem = (key, value) => safeSetStorageItem(key, value);
 
 export function AppProvider({ children }) {
   const [watched, setWatched] = useState(() => {

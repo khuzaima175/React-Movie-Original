@@ -17,6 +17,7 @@ import {
   resolvePersonDefaultDepartment
 } from "../services/personService";
 import { goBackOrHome, hasBrowserHistory } from "../services/navHelpers";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 const BIO_COLLAPSE_THRESHOLD = 320;
 
@@ -115,14 +116,7 @@ export default function PersonPage({ onQuickRate }) {
   const person = data?.person || null;
   const credits = data?.credits || [];
 
-  useEffect(() => {
-    if (person?.name) {
-      document.title = `${person.name} | CinemaVault`;
-    }
-    return () => {
-      document.title = "CinemaVault";
-    };
-  }, [person?.name]);
+  useDocumentTitle(person?.name || "Person");
 
   const activeDepartment = useMemo(
     () => resolvePersonDefaultDepartment(rawDeptParam, credits),

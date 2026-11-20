@@ -9,6 +9,7 @@ import {
   removeUrlCompareSlot
 } from "../services/compareService";
 import { goBackOrHome, hasBrowserHistory } from "../services/navHelpers";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import CompareWorkbench from "../components/CompareWorkbench";
 
 export default function ComparePage({ onQuickRate }) {
@@ -31,12 +32,9 @@ export default function ComparePage({ onQuickRate }) {
   const isUrlMode = urlIds.length > 0 || urlSessionStarted;
   const activeSlots = isUrlMode ? urlIds : compareItems;
 
-  useEffect(() => {
-    document.title =
-      activeSlots.length >= 2
-        ? `Compare (${activeSlots.length}) | CinemaVault`
-        : "Compare Films | CinemaVault";
-  }, [activeSlots.length]);
+  useDocumentTitle(
+    activeSlots.length >= 2 ? `Compare (${activeSlots.length})` : "Compare"
+  );
 
   const handleResolvedSlotsChange = useCallback((slots) => {
     resolvedSlotsRef.current = Array.isArray(slots) ? slots : [];
