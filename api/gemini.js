@@ -6,6 +6,7 @@ export const ALLOWED_GEMINI_MODELS = new Set([
   "gemini-4-hydrogen",
   "gemini-4-argon",
   "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
   "gemini-3.5-flash",
   "gemini-3.6-flash",
   "gemini-3.7-flash",

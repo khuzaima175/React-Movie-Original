@@ -5,6 +5,7 @@ import { parseEnvText } from "./check_secrets_in_history.mjs";
 import {
   CURATION_MODEL_CASCADE,
   PUBLIC_CURATION_CASCADE,
+  EXPLORE_FOR_YOU_CASCADE,
   FAST_INTERACTIVE_CASCADE
 } from "../src/services/geminiService.js";
 
@@ -46,6 +47,7 @@ async function main() {
       new Set([
         ...CURATION_MODEL_CASCADE,
         ...PUBLIC_CURATION_CASCADE,
+        ...EXPLORE_FOR_YOU_CASCADE,
         ...FAST_INTERACTIVE_CASCADE
       ])
     );

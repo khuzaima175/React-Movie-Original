@@ -1147,3 +1147,39 @@ test("gemini handler returns 429 PROXY_RATE_LIMIT when the global daily cap is h
     else process.env.GEMINI_API_KEY = prevGemini;
   }
 });
+
+test("api/gemini allowlists gemini-3.1-flash-lite for dual Flash-Lite 1000/day capacity", async () => {
+  resetRateLimitBuckets();
+  const { ALLOWED_GEMINI_MODELS } = await import("../api/gemini.js");
+  assert.equal(ALLOWED_GEMINI_MODELS.has("gemini-3.1-flash-lite"), true);
+
+  const prevGemini = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "SERVER_GEMINI_SECRET";
+  try {
+    const res = createMockRes();
+    let calledModel = null;
+    await geminiHandler(
+      {
+        method: "POST",
+        headers: { "x-forwarded-for": "198.51.100.139" },
+        body: { model: "gemini-3.1-flash-lite", contents: "ping" },
+        aiFactory: () => ({
+          models: {
+            generateContent: async (args) => {
+              calledModel = args.model;
+              return { text: "pong" };
+            }
+          }
+        })
+      },
+      res
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(calledModel, "gemini-3.1-flash-lite");
+    assert.equal(res.body.text, "pong");
+  } finally {
+    resetRateLimitBuckets();
+    if (prevGemini === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGemini;
+  }
+});

@@ -45,6 +45,7 @@ test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to
     ]);
     assert.deepEqual(FAST_INTERACTIVE_CASCADE, [
         "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
         "gemini-4-hydrogen",
         "gemini-3.6-flash",
         "gemini-3-flash-preview",
@@ -178,8 +179,8 @@ test("executeCascade aborts hanging model via AbortSignal within timeoutMs and f
     assert.equal(capturedAbortSignal.aborted, true, "timed-out attempt AbortSignal must be aborted");
     assert.ok(elapsed < 1500, `Expected elapsed < 1500ms, got ${elapsed}ms`);
     assert.ok(res);
-    assert.deepEqual(attempts, ["gemini-3.5-flash-lite", "gemini-4-hydrogen"]);
-    assert.equal(getSessionFastModel(), "gemini-4-hydrogen");
+    assert.deepEqual(attempts, ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
+    assert.equal(getSessionFastModel(), "gemini-3.1-flash-lite");
 });
 
 test("buildGeminiReRankPrompt includes anchor films, recent streak, and candidate matchReasons", async () => {
@@ -546,7 +547,11 @@ test("executeCascade records getLastModelInfo across primary, fallback, and fast
         const mockFallbackAi = {
             models: {
                 generateContent: async ({ model }) => {
-                    if (model === "gemini-4-hydrogen" || model === "gemini-3.5-flash-lite") {
+                    if (
+                        model === "gemini-4-hydrogen" ||
+                        model === "gemini-3.5-flash-lite" ||
+                        model === "gemini-3.1-flash-lite"
+                    ) {
                         throw new Error(`429 RESOURCE_EXHAUSTED on ${model}`);
                     }
                     return { text: JSON.stringify({ ok: true }), usageMetadata: { totalTokenCount: 55 } };
@@ -2253,4 +2258,14 @@ test("getCurationCascade respects sticky debug flag (?debug=1 / localStorage cv_
             globalThis.localStorage = prevStorage;
         }
     }
+});
+
+test("dual Flash-Lite cascades include gemini-3.1-flash-lite after 3.5-flash-lite with MINIMAL/LOW thinking", async () => {
+    const gem = await import("../src/services/geminiService.js");
+    assert.deepEqual(gem.PUBLIC_CURATION_CASCADE.slice(0, 2), ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
+    assert.deepEqual(gem.EXPLORE_FOR_YOU_CASCADE.slice(0, 2), ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]);
+    assert.equal(gem.FAST_INTERACTIVE_CASCADE.includes("gemini-3.1-flash-lite"), true);
+    assert.equal(gem.formatModelDisplayName("gemini-3.1-flash-lite"), "Gemini 3.1 Flash-Lite");
+    assert.deepEqual(gem.getModelThinkingConfig("gemini-3.1-flash-lite", "fast"), { thinkingLevel: "MINIMAL" });
+    assert.deepEqual(gem.getModelThinkingConfig("gemini-3.1-flash-lite", "curation"), { thinkingLevel: "LOW" });
 });

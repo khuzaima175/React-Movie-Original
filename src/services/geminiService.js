@@ -66,6 +66,7 @@ export const CURATION_MODEL_CASCADE = [
 
 export const PUBLIC_CURATION_CASCADE = [
     "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
     "gemini-3.6-flash",
     "gemini-3-flash-preview",
     "gemini-2.5-flash",
@@ -73,9 +74,17 @@ export const PUBLIC_CURATION_CASCADE = [
     "gemini-4-hydrogen"
 ];
 
+export const EXPLORE_FOR_YOU_CASCADE = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash"
+];
+
 /**
  * Selects curation cascade priority: Flash-Lite first in public/commercial mode
- * to stretch daily free-tier quota, Hydrogen first in personal/debug mode.
+ * to stretch daily free-tier quota (3.5 + 3.1 = 1,000/day), Hydrogen first in personal/debug mode.
  */
 export function getCurationCascade({ personal = isDebugUiEnabled() } = {}) {
     return personal ? CURATION_MODEL_CASCADE : PUBLIC_CURATION_CASCADE;
@@ -83,6 +92,7 @@ export function getCurationCascade({ personal = isDebugUiEnabled() } = {}) {
 
 export const FAST_INTERACTIVE_CASCADE = [
     "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
     "gemini-4-hydrogen",
     "gemini-3.6-flash",
     "gemini-3-flash-preview",
@@ -93,6 +103,7 @@ export const FAST_INTERACTIVE_CASCADE = [
 export const MODEL_DISPLAY_NAMES = {
     "gemini-4-hydrogen": "Gemini 4 Hydrogen",
     "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+    "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
     "gemini-3.6-flash": "Gemini 3.6 Flash",
     "gemini-3-flash-preview": "Gemini 3 Flash Preview",
     "gemini-3.5-flash": "Gemini 3.5 Flash",
@@ -126,7 +137,7 @@ export function getModelThinkingConfig(modelName = "", cascadeType = "curation")
     if (m.includes("gemini-4-hydrogen")) {
         return { thinkingLevel: isFast ? "MEDIUM" : "HIGH" };
     }
-    if (m.includes("gemini-3-flash")) {
+    if (m.includes("gemini-3-flash") || m.includes("gemini-3.1-flash-lite")) {
         return { thinkingLevel: isFast ? "MINIMAL" : "LOW" };
     }
     if (
@@ -155,6 +166,7 @@ export function getDefaultAttemptTimeoutMs(model = "") {
     if (lowerModel.includes("gemini-4-hydrogen")) return HYDROGEN_TIMEOUT_MS;
     if (
         lowerModel.includes("gemini-3-flash") ||
+        lowerModel.includes("gemini-3.1-flash") ||
         lowerModel.includes("gemini-3.5-flash") ||
         lowerModel.includes("gemini-3.6-flash") ||
         lowerModel.includes("gemini-3.8-flash") ||
