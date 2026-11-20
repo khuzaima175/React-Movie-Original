@@ -82,10 +82,13 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     userRegion = "GLOBAL",
     userWatchProviders = [],
     tasteRules = [],
-    aiFeedbackLog = [],
     cloudUser = null,
     hasSampleData = false,
-    loadSampleVault
+    loadSampleVault,
+    backgroundJobs,
+    forYouLivePool,
+    startForYouBackgroundJob,
+    dismissBackgroundJobNotice
   } = useApp();
 
   const defaultRegion = userRegion && userRegion !== "GLOBAL" ? userRegion : "US";
@@ -402,6 +405,38 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   }, [filters, filterSignature, retryNonce, isForYouMode]);
 
   // Load or generate cached ~100-film personalized "Movies You'll Like" pool
+  // Mirror global non-blocking For You job state into ExplorePage cleanly
+  const forYouJob = backgroundJobs?.forYou;
+  useEffect(() => {
+    if (!isForYouMode) return;
+    if (forYouLivePool?.items?.length > 0 && forYouLivePool.profileHash === forYouProfileHash) {
+      setForYouState({
+        profileHash: forYouLivePool.profileHash,
+        items: forYouLivePool.items,
+        source: forYouLivePool.source,
+        fromCache: forYouLivePool.fromCache || "fresh",
+        generatedAt: forYouLivePool.generatedAt
+      });
+      setIsForYouLoading(false);
+    }
+    if (forYouLivePool?.error) {
+      setForYouError(forYouLivePool.error);
+    }
+    if (forYouJob?.status === "running") {
+      setIsForYouEnhancing(forYouState.items.length > 0 || (forYouLivePool?.items?.length || 0) > 0);
+      setForYouStageNote(forYouJob.label || "Curating Movies You'll Like…");
+    } else if (forYouJob?.status === "done") {
+      setIsForYouLoading(false);
+      setIsForYouEnhancing(false);
+      setForYouStageNote("");
+      dismissBackgroundJobNotice?.("forYou");
+    } else if (forYouJob?.status === "error") {
+      setIsForYouLoading(false);
+      setIsForYouEnhancing(false);
+      setForYouStageNote("");
+    }
+  }, [isForYouMode, forYouLivePool, forYouJob, forYouProfileHash, forYouState.items.length, dismissBackgroundJobNotice]);
+
   useEffect(() => {
     if (!isForYouMode) return undefined;
     if (watched.length < EXPLORE_FOR_YOU_MIN_RATED) {
@@ -412,21 +447,29 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
     const seq = ++forYouSeqRef.current;
     let cancelled = false;
-    const controller = new AbortController();
     const forceRefresh = forYouRefreshNonce !== handledRefreshNonceRef.current;
-    let pendingCacheWrite = Promise.resolve();
 
-    async function loadOrBuildForYou() {
+    async function loadOrStartBackgroundForYou() {
       setForYouError("");
       if (!forceRefresh && forYouState.profileHash === forYouProfileHash && forYouState.items.length > 0) {
         setIsForYouLoading(false);
-        setIsForYouEnhancing(false);
-        setForYouStageNote("");
+        return;
+      }
+
+      if (!forceRefresh && forYouLivePool?.profileHash === forYouProfileHash && forYouLivePool?.items?.length > 0) {
+        setForYouState({
+          profileHash: forYouLivePool.profileHash,
+          items: forYouLivePool.items,
+          source: forYouLivePool.source,
+          fromCache: forYouLivePool.fromCache || "fresh",
+          generatedAt: forYouLivePool.generatedAt
+        });
+        setIsForYouLoading(false);
         return;
       }
 
       setIsForYouLoading(true);
-      setForYouStageNote("Scanning your Taste DNA & local movie map…");
+      setForYouStageNote("Curating in the background — feel free to roam the site, we'll notify you…");
       try {
         if (!forceRefresh) {
           const cached = await loadExploreForYouCache({
@@ -468,97 +511,26 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               });
               setIsForYouLoading(false);
               setIsForYouEnhancing(true);
-              setForYouStageNote("Updating matches for your latest ratings…");
+              setForYouStageNote("Updating matches in background — feel free to browse…");
             }
           }
         }
 
-        const result = await generateExploreForYouPool({
-          watched,
-          watchlist,
-          tasteRules,
-          feedbackLog: aiFeedbackLog,
-          userRegion,
-          userWatchProviders,
-          signal: controller.signal,
-          onStageUpdate: (stageInfo) => {
-            if (cancelled || forYouSeqRef.current !== seq) return;
-            if (stageInfo?.label) {
-              setForYouStageNote(stageInfo.label);
-            }
-          },
-          onPreliminaryReady: (prelim) => {
-            if (cancelled || forYouSeqRef.current !== seq) return;
-            if (Array.isArray(prelim?.items) && prelim.items.length > 0) {
-              setForYouState({
-                profileHash: prelim.profileHash,
-                items: prelim.items,
-                source: prelim.source,
-                fromCache: prelim.stage || "math-live",
-                generatedAt: prelim.generatedAt
-              });
-              setIsForYouLoading(false);
-              setIsForYouEnhancing(true);
-              if (prelim.stage === "wave2") {
-                // Save as preliminary so returning visits get instant stale-while-revalidate
-                // without skipping Wave 3 AI polish or Supabase cloud sync.
-                pendingCacheWrite = saveExploreForYouCache({
-                  profileHash: prelim.profileHash,
-                  items: prelim.items,
-                  source: prelim.source,
-                  modelUsed: null,
-                  generatedAt: prelim.generatedAt,
-                  isPreliminary: true,
-                  userId: null,
-                  hasSampleData
-                }).catch(() => {});
-              }
-            }
-          }
-        });
-
-        if (cancelled || result?.aborted || forYouSeqRef.current !== seq) return;
-
-        handledRefreshNonceRef.current = forYouRefreshNonce;
-        setForYouState({
-          profileHash: result.profileHash,
-          items: result.items,
-          source: result.source,
-          fromCache: "fresh",
-          generatedAt: result.generatedAt
-        });
-        setIsForYouEnhancing(false);
-        setForYouStageNote("");
-
-        await pendingCacheWrite;
         if (cancelled || forYouSeqRef.current !== seq) return;
-        saveExploreForYouCache({
-          profileHash: result.profileHash,
-          items: result.items,
-          source: result.source,
-          modelUsed: result.modelUsed,
-          generatedAt: result.generatedAt,
-          isPreliminary: false,
-          userId: cloudUser?.id || null,
-          hasSampleData
-        }).catch(() => {});
-      } catch (err) {
+        handledRefreshNonceRef.current = forYouRefreshNonce;
+        // Launches in AppContext so navigating away does NOT abort curation!
+        startForYouBackgroundJob?.({ profileHash: forYouProfileHash, forceRefresh });
+      } catch {
         if (!cancelled && forYouSeqRef.current === seq) {
           setForYouError("Could not build personalized Explore picks right now. Try refreshing.");
-        }
-      } finally {
-        if (!cancelled && forYouSeqRef.current === seq) {
           setIsForYouLoading(false);
-          setIsForYouEnhancing(false);
-          setForYouStageNote("");
         }
       }
     }
 
-    loadOrBuildForYou();
+    loadOrStartBackgroundForYou();
     return () => {
       cancelled = true;
-      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isForYouMode, forYouProfileHash, watched.length, cloudUser?.id, hasSampleData, forYouRefreshNonce]);

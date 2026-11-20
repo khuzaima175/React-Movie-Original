@@ -42,7 +42,14 @@ import {
   updateAccountPassword,
   updateAccountProfile
 } from "../services/authService.js";
-import { clearExploreForYouCache } from "../services/exploreForYouCache.js";
+import {
+  clearExploreForYouCache,
+  saveExploreForYouCache
+} from "../services/exploreForYouCache.js";
+import {
+  createInitialBackgroundJobs,
+  transitionJobState
+} from "../services/backgroundJobService.js";
 import { isSampleItem, mergeSampleVault } from "../services/sampleVaultService.js";
 import { STORAGE_PURGE_ORDER, safeSetStorageItem } from "../services/storageEviction.js";
 
@@ -171,6 +178,18 @@ export function AppProvider({ children }) {
   });
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [compareNotice, setCompareNotice] = useState("");
+  const [backgroundJobs, setBackgroundJobs] = useState(() => createInitialBackgroundJobs());
+  const [forYouLivePool, setForYouLivePool] = useState({
+    profileHash: null,
+    items: [],
+    source: null,
+    fromCache: null,
+    generatedAt: 0,
+    error: ""
+  });
+  const forYouJobIdRef = useRef(0);
+  const forYouJobControllerRef = useRef(null);
+  const forYouInFlightHashRef = useRef(null);
 
   const [hasCloudConfig] = useState(() => hasSupabaseConfig());
   const [cloudUser, setCloudUser] = useState(null);
@@ -1503,6 +1522,176 @@ export function AppProvider({ children }) {
     return { ok: true };
   }, [cloudUser]);
 
+  const dismissBackgroundJobNotice = useCallback((jobKey) => {
+    setBackgroundJobs((prev) => transitionJobState(prev, jobKey, { dismissed: true }));
+  }, []);
+
+  const reportOracleJobProgress = useCallback((patch = {}) => {
+    setBackgroundJobs((prev) =>
+      transitionJobState(prev, "oracle", {
+        targetRoute: "/ai",
+        ...patch
+      })
+    );
+  }, []);
+
+  const startForYouBackgroundJob = useCallback(
+    async ({ profileHash, forceRefresh = false } = {}) => {
+      const activeWatched = watchedRef.current || [];
+      const activeWatchlist = watchlistRef.current || [];
+      const activeRules = tasteRulesRef.current || [];
+      const activeRegion = userRegionRef.current || "GLOBAL";
+      const activeProviders = userWatchProvidersRef.current || [];
+      const activeUserId = cloudUserRef.current?.id || null;
+      const sampleActive =
+        activeWatched.some((m) => isSampleItem(m)) ||
+        activeWatchlist.some((m) => isSampleItem(m));
+
+      if (activeWatched.length < 3) return null;
+
+      // Avoid duplicate concurrent run for the exact same profile hash unless forceRefresh
+      if (
+        !forceRefresh &&
+        forYouJobControllerRef.current &&
+        forYouInFlightHashRef.current === profileHash
+      ) {
+        return null;
+      }
+
+      if (forYouJobControllerRef.current) {
+        try {
+          forYouJobControllerRef.current.abort();
+        } catch {
+          // ignore
+        }
+      }
+
+      const controller = new AbortController();
+      forYouJobControllerRef.current = controller;
+      forYouInFlightHashRef.current = profileHash || "active";
+      const jobId = ++forYouJobIdRef.current;
+
+      setForYouLivePool((prev) => ({ ...prev, error: "" }));
+      setBackgroundJobs((prev) =>
+        transitionJobState(prev, "forYou", {
+          jobId,
+          status: "running",
+          stage: "profile",
+          label: "Scanning your Taste DNA & local movie map…",
+          targetRoute: "/explore?mode=for-you"
+        })
+      );
+
+      let pendingCacheWrite = Promise.resolve();
+      try {
+        const { generateExploreForYouPool } = await import("../services/exploreForYouService.js");
+        const result = await generateExploreForYouPool({
+          watched: activeWatched,
+          watchlist: activeWatchlist,
+          tasteRules: activeRules,
+          feedbackLog: aiFeedbackLog || [],
+          userRegion: activeRegion,
+          userWatchProviders: activeProviders,
+          signal: controller.signal,
+          onStageUpdate: (stageInfo) => {
+            if (jobId !== forYouJobIdRef.current || controller.signal.aborted) return;
+            setBackgroundJobs((prev) =>
+              transitionJobState(prev, "forYou", {
+                jobId,
+                status: "running",
+                stage: stageInfo?.stage || "running",
+                label: stageInfo?.label || "Curating Movies You'll Like…"
+              })
+            );
+          },
+          onPreliminaryReady: (prelim) => {
+            if (jobId !== forYouJobIdRef.current || controller.signal.aborted) return;
+            if (Array.isArray(prelim?.items) && prelim.items.length > 0) {
+              setForYouLivePool({
+                profileHash: prelim.profileHash,
+                items: prelim.items,
+                source: prelim.source,
+                fromCache: prelim.stage || "math-live",
+                generatedAt: prelim.generatedAt,
+                error: ""
+              });
+              if (prelim.stage === "wave2") {
+                pendingCacheWrite = saveExploreForYouCache({
+                  profileHash: prelim.profileHash,
+                  items: prelim.items,
+                  source: prelim.source,
+                  modelUsed: null,
+                  generatedAt: prelim.generatedAt,
+                  isPreliminary: true,
+                  userId: null,
+                  hasSampleData: sampleActive
+                }).catch(() => {});
+              }
+            }
+          }
+        });
+
+        if (jobId !== forYouJobIdRef.current || result?.aborted || controller.signal.aborted) {
+          return null;
+        }
+
+        setForYouLivePool({
+          profileHash: result.profileHash,
+          items: result.items,
+          source: result.source,
+          fromCache: "fresh",
+          generatedAt: result.generatedAt,
+          error: ""
+        });
+        setBackgroundJobs((prev) =>
+          transitionJobState(prev, "forYou", {
+            jobId,
+            status: "done",
+            stage: "done",
+            count: result.items.length,
+            label: `Your ${result.items.length} personalized matches are ready`
+          })
+        );
+
+        await pendingCacheWrite;
+        if (jobId === forYouJobIdRef.current && !controller.signal.aborted) {
+          saveExploreForYouCache({
+            profileHash: result.profileHash,
+            items: result.items,
+            source: result.source,
+            modelUsed: result.modelUsed,
+            generatedAt: result.generatedAt,
+            isPreliminary: false,
+            userId: activeUserId,
+            hasSampleData: sampleActive
+          }).catch(() => {});
+        }
+        return result;
+      } catch (err) {
+        if (jobId === forYouJobIdRef.current && !controller.signal.aborted) {
+          setForYouLivePool((prev) => ({
+            ...prev,
+            error: "Could not build personalized Explore picks right now. Try refreshing."
+          }));
+          setBackgroundJobs((prev) =>
+            transitionJobState(prev, "forYou", {
+              jobId,
+              status: "error",
+              label: "Could not refresh Movies You'll Like"
+            })
+          );
+        }
+        return null;
+      } finally {
+        if (forYouJobControllerRef.current === controller) {
+          forYouJobControllerRef.current = null;
+          forYouInFlightHashRef.current = null;
+        }
+      }
+    },
+    [aiFeedbackLog]
+  );
+
   const clearSampleVault = useCallback(() => {
     const nextWatched = (watchedRef.current || []).filter((m) => !isSampleItem(m));
     const nextWatchlist = (watchlistRef.current || []).filter((m) => !isSampleItem(m));
@@ -1580,7 +1769,13 @@ export function AppProvider({ children }) {
         clearCompare,
         isCompareOpen,
         openCompareModal,
-        closeCompareModal
+        closeCompareModal,
+        backgroundJobs,
+        forYouLivePool,
+        setForYouLivePool,
+        startForYouBackgroundJob,
+        reportOracleJobProgress,
+        dismissBackgroundJobNotice
       }}
     >
       {children}

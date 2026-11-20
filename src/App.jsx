@@ -12,6 +12,7 @@ import TasteDeckModal from "./components/TasteDeckModal";
 import CloudSyncModal from "./components/CloudSyncModal";
 import CompareDock from "./components/CompareDock";
 import CompareModal from "./components/CompareModal";
+import BackgroundJobBanner from "./components/BackgroundJobBanner";
 import RouteFallback from "./components/RouteFallback";
 import DashboardPage from "./pages/DashboardPage";
 import NotFoundPage from "./pages/NotFoundPage";
@@ -200,6 +201,7 @@ function AppContent() {
 
       <CompareDock />
       <CompareModal onQuickRate={(m) => setQuickRateTarget(m)} />
+      <BackgroundJobBanner />
 
       <main className="flex-1 w-full">
         <AnimatePresence mode="wait" onExitComplete={scrollToTop}>

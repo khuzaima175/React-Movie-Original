@@ -8,15 +8,10 @@ import RowSkeleton from "../components/RowSkeleton";
 import HomePosterGrid from "../components/HomePosterGrid";
 import QuickRateModal from "../components/QuickRateModal";
 import { loadHomeDiscoveryFeeds, buildPersonalizedHomeRow } from "../services/dashboardService";
-import {
-  EXPLORE_FOR_YOU_MIN_RATED,
-  buildExploreForYouProfileHash
-} from "../services/exploreForYouService";
-import {
-  loadExploreForYouCache,
-  loadLatestLocalExploreForYouFallback
-} from "../services/exploreForYouCache";
+import { loadLatestLocalExploreForYouFallback } from "../services/exploreForYouCache";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+
+const HOME_FOR_YOU_MIN_RATED = 3;
 
 export default function DashboardPage({ onOpenTasteDeck }) {
   useDocumentTitle("Discover");
@@ -24,10 +19,7 @@ export default function DashboardPage({ onOpenTasteDeck }) {
   const {
     watched = [],
     watchlist = [],
-    tasteRules = [],
     userRegion = "GLOBAL",
-    cloudUser = null,
-    hasSampleData = false,
     forYouLivePool = null,
     addWatched,
     addToWatchlist
@@ -37,37 +29,23 @@ export default function DashboardPage({ onOpenTasteDeck }) {
   const [cachedForYouItems, setCachedForYouItems] = useState([]);
   const [quickAddMovie, setQuickAddMovie] = useState(null);
 
-  const forYouProfileHash = useMemo(
-    () => buildExploreForYouProfileHash({ watched, watchlist, tasteRules, userRegion }),
-    [watched, watchlist, tasteRules, userRegion]
-  );
-
   useEffect(() => {
-    if (watched.length < EXPLORE_FOR_YOU_MIN_RATED) {
+    if (watched.length < HOME_FOR_YOU_MIN_RATED) {
       setCachedForYouItems([]);
       return undefined;
     }
     let active = true;
-    async function loadRealTasteRow() {
-      const exact = await loadExploreForYouCache({
-        profileHash: forYouProfileHash,
-        userId: cloudUser?.id || null,
-        hasSampleData
-      }).catch(() => null);
-      if (active && exact?.items?.length > 0) {
-        setCachedForYouItems(exact.items);
-        return;
-      }
-      const fallback = await loadLatestLocalExploreForYouFallback().catch(() => null);
-      if (active && fallback?.items?.length > 0) {
-        setCachedForYouItems(fallback.items);
-      }
-    }
-    loadRealTasteRow();
+    loadLatestLocalExploreForYouFallback()
+      .then((fallback) => {
+        if (active && fallback?.items?.length > 0) {
+          setCachedForYouItems(fallback.items);
+        }
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
-  }, [watched.length, forYouProfileHash, cloudUser?.id, hasSampleData]);
+  }, [watched.length]);
 
   const activeForYouSource =
     Array.isArray(forYouLivePool?.items) && forYouLivePool.items.length > 0
@@ -76,7 +54,7 @@ export default function DashboardPage({ onOpenTasteDeck }) {
 
   const personalizedTasteRow = useMemo(
     () =>
-      watched.length >= EXPLORE_FOR_YOU_MIN_RATED
+      watched.length >= HOME_FOR_YOU_MIN_RATED
         ? buildPersonalizedHomeRow({
             forYouItems: activeForYouSource,
             watched,
