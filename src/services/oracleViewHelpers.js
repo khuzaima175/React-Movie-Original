@@ -405,3 +405,52 @@ export function shouldAutoRefreshOnDrawerClose(isDrawer, currentHash, activeHash
   return currentHash !== activeHash;
 }
 
+
+/**
+ * Summarizes secondary Film Oracle preferences (Region, Streaming Platforms,
+ * Active Taste Rules, Personal AI Key) for the unified "Filters & Rules" popover trigger.
+ */
+export function summarizeOraclePreferences({
+  userRegion = "GLOBAL",
+  userWatchProviders = [],
+  tasteRules = [],
+  usingOwnKey = false
+} = {}) {
+  const normalizedRegion =
+    typeof userRegion === "string" && userRegion.trim() ? userRegion.trim().toUpperCase() : "GLOBAL";
+  const hasRegion = normalizedRegion !== "GLOBAL";
+
+  const uniqueProviders = Array.isArray(userWatchProviders)
+    ? Array.from(new Set(userWatchProviders.filter((id) => id !== null && id !== undefined && id !== "")))
+    : [];
+  const providerCount = uniqueProviders.length;
+
+  const activeRuleCount = Array.isArray(tasteRules)
+    ? tasteRules.filter((rule) => rule && rule.active !== false && String(rule.text || "").trim()).length
+    : 0;
+
+  const parts = [];
+  let badgeCount = 0;
+
+  if (hasRegion) {
+    parts.push(normalizedRegion);
+    badgeCount += 1;
+  }
+  if (providerCount > 0) {
+    parts.push(providerCount === 1 ? "1 platform" : `${providerCount} platforms`);
+    badgeCount += 1;
+  }
+  if (activeRuleCount > 0) {
+    parts.push(activeRuleCount === 1 ? "1 rule" : `${activeRuleCount} rules`);
+    badgeCount += activeRuleCount;
+  }
+  if (usingOwnKey) {
+    parts.push("Personal key");
+    badgeCount += 1;
+  }
+
+  return {
+    badgeCount,
+    summaryText: parts.length > 0 ? parts.join(" · ") : "Filters & Rules"
+  };
+}

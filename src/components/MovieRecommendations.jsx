@@ -20,12 +20,9 @@ import { isDebugUiEnabled } from "../services/debugFlags";
 import { hasUserGeminiKey, resolveGeminiKey } from "../services/apiTransport";
 import {
   bridgeTmdbToOmdb,
-  extractTasteProfile,
-  POPULAR_WATCH_PROVIDERS,
-  AVAILABLE_REGIONS
+  extractTasteProfile
 } from "../services/tmdbService";
 import {
-  formatStreamingSummary,
   formatRecBadgeSummary,
   buildOracleLoadingSteps,
   describePipelineNotice,
@@ -34,7 +31,8 @@ import {
   sanitizeOracleReason,
   formatActiveVibeNote,
   nextRefreshExcludeState,
-  shouldAutoRefreshOnDrawerClose
+  shouldAutoRefreshOnDrawerClose,
+  summarizeOraclePreferences
 } from "../services/oracleViewHelpers";
 import {
   DEFAULT_RECOMMENDATION_COUNT,
@@ -49,12 +47,12 @@ import { useApp } from "../context/AppContext";
 import { attachRecSourceToRecommendations } from "../services/vaultStats";
 import {
   MAX_TASTE_RULES,
-  MAX_RULE_TEXT_LENGTH,
   draftTasteRulesWithGemini
 } from "../services/tasteRulesService";
 import PosterImage from "./PosterImage";
 import QuickRateModal from "./QuickRateModal";
 import GeminiKeyModal from "./GeminiKeyModal";
+import OraclePreferencesPopover from "./OraclePreferencesPopover";
 import { Button, MetaLine, Select } from "./ui";
 import {
   Sparkles,
@@ -69,20 +67,14 @@ import {
   AlertCircle,
   X,
   Play,
-  Globe,
   RotateCcw,
   Info,
-  Pin,
-  Pencil,
-  Trash2,
-  KeyRound,
   Film,
   Orbit,
   Moon,
   Flame,
   Heart,
   Gem,
-  Tv,
   Search
 } from "lucide-react";
 
@@ -164,17 +156,16 @@ export default function MovieRecommendations({
   const [activeMoodFilters, setActiveMoodFilters] = useState(null);
   const [isParsingMood, setIsParsingMood] = useState(false);
   const [moodParseNote, setMoodParseNote] = useState("");
-  const [isStreamingOpen, setIsStreamingOpen] = useState(false);
-  const [isRulesOpen, setIsRulesOpen] = useState(false);
-  const [newRuleText, setNewRuleText] = useState("");
-  const [newRulePolarity, setNewRulePolarity] = useState("prefer");
+  const [isPrefsOpen, setIsPrefsOpen] = useState(false);
+  const [prefsInitialTab, setPrefsInitialTab] = useState("streaming");
   const [isDraftingRules, setIsDraftingRules] = useState(false);
-  const [editingRuleId, setEditingRuleId] = useState(null);
-  const [editingRuleText, setEditingRuleText] = useState("");
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
   const activeRequestRef = useRef(0);
   const refreshStateRef = useRef({ key: "", seenIds: [], page: 1 });
+  const deckPrefsBtnRef = useRef(null);
+  const toolbarPrefsBtnRef = useRef(null);
+  const [prefsAnchorRef, setPrefsAnchorRef] = useState(deckPrefsBtnRef);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -211,12 +202,12 @@ export default function MovieRecommendations({
   const debug = isDebugUiEnabled();
   const queuedModel = getPreferredCascadeModel(getCurationCascade({ personal: debug }), "curation");
   const displayedModelInfo = aiModelInfo || getLastModelInfo("curation");
-  const { summaryText: streamingSummary, hasCustomFilter: hasStreamingFilter } = formatStreamingSummary(
+  const prefsSummary = summarizeOraclePreferences({
     userRegion,
     userWatchProviders,
-    AVAILABLE_REGIONS,
-    POPULAR_WATCH_PROVIDERS
-  );
+    tasteRules,
+    usingOwnKey
+  });
 
   const loadingSteps = buildOracleLoadingSteps({
     watchedCount: watched.length,
@@ -251,23 +242,35 @@ export default function MovieRecommendations({
     }
   }, [currentHash, isLoading, aiRecommendationsHash]);
 
+  const handleOpenPrefs = (anchorRef, tab = "streaming") => {
+    setPrefsAnchorRef(anchorRef);
+    setPrefsInitialTab(tab);
+    setIsPrefsOpen((prev) => (prev && prefsAnchorRef === anchorRef ? false : true));
+  };
+
+  const handleClosePrefs = () => {
+    setIsPrefsOpen(false);
+    if (
+      recommendations &&
+      recommendations.length > 0 &&
+      shouldAutoRefreshOnDrawerClose(true, currentHash, aiRecommendationsHash, isLoading)
+    ) {
+      handleGetRecommendations({ forceRefresh: false });
+    }
+  };
+
   const handleCloseFilterDeck = () => {
     setShowFilterDeck(false);
-    setIsStreamingOpen(false);
-    setIsRulesOpen(false);
-    setEditingRuleId(null);
+    setIsPrefsOpen(false);
     if (shouldAutoRefreshOnDrawerClose(true, currentHash, aiRecommendationsHash, isLoading)) {
       handleGetRecommendations({ forceRefresh: false });
     }
   };
 
-  const handleAddRuleSubmit = (e) => {
-    e.preventDefault();
-    const cleaned = newRuleText.trim();
+  const handleAddRule = (text, polarity) => {
+    const cleaned = String(text || "").trim();
     if (!cleaned || !addTasteRule || (tasteRules || []).length >= MAX_TASTE_RULES) return;
-    addTasteRule(cleaned, newRulePolarity, { source: "user" });
-    setNewRuleText("");
-    setIsRulesOpen(true);
+    addTasteRule(cleaned, polarity, { source: "user" });
   };
 
   const handleAutoDraftRules = async () => {
@@ -286,21 +289,11 @@ export default function MovieRecommendations({
       if (setTasteRules && Array.isArray(drafted) && drafted.length > 0) {
         setTasteRules(drafted);
       }
-      setIsRulesOpen(true);
     } catch (err) {
       console.warn("Taste rules auto-draft failed:", err);
     } finally {
       setIsDraftingRules(false);
     }
-  };
-
-  const handleSaveRuleEdit = (ruleId) => {
-    const cleaned = editingRuleText.trim();
-    if (cleaned && updateTasteRule) {
-      updateTasteRule(ruleId, { text: cleaned });
-    }
-    setEditingRuleId(null);
-    setEditingRuleText("");
   };
 
   const handleGetRecommendations = async (invokeOpts = {}) => {
@@ -615,461 +608,218 @@ export default function MovieRecommendations({
   const pipelineNotice = describePipelineNotice(effectiveModelInfo);
   const studioBackdropPoster = selectStudioBackdropPoster(watched);
 
-  const renderStudioDeck = (isDrawer = false) => (
-    <div className={`ai-studio-deck ${isDrawer ? "drawer-mode" : ""}`}>
-      {studioBackdropPoster && !isDrawer && (
-        <div className="studio-deck-backdrop" aria-hidden="true">
-          <img
-            src={studioBackdropPoster}
-            alt=""
-            className="studio-deck-backdrop-img"
-            loading="lazy"
-          />
-          <div className="studio-deck-backdrop-scrim" />
-        </div>
-      )}
-
-      {isDrawer && (
-        <div className="deck-drawer-header">
-          <h3 className="deck-drawer-title">Mood &amp; Streaming</h3>
-          <button
-            type="button"
-            className="deck-close-btn"
-            onClick={handleCloseFilterDeck}
-            aria-label="Close Mood & Streaming Filters"
-          >
-            <X size={18} aria-hidden="true" />
-          </button>
-        </div>
-      )}
-
-      <div className="vibe-selection-block">
-        <span className="vibe-label">Mood</span>
-        <div className="vibe-chips-grid">
-          {MOOD_OPTIONS.map((mood) => {
-            const isSelected = selectedMood === mood.id;
-            const MoodIcon = MOOD_ICON_MAP[mood.id] || Film;
-            return (
-              <button
-                key={mood.id}
-                type="button"
-                className={`vibe-chip-card ${isSelected ? "active" : ""}`}
-                onClick={() => {
-                  setSelectedMood(mood.id);
-                  setActiveMoodFilters(null);
-                  setMoodParseNote("");
-                  refreshStateRef.current = { key: "", seenIds: [], page: 1 };
-                }}
-              >
-                <span className="vibe-icon-box" aria-hidden="true">
-                  <MoodIcon size={16} />
-                </span>
-                <div className="vibe-meta">
-                  <strong className="vibe-title">{mood.label}</strong>
-                  <span className="vibe-sub">{mood.desc}</span>
-                </div>
-                {isSelected && (
-                  <span className="vibe-active-check" aria-hidden="true">
-                    <Check size={12} />
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <form
-          className="mood-query-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleApplyFreeTextMood();
-          }}
-        >
-          <Search size={15} className="mood-query-icon" aria-hidden="true" />
-          <input
-            type="text"
-            className="mood-query-input"
-            value={customMoodQuery}
-            onChange={(e) => setCustomMoodQuery(e.target.value)}
-            placeholder='Describe a vibe (e.g., "like Drive but quieter")'
-            aria-label="Custom Mood Query"
-          />
-          <Button
-            type="submit"
-            variant="secondary"
-            size="md"
-            disabled={isParsingMood || !customMoodQuery.trim()}
-          >
-            {isParsingMood ? "Matching..." : "Match Vibe"}
-          </Button>
-        </form>
-
-        <div className="mood-example-pills" aria-label="Example vibes">
-          <span className="mood-examples-label">Try:</span>
-          {VIBE_EXAMPLE_PROMPTS.map((samplePrompt) => (
-            <button
-              key={samplePrompt}
-              type="button"
-              className="mood-example-pill"
-              onClick={() => setCustomMoodQuery(samplePrompt)}
-            >
-              {samplePrompt}
-            </button>
-          ))}
-        </div>
-
-        {moodParseNote && <span className="mood-parse-note">{moodParseNote}</span>}
-      </div>
-
-      <div className="vibe-selection-block">
-        <div className={`streaming-summary-bar ${hasStreamingFilter ? "is-custom" : ""}`}>
-          <div className="streaming-summary-info">
-            <Tv size={14} className="summary-row-icon" aria-hidden="true" />
-            <span className="vibe-label">Where to watch</span>
-            <span aria-hidden="true">·</span>
-            <span className="streaming-summary-value">{streamingSummary}</span>
+  const renderStudioDeck = (isDrawer = false) => {
+    const hasCustomQuery = Boolean(customMoodQuery.trim());
+    return (
+      <div className={`ai-studio-deck oracle-command-deck ${isDrawer ? "drawer-mode" : ""}`}>
+        {studioBackdropPoster && !isDrawer && (
+          <div className="studio-deck-backdrop" aria-hidden="true">
+            <img
+              src={studioBackdropPoster}
+              alt=""
+              className="studio-deck-backdrop-img"
+              loading="lazy"
+            />
+            <div className="studio-deck-backdrop-scrim" />
           </div>
+        )}
 
-          <button
-            type="button"
-            className="streaming-summary-toggle"
-            onClick={() => setIsStreamingOpen((prev) => !prev)}
-            aria-expanded={isStreamingOpen}
-          >
-            <span>{isStreamingOpen ? "Done" : "Edit services"}</span>
-            {isStreamingOpen ? (
-              <ChevronUp size={14} aria-hidden="true" />
-            ) : (
-              <ChevronDown size={14} aria-hidden="true" />
-            )}
-          </button>
-        </div>
-
-        {isStreamingOpen && (
-          <div className="streaming-drawer-body">
-            <div className="streaming-toolbar-row">
-              <div className="streaming-region-select">
-                <Select
-                  value={userRegion}
-                  onChange={(val) => setUserRegion(val)}
-                  ariaLabel="Select Streaming Region"
-                  icon={Globe}
-                  size="sm"
-                  options={AVAILABLE_REGIONS.map((reg) => ({
-                    value: reg.code,
-                    label: reg.name,
-                    sublabel: reg.code === "GLOBAL" ? "All regions" : reg.code
-                  }))}
-                />
-              </div>
-
-              <div className="streaming-quick-links">
-                <button
-                  type="button"
-                  className="streaming-link-btn"
-                  onClick={() => setUserWatchProviders(POPULAR_WATCH_PROVIDERS.map((p) => p.id))}
-                >
-                  Select all
-                </button>
-                <span aria-hidden="true">·</span>
-                <button
-                  type="button"
-                  className="streaming-link-btn"
-                  onClick={() => setUserWatchProviders([])}
-                >
-                  Reset
-                </button>
-              </div>
-            </div>
-
-            {userRegion === "GLOBAL" && userWatchProviders.length > 0 && (
-              <p className="mood-parse-note">
-                Choose a specific country above for accurate local streaming availability.
-              </p>
-            )}
-
-            <div className="streaming-providers-grid">
+        {isDrawer && (
+          <div className="deck-drawer-header">
+            <h3 className="deck-drawer-title">Mood &amp; Vibe</h3>
+            <div className="deck-drawer-actions">
               <button
                 type="button"
-                className={`streaming-provider-btn ${userWatchProviders.length === 0 ? "active" : ""}`}
-                onClick={() => setUserWatchProviders([])}
+                className="streaming-link-btn"
+                onClick={handleResetSearch}
               >
-                <Globe size={14} aria-hidden="true" />
-                <span>All Platforms</span>
+                <RotateCcw size={12} aria-hidden="true" />
+                <span>Start over</span>
               </button>
-
-              {POPULAR_WATCH_PROVIDERS.map((provider) => {
-                const isSelected = userWatchProviders.includes(provider.id);
-                return (
-                  <button
-                    key={provider.id}
-                    type="button"
-                    className={`streaming-provider-btn ${isSelected ? "active" : ""}`}
-                    onClick={() => toggleWatchProvider(provider.id)}
-                  >
-                    <span>{provider.name}</span>
-                  </button>
-                );
-              })}
+              <button
+                type="button"
+                className="deck-close-btn"
+                onClick={handleCloseFilterDeck}
+                aria-label="Close Mood and Vibe Filters"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
             </div>
           </div>
         )}
-      </div>
 
-      <div className="taste-rules-section">
-        <div className="taste-rules-summary-bar">
-          <div className="streaming-summary-info">
-            <SlidersHorizontal size={14} className="summary-row-icon" aria-hidden="true" />
-            <span className="streaming-summary-label">Taste Rules</span>
-            <span aria-hidden="true">·</span>
-            <span className="streaming-summary-value">
-              {(tasteRules || []).length === 0
-                ? "No custom rules"
-                : `${(tasteRules || []).filter((r) => r.active !== false).length} active${
-                    (tasteRules || []).some((r) => r.pinned)
-                      ? ` (${(tasteRules || []).filter((r) => r.pinned).length} pinned)`
-                      : ""
-                  }`}
-            </span>
+        {/* Tier 1: Single Horizontal Sliding Mood Pill Rail */}
+        <div className="oracle-mood-tier">
+          <div className="oracle-mood-rail" role="radiogroup" aria-label="Choose a mood">
+            {MOOD_OPTIONS.map((mood) => {
+              const isSelected = selectedMood === mood.id;
+              const MoodIcon = MOOD_ICON_MAP[mood.id] || Film;
+              return (
+                <button
+                  key={mood.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  title={mood.desc}
+                  className={`oracle-mood-pill ${isSelected ? "is-active" : ""}`}
+                  onClick={() => {
+                    setSelectedMood(mood.id);
+                    setActiveMoodFilters(null);
+                    setMoodParseNote("");
+                    refreshStateRef.current = { key: "", seenIds: [], page: 1 };
+                  }}
+                >
+                  {isSelected && (
+                    <motion.span
+                      layoutId={isDrawer ? "oracle-mood-pill-drawer" : "oracle-mood-pill"}
+                      className="oracle-mood-pill-bg"
+                      transition={{ type: "spring", stiffness: 460, damping: 34 }}
+                    />
+                  )}
+                  <MoodIcon size={14} className="oracle-mood-pill-icon" aria-hidden="true" />
+                  <span className="oracle-mood-pill-label">{mood.label}</span>
+                </button>
+              );
+            })}
           </div>
-
-          <div className="taste-rules-summary-actions">
-            <button
-              type="button"
-              className="taste-rules-draft-btn"
-              onClick={handleAutoDraftRules}
-              disabled={isDraftingRules || watched.length === 0}
-              title={watched.length === 0 ? "Rate at least 1 film to auto-draft rules" : "Synthesize Prefer/Avoid rules from your rated Vault"}
-            >
-              {isDraftingRules ? (
-                <Loader2 size={13} className="spin-icon" aria-hidden="true" />
-              ) : (
-                <Sparkles size={13} aria-hidden="true" />
-              )}
-              <span>{isDraftingRules ? "Drafting..." : "Auto-Draft Rules from Vault"}</span>
-            </button>
-
-            <button
-              type="button"
-              className="streaming-summary-toggle"
-              onClick={() => setIsRulesOpen((prev) => !prev)}
-              aria-expanded={isRulesOpen}
-            >
-              <span>{isRulesOpen ? "Done" : "Edit rules"}</span>
-              {isRulesOpen ? (
-                <ChevronUp size={14} aria-hidden="true" />
-              ) : (
-                <ChevronDown size={14} aria-hidden="true" />
-              )}
-            </button>
-          </div>
+          <p className="oracle-mood-caption">{activeMoodObj.desc}</p>
         </div>
 
-        {!isRulesOpen && (tasteRules || []).length > 0 && (
-          <div className="taste-rules-preview-strip">
-            {(tasteRules || []).map((rule) => (
+        {/* Tier 2: Unified Vibe Command Bar */}
+        <form
+          className="oracle-command-bar"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (hasCustomQuery) {
+              handleApplyFreeTextMood();
+            } else {
+              handleGetRecommendations({
+                forceRefresh: Boolean(
+                  recommendations && recommendations.length > 0 && aiRecommendationsHash === currentHash
+                )
+              });
+            }
+          }}
+        >
+          <div className="oracle-command-input-wrap">
+            <Search size={15} className="oracle-command-icon" aria-hidden="true" />
+            <input
+              type="text"
+              className="oracle-command-input"
+              value={customMoodQuery}
+              onChange={(e) => setCustomMoodQuery(e.target.value)}
+              placeholder='Describe a vibe (e.g., "like Drive but quieter")'
+              aria-label="Custom Mood Query"
+            />
+            {hasCustomQuery && (
               <button
-                key={rule.id}
                 type="button"
-                className={`taste-rule-pill is-${rule.polarity} ${rule.active !== false ? "is-active" : "is-inactive"} ${rule.pinned ? "is-pinned" : ""}`}
-                onClick={() => toggleTasteRuleActive && toggleTasteRuleActive(rule.id)}
-                title="Click to pause or activate rule"
+                className="oracle-command-clear"
+                onClick={() => setCustomMoodQuery("")}
+                aria-label="Clear vibe query"
               >
-                <span className="rule-polarity-tag">{rule.polarity === "avoid" ? "Avoid" : "Prefer"}</span>
-                <span className="rule-text-span">{rule.text}</span>
+                <X size={13} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          <div className="oracle-command-actions">
+            <button
+              ref={deckPrefsBtnRef}
+              type="button"
+              className={`oracle-prefs-trigger ${prefsSummary.badgeCount > 0 ? "has-active" : ""} ${
+                isPrefsOpen && prefsAnchorRef === deckPrefsBtnRef ? "is-open" : ""
+              }`}
+              onClick={() => handleOpenPrefs(deckPrefsBtnRef, "streaming")}
+              aria-haspopup="dialog"
+              aria-expanded={isPrefsOpen && prefsAnchorRef === deckPrefsBtnRef}
+              title="Streaming region, platforms, Taste Rules, and AI key"
+            >
+              <SlidersHorizontal size={13} aria-hidden="true" />
+              <span className="oracle-prefs-trigger-label">{prefsSummary.summaryText}</span>
+              {prefsSummary.badgeCount > 0 && (
+                <span className="oracle-prefs-badge tabular-num">{prefsSummary.badgeCount}</span>
+              )}
+              <ChevronDown
+                size={13}
+                className={`oracle-prefs-chevron ${
+                  isPrefsOpen && prefsAnchorRef === deckPrefsBtnRef ? "is-open" : ""
+                }`}
+                aria-hidden="true"
+              />
+            </button>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={isLoading || isParsingMood}
+            >
+              <span>
+                {isParsingMood
+                  ? "Matching..."
+                  : hasCustomQuery
+                  ? "Match Vibe"
+                  : isDrawer
+                  ? "Update Picks"
+                  : "Find Picks"}
+              </span>
+            </Button>
+          </div>
+        </form>
+
+        {/* Compact Quick-Try Hints & Optional Onboarding */}
+        <div className="oracle-command-meta">
+          <div className="mood-example-pills" aria-label="Example vibes">
+            <span className="mood-examples-label">Try:</span>
+            {VIBE_EXAMPLE_PROMPTS.map((samplePrompt) => (
+              <button
+                key={samplePrompt}
+                type="button"
+                className="mood-example-pill"
+                onClick={() => setCustomMoodQuery(samplePrompt)}
+              >
+                {samplePrompt}
               </button>
             ))}
           </div>
-        )}
 
-        {isRulesOpen && (
-          <div className="taste-rules-drawer-body">
-            <form className="taste-rule-form" onSubmit={handleAddRuleSubmit}>
-              <div className="rule-polarity-switch" role="group" aria-label="Rule polarity">
+          {!isDrawer && (watched.length < 5 || canTrySampleVault) && (
+            <div className="oracle-onboarding-links">
+              {watched.length < 5 && onOpenTasteDeck && (
                 <button
                   type="button"
-                  className={`polarity-btn ${newRulePolarity === "prefer" ? "is-selected prefer" : ""}`}
-                  onClick={() => setNewRulePolarity("prefer")}
+                  className="oracle-inline-cta"
+                  onClick={onOpenTasteDeck}
                 >
-                  Prefer
+                  <Sparkles size={12} aria-hidden="true" />
+                  <span>Taste Calibration (30)</span>
                 </button>
+              )}
+              {canTrySampleVault && (
                 <button
                   type="button"
-                  className={`polarity-btn ${newRulePolarity === "avoid" ? "is-selected avoid" : ""}`}
-                  onClick={() => setNewRulePolarity("avoid")}
+                  className="oracle-inline-cta"
+                  onClick={() => loadSampleVault()}
                 >
-                  Avoid
+                  <span>Try a sample vault</span>
                 </button>
-              </div>
-              <input
-                type="text"
-                className="taste-rule-input"
-                maxLength={MAX_RULE_TEXT_LENGTH}
-                value={newRuleText}
-                onChange={(e) => setNewRuleText(e.target.value)}
-                placeholder={
-                  newRulePolarity === "avoid"
-                    ? 'e.g. "No slow-burn period dramas" or "No horror"'
-                    : 'e.g. "Prefer cyberpunk noir under 130m"'
-                }
-                aria-label="New Taste Rule"
-              />
-              <Button
-                type="submit"
-                variant="secondary"
-                size="sm"
-                disabled={!newRuleText.trim() || (tasteRules || []).length >= MAX_TASTE_RULES}
-              >
-                <Plus size={13} aria-hidden="true" />
-                <span>Add</span>
-              </Button>
-            </form>
+              )}
+            </div>
+          )}
+        </div>
 
-            {(tasteRules || []).length === 0 ? (
-              <p className="taste-rules-empty">
-                Add up to {MAX_TASTE_RULES} persistent Prefer or Avoid rules, or click Auto-Draft above to extract patterns from your Vault.
-              </p>
-            ) : (
-              <ul className="taste-rules-list">
-                {(tasteRules || []).map((rule) => (
-                  <li
-                    key={rule.id}
-                    className={`taste-rule-item is-${rule.polarity} ${rule.active !== false ? "is-active" : "is-inactive"}`}
-                  >
-                    {editingRuleId === rule.id ? (
-                      <div className="taste-rule-edit-row">
-                        <input
-                          type="text"
-                          className="taste-rule-input"
-                          maxLength={MAX_RULE_TEXT_LENGTH}
-                          value={editingRuleText}
-                          onChange={(e) => setEditingRuleText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              handleSaveRuleEdit(rule.id);
-                            } else if (e.key === "Escape") {
-                              setEditingRuleId(null);
-                            }
-                          }}
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          className="rule-icon-btn"
-                          onClick={() => handleSaveRuleEdit(rule.id)}
-                          aria-label="Save rule edit"
-                        >
-                          <Check size={13} aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          className="rule-icon-btn"
-                          onClick={() => setEditingRuleId(null)}
-                          aria-label="Cancel rule edit"
-                        >
-                          <X size={13} aria-hidden="true" />
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className="taste-rule-toggle-main"
-                          onClick={() => toggleTasteRuleActive && toggleTasteRuleActive(rule.id)}
-                          title={rule.active !== false ? "Click to pause rule" : "Click to enable rule"}
-                        >
-                          <span className="rule-polarity-tag">
-                            {rule.polarity === "avoid" ? "Avoid" : "Prefer"}
-                          </span>
-                          <span className="rule-text-span">{rule.text}</span>
-                        </button>
-                        <div className="taste-rule-item-actions">
-                          <button
-                            type="button"
-                            className={`rule-icon-btn ${rule.pinned ? "is-pinned" : ""}`}
-                            onClick={() => toggleTasteRulePin && toggleTasteRulePin(rule.id)}
-                            aria-label={rule.pinned ? "Unpin rule" : "Pin rule"}
-                            title={rule.pinned ? "Pinned to prompt top" : "Pin rule"}
-                          >
-                            <Pin size={13} aria-hidden="true" />
-                          </button>
-                          <button
-                            type="button"
-                            className="rule-icon-btn"
-                            onClick={() => {
-                              setEditingRuleId(rule.id);
-                              setEditingRuleText(rule.text);
-                            }}
-                            aria-label="Edit rule"
-                            title="Edit rule"
-                          >
-                            <Pencil size={13} aria-hidden="true" />
-                          </button>
-                          <button
-                            type="button"
-                            className="rule-icon-btn danger"
-                            onClick={() => deleteTasteRule && deleteTasteRule(rule.id)}
-                            aria-label="Delete rule"
-                            title="Delete rule"
-                          >
-                            <Trash2 size={13} aria-hidden="true" />
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </div>
+        {moodParseNote && <p className="mood-parse-note">{moodParseNote}</p>}
 
-      <div className="synthesis-action-bar">
         {error && (
           <div className="ai-error-banner">
             <AlertCircle size={16} aria-hidden="true" />
             <span>{error}</span>
           </div>
         )}
-
-        <div className="recs-actions-group">
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={() =>
-              handleGetRecommendations({
-                forceRefresh: Boolean(recommendations && recommendations.length > 0 && aiRecommendationsHash === currentHash)
-              })
-            }
-            disabled={isLoading}
-          >
-            <span>{isDrawer ? "Update Picks" : "Find Picks"}</span>
-          </Button>
-
-          {!isDrawer && watched.length < 5 && onOpenTasteDeck && (
-            <Button variant="secondary" size="lg" onClick={onOpenTasteDeck}>
-              <span>Taste Calibration (30)</span>
-            </Button>
-          )}
-
-          {!isDrawer && canTrySampleVault && (
-            <Button variant="secondary" size="lg" onClick={() => loadSampleVault()}>
-              <span>Try a sample vault</span>
-            </Button>
-          )}
-
-          {isDrawer && (
-            <Button variant="ghost" size="lg" onClick={handleResetSearch}>
-              <RotateCcw size={15} aria-hidden="true" />
-              <span>Start over</span>
-            </Button>
-          )}
-        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const navigateToRec = (rec) => {
     const id = rec.imdbID || (rec.tmdbId ? `tmdb_${rec.tmdbId}` : rec.id);
@@ -1224,14 +974,13 @@ export default function MovieRecommendations({
                 className={`oracle-filter-btn ${showFilterDeck ? "is-open" : ""}`}
                 onClick={() => (showFilterDeck ? handleCloseFilterDeck() : setShowFilterDeck(true))}
               >
-                <SlidersHorizontal size={13} aria-hidden="true" />
+                <Sparkles size={13} aria-hidden="true" />
                 <span>
                   {activeMoodFilters
                     ? selectedMood !== "any"
                       ? `${activeMoodObj.label} (Custom)`
                       : "Custom Vibe"
                     : activeMoodObj.label}
-                  {hasStreamingFilter ? " · Streaming filtered" : ""}
                 </span>
                 {showFilterDeck ? (
                   <ChevronUp size={13} aria-hidden="true" />
@@ -1240,16 +989,30 @@ export default function MovieRecommendations({
                 )}
               </Button>
 
-              <Button
+              <button
+                ref={toolbarPrefsBtnRef}
                 type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsKeyModalOpen(true)}
-                title={usingOwnKey ? "Using your browser-stored Gemini key" : "Use your own free Gemini key (optional)"}
+                className={`oracle-prefs-trigger oracle-prefs-trigger-sm ${
+                  prefsSummary.badgeCount > 0 ? "has-active" : ""
+                } ${isPrefsOpen && prefsAnchorRef === toolbarPrefsBtnRef ? "is-open" : ""}`}
+                onClick={() => handleOpenPrefs(toolbarPrefsBtnRef, "streaming")}
+                aria-haspopup="dialog"
+                aria-expanded={isPrefsOpen && prefsAnchorRef === toolbarPrefsBtnRef}
+                title="Streaming region, platforms, Taste Rules, and AI key"
               >
-                <KeyRound size={13} aria-hidden="true" />
-                <span>{usingOwnKey ? "Personal key active" : "AI key"}</span>
-              </Button>
+                <SlidersHorizontal size={13} aria-hidden="true" />
+                <span className="oracle-prefs-trigger-label">Filters &amp; Rules</span>
+                {prefsSummary.badgeCount > 0 && (
+                  <span className="oracle-prefs-badge tabular-num">{prefsSummary.badgeCount}</span>
+                )}
+                <ChevronDown
+                  size={13}
+                  className={`oracle-prefs-chevron ${
+                    isPrefsOpen && prefsAnchorRef === toolbarPrefsBtnRef ? "is-open" : ""
+                  }`}
+                  aria-hidden="true"
+                />
+              </button>
 
               <div className="recs-sort-controls">
                 <Select
@@ -1265,6 +1028,18 @@ export default function MovieRecommendations({
                   ]}
                 />
               </div>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleGetRecommendations({ forceRefresh: true })}
+                disabled={isLoading || isEnhancingWithGemini}
+                title="Refresh recommendations"
+              >
+                <RefreshCw size={13} className={isLoading ? "spin-icon" : ""} aria-hidden="true" />
+                <span>Refresh</span>
+              </Button>
             </div>
           </div>
 
@@ -1299,11 +1074,12 @@ export default function MovieRecommendations({
                 <motion.li
                   key={rec.id || rec.tmdbId || index}
                   className="recommendation-row"
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  initial={{ opacity: 0, y: 18 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.1 }}
                   transition={{
-                    duration: 0.38,
-                    delay: Math.min(index * 0.035, 0.14),
+                    duration: 0.42,
+                    delay: Math.min((index % 5) * 0.045, 0.18),
                     ease: [0.22, 1, 0.36, 1]
                   }}
                 >
@@ -1529,6 +1305,29 @@ export default function MovieRecommendations({
           </div>
         </div>
       )}
+
+      <OraclePreferencesPopover
+        isOpen={isPrefsOpen}
+        onClose={handleClosePrefs}
+        triggerRef={prefsAnchorRef}
+        userRegion={userRegion}
+        setUserRegion={setUserRegion}
+        userWatchProviders={userWatchProviders}
+        setUserWatchProviders={setUserWatchProviders}
+        toggleWatchProvider={toggleWatchProvider}
+        tasteRules={tasteRules}
+        onAddRule={handleAddRule}
+        onToggleRule={toggleTasteRuleActive}
+        onEditRule={updateTasteRule}
+        onDeleteRule={deleteTasteRule}
+        onPinRule={toggleTasteRulePin}
+        onAutoDraft={handleAutoDraftRules}
+        isDraftingRules={isDraftingRules}
+        watchedCount={watched.length}
+        usingOwnKey={usingOwnKey}
+        onOpenKeyModal={() => setIsKeyModalOpen(true)}
+        initialTab={prefsInitialTab}
+      />
 
       <QuickRateModal
         movie={quickRateRec}

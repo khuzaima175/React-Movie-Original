@@ -11,7 +11,8 @@ import {
   sanitizeOracleReason,
   formatActiveVibeNote,
   nextRefreshExcludeState,
-  shouldAutoRefreshOnDrawerClose
+  shouldAutoRefreshOnDrawerClose,
+  summarizeOraclePreferences
 } from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
@@ -291,4 +292,47 @@ test("selectStudioBackdropPoster returns null for empty or posterless watched ar
     selectStudioBackdropPoster([{ imdbID: "tt1", userRating: 10, poster: "N/A" }]),
     null
   );
+});
+
+
+test("summarizeOraclePreferences returns default label and zero badge when no filters or rules are active", () => {
+  const result = summarizeOraclePreferences({
+    userRegion: "GLOBAL",
+    userWatchProviders: [],
+    tasteRules: [{ id: "r1", text: "Paused rule", polarity: "avoid", active: false }],
+    usingOwnKey: false
+  });
+  assert.deepEqual(result, {
+    badgeCount: 0,
+    summaryText: "Filters & Rules"
+  });
+});
+
+test("summarizeOraclePreferences counts active region, streaming platforms, active rules, and personal key without emojis or model slugs", () => {
+  const result = summarizeOraclePreferences({
+    userRegion: "US",
+    userWatchProviders: [8, 1899],
+    tasteRules: [
+      { id: "r1", text: "No horror", polarity: "avoid", active: true },
+      { id: "r2", text: "Paused", polarity: "prefer", active: false }
+    ],
+    usingOwnKey: false
+  });
+
+  assert.equal(result.badgeCount, 3);
+  assert.equal(result.summaryText, "US · 2 platforms · 1 rule");
+  assert.equal(/gemini-/i.test(result.summaryText), false);
+  assert.equal(/\p{Extended_Pictographic}/u.test(result.summaryText), false);
+
+  const withKey = summarizeOraclePreferences({
+    userRegion: "GLOBAL",
+    userWatchProviders: [8],
+    tasteRules: [
+      { id: "r1", text: "Prefer noir", polarity: "prefer", active: true },
+      { id: "r2", text: "Avoid musicals", polarity: "avoid", active: true }
+    ],
+    usingOwnKey: true
+  });
+  assert.equal(withKey.badgeCount, 4);
+  assert.equal(withKey.summaryText, "1 platform · 2 rules · Personal key");
 });
