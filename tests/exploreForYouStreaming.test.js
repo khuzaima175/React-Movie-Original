@@ -160,3 +160,59 @@ test("generateExploreForYouPool stops cleanly on AbortSignal without invoking Fl
   assert.equal(aiCalled, false, "Flash-Lite must not run after AbortSignal aborts");
   assert.equal(result.aborted, true);
 });
+
+test("preliminary Wave 2 cache entries serve stale-while-revalidate fallback without bypassing loadExploreForYouCache", async () => {
+  const { loadExploreForYouCache } = await import("../src/services/exploreForYouCache.js");
+  const now = 1_950_000_000_000;
+  await clearExploreForYouCache();
+
+  await saveExploreForYouCache({
+    profileHash: "explore_fy_v3_prelim",
+    items: [makeCandidate(4001, "Prelim Film")],
+    source: "local-ranker",
+    generatedAt: now,
+    isPreliminary: true
+  });
+
+  const exactHit = await loadExploreForYouCache({ profileHash: "explore_fy_v3_prelim", now: now + 1000 });
+  assert.equal(exactHit, null, "Preliminary Wave 2 record must not short-circuit Wave 3 / cloud cache");
+
+  const staleHit = await loadLatestLocalExploreForYouFallback({ now: now + 1000 });
+  assert.ok(staleHit);
+  assert.equal(staleHit.items[0].tmdbId, 4001);
+});
+
+test("generateExploreForYouPool Wave 2 passes page: 2, Wave 1 excludeIds, and propagates AbortSignal to enrichPoolFn", async () => {
+  const controller = new AbortController();
+  const capturedOpts = [];
+  let enrichSignal = null;
+
+  await generateExploreForYouPool({
+    watched: [
+      { tmdbId: 1, title: "A", userRating: 9, tmdbGenreIds: [878] },
+      { tmdbId: 2, title: "B", userRating: 9, tmdbGenreIds: [878] },
+      { tmdbId: 3, title: "C", userRating: 9, tmdbGenreIds: [878] }
+    ],
+    embeddingIndex: null,
+    contentIndex: null,
+    dnaIndex: null,
+    aiClient: null,
+    signal: controller.signal,
+    fetchCandidatePoolFn: async (_p, _m, _w, _wl, opts) => {
+      capturedOpts.push(opts);
+      return opts.page === 1
+        ? [makeCandidate(5001, "W1 Film")]
+        : [makeCandidate(5002, "W2 Film")];
+    },
+    enrichPoolFn: async (pool, opts) => {
+      enrichSignal = opts?.signal || null;
+      return pool;
+    }
+  });
+
+  assert.equal(capturedOpts.length, 2);
+  assert.equal(capturedOpts[0].page, 1);
+  assert.equal(capturedOpts[1].page, 2);
+  assert.ok(capturedOpts[1].excludeIds.includes(5001));
+  assert.equal(enrichSignal, controller.signal);
+});

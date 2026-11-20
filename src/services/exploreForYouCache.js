@@ -161,8 +161,9 @@ async function clearAllLocalRecords() {
   });
 }
 
-function isFreshRecord(record, profileHash, now) {
+function isFreshRecord(record, profileHash, now, { allowPreliminary = false } = {}) {
   if (!record || !Array.isArray(record.items) || record.items.length === 0) return false;
+  if (!allowPreliminary && record.isPreliminary) return false;
   if (record.profileHash !== profileHash) return false;
   const ts = Number(record.generatedAt) || 0;
   return ts > 0 && now - ts < EXPLORE_FOR_YOU_TTL_MS;
@@ -236,6 +237,7 @@ export async function saveExploreForYouCache({
   source = "local-ranker",
   modelUsed = null,
   generatedAt = Date.now(),
+  isPreliminary = false,
   userId = null,
   hasSampleData = false,
   supabaseClient = undefined
@@ -254,10 +256,11 @@ export async function saveExploreForYouCache({
     items: compactItems,
     source,
     modelUsed,
-    generatedAt
+    generatedAt,
+    isPreliminary: Boolean(isPreliminary)
   });
 
-  if (!userId || hasSampleData) return;
+  if (isPreliminary || !userId || hasSampleData) return;
   const supabase = supabaseClient !== undefined ? supabaseClient : await getSupabaseClientAsync();
   if (!supabase) return;
 

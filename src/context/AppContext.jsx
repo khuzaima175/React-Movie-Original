@@ -51,6 +51,7 @@ export { STORAGE_PURGE_ORDER };
 const AppContext = createContext(null);
 const DELETED_VAULT_KEYS_STORAGE = "cinemavault_deleted_keys_v1";
 const LAST_SYNCED_AT_STORAGE = "cinemavault_last_synced_at_v1";
+const LOCAL_PREFS_UPDATED_AT_STORAGE = "cinemavault_prefs_updated_at_v1";
 
 /**
  * Safe LocalStorage setter with tiered LRU eviction policy & 2-stage vault compaction.
@@ -198,8 +199,19 @@ export function AppProvider({ children }) {
   const lastSyncedAtRef = useRef(lastSyncedAt);
   const authListenerBoundRef = useRef(false);
   const authSubscriptionRef = useRef(null);
+  const initAuthPromiseRef = useRef(null);
+  const sessionEpochRef = useRef(0);
+  const cloudProfileHydratedRef = useRef(false);
+  const localPrefsUpdatedAtRef = useRef((() => {
+    try {
+      return localStorage.getItem(LOCAL_PREFS_UPDATED_AT_STORAGE) || null;
+    } catch {
+      return null;
+    }
+  })());
   const profileSyncTimerRef = useRef(null);
   const suppressProfileSyncRef = useRef(false);
+  const prefsEffectMountedRef = useRef({ region: false, providers: false, rules: false });
   const deletedVaultKeysRef = useRef((() => {
     try {
       const raw = localStorage.getItem(DELETED_VAULT_KEYS_STORAGE);
@@ -255,55 +267,111 @@ export function AppProvider({ children }) {
     if (compareNoticeTimerRef.current) clearTimeout(compareNoticeTimerRef.current);
   }, []);
 
+  const persistLocalPrefsUpdatedAt = useCallback((iso) => {
+    localPrefsUpdatedAtRef.current = iso || null;
+    try {
+      if (iso) localStorage.setItem(LOCAL_PREFS_UPDATED_AT_STORAGE, iso);
+      else localStorage.removeItem(LOCAL_PREFS_UPDATED_AT_STORAGE);
+    } catch (_) {}
+  }, []);
+
   const scheduleProfileFlush = useCallback(() => {
     if (!cloudUserRef.current?.id || !hasCloudConfig || suppressProfileSyncRef.current) return;
     if (profileSyncTimerRef.current) {
       clearTimeout(profileSyncTimerRef.current);
     }
+    const targetUserId = cloudUserRef.current.id;
+    const epoch = sessionEpochRef.current;
     profileSyncTimerRef.current = setTimeout(async () => {
       profileSyncTimerRef.current = null;
-      const activeUser = cloudUserRef.current;
+      if (sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== targetUserId) return;
       const supabase = await getSupabaseClientAsync();
-      if (!supabase || !activeUser?.id) return;
+      if (!supabase || sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== targetUserId) {
+        return;
+      }
       try {
-        await supabase.from("profiles").upsert(
-          {
-            id: activeUser.id,
-            display_name: cloudProfileRef.current?.displayName || null,
-            user_region: userRegionRef.current || "GLOBAL",
-            preferred_providers: Array.isArray(userWatchProvidersRef.current)
-              ? userWatchProvidersRef.current
-              : [],
-            taste_rules: normalizeTasteRules(tasteRulesRef.current || [])
-          },
-          { onConflict: "id" }
-        );
+        const prefFields = {
+          user_region: userRegionRef.current || "GLOBAL",
+          preferred_providers: Array.isArray(userWatchProvidersRef.current)
+            ? userWatchProvidersRef.current
+            : [],
+          taste_rules: normalizeTasteRules(tasteRulesRef.current || [])
+        };
+        let writeError = null;
+        if (cloudProfileHydratedRef.current) {
+          const { error } = await supabase
+            .from("profiles")
+            .upsert(
+              {
+                id: targetUserId,
+                display_name: cloudProfileRef.current?.displayName || null,
+                ...prefFields
+              },
+              { onConflict: "id" }
+            );
+          writeError = error;
+        } else {
+          // Never clobber display_name before initial profile hydration finishes
+          const { error } = await supabase
+            .from("profiles")
+            .update(prefFields)
+            .eq("id", targetUserId);
+          writeError = error;
+        }
+        if (writeError) {
+          console.warn("Profile preference flush failed:", writeError.message);
+          return;
+        }
+        if (sessionEpochRef.current === epoch && cloudUserRef.current?.id === targetUserId) {
+          persistLastSyncedAt(new Date().toISOString());
+        }
       } catch {
         // Non-fatal; will reconcile on next full sync
       }
     }, 900);
-  }, [hasCloudConfig]);
+  }, [hasCloudConfig, persistLastSyncedAt]);
 
   useEffect(() => {
     userRegionRef.current = userRegion || "GLOBAL";
     try {
       localStorage.setItem("cinemavault_user_region", userRegion);
     } catch (_) {}
-    scheduleProfileFlush();
-  }, [userRegion, scheduleProfileFlush]);
+    if (!prefsEffectMountedRef.current.region) {
+      prefsEffectMountedRef.current.region = true;
+      return;
+    }
+    if (!suppressProfileSyncRef.current) {
+      persistLocalPrefsUpdatedAt(new Date().toISOString());
+      scheduleProfileFlush();
+    }
+  }, [userRegion, persistLocalPrefsUpdatedAt, scheduleProfileFlush]);
 
   useEffect(() => {
     userWatchProvidersRef.current = Array.isArray(userWatchProviders) ? userWatchProviders : [];
     safeSetItem("cinemavault_user_providers", userWatchProviders || []);
-    scheduleProfileFlush();
-  }, [userWatchProviders, scheduleProfileFlush]);
+    if (!prefsEffectMountedRef.current.providers) {
+      prefsEffectMountedRef.current.providers = true;
+      return;
+    }
+    if (!suppressProfileSyncRef.current) {
+      persistLocalPrefsUpdatedAt(new Date().toISOString());
+      scheduleProfileFlush();
+    }
+  }, [userWatchProviders, persistLocalPrefsUpdatedAt, scheduleProfileFlush]);
 
   useEffect(() => {
     const normalized = normalizeTasteRules(tasteRules || []);
     tasteRulesRef.current = normalized;
     safeSetItem("cinemavault_taste_rules_v1", normalized);
-    scheduleProfileFlush();
-  }, [tasteRules, scheduleProfileFlush]);
+    if (!prefsEffectMountedRef.current.rules) {
+      prefsEffectMountedRef.current.rules = true;
+      return;
+    }
+    if (!suppressProfileSyncRef.current) {
+      persistLocalPrefsUpdatedAt(new Date().toISOString());
+      scheduleProfileFlush();
+    }
+  }, [tasteRules, persistLocalPrefsUpdatedAt, scheduleProfileFlush]);
 
   useEffect(() => {
     if (aiRecommendations) {
@@ -438,6 +506,7 @@ export function AppProvider({ children }) {
       return { ok: false };
     }
 
+    const epoch = sessionEpochRef.current;
     syncInFlightRef.current = true;
     setCloudSyncStatus("syncing");
     setCloudError(null);
@@ -447,7 +516,14 @@ export function AppProvider({ children }) {
         clearTimeout(syncTimerRef.current);
         syncTimerRef.current = null;
       }
+      if (profileSyncTimerRef.current) {
+        clearTimeout(profileSyncTimerRef.current);
+        profileSyncTimerRef.current = null;
+      }
       await flushCloudMutations();
+      if (sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== userObj.id) {
+        return { ok: false };
+      }
       setCloudSyncStatus("syncing");
 
       const mergedPrefs = await pullAndSyncProfilePreferences(supabase, {
@@ -460,37 +536,40 @@ export function AppProvider({ children }) {
             : [],
           tasteRules: tasteRulesRef.current || []
         },
-        lastSyncedAt: lastSyncedAtRef.current || null
+        lastSyncedAt: lastSyncedAtRef.current || null,
+        localPrefsUpdatedAt: localPrefsUpdatedAtRef.current || null
       });
 
-      suppressProfileSyncRef.current = true;
-      try {
-        const nextProfile = { displayName: mergedPrefs.displayName || "" };
-        cloudProfileRef.current = nextProfile;
-        setCloudProfile(nextProfile);
-        if (mergedPrefs.userRegion && mergedPrefs.userRegion !== userRegionRef.current) {
-          userRegionRef.current = mergedPrefs.userRegion;
-          setUserRegion(mergedPrefs.userRegion);
-        }
-        if (
-          JSON.stringify(mergedPrefs.userWatchProviders) !==
-          JSON.stringify(userWatchProvidersRef.current)
-        ) {
-          userWatchProvidersRef.current = mergedPrefs.userWatchProviders;
-          setUserWatchProviders(mergedPrefs.userWatchProviders);
-        }
-        if (
-          JSON.stringify(mergedPrefs.tasteRules) !==
-          JSON.stringify(normalizeTasteRules(tasteRulesRef.current || []))
-        ) {
-          tasteRulesRef.current = mergedPrefs.tasteRules;
-          setTasteRulesState(mergedPrefs.tasteRules);
-        }
-      } finally {
-        setTimeout(() => {
-          suppressProfileSyncRef.current = false;
-        }, 0);
+      if (sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== userObj.id) {
+        return { ok: false };
       }
+
+      cloudProfileHydratedRef.current = true;
+      suppressProfileSyncRef.current = true;
+      const nextProfile = { displayName: mergedPrefs.displayName || "" };
+      cloudProfileRef.current = nextProfile;
+      setCloudProfile(nextProfile);
+      if (mergedPrefs.userRegion && mergedPrefs.userRegion !== userRegionRef.current) {
+        userRegionRef.current = mergedPrefs.userRegion;
+        setUserRegion(mergedPrefs.userRegion);
+      }
+      if (
+        JSON.stringify(mergedPrefs.userWatchProviders) !==
+        JSON.stringify(userWatchProvidersRef.current)
+      ) {
+        userWatchProvidersRef.current = mergedPrefs.userWatchProviders;
+        setUserWatchProviders(mergedPrefs.userWatchProviders);
+      }
+      if (
+        JSON.stringify(mergedPrefs.tasteRules) !==
+        JSON.stringify(normalizeTasteRules(tasteRulesRef.current || []))
+      ) {
+        tasteRulesRef.current = mergedPrefs.tasteRules;
+        setTasteRulesState(mergedPrefs.tasteRules);
+      }
+      requestAnimationFrame(() => {
+        suppressProfileSyncRef.current = false;
+      });
 
       const nowIso = new Date().toISOString();
       await pullAndSyncCloudVault(supabase, {
@@ -501,6 +580,9 @@ export function AppProvider({ children }) {
         deletedKeys: deletedVaultKeysRef.current || {},
         lastSyncedAt: lastSyncedAtRef.current || null,
         onMerged: ({ mergedWatched, mergedWatchlist }) => {
+          if (sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== userObj.id) {
+            return;
+          }
           watchedRef.current = mergedWatched;
           watchlistRef.current = mergedWatchlist;
           setWatched(mergedWatched);
@@ -508,112 +590,138 @@ export function AppProvider({ children }) {
         }
       });
 
+      if (sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== userObj.id) {
+        return { ok: false };
+      }
+
       const syncedTimestamp = new Date().toISOString();
       lastAutoSyncedUserIdRef.current = userObj.id;
       setCloudSyncStatus("synced");
       persistLastSyncedAt(syncedTimestamp);
       return { ok: true };
     } catch (err) {
-      setCloudSyncStatus("error");
-      setCloudError(err?.message || "Failed to sync vault with cloud.");
+      if (sessionEpochRef.current === epoch && cloudUserRef.current?.id === userObj.id) {
+        setCloudSyncStatus("error");
+        setCloudError(err?.message || "Failed to sync vault with cloud.");
+      }
       return { ok: false, error: err?.message };
     } finally {
       syncInFlightRef.current = false;
     }
-  }, [flushCloudMutations]);
+  }, [flushCloudMutations, persistLastSyncedAt]);
 
   const initAuthSession = useCallback(async () => {
     if (!hasCloudConfig) {
       setIsAuthLoading(false);
       return null;
     }
-    const supabase = await getSupabaseClientAsync();
-    if (!supabase) {
-      setIsAuthLoading(false);
-      return null;
+    if (initAuthPromiseRef.current) {
+      return initAuthPromiseRef.current;
     }
 
-    if (!authListenerBoundRef.current) {
-      authListenerBoundRef.current = true;
-      const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === "PASSWORD_RECOVERY") {
-          setIsPasswordRecovery(true);
-        }
-        if (!session?.user?.id) {
-          if (syncTimerRef.current) {
-            clearTimeout(syncTimerRef.current);
-            syncTimerRef.current = null;
+    const startEpoch = sessionEpochRef.current;
+    const run = (async () => {
+      const supabase = await getSupabaseClientAsync();
+      if (!supabase) {
+        setIsAuthLoading(false);
+        return null;
+      }
+
+      if (!authListenerBoundRef.current) {
+        authListenerBoundRef.current = true;
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+          if (event === "PASSWORD_RECOVERY") {
+            setIsPasswordRecovery(true);
           }
-          if (profileSyncTimerRef.current) {
-            clearTimeout(profileSyncTimerRef.current);
-            profileSyncTimerRef.current = null;
+          if (!session?.user?.id) {
+            sessionEpochRef.current += 1;
+            cloudProfileHydratedRef.current = false;
+            if (syncTimerRef.current) {
+              clearTimeout(syncTimerRef.current);
+              syncTimerRef.current = null;
+            }
+            if (profileSyncTimerRef.current) {
+              clearTimeout(profileSyncTimerRef.current);
+              profileSyncTimerRef.current = null;
+            }
+            pendingUpsertsRef.current.clear();
+            pendingDeletesRef.current.clear();
+            lastAutoSyncedUserIdRef.current = null;
+            cloudUserRef.current = null;
+            cloudProfileRef.current = { displayName: "" };
+            setCloudUser(null);
+            setCloudProfile({ displayName: "" });
+            setCloudSyncStatus("idle");
+            setCloudError(null);
+            persistLastSyncedAt(null);
+            return;
           }
-          pendingUpsertsRef.current.clear();
-          pendingDeletesRef.current.clear();
-          lastAutoSyncedUserIdRef.current = null;
-          cloudUserRef.current = null;
-          cloudProfileRef.current = { displayName: "" };
-          setCloudUser(null);
-          setCloudProfile({ displayName: "" });
-          setCloudSyncStatus("idle");
-          setCloudError(null);
-          persistLastSyncedAt(null);
-          return;
-        }
 
-        const nextUser = {
-          id: session.user.id,
-          email: session.user.email || null,
-          displayName: session.user.user_metadata?.display_name || ""
-        };
-        cloudUserRef.current = nextUser;
-        setCloudUser(nextUser);
-
-        if (
-          (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "INITIAL_SESSION") &&
-          lastAutoSyncedUserIdRef.current !== nextUser.id
-        ) {
-          syncVaultWithCloud(nextUser);
-        }
-      });
-      authSubscriptionRef.current = authListener?.subscription || null;
-    }
-
-    try {
-      let normalizedUser = null;
-      if (typeof supabase.auth.getClaims === "function") {
-        const { data } = await supabase.auth.getClaims();
-        if (data?.claims?.sub) {
-          normalizedUser = {
-            id: data.claims.sub,
-            email: data.claims.email || null
+          const nextUser = {
+            id: session.user.id,
+            email: session.user.email || null,
+            displayName: session.user.user_metadata?.display_name || ""
           };
-        }
+          if (cloudUserRef.current?.id && cloudUserRef.current.id !== nextUser.id) {
+            sessionEpochRef.current += 1;
+            cloudProfileHydratedRef.current = false;
+          }
+          cloudUserRef.current = nextUser;
+          setCloudUser(nextUser);
+
+          if (
+            (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "INITIAL_SESSION") &&
+            lastAutoSyncedUserIdRef.current !== nextUser.id
+          ) {
+            syncVaultWithCloud(nextUser);
+          }
+        });
+        authSubscriptionRef.current = authListener?.subscription || null;
       }
-      if (!normalizedUser && typeof supabase.auth.getUser === "function") {
-        const { data } = await supabase.auth.getUser();
-        if (data?.user?.id) {
-          normalizedUser = {
-            id: data.user.id,
-            email: data.user.email || null,
-            displayName: data.user.user_metadata?.display_name || ""
-          };
+
+      try {
+        let normalizedUser = null;
+        if (typeof supabase.auth.getClaims === "function") {
+          const { data } = await supabase.auth.getClaims();
+          if (data?.claims?.sub) {
+            normalizedUser = {
+              id: data.claims.sub,
+              email: data.claims.email || null
+            };
+          }
         }
-      }
-      if (normalizedUser) {
-        cloudUserRef.current = normalizedUser;
-        setCloudUser(normalizedUser);
-        if (lastAutoSyncedUserIdRef.current !== normalizedUser.id) {
-          syncVaultWithCloud(normalizedUser);
+        if (!normalizedUser && typeof supabase.auth.getUser === "function") {
+          const { data } = await supabase.auth.getUser();
+          if (data?.user?.id) {
+            normalizedUser = {
+              id: data.user.id,
+              email: data.user.email || null,
+              displayName: data.user.user_metadata?.display_name || ""
+            };
+          }
         }
+        if (sessionEpochRef.current !== startEpoch) {
+          return supabase;
+        }
+        if (normalizedUser) {
+          cloudUserRef.current = normalizedUser;
+          setCloudUser(normalizedUser);
+          if (lastAutoSyncedUserIdRef.current !== normalizedUser.id) {
+            syncVaultWithCloud(normalizedUser);
+          }
+        }
+        return supabase;
+      } catch (err) {
+        console.warn("Supabase initial session check failed:", err);
+        return supabase;
+      } finally {
+        setIsAuthLoading(false);
+        initAuthPromiseRef.current = null;
       }
-      return supabase;
-    } catch (err) {
-      console.warn("Supabase initial session check failed:", err);
-      return supabase;
-    } finally {
-      setIsAuthLoading(false);
-    }
+    })();
+
+    initAuthPromiseRef.current = run;
+    return run;
   }, [hasCloudConfig, persistLastSyncedAt, syncVaultWithCloud]);
 
   useEffect(() => {
@@ -908,6 +1016,8 @@ export function AppProvider({ children }) {
   }, []);
 
   async function signOutCloud({ clearLocal = false } = {}) {
+    sessionEpochRef.current += 1;
+    cloudProfileHydratedRef.current = false;
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
       syncTimerRef.current = null;
@@ -919,13 +1029,13 @@ export function AppProvider({ children }) {
     pendingUpsertsRef.current.clear();
     pendingDeletesRef.current.clear();
     lastAutoSyncedUserIdRef.current = null;
+    cloudUserRef.current = null;
+    cloudProfileRef.current = { displayName: "" };
 
     const supabase = getSupabaseClient() || (await getSupabaseClientAsync());
     if (supabase) {
       await supabase.auth.signOut();
     }
-    cloudUserRef.current = null;
-    cloudProfileRef.current = { displayName: "" };
     setCloudUser(null);
     setCloudProfile({ displayName: "" });
     setIsPasswordRecovery(false);
@@ -935,17 +1045,33 @@ export function AppProvider({ children }) {
     persistDeletedVaultKeys({});
 
     if (clearLocal) {
+      suppressProfileSyncRef.current = true;
       watchedRef.current = [];
       watchlistRef.current = [];
       tasteRulesRef.current = [];
+      userRegionRef.current = "GLOBAL";
+      userWatchProvidersRef.current = [];
+      compareItemsRef.current = [];
       setWatched([]);
       setWatchlist([]);
       setTasteRulesState([]);
+      setUserRegion("GLOBAL");
+      setUserWatchProviders([]);
+      setAiFeedbackLog([]);
+      setCompareItems([]);
       setAiRecommendations(null);
       setAiTasteProfile(null);
       setAiRecommendationsHash("");
       setAiModelInfo(null);
+      persistLocalPrefsUpdatedAt(null);
+      try {
+        sessionStorage.removeItem(COMPARE_STORAGE_KEY);
+        localStorage.removeItem("cinemavault_tmdb_backfill_checked_v1");
+      } catch (_) {}
       clearExploreForYouCache().catch(() => {});
+      requestAnimationFrame(() => {
+        suppressProfileSyncRef.current = false;
+      });
     }
   }
 
@@ -1004,12 +1130,12 @@ export function AppProvider({ children }) {
     setCloudError(null);
     try {
       const rows = [
-        ...stampedWatched.map((m) =>
-          mapLocalMovieToDbRow(m, "watched", activeUser.id, m.updatedAt || nowIso)
-        ),
-        ...stampedWatchlist.map((m) =>
-          mapLocalMovieToDbRow(m, "watchlist", activeUser.id, m.updatedAt || nowIso)
-        )
+        ...stampedWatched
+          .filter((m) => !isSampleItem(m))
+          .map((m) => mapLocalMovieToDbRow(m, "watched", activeUser.id, m.updatedAt || nowIso)),
+        ...stampedWatchlist
+          .filter((m) => !isSampleItem(m))
+          .map((m) => mapLocalMovieToDbRow(m, "watchlist", activeUser.id, m.updatedAt || nowIso))
       ].filter((r) => r.movie_key);
 
       for (let i = 0; i < rows.length; i += 100) {
@@ -1223,6 +1349,7 @@ export function AppProvider({ children }) {
       updatedAt,
       ...(resolvedRecSource ? { recSource: resolvedRecSource } : {})
     };
+    delete normalizedMovie.isSample;
     if (findMatchingMovie(watchlistRef.current, normalizedMovie)) return;
     setWatchlist((prev) => (findMatchingMovie(prev, normalizedMovie) ? prev : [...(prev || []), normalizedMovie]));
     const wlCanonicalKey = getCanonicalMovieKey(normalizedMovie);

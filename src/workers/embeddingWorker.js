@@ -1,5 +1,6 @@
 import {
   loadDefaultEmbeddingIndex,
+  computeUserEmbedding,
   buildCollabSimMapFromIndex,
   buildRepulsionMapFromIndex,
   getCollabCatalogMax,
@@ -30,6 +31,7 @@ self.onmessage = async (event) => {
           collabEntries: [],
           repulsionEntries: [],
           collabCatalogMax: null,
+          collabUserVec: null,
           alignedNeighbors: []
         }
       });
@@ -38,12 +40,14 @@ self.onmessage = async (event) => {
 
     const weightedRatings = Array.isArray(payload?.weightedRatings) ? payload.weightedRatings : [];
     const excludeSet = new Set(Array.isArray(payload?.excludeNumericIds) ? payload.excludeNumericIds : []);
-    const topK = Number(payload?.topK) || 240;
-    const repulsionWeight = Number(payload?.repulsionWeight) || 0.25;
+    const topK = Number.isFinite(Number(payload?.topK)) ? Number(payload.topK) : 240;
+    const rawRepulsionWeight = Number(payload?.repulsionWeight);
+    const repulsionWeight = Number.isFinite(rawRepulsionWeight) ? rawRepulsionWeight : 0.25;
 
     const collabSimMap = buildCollabSimMapFromIndex(weightedRatings, embeddingIndex);
     const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, embeddingIndex);
     const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
+    const collabUserVec = computeUserEmbedding(weightedRatings, embeddingIndex);
     const alignedNeighbors = retrieveAlignedEmbeddingNeighbors(
       weightedRatings,
       embeddingIndex,
@@ -65,6 +69,7 @@ self.onmessage = async (event) => {
         collabEntries: collabSimMap ? [...collabSimMap.entries()] : [],
         repulsionEntries: repulsionMap ? [...repulsionMap.entries()] : [],
         collabCatalogMax,
+        collabUserVec: collabUserVec ? Array.from(collabUserVec) : null,
         alignedNeighbors
       }
     });

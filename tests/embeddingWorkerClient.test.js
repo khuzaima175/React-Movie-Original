@@ -43,6 +43,8 @@ test("computeExploreEmbeddingSignals falls back cleanly to main-thread embedding
   assert.equal(result.usedWorker, false);
   assert.ok(result.collabSimMap instanceof Map);
   assert.ok(result.collabSimMap.get(20) > 0.8);
+  assert.ok(result.collabUserVec instanceof Float32Array);
+  assert.equal(result.collabUserVec.length, 4);
   assert.ok(result.repulsionMap instanceof Map);
   assert.ok(Array.isArray(result.alignedNeighbors));
   assert.equal(result.alignedNeighbors[0]?.tmdbId, 20);

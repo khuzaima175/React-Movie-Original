@@ -56,6 +56,7 @@ import {
   saveExploreForYouCache
 } from "../services/exploreForYouCache";
 import { isSameMovie } from "../services/movieIdentity";
+import { compileActiveTasteRules, candidateMatchesAvoidRule } from "../services/tasteRulesService";
 import "../styles/explore.css";
 
 const VOTE_FLOOR_OPTIONS = [
@@ -413,7 +414,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     let cancelled = false;
     const controller = new AbortController();
     const forceRefresh = forYouRefreshNonce !== handledRefreshNonceRef.current;
-    handledRefreshNonceRef.current = forYouRefreshNonce;
+    let pendingCacheWrite = Promise.resolve();
 
     async function loadOrBuildForYou() {
       setForYouError("");
@@ -450,10 +451,12 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           // Instant stale-while-revalidate fallback (~50ms) when user recently rated/changed a film
           const staleFallback = await loadLatestLocalExploreForYouFallback();
           if (!cancelled && forYouSeqRef.current === seq && staleFallback?.items?.length > 0) {
+            const compiledRules = compileActiveTasteRules(tasteRules);
             const unseenStale = staleFallback.items.filter(
               (item) =>
                 !watched.some((w) => isSameMovie(w, item)) &&
-                !watchlist.some((w) => isSameMovie(w, item))
+                !watchlist.some((w) => isSameMovie(w, item)) &&
+                !candidateMatchesAvoidRule(item, compiledRules)
             );
             if (unseenStale.length > 0) {
               setForYouState({
@@ -497,13 +500,15 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               setIsForYouLoading(false);
               setIsForYouEnhancing(true);
               if (prelim.stage === "wave2") {
-                // Persist full math pool immediately so returning visits are instant even if user leaves mid-AI-polish
-                saveExploreForYouCache({
+                // Save as preliminary so returning visits get instant stale-while-revalidate
+                // without skipping Wave 3 AI polish or Supabase cloud sync.
+                pendingCacheWrite = saveExploreForYouCache({
                   profileHash: prelim.profileHash,
                   items: prelim.items,
                   source: prelim.source,
                   modelUsed: null,
                   generatedAt: prelim.generatedAt,
+                  isPreliminary: true,
                   userId: null,
                   hasSampleData
                 }).catch(() => {});
@@ -514,6 +519,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
         if (cancelled || result?.aborted || forYouSeqRef.current !== seq) return;
 
+        handledRefreshNonceRef.current = forYouRefreshNonce;
         setForYouState({
           profileHash: result.profileHash,
           items: result.items,
@@ -524,12 +530,15 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
         setIsForYouEnhancing(false);
         setForYouStageNote("");
 
+        await pendingCacheWrite;
+        if (cancelled || forYouSeqRef.current !== seq) return;
         saveExploreForYouCache({
           profileHash: result.profileHash,
           items: result.items,
           source: result.source,
           modelUsed: result.modelUsed,
           generatedAt: result.generatedAt,
+          isPreliminary: false,
           userId: cloudUser?.id || null,
           hasSampleData
         }).catch(() => {});

@@ -1,3 +1,5 @@
+import { normalizeTasteRules } from "./tasteRulesService.js";
+
 const CORE_SQL_FIELDS = new Set([
   "imdbID",
   "id",
@@ -570,27 +572,23 @@ function sanitizeProvidersArray(list) {
 }
 
 function sanitizeTasteRulesArray(list) {
-  if (!Array.isArray(list)) return [];
-  return list
-    .filter((r) => r && typeof r === "object" && String(r.text || "").trim().length > 0)
-    .slice(0, 8)
-    .map((r, idx) => ({
-      id: String(r.id || `rule_${idx + 1}`).slice(0, 64),
-      text: String(r.text || "").trim().slice(0, 140),
-      polarity: r.polarity === "avoid" ? "avoid" : "prefer",
-      pinned: Boolean(r.pinned),
-      active: r.active !== false,
-      source: r.source === "ai" ? "ai" : "user",
-      updatedAt: Number(r.updatedAt) || Date.now()
-    }));
+  return normalizeTasteRules(Array.isArray(list) ? list : []);
 }
 
 /**
  * Merges local guest/device preferences with a cloud `public.profiles` row.
- * Preserves non-default local guest preferences on first sign-in while adopting
- * cloud preferences on fresh devices or when cloud was updated after `lastSyncedAt`.
+ * - Preserves non-default local guest preferences on first sign-in while adopting
+ *   cloud preferences on fresh devices.
+ * - When `localPrefsUpdatedAt` is newer than `cloud.updated_at` (e.g., user intentionally
+ *   cleared streaming providers/taste rules or switched back to `GLOBAL` while signed in),
+ *   local state wins cleanly without resurrecting cleared cloud fields.
  */
-export function mergeProfilePreferences({ local = {}, cloud = null, lastSyncedAt = null } = {}) {
+export function mergeProfilePreferences({
+  local = {},
+  cloud = null,
+  lastSyncedAt = null,
+  localPrefsUpdatedAt = null
+} = {}) {
   const localDisplay = String(local?.displayName || "").trim();
   const localRegion = String(local?.userRegion || "GLOBAL").trim().toUpperCase() || "GLOBAL";
   const localProviders = sanitizeProvidersArray(local?.userWatchProviders);
@@ -613,6 +611,10 @@ export function mergeProfilePreferences({ local = {}, cloud = null, lastSyncedAt
 
   const cloudUpdatedMs = Date.parse(cloud.updated_at || "");
   const lastSyncMs = Date.parse(lastSyncedAt || "");
+  const localUpdatedMs = Date.parse(localPrefsUpdatedAt || "");
+  const localEditedAfterCloud =
+    Number.isFinite(localUpdatedMs) &&
+    (!Number.isFinite(cloudUpdatedMs) || localUpdatedMs > cloudUpdatedMs);
   const cloudNewerThanSync =
     Number.isFinite(cloudUpdatedMs) && Number.isFinite(lastSyncMs) && cloudUpdatedMs > lastSyncMs;
 
@@ -621,7 +623,15 @@ export function mergeProfilePreferences({ local = {}, cloud = null, lastSyncedAt
   let userWatchProviders = cloudProviders;
   let tasteRules = cloudRules;
 
-  if (!cloudNewerThanSync) {
+  if (localEditedAfterCloud) {
+    // Explicit local preference mutation newer than cloud row (including intentional clears to [] / GLOBAL)
+    userRegion = localRegion;
+    userWatchProviders = localProviders;
+    tasteRules = localRules;
+    if (localDisplay && !cloudDisplay) {
+      displayName = localDisplay;
+    }
+  } else if (!cloudNewerThanSync) {
     if (localRegion !== "GLOBAL" && cloudRegion === "GLOBAL") {
       userRegion = localRegion;
     } else if (localRegion !== "GLOBAL" && lastSyncedAt) {
@@ -662,14 +672,14 @@ export function mergeProfilePreferences({ local = {}, cloud = null, lastSyncedAt
 
 /**
  * Pulls `public.profiles` for `userId`, merges with local preferences, and upserts back
- * if the profile row is missing or local preferences are richer.
+ * if the profile row is missing or local preferences are richer/newer.
  */
 export async function pullAndSyncProfilePreferences(
   client,
-  { userId, localPrefs = {}, lastSyncedAt = null } = {}
+  { userId, localPrefs = {}, lastSyncedAt = null, localPrefsUpdatedAt = null } = {}
 ) {
   if (!client || !userId) {
-    return mergeProfilePreferences({ local: localPrefs, cloud: null, lastSyncedAt });
+    return mergeProfilePreferences({ local: localPrefs, cloud: null, lastSyncedAt, localPrefsUpdatedAt });
   }
 
   const { data: cloudRow, error: selectError } = await client
@@ -687,7 +697,8 @@ export async function pullAndSyncProfilePreferences(
   const merged = mergeProfilePreferences({
     local: localPrefs,
     cloud: cloudRow || null,
-    lastSyncedAt
+    lastSyncedAt,
+    localPrefsUpdatedAt
   });
 
   if (!cloudRow || merged.shouldUpsertCloud) {

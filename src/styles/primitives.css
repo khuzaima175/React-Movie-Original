@@ -478,3 +478,14 @@
   border-radius: 2px;
   pointer-events: none;
 }
+
+/* Shared spinner utility used across Explore, Oracle, and Auth actions */
+.spin-icon {
+  animation: oracleSpin 1s linear infinite;
+}
+
+@keyframes oracleSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

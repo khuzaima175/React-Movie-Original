@@ -585,3 +585,28 @@ test("pullAndSyncProfilePreferences fetches cloud profile and upserts when local
   assert.equal(upserted.user_region, "US");
   assert.equal(upserted.taste_rules.length, 1);
 });
+
+test("mergeProfilePreferences honors intentional local clears (empty providers/rules/GLOBAL) when localPrefsUpdatedAt > cloud.updated_at", () => {
+  const cleared = mergeProfilePreferences({
+    local: {
+      displayName: "Alex",
+      userRegion: "GLOBAL",
+      userWatchProviders: [],
+      tasteRules: []
+    },
+    cloud: {
+      display_name: "Alex",
+      user_region: "US",
+      preferred_providers: [8, 9],
+      taste_rules: [{ id: "r1", text: "No horror", polarity: "avoid", active: true }],
+      updated_at: "2026-11-20T10:00:00.000Z"
+    },
+    lastSyncedAt: "2026-11-20T10:00:00.000Z",
+    localPrefsUpdatedAt: "2026-11-20T10:05:00.000Z"
+  });
+
+  assert.equal(cleared.userRegion, "GLOBAL");
+  assert.deepEqual(cleared.userWatchProviders, []);
+  assert.deepEqual(cleared.tasteRules, []);
+  assert.equal(cleared.shouldUpsertCloud, true);
+});

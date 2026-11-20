@@ -30,12 +30,22 @@ function resolveInitialMode(defaultMode, searchMode, isRecovery) {
   return "signin";
 }
 
+function hasRecoveryUrlSignal(searchParams) {
+  if (searchParams?.get("mode") === "reset") return true;
+  if (typeof window !== "undefined") {
+    const hash = String(window.location?.hash || "");
+    if (hash.includes("type=recovery")) return true;
+  }
+  return false;
+}
+
 export default function AuthPage({ defaultMode = "signin" }) {
   const {
     hasCloudConfig,
     cloudUser,
     isAuthLoading,
     isPasswordRecovery,
+    clearPasswordRecovery,
     initAuthSession,
     signInWithPassword,
     signUpWithPassword,
@@ -98,10 +108,18 @@ export default function AuthPage({ defaultMode = "signin" }) {
   }, [searchParams, isPasswordRecovery]);
 
   useEffect(() => {
-    if (cloudUser && !isPasswordRecovery && mode !== "reset") {
-      navigate(returnTo === "/auth" ? "/account" : "/account", { replace: true });
+    if (cloudUser && !isPasswordRecovery && mode !== "reset" && !hasRecoveryUrlSignal(searchParams)) {
+      const isAuthPath = returnTo === "/auth" || returnTo === "/login" || returnTo === "/signup";
+      navigate(isAuthPath ? "/account" : returnTo, { replace: true });
     }
-  }, [cloudUser, isPasswordRecovery, mode, navigate, returnTo]);
+  }, [cloudUser, isPasswordRecovery, mode, navigate, returnTo, searchParams]);
+
+  function handleCancelReset() {
+    clearPasswordRecovery?.();
+    setPassword("");
+    setConfirmPassword("");
+    switchMode("signin");
+  }
 
   function switchMode(nextMode) {
     setMode(nextMode);
@@ -177,7 +195,7 @@ export default function AuthPage({ defaultMode = "signin" }) {
           return;
         }
         setStatusSuccess("Your password has been updated. Redirecting to your account...");
-        setTimeout(() => navigate("/account", { replace: true }), 900);
+        navigate("/account", { replace: true });
       }
     } finally {
       setIsSubmitting(false);
@@ -462,7 +480,17 @@ export default function AuthPage({ defaultMode = "signin" }) {
                   </Button>
                 </form>
 
-                {mode !== "reset" && (
+                {mode === "reset" ? (
+                  <div className="auth-secondary-actions">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-center py-[0.9rem] text-[1.32rem] text-[#b6b6b2]"
+                      onClick={handleCancelReset}
+                    >
+                      Cancel &amp; Return to Sign In
+                    </Button>
+                  </div>
+                ) : (
                   <>
                     <div className="auth-divider">or</div>
                     <div className="auth-secondary-actions">

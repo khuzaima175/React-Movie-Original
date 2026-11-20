@@ -616,6 +616,7 @@ export async function generateExploreForYouPool({
   const collabSimMap = embSignals.collabSimMap || null;
   const repulsionMap = embSignals.repulsionMap || null;
   const collabCatalogMax = embSignals.collabCatalogMax ?? null;
+  const collabUserVec = embSignals.collabUserVec || null;
   const aligned = Array.isArray(embSignals.alignedNeighbors) ? embSignals.alignedNeighbors : [];
 
   const rankerWeights = derivePersonalizedRankerWeights(
@@ -644,6 +645,7 @@ export async function generateExploreForYouPool({
     const contentSimMap = contentIndex
       ? buildContentSimMap(profile.weightedRatings, contentIndex, rawPool, {
           collabIndex: embeddingIndex,
+          collabUserVec,
           collabSimMap,
           enableStructuredFallback: true,
           coldOnly: true
@@ -690,8 +692,10 @@ export async function generateExploreForYouPool({
     const [wave1Base, wave1Emb] = await Promise.all([
       fetchCandidatePoolFn(profile, "any", watched, watchlist, {
         poolSize: EXPLORE_FOR_YOU_WAVE1_POOL_SIZE,
+        page: 1,
         userRegion: resolvedRegion,
         userWatchProviders,
+        signal,
         now
       }).catch(() => []),
       wave1Aligned.length > 0
@@ -699,7 +703,8 @@ export async function generateExploreForYouPool({
             userRegion: resolvedRegion,
             userProviders: userWatchProviders,
             maxNeighbors: EXPLORE_FOR_YOU_WAVE1_NEIGHBORS,
-            maxScan: 60
+            maxScan: 60,
+            signal
           }).catch(() => [])
         : Promise.resolve([])
     ]);
@@ -708,7 +713,8 @@ export async function generateExploreForYouPool({
       return { items: [], profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    const wave1Raw = dedupeAndFilterRaw([...wave1Base, ...wave1Emb]);
+    // Prefer already-hydrated wave1Emb entries over bare wave1Base discover stubs on overlap
+    const wave1Raw = dedupeAndFilterRaw([...wave1Emb, ...wave1Base]);
     const wave1Normalized = rankAndNormalizePool(wave1Raw, Math.max(wave1Raw.length, 120));
     const wave1Items = mergeExploreForYouResponse(wave1Normalized, [], { targetCount });
 
@@ -733,14 +739,19 @@ export async function generateExploreForYouPool({
       return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    // WAVE 2 (background): Expand to full ~250 films and cap deep enrichment at top 120
+    // WAVE 2 (background): Expand to full ~250 films via TMDB page 2 + remaining 180 CVEM neighbors
     const wave2Aligned = aligned.slice(60, 240);
+    const wave1SeenIds = wave1Raw
+      .map((c) => c?.tmdbId ?? c?.id)
+      .filter((id) => id !== undefined && id !== null);
     const [wave2Base, wave2Emb] = await Promise.all([
       fetchCandidatePoolFn(profile, "any", watched, watchlist, {
         poolSize: 160,
-        pageOffset: 1,
+        page: 2,
+        excludeIds: [...excludeIds, ...wave1SeenIds],
         userRegion: resolvedRegion,
         userWatchProviders,
+        signal,
         now
       }).catch(() => []),
       wave2Aligned.length > 0
@@ -748,7 +759,8 @@ export async function generateExploreForYouPool({
             userRegion: resolvedRegion,
             userProviders: userWatchProviders,
             maxNeighbors: 120,
-            maxScan: 180
+            maxScan: 180,
+            signal
           }).catch(() => [])
         : Promise.resolve([])
     ]);
@@ -757,7 +769,7 @@ export async function generateExploreForYouPool({
       return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    const mergedWave2Raw = dedupeAndFilterRaw([...wave1Raw, ...wave2Base, ...wave2Emb]);
+    const mergedWave2Raw = dedupeAndFilterRaw([...wave1Raw, ...wave2Emb, ...wave2Base]);
     // Pre-rank so deep metadata enrichment runs ONLY on the top EXPLORE_FOR_YOU_ENRICH_LIMIT (120) films
     const preRankedRaw = rankCandidatePool(
       mergedWave2Raw,
@@ -781,7 +793,8 @@ export async function generateExploreForYouPool({
     const tailCandidates = preRankedRaw.slice(enrichCap);
     const enrichedTop = await enrichPoolFn(topToEnrich, {
       maxEnrich: enrichCap,
-      userRegion: resolvedRegion
+      userRegion: resolvedRegion,
+      signal
     }).catch(() => topToEnrich);
 
     if (signal?.aborted) {
@@ -869,9 +882,20 @@ export async function generateExploreForYouPool({
     const response = await executeCascade(
       ai,
       EXPLORE_FOR_YOU_CASCADE,
-      { contents: prompt, config: generationConfig },
+      { contents: prompt, config: { ...generationConfig, ...(signal ? { abortSignal: signal } : {}) } },
       { cascadeType: "fast", timeoutMs: 25000, maxCascadeDurationMs: 45000 }
     );
+
+    if (signal?.aborted) {
+      return {
+        items: mathBaselineItems,
+        profileHash,
+        source: "local-ranker",
+        modelUsed: null,
+        generatedAt: now,
+        aborted: true
+      };
+    }
 
     if (response?.text) {
       const picks = parseGeminiPicksJson(response.text);

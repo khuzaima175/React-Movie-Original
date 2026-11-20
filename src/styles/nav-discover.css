@@ -2284,3 +2284,48 @@
     justify-content: center;
   }
 }
+
+/* Dashboard Explore CTA (kept global so Discover '/' renders styled without explore.css) */
+.dashboard-explore-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.6rem;
+  flex-wrap: wrap;
+  padding: 1.8rem 2.2rem;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hairline);
+  background: var(--surface-1);
+}
+
+.dashboard-explore-copy h3 {
+  margin: 0 0 0.3rem;
+  font-size: 1.7rem;
+  font-weight: 650;
+  color: var(--text-1);
+}
+
+.dashboard-explore-copy p {
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--text-2);
+}
+
+.dashboard-explore-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.9rem 1.6rem;
+  border-radius: var(--r-sm);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  font-size: 1.35rem;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.dashboard-explore-link:hover {
+  background: var(--btn-primary-hover);
+}

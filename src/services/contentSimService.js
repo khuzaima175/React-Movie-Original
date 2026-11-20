@@ -178,8 +178,16 @@ export function buildContentSimMap(
       let queryVec = userContent.vector;
       const { count, dim, ids, vectors } = contentIndex;
 
-      if (options.collabIndex && options.collabIndex.dim === dim && options.blendAligned !== false) {
-        const collabVec = computeUserEmbedding(weightedRatings, options.collabIndex);
+      if (options.blendAligned !== false) {
+        const precomputedCollabVec =
+          options.collabUserVec && options.collabUserVec.length === dim
+            ? options.collabUserVec
+            : null;
+        const collabVec =
+          precomputedCollabVec ||
+          (options.collabIndex && options.collabIndex.dim === dim
+            ? computeUserEmbedding(weightedRatings, options.collabIndex)
+            : null);
         if (collabVec) {
           let alignDot = 0;
           for (let d = 0; d < dim; d++) {

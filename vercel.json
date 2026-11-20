@@ -6,7 +6,7 @@
   },
   "rewrites": [
     {
-      "source": "/((?!api/|models/|manifest\\.json).*)",
+      "source": "/((?!api/|assets/|models/|manifest\\.json|og-image\\.png).*)",
       "destination": "/index.html"
     }
   ],
@@ -50,7 +50,7 @@
         },
         {
           "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
+          "value": "public, max-age=86400, stale-while-revalidate=604800"
         }
       ]
     }

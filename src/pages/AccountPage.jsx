@@ -323,6 +323,7 @@ export default function AccountPage() {
               <Button
                 variant="secondary"
                 icon={LogOut}
+                disabled={isSyncing}
                 className="px-[1.8rem] py-[1rem] text-[1.35rem]"
                 onClick={() => handleSignOut(false)}
               >
@@ -333,6 +334,7 @@ export default function AccountPage() {
                 <Button
                   variant="ghost"
                   icon={Trash2}
+                  disabled={isSyncing}
                   className="px-[1.6rem] py-[1rem] text-[1.35rem] text-red-300 hover:text-red-200"
                   onClick={() => setConfirmClearSignOut(true)}
                 >
@@ -343,6 +345,7 @@ export default function AccountPage() {
                   <span className="text-[1.25rem] text-red-300">Clear this browser&apos;s local cache?</span>
                   <Button
                     variant="secondary"
+                    disabled={isSyncing}
                     className="px-[1.4rem] py-[0.8rem] text-[1.25rem] border-red-500/40 text-red-200"
                     onClick={() => handleSignOut(true)}
                   >
