@@ -237,6 +237,15 @@ function toSearchParams(searchOrString) {
   return new URLSearchParams(qs);
 }
 
+function getModeDefaults(mode) {
+  const isForYou = mode === "for-you";
+  return {
+    minImdb: isForYou ? 0 : DEFAULT_EXPLORE_FILTERS.minImdb,
+    minVotes: isForYou ? 0 : DEFAULT_EXPLORE_FILTERS.minVotes,
+    sortBy: isForYou ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy
+  };
+}
+
 /**
  * Parse URL query string or URLSearchParams into canonical Explore filter state.
  */
@@ -244,21 +253,22 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
   const sp = toSearchParams(searchOrString);
   const fallbackRegion = normalizeRegion(defaultRegion, "US");
 
+  const modeRaw = String(sp.get("mode") || "").trim().toLowerCase();
+  const mode = modeRaw === "for-you" ? "for-you" : "catalog";
+  const modeDefaults = getModeDefaults(mode);
+
   const minImdbRaw = sp.get("minImdb");
   const minImdbParsed = minImdbRaw !== null && minImdbRaw !== "" && Number.isFinite(Number(minImdbRaw))
     ? Math.max(0, Math.min(9.5, Number(minImdbRaw)))
-    : DEFAULT_EXPLORE_FILTERS.minImdb;
+    : modeDefaults.minImdb;
 
   const minVotesRaw = sp.get("minVotes");
   const minVotesParsed = minVotesRaw !== null && minVotesRaw !== "" && Number.isFinite(Number(minVotesRaw))
     ? Math.max(0, Math.floor(Number(minVotesRaw)))
-    : DEFAULT_EXPLORE_FILTERS.minVotes;
+    : modeDefaults.minVotes;
 
   const sortRaw = String(sp.get("sortBy") || "").trim();
   const pageRaw = Number(sp.get("page"));
-  const modeRaw = String(sp.get("mode") || "").trim().toLowerCase();
-  const mode = modeRaw === "for-you" ? "for-you" : "catalog";
-  const defaultSort = mode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy;
 
   return {
     mode,
@@ -277,7 +287,7 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
     person: parsePersonParam(sp.get("person")),
     providers: parseIntIdList(sp.get("providers")),
     region: sp.has("region") ? normalizeRegion(sp.get("region"), fallbackRegion) : fallbackRegion,
-    sortBy: VALID_SORT_SET.has(sortRaw) ? sortRaw : defaultSort,
+    sortBy: VALID_SORT_SET.has(sortRaw) ? sortRaw : modeDefaults.sortBy,
     hideWatched: sp.get("hideWatched") === "1" || sp.get("hideWatched") === "true",
     includeUpcoming: sp.get("upcoming") === "1" || sp.get("upcoming") === "true",
     page: Number.isSafeInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1
@@ -291,6 +301,7 @@ export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT
   const sp = new URLSearchParams();
   const effectiveDefaultRegion = normalizeRegion(defaultRegion, DEFAULT_EXPLORE_FILTERS.region);
   const mode = filters.mode === "for-you" ? "for-you" : "catalog";
+  const modeDefaults = getModeDefaults(mode);
   if (mode === "for-you") sp.set("mode", "for-you");
 
   const genres = parseIntIdList(filters.genres);
@@ -315,14 +326,14 @@ export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT
 
   if (filters.minImdb !== undefined && filters.minImdb !== null && filters.minImdb !== "") {
     const minImdb = Number(filters.minImdb);
-    if (Number.isFinite(minImdb) && minImdb !== DEFAULT_EXPLORE_FILTERS.minImdb) {
+    if (Number.isFinite(minImdb) && minImdb !== modeDefaults.minImdb) {
       sp.set("minImdb", String(Math.max(0, Math.min(9.5, minImdb))));
     }
   }
 
   if (filters.minVotes !== undefined && filters.minVotes !== null && filters.minVotes !== "") {
     const minVotes = Math.floor(Number(filters.minVotes));
-    if (Number.isFinite(minVotes) && minVotes >= 0 && minVotes !== DEFAULT_EXPLORE_FILTERS.minVotes) {
+    if (Number.isFinite(minVotes) && minVotes >= 0 && minVotes !== modeDefaults.minVotes) {
       sp.set("minVotes", String(minVotes));
     }
   }
@@ -345,8 +356,7 @@ export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT
   const region = String(filters.region || "").trim().toUpperCase();
   if (region && region !== effectiveDefaultRegion) sp.set("region", region);
 
-  const defaultSortForMode = mode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy;
-  if (filters.sortBy && VALID_SORT_SET.has(filters.sortBy) && filters.sortBy !== defaultSortForMode) {
+  if (filters.sortBy && VALID_SORT_SET.has(filters.sortBy) && filters.sortBy !== modeDefaults.sortBy) {
     sp.set("sortBy", filters.sortBy);
   }
 
@@ -363,8 +373,10 @@ export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT
  * Build a full "/explore?..." route from partial Explore filter overrides.
  */
 export function buildExploreRoute(partialFilters = {}, options = {}) {
+  const mode = partialFilters?.mode === "for-you" ? "for-you" : "catalog";
   const merged = {
     ...DEFAULT_EXPLORE_FILTERS,
+    ...getModeDefaults(mode),
     ...(partialFilters && typeof partialFilters === "object" ? partialFilters : {})
   };
   const qs = buildExploreSearchParams(merged, options).toString();
@@ -581,6 +593,7 @@ export function filterExploreResults(movies = [], watched = [], watchlist = [], 
  */
 export function getActiveFilterChips(filters = {}) {
   const chips = [];
+  const modeDefaults = getModeDefaults(filters.mode);
   const genres = parseIntIdList(filters.genres);
   const withoutGenres = parseIntIdList(filters.withoutGenres);
   const keywords = parseKeywordList(filters.keywords);
@@ -645,13 +658,13 @@ export function getActiveFilterChips(filters = {}) {
     filters.minImdb !== undefined &&
     filters.minImdb !== null &&
     filters.minImdb !== "" &&
-    Number(filters.minImdb) !== DEFAULT_EXPLORE_FILTERS.minImdb
+    Number(filters.minImdb) !== modeDefaults.minImdb
   ) {
     const score = Number(filters.minImdb);
     chips.push({
       key: "minImdb",
       label: score > 0 ? `IMDb ${score.toFixed(1)}+` : "Any IMDb Score",
-      clearPatch: { minImdb: DEFAULT_EXPLORE_FILTERS.minImdb }
+      clearPatch: { minImdb: modeDefaults.minImdb }
     });
   }
 
@@ -659,12 +672,12 @@ export function getActiveFilterChips(filters = {}) {
     filters.minVotes !== undefined &&
     filters.minVotes !== null &&
     filters.minVotes !== "" &&
-    Number(filters.minVotes) !== DEFAULT_EXPLORE_FILTERS.minVotes
+    Number(filters.minVotes) !== modeDefaults.minVotes
   ) {
     chips.push({
       key: "minVotes",
       label: `Min ${Number(filters.minVotes)} votes`,
-      clearPatch: { minVotes: DEFAULT_EXPLORE_FILTERS.minVotes }
+      clearPatch: { minVotes: modeDefaults.minVotes }
     });
   }
 
@@ -710,11 +723,11 @@ export function getActiveFilterChips(filters = {}) {
     });
   }
 
-  if (filters.sortBy && filters.sortBy !== DEFAULT_EXPLORE_FILTERS.sortBy) {
+  if (filters.sortBy && filters.sortBy !== modeDefaults.sortBy) {
     chips.push({
       key: "sortBy",
       label: `Sort: ${SORT_LABEL_BY_ID.get(filters.sortBy) || filters.sortBy}`,
-      clearPatch: { sortBy: DEFAULT_EXPLORE_FILTERS.sortBy }
+      clearPatch: { sortBy: modeDefaults.sortBy }
     });
   }
 

@@ -381,3 +381,42 @@ test("loadHomeDiscoveryFeeds applies primary_release_date.lte todayIso on live d
   assert.equal(allTitles.includes("Toy Story 5"), false, "Future unreleased film must be excluded");
   assert.equal(allTitles.includes("Released Classic"), true);
 });
+
+
+test("loadHomeDiscoveryFeeds retries transient TMDB lane failure so Picked For Your Taste still renders", async () => {
+  let tastePage1Attempts = 0;
+  const fetchTmdb = async (path, params = {}) => {
+    if (path === "/3/discover/movie" && params["vote_average.gte"] === 7.6 && Number(params.page) === 1) {
+      tastePage1Attempts += 1;
+      if (tastePage1Attempts === 1) {
+        throw new Error("Transient ECONNRESET");
+      }
+    }
+    return {
+      results: [
+        {
+          id: 7000 + Math.floor(Math.random() * 100000),
+          title: `Resilient Film ${params.sort_by || path}`,
+          release_date: "2024-06-01",
+          vote_average: 8.1,
+          genre_ids: [18],
+          poster_path: "/ok.jpg",
+          backdrop_path: "/ok_bg.jpg"
+        }
+      ]
+    };
+  };
+
+  const result = await loadHomeDiscoveryFeeds({
+    watched: [{ imdbID: "tt0111161", title: "Shawshank", year: "1994", genre: "Drama", userRating: 10 }],
+    watchlist: [],
+    userRegion: "US",
+    hasBackend: true,
+    fetchTmdb,
+    now: Date.UTC(2026, 10, 20, 12, 0, 0),
+    storage: createMemoryStorage()
+  });
+
+  assert.equal(tastePage1Attempts, 2);
+  assert.ok(result.rows.some((r) => r.key === "taste"), "Picked For Your Taste row must recover on retry");
+});

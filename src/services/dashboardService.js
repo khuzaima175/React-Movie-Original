@@ -216,13 +216,41 @@ export function shouldShowCarouselArrows(scrollWidth = 0, clientWidth = 0) {
   return Number(scrollWidth || 0) - Number(clientWidth || 0) > 4;
 }
 
+async function fetchTmdbWithRetry(tmdbCaller, path, params) {
+  try {
+    const first = await tmdbCaller(path, params);
+    if (first && Array.isArray(first.results)) return first;
+  } catch {
+    // retry once on transient network / rate-limit blip
+  }
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    return await tmdbCaller(path, params);
+  } catch {
+    return null;
+  }
+}
+
 async function fetchMultiPageTmdb(tmdbCaller, path, queryParams = {}, pages = [1, 2]) {
   const pageResponses = await Promise.all(
-    pages.map((page) =>
-      tmdbCaller(path, { ...queryParams, page }).catch(() => null)
-    )
+    pages.map((page) => fetchTmdbWithRetry(tmdbCaller, path, { ...queryParams, page }))
   );
   return pageResponses.flatMap((res) => (Array.isArray(res?.results) ? res.results : []));
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const current = nextIndex++;
+        results[current] = await mapper(items[current], current);
+      }
+    })
+  );
+  return results;
 }
 
 export function getTodayIsoDate(now = Date.now()) {
@@ -416,12 +444,10 @@ export async function loadHomeDiscoveryFeeds({
         }
       ];
 
-      const laneResults = await Promise.all(
-        laneConfigs.map(async (lane) => {
-          const raw = await fetchMultiPageTmdb(tmdbCaller, lane.path, lane.params, [1, 2]);
-          return { lane, raw };
-        })
-      );
+      const laneResults = await mapWithConcurrency(laneConfigs, 3, async (lane) => {
+        const raw = await fetchMultiPageTmdb(tmdbCaller, lane.path, lane.params, [1, 2]);
+        return { lane, raw };
+      });
 
       const liveRows = [];
       for (const { lane, raw } of laneResults) {

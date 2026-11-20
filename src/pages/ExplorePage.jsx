@@ -253,6 +253,8 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
         {
           ...DEFAULT_EXPLORE_FILTERS,
           mode: currentMode,
+          minImdb: currentMode === "for-you" ? 0 : DEFAULT_EXPLORE_FILTERS.minImdb,
+          minVotes: currentMode === "for-you" ? 0 : DEFAULT_EXPLORE_FILTERS.minVotes,
           sortBy: currentMode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy,
           region: defaultRegion
         },

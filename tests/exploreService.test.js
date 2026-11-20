@@ -266,3 +266,21 @@ test("buildTmdbDiscoverParams caps primary_release_date.lte to today when yearTo
   );
   assert.equal(explicitYear["primary_release_date.lte"], "2027-12-31");
 });
+
+
+test("For You mode defaults produce zero active filter chips and preserve mode-relative defaults", () => {
+  const parsed = parseExploreSearchParams("?mode=for-you", "US");
+  assert.equal(parsed.mode, "for-you");
+  assert.equal(parsed.sortBy, "for_you");
+  assert.equal(parsed.minImdb, 0);
+  assert.equal(parsed.minVotes, 0);
+
+  const chips = getActiveFilterChips(parsed);
+  assert.deepEqual(chips, []);
+
+  // Explicitly raising minImdb in for-you mode produces a single chip that clears back to 0
+  const customChips = getActiveFilterChips({ ...parsed, minImdb: 7.5, sortBy: "vote_average.desc" });
+  assert.equal(customChips.length, 2);
+  assert.deepEqual(customChips.find((c) => c.key === "minImdb")?.clearPatch, { minImdb: 0 });
+  assert.deepEqual(customChips.find((c) => c.key === "sortBy")?.clearPatch, { sortBy: "for_you" });
+});
