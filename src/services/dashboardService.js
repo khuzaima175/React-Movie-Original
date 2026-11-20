@@ -577,3 +577,44 @@ export function collectCatalogMosaic({
     availableGenres
   };
 }
+
+/**
+ * Builds Discover's real CVEM v1 "Picked For Your Taste" carousel row from the
+ * Explore "Movies You'll Like" pool, filtering newly watched/watchlisted entries
+ * live and preserving Match % badges + direct Explore link.
+ */
+export function buildPersonalizedHomeRow({
+  forYouItems = [],
+  watched = [],
+  watchlist = [],
+  limit = 20
+} = {}) {
+  if (!Array.isArray(forYouItems) || forYouItems.length === 0) return null;
+  const seenSet = buildSeenCollisionSet(watched, watchlist);
+  const placed = new Set();
+  const movies = [];
+
+  for (const raw of forYouItems) {
+    if (!raw || typeof raw !== "object") continue;
+    const keys = buildMovieKeys(raw);
+    if (keys.some((k) => seenSet.has(k) || placed.has(k))) continue;
+    const card = toDashboardCardItem(raw);
+    if (!card || !card.poster) continue;
+    keys.forEach((k) => placed.add(k));
+    const score = Number(raw.forYouScore ?? raw.matchScore);
+    movies.push({
+      ...card,
+      ...(Number.isFinite(score) && score >= 50 ? { matchScore: Math.round(score) } : {}),
+      ...(raw.vibeTag ? { vibeTag: raw.vibeTag } : {})
+    });
+    if (movies.length >= limit) break;
+  }
+
+  if (movies.length === 0) return null;
+  return {
+    key: "taste",
+    title: "Picked For Your Taste",
+    seeAllLink: "/explore?mode=for-you",
+    movies
+  };
+}

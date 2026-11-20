@@ -8,7 +8,8 @@ import {
   loadHomeDiscoveryFeeds,
   shouldShowCarouselArrows,
   collectCatalogMosaic,
-  getTodayIsoDate
+  getTodayIsoDate,
+  buildPersonalizedHomeRow
 } from "../src/services/dashboardService.js";
 
 function createMemoryStorage() {
@@ -419,4 +420,22 @@ test("loadHomeDiscoveryFeeds retries transient TMDB lane failure so Picked For Y
 
   assert.equal(tastePage1Attempts, 2);
   assert.ok(result.rows.some((r) => r.key === "taste"), "Picked For Your Taste row must recover on retry");
+});
+
+test("buildPersonalizedHomeRow filters newly watched/watchlisted films, preserves matchScore, and links to /explore?mode=for-you", () => {
+  const row = buildPersonalizedHomeRow({
+    forYouItems: [
+      { tmdbId: 101, imdbID: "tmdb_101", title: "Blade Runner 2049", year: "2017", forYouScore: 95, poster: "https://image.tmdb.org/t/p/w500/a.jpg" },
+      { tmdbId: 102, imdbID: "tmdb_102", title: "Already Watched", year: "2018", forYouScore: 93, poster: "https://image.tmdb.org/t/p/w500/b.jpg" },
+      { tmdbId: 103, imdbID: "tmdb_103", title: "Prisoners", year: "2013", forYouScore: 91, poster: "https://image.tmdb.org/t/p/w500/c.jpg" }
+    ],
+    watched: [{ tmdbId: 102, title: "Already Watched", userRating: 9 }],
+    watchlist: [],
+    limit: 20
+  });
+  assert.ok(row);
+  assert.equal(row.key, "taste");
+  assert.equal(row.seeAllLink, "/explore?mode=for-you");
+  assert.deepEqual(row.movies.map((m) => m.tmdbId), [101, 103]);
+  assert.equal(row.movies[0].matchScore, 95);
 });
