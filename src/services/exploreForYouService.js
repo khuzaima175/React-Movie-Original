@@ -10,6 +10,7 @@ import {
   DEFAULT_RANKER_WEIGHTS,
   rankCandidatePool
 } from "./rankerService.js";
+import { derivePersonalizedRankerWeights } from "./onlineLearningService.js";
 import {
   loadDefaultEmbeddingIndex,
   buildCollabSimMapFromIndex,
@@ -17,6 +18,14 @@ import {
   getCollabCatalogMax,
   retrieveAlignedEmbeddingNeighbors
 } from "./embeddingService.js";
+import {
+  loadDefaultContentIndex,
+  buildContentSimMap
+} from "./contentSimService.js";
+import {
+  loadDefaultDnaIndex,
+  buildDnaSimMap
+} from "./dnaService.js";
 import {
   EXPLORE_FOR_YOU_CASCADE,
   executeCascade,
@@ -28,7 +37,8 @@ import { compileActiveTasteRules } from "./tasteRulesService.js";
 import { filterExploreResults } from "./exploreService.js";
 import { sanitizeLine } from "./filmChatService.js";
 
-export const EXPLORE_FOR_YOU_TARGET_COUNT = 100;
+export const EXPLORE_FOR_YOU_TARGET_COUNT = 250;
+export const EXPLORE_FOR_YOU_AI_BATCH_LIMIT = 100;
 export const EXPLORE_FOR_YOU_MIN_RATED = 3;
 const MAX_FOR_YOU_PROMPT_CHARS = 28000;
 
@@ -111,6 +121,32 @@ function extractNumericIds(list) {
   return [...seen];
 }
 
+/**
+ * Generates a concise, emoji-free editorial vibe tag purely from metadata so
+ * math-ranked catalog entries look cohesive alongside AI-tagged flagship picks.
+ */
+export function buildMathVibeTag(candidate = {}) {
+  const genres = String(candidate?.genre || "")
+    .split(/[,•/|]+/)
+    .map((g) => g.trim())
+    .filter((g) => g && g.toLowerCase() !== "cinema");
+  const primary = genres[0] || "Cinema";
+  const secondary = genres[1] || "";
+  const year = Number(candidate?.year || String(candidate?.release_date || "").slice(0, 4));
+  const rating = Number(candidate?.imdbRating ?? candidate?.vote_average ?? 0);
+
+  if (secondary) {
+    return sanitizeLine(`${primary} ${secondary}`, 28);
+  }
+  if (Number.isFinite(year) && year > 0 && year < 1990) {
+    return sanitizeLine(`Classic ${primary}`, 28);
+  }
+  if (Number.isFinite(rating) && rating >= 7.8) {
+    return sanitizeLine(`Acclaimed ${primary}`, 28);
+  }
+  return sanitizeLine(`Curated ${primary}`, 28);
+}
+
 function normalizeCandidateForExplore(c, fallbackScore = 72) {
   const tmdbId = Number(c.tmdbId || c.id);
   const rawScore = Number(c.forYouScore ?? c.matchScore ?? fallbackScore);
@@ -142,6 +178,8 @@ function normalizeCandidateForExplore(c, fallbackScore = 72) {
     ...(Array.isArray(c.freeProviders) ? c.freeProviders : [])
   ]).slice(0, 20);
 
+  const existingTag = sanitizeLine(c.vibeTag || "", 32);
+
   return {
     id: c.imdbID || c.id || (Number.isFinite(tmdbId) ? `tmdb_${tmdbId}` : ""),
     imdbID: c.imdbID || (Number.isFinite(tmdbId) ? `tmdb_${tmdbId}` : c.id || ""),
@@ -168,7 +206,7 @@ function normalizeCandidateForExplore(c, fallbackScore = 72) {
     providerIds,
     forYouScore,
     matchScore: forYouScore,
-    vibeTag: c.vibeTag || "",
+    vibeTag: existingTag || buildMathVibeTag({ ...c, year, imdbRating }),
     forYouReason: c.forYouReason || c.reason || ""
   };
 }
@@ -208,19 +246,20 @@ export function buildExploreForYouProfileHash({
     .sort()
     .join("|");
 
-  const raw = `v2::${normalizedRegion}::W[${watchedSig}]::WL[${watchlistSig}]::R[${rulesSig}]`;
-  return `explore_fy_v2_${fnv1aHex(raw)}_${fnv1aHex(`${raw.length}:${raw.split("").reverse().join("")}`)}`;
+  const raw = `v3::${normalizedRegion}::W[${watchedSig}]::WL[${watchlistSig}]::R[${rulesSig}]`;
+  return `explore_fy_v3_${fnv1aHex(raw)}_${fnv1aHex(`${raw.length}:${raw.split("").reverse().join("")}`)}`;
 }
 
 /**
  * Builds a compact, emoji-free single-shot prompt (<= 28k chars) asking Flash-Lite
- * to score and tag up to targetCount verified TMDB candidates against the user's Vault DNA.
+ * to score and tag up to EXPLORE_FOR_YOU_AI_BATCH_LIMIT top verified TMDB candidates.
  */
 export function buildExploreForYouBatchPrompt(
   profile = {},
   candidates = [],
-  { watched = [], tasteRules = [], targetCount = EXPLORE_FOR_YOU_TARGET_COUNT } = {}
+  { watched = [], tasteRules = [], targetCount = EXPLORE_FOR_YOU_AI_BATCH_LIMIT } = {}
 ) {
+  const aiCap = Math.min(Number(targetCount) || EXPLORE_FOR_YOU_AI_BATCH_LIMIT, EXPLORE_FOR_YOU_AI_BATCH_LIMIT);
   const safeWatched = Array.isArray(watched) ? watched.filter((m) => m && m.title) : [];
   const topLoved = [...safeWatched]
     .filter((m) => Number(m.userRating) >= 8)
@@ -242,7 +281,7 @@ export function buildExploreForYouBatchPrompt(
   const genres = Array.isArray(profile?.lovedGenreNames) ? profile.lovedGenreNames.slice(0, 5).join(", ") : "";
   const header = [
     "You are CinemaVault's catalog curator. Score and tag the verified unseen TMDB candidates below for this viewer's personal Explore feed.",
-    `Return ONLY valid JSON: {"picks":[{"id":<tmdbId>,"s":<int 55..99>,"tag":"<2-3 word vibe>","r":"<short 8-14 word reason>"}]} for up to ${Math.min(targetCount, candidates.length)} distinct candidates from the list below.`,
+    `Return ONLY valid JSON: {"picks":[{"id":<tmdbId>,"s":<int 55..99>,"tag":"<2-3 word vibe>","r":"<short 8-14 word reason>"}]} for up to ${Math.min(aiCap, candidates.length)} distinct candidates from the list below.`,
     "STRICT RULES: Only use exact numeric ids from CANDIDATES. Never invent ids or films. No emojis. Respect Avoid rules and low-rated misses.",
     genres ? `TOP GENRES: ${genres}` : "",
     topLoved.length > 0 ? `FAVORITE ANCHORS: ${topLoved.join("; ")}` : "",
@@ -253,7 +292,7 @@ export function buildExploreForYouBatchPrompt(
 
   const lines = [];
   let charBudget = MAX_FOR_YOU_PROMPT_CHARS - header.length - 64;
-  for (const c of candidates.slice(0, 120)) {
+  for (const c of candidates.slice(0, Math.min(120, Math.max(aiCap, 100)))) {
     const id = Number(c.tmdbId || c.id);
     if (!Number.isFinite(id)) continue;
     const title = sanitizeLine(c.title || c.Title || "", 44);
@@ -271,7 +310,7 @@ export function buildExploreForYouBatchPrompt(
 
 /**
  * Strictly reconciles Flash-Lite output against the verified TMDB candidate pool,
- * rejecting hallucinated IDs and backfilling deterministically from the local ranker.
+ * rejecting hallucinated IDs and backfilling deterministically from the local ML ranker.
  */
 export function mergeExploreForYouResponse(
   candidates = [],
@@ -296,7 +335,7 @@ export function mergeExploreForYouResponse(
     const base = byId.get(id);
     const rawS = Number(pick?.s ?? pick?.score ?? base.forYouScore);
     const score = Number.isFinite(rawS) ? Math.max(50, Math.min(99, Math.round(rawS))) : base.forYouScore;
-    const vibeTag = sanitizeLine(pick?.tag || pick?.vibeTag || "", 32);
+    const vibeTag = sanitizeLine(pick?.tag || pick?.vibeTag || "", 32) || base.vibeTag;
     const reason = sanitizeLine(pick?.r || pick?.reason || "", 120);
 
     seen.add(id);
@@ -310,7 +349,7 @@ export function mergeExploreForYouResponse(
     if (out.length >= targetCount) break;
   }
 
-  // Deterministic local-ranker backfill to maintain a rich 80–100 film catalog
+  // Deterministic local-ranker backfill to maintain the full expanded 250+ film library
   for (const cand of orderedCandidates) {
     if (out.length >= targetCount) break;
     if (seen.has(cand.tmdbId)) continue;
@@ -469,10 +508,10 @@ function parseGeminiPicksJson(rawText) {
 }
 
 /**
- * Generates up to 100 deeply personalized unseen films using CinemaVault's on-device
- * ML ranker + CVEM v1 collaborative embeddings + a single batched Gemini Flash-Lite call
- * (3.5-flash-lite -> 3.1-flash-lite), falling back cleanly to the deterministic local ranker
- * whenever Gemini is unavailable.
+ * Generates an expanded ~250-film personalized unseen catalog using CinemaVault's full
+ * on-device ML stack (25k CVEM v1 embeddings + content embeddings + DNA + logistic ranker),
+ * emits immediate preliminary results via `onPreliminaryReady`, and optionally runs 1 single
+ * Gemini Flash-Lite batch call to refine and tag the top 100 flagship picks.
  */
 export async function generateExploreForYouPool({
   watched = [],
@@ -484,6 +523,9 @@ export async function generateExploreForYouPool({
   aiClient = undefined,
   candidates: injectedCandidates = null,
   embeddingIndex: injectedEmbeddingIndex = undefined,
+  contentIndex: injectedContentIndex = undefined,
+  dnaIndex: injectedDnaIndex = undefined,
+  onPreliminaryReady = null,
   targetCount = EXPLORE_FOR_YOU_TARGET_COUNT,
   now = Date.now()
 } = {}) {
@@ -495,9 +537,17 @@ export async function generateExploreForYouPool({
     weightedRatings: []
   }));
 
-  const embeddingIndex = injectedEmbeddingIndex !== undefined
-    ? injectedEmbeddingIndex
-    : await loadDefaultEmbeddingIndex().catch(() => null);
+  const [embeddingIndex, contentIndex, dnaIndex] = await Promise.all([
+    injectedEmbeddingIndex !== undefined
+      ? Promise.resolve(injectedEmbeddingIndex)
+      : loadDefaultEmbeddingIndex().catch(() => null),
+    injectedContentIndex !== undefined
+      ? Promise.resolve(injectedContentIndex)
+      : loadDefaultContentIndex().catch(() => null),
+    injectedDnaIndex !== undefined
+      ? Promise.resolve(injectedDnaIndex)
+      : loadDefaultDnaIndex().catch(() => null)
+  ]);
 
   const collabSimMap = embeddingIndex
     ? buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex)
@@ -516,12 +566,12 @@ export async function generateExploreForYouPool({
   ].filter(Boolean);
 
   let rawCandidates = Array.isArray(injectedCandidates) ? [...injectedCandidates] : null;
-  const poolGoal = Math.max(targetCount + 20, 120);
+  const poolGoal = Math.max(targetCount + 40, 300);
 
   if (!rawCandidates) {
     const todayIso = getTodayIso(now);
     const basePool = await fetchCandidatePool(profile, "any", watched, watchlist, {
-      poolSize: poolGoal,
+      poolSize: Math.min(200, poolGoal),
       userRegion: resolvedRegion,
       userWatchProviders,
       now
@@ -549,7 +599,7 @@ export async function generateExploreForYouPool({
           repulsionMap,
           catalogMax: collabCatalogMax,
           repulsionWeight,
-          topK: 80
+          topK: 240
         }
       );
 
@@ -562,7 +612,8 @@ export async function generateExploreForYouPool({
           {
             userRegion: resolvedRegion,
             userProviders: userWatchProviders,
-            maxNeighbors: 50
+            maxNeighbors: 160,
+            maxScan: 220
           }
         ).catch(() => []);
       }
@@ -580,10 +631,27 @@ export async function generateExploreForYouPool({
 
     const mergedRaw = [...dedup.values()];
     rawCandidates = await enrichCandidatePoolMetadata(mergedRaw, {
-      maxEnrich: poolGoal,
+      maxEnrich: Math.min(mergedRaw.length, poolGoal),
       userRegion: resolvedRegion
     }).catch(() => mergedRaw);
   }
+
+  const contentSimMap = contentIndex
+    ? buildContentSimMap(profile.weightedRatings, contentIndex, rawCandidates, {
+        collabIndex: embeddingIndex,
+        collabSimMap,
+        enableStructuredFallback: true,
+        coldOnly: true
+      })
+    : null;
+  const dnaSimMap = dnaIndex
+    ? buildDnaSimMap(profile.weightedRatings, dnaIndex)
+    : null;
+  const rankerWeights = derivePersonalizedRankerWeights(
+    feedbackLog,
+    watched,
+    DEFAULT_RANKER_WEIGHTS
+  );
 
   const ranked = rankCandidatePool(
     rawCandidates,
@@ -592,21 +660,40 @@ export async function generateExploreForYouPool({
       mood: "any",
       excludeIds,
       collabSimMap,
+      contentSimMap,
+      dnaSimMap,
       repulsionMap,
       collabCatalogMax,
       userProviders: userWatchProviders,
       tasteRules
     },
-    DEFAULT_RANKER_WEIGHTS,
+    rankerWeights,
     poolGoal
   );
 
   const normalizedRanked = ranked.map(normalizeCandidateForExplore);
+  const mathBaselineItems = mergeExploreForYouResponse(normalizedRanked, [], { targetCount });
+
+  // Progressive instant render: surface the full math-ranked catalog immediately before Flash-Lite
+  if (typeof onPreliminaryReady === "function" && mathBaselineItems.length > 0) {
+    try {
+      onPreliminaryReady({
+        items: mathBaselineItems,
+        profileHash,
+        source: "local-ranker",
+        modelUsed: null,
+        generatedAt: now
+      });
+    } catch {
+      // ignore UI callback errors
+    }
+  }
+
   const ai = aiClient !== undefined ? aiClient : createGeminiClient(resolveGeminiKey());
 
   if (!ai || normalizedRanked.length === 0) {
     return {
-      items: mergeExploreForYouResponse(normalizedRanked, [], { targetCount }),
+      items: mathBaselineItems,
       profileHash,
       source: "local-ranker",
       modelUsed: null,
@@ -614,10 +701,12 @@ export async function generateExploreForYouPool({
     };
   }
 
-  const prompt = buildExploreForYouBatchPrompt(profile, normalizedRanked, {
+  // Single Flash-Lite call refines top <=100 flagship picks while math populates the full ~250 catalog
+  const aiBatchCandidates = normalizedRanked.slice(0, EXPLORE_FOR_YOU_AI_BATCH_LIMIT);
+  const prompt = buildExploreForYouBatchPrompt(profile, aiBatchCandidates, {
     watched,
     tasteRules,
-    targetCount
+    targetCount: EXPLORE_FOR_YOU_AI_BATCH_LIMIT
   });
 
   const generationConfig = {
@@ -672,7 +761,7 @@ export async function generateExploreForYouPool({
   }
 
   return {
-    items: mergeExploreForYouResponse(normalizedRanked, [], { targetCount }),
+    items: mathBaselineItems,
     profileHash,
     source: "local-ranker",
     modelUsed: null,

@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   EXPLORE_FOR_YOU_TARGET_COUNT,
   EXPLORE_FOR_YOU_MIN_RATED,
+  EXPLORE_FOR_YOU_AI_BATCH_LIMIT,
   buildExploreForYouProfileHash,
   buildExploreForYouBatchPrompt,
+  buildMathVibeTag,
   mergeExploreForYouResponse,
   weightedShuffleForYou,
   filterForYouCatalog,
@@ -64,7 +66,7 @@ test("mergeExploreForYouResponse strips hallucinated IDs, preserves AI tags, ded
     { id: 1002, s: 94, tag: "Gritty Noir", r: "Tight pacing and moral ambiguity." }
   ];
 
-  const merged = mergeExploreForYouResponse(candidates, geminiItems, { targetCount: EXPLORE_FOR_YOU_TARGET_COUNT });
+  const merged = mergeExploreForYouResponse(candidates, geminiItems, { targetCount: 100 });
   assert.equal(merged.length, 100);
   assert.equal(merged.some((m) => m.tmdbId === 999999), false);
 
@@ -367,4 +369,64 @@ test("filterForYouCatalog enforces Runtime, Language, Country, Person, Keywords,
     [301],
     "providers filter must match providerIds"
   );
+});
+
+
+test("expanded math-first For You pool targets >= 250 films, emits immediate preliminary results, tags math picks cleanly, and keeps Gemini to 1 single call", async () => {
+  assert.ok(EXPLORE_FOR_YOU_TARGET_COUNT >= 250, `Expected >= 250 target count, got ${EXPLORE_FOR_YOU_TARGET_COUNT}`);
+  assert.equal(EXPLORE_FOR_YOU_AI_BATCH_LIMIT, 100);
+
+  const mathTag = buildMathVibeTag({ genre: "Sci-Fi, Thriller", year: "2019", imdbRating: "8.2" });
+  assert.ok(mathTag.length >= 4 && mathTag.length <= 32);
+  assert.equal(/\p{Extended_Pictographic}/u.test(mathTag), false);
+
+  const watched = [
+    { tmdbId: 1, title: "Interstellar", year: "2014", userRating: 10, tmdbGenreIds: [878, 18] },
+    { tmdbId: 2, title: "Blade Runner 2049", year: "2017", userRating: 10, tmdbGenreIds: [878, 18] },
+    { tmdbId: 3, title: "Arrival", year: "2016", userRating: 9, tmdbGenreIds: [878, 18] }
+  ];
+  const candidates260 = makeCandidates(260);
+
+  let prelimCount = 0;
+  let prelimLength = 0;
+  let aiCallCount = 0;
+  let geminiPromptLen = 0;
+
+  const finalRes = await generateExploreForYouPool({
+    watched,
+    watchlist: [],
+    candidates: candidates260,
+    embeddingIndex: null,
+    targetCount: EXPLORE_FOR_YOU_TARGET_COUNT,
+    onPreliminaryReady: (prelim) => {
+      prelimCount += 1;
+      prelimLength = prelim?.items?.length || 0;
+    },
+    aiClient: {
+      models: {
+        generateContent: async ({ contents }) => {
+          aiCallCount += 1;
+          geminiPromptLen = String(contents || "").length;
+          return {
+            text: JSON.stringify({
+              picks: candidates260.slice(0, 40).map((c, idx) => ({
+                id: c.tmdbId,
+                s: 98 - Math.floor(idx * 0.3),
+                tag: "Bespoke Sci-Fi",
+                r: "Tuned to your sci-fi favorites."
+              }))
+            })
+          };
+        }
+      }
+    }
+  });
+
+  assert.equal(prelimCount, 1, "onPreliminaryReady must fire immediately before Gemini completes");
+  assert.equal(prelimLength, EXPLORE_FOR_YOU_TARGET_COUNT);
+  assert.equal(aiCallCount, 1, "Must invoke Gemini Flash-Lite at most once");
+  assert.ok(geminiPromptLen <= 28000);
+  assert.equal(finalRes.items.length, EXPLORE_FOR_YOU_TARGET_COUNT);
+  // Math-ranked tail items must also carry clean deterministic vibe tags
+  assert.ok(finalRes.items.every((m) => typeof m.vibeTag === "string" && m.vibeTag.length > 0));
 });

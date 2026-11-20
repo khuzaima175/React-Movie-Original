@@ -196,3 +196,42 @@ test("local explore For You cache keys pools by profileHash so switching vaults 
   assert.deepEqual(hit1?.items?.[0]?.providerIds, [8]);
   assert.equal(hit2?.items?.[0]?.tmdbId, 202);
 });
+
+
+test("local cache keeps expanded 250+ film For You pools while Supabase upsert caps at <= 120 items", async () => {
+  const now = 1_800_000_000_000;
+  await clearExploreForYouCache();
+
+  const items260 = Array.from({ length: 260 }, (_, i) => ({
+    tmdbId: 2000 + i,
+    title: `Expanded Film ${i + 1}`,
+    forYouScore: Math.max(55, 99 - Math.floor(i / 6))
+  }));
+
+  let upsertedPayload = null;
+  const mockSupabase = {
+    from() {
+      return {
+        upsert: async (payload) => {
+          upsertedPayload = payload;
+          return { error: null };
+        }
+      };
+    }
+  };
+
+  await saveExploreForYouCache({
+    profileHash: "hash_expanded_260",
+    items: items260,
+    source: "local-ranker",
+    generatedAt: now,
+    userId: "u1",
+    hasSampleData: false,
+    supabaseClient: mockSupabase
+  });
+
+  const localHit = await loadExploreForYouCache({ profileHash: "hash_expanded_260", now: now + 1000 });
+  assert.equal(localHit?.items?.length, 260, "Local cache must retain full 260-film math-ranked library");
+  assert.ok(upsertedPayload, "Supabase upsert must still run for authenticated non-sample user");
+  assert.equal(upsertedPayload.items.length, 120, "Supabase JSONB payload must stay <= 120 items to satisfy RLS CHECK constraint");
+});

@@ -3,7 +3,8 @@ import { getSupabaseClient } from "./supabaseClient.js";
 export const EXPLORE_FOR_YOU_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const IDB_NAME = "cinemavault_explore_for_you_v1";
 const IDB_STORE = "pools";
-const MAX_CACHED_ITEMS = 120;
+const MAX_LOCAL_CACHED_ITEMS = 300;
+const MAX_CLOUD_CACHED_ITEMS = 120;
 const MAX_LOCAL_POOLS = 5;
 
 const memoryFallbackStore = new Map();
@@ -242,7 +243,7 @@ export async function saveExploreForYouCache({
   if (!profileHash || !Array.isArray(items) || items.length === 0) return;
 
   const compactItems = items
-    .slice(0, MAX_CACHED_ITEMS)
+    .slice(0, MAX_LOCAL_CACHED_ITEMS)
     .map(compactForYouItemForCache)
     .filter(Boolean);
 
@@ -269,7 +270,7 @@ export async function saveExploreForYouCache({
           profile_hash: profileHash,
           source,
           model_used: modelUsed,
-          items: compactItems
+          items: compactItems.slice(0, MAX_CLOUD_CACHED_ITEMS)
         },
         { onConflict: "user_id" }
       );

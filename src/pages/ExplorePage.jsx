@@ -128,9 +128,11 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     generatedAt: 0
   });
   const [isForYouLoading, setIsForYouLoading] = useState(false);
+  const [isForYouEnhancing, setIsForYouEnhancing] = useState(false);
   const [forYouError, setForYouError] = useState("");
   const [forYouRefreshNonce, setForYouRefreshNonce] = useState(0);
   const [shuffleSeed, setShuffleSeed] = useState(() => Math.floor(Date.now() % 100000));
+  const [visibleForYouCount, setVisibleForYouCount] = useState(48);
   const forYouSeqRef = useRef(0);
   const handledRefreshNonceRef = useRef(0);
 
@@ -436,13 +438,28 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           }
         }
 
+        setIsForYouEnhancing(false);
         const result = await generateExploreForYouPool({
           watched,
           watchlist,
           tasteRules,
           feedbackLog: aiFeedbackLog,
           userRegion,
-          userWatchProviders
+          userWatchProviders,
+          onPreliminaryReady: (prelim) => {
+            if (cancelled || forYouSeqRef.current !== seq) return;
+            if (Array.isArray(prelim?.items) && prelim.items.length > 0) {
+              setForYouState({
+                profileHash: prelim.profileHash,
+                items: prelim.items,
+                source: prelim.source,
+                fromCache: "math-live",
+                generatedAt: prelim.generatedAt
+              });
+              setIsForYouLoading(false);
+              setIsForYouEnhancing(true);
+            }
+          }
         });
 
         if (cancelled || forYouSeqRef.current !== seq) return;
@@ -454,6 +471,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           fromCache: "fresh",
           generatedAt: result.generatedAt
         });
+        setIsForYouEnhancing(false);
 
         saveExploreForYouCache({
           profileHash: result.profileHash,
@@ -471,6 +489,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
       } finally {
         if (!cancelled && forYouSeqRef.current === seq) {
           setIsForYouLoading(false);
+          setIsForYouEnhancing(false);
         }
       }
     }
@@ -587,11 +606,16 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     [rawPagesState, filterSignature, filteredResults, isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page]
   );
 
+  // Reset visible slice cleanly whenever filters or shuffle order change
+  useEffect(() => {
+    setVisibleForYouCount(48);
+  }, [filterSignature, shuffleSeed, isForYouMode]);
+
   const needsForYouCalibration = isForYouMode && watched.length < EXPLORE_FOR_YOU_MIN_RATED;
   const viewState = isForYouMode
     ? {
         hasFreshData: !isForYouLoading && forYouState.items.length > 0,
-        visibleItems: needsForYouCalibration ? [] : forYouFilteredResults,
+        visibleItems: needsForYouCalibration ? [] : forYouFilteredResults.slice(0, visibleForYouCount),
         displayTotalResults: needsForYouCalibration ? 0 : forYouFilteredResults.length,
         displayTotalPages: 1,
         hiddenWatchedCount: 0,
@@ -605,7 +629,12 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const activeErrorMsg = isForYouMode ? forYouError : errorMsg;
   const activeSortOptions = isForYouMode ? EXPLORE_FOR_YOU_SORT_OPTIONS : EXPLORE_SORT_OPTIONS;
   const activeChips = useMemo(() => getActiveFilterChips(filters), [filters]);
-  const hasMorePages = !isForYouMode && filters.page < viewState.displayTotalPages;
+  const remainingForYouCount = isForYouMode
+    ? Math.max(0, forYouFilteredResults.length - visibleForYouCount)
+    : 0;
+  const hasMorePages = isForYouMode
+    ? remainingForYouCount > 0
+    : filters.page < viewState.displayTotalPages;
 
   // Auto-advance once if hideWatched hides everything on page 1 cleanly
   useEffect(() => {
@@ -1135,8 +1164,8 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                 {isForYouMode
                   ? needsForYouCalibration
                     ? `Rate at least ${EXPLORE_FOR_YOU_MIN_RATED} films to unlock your personalized catalog`
-                    : isForYouLoading
-                      ? "Curating personalized matches from your Taste DNA…"
+                    : isForYouLoading && viewState.displayTotalResults === 0
+                      ? "Ranking personalized matches from your Taste DNA…"
                       : `${viewState.displayTotalResults.toLocaleString()} personalized ${
                           viewState.displayTotalResults === 1 ? "film" : "films"
                         } ready to filter`
@@ -1145,77 +1174,14 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                     : `${viewState.displayTotalResults.toLocaleString()} matching ${
                         viewState.displayTotalResults === 1 ? "film" : "films"
                       }`}
+                {isForYouMode && isForYouEnhancing && (
+                  <span className="explore-enhancing-note"> · Refining top picks…</span>
+                )}
                 {viewState.hiddenWatchedCount > 0 && ` · ${viewState.hiddenWatchedCount} watched hidden`}
               </p>
             </div>
 
             <div className="explore-header-actions">
-              <div className="explore-mode-switch" role="tablist" aria-label="Explore catalog mode">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!isForYouMode}
-                  className={`explore-mode-btn ${!isForYouMode ? "is-active" : ""}`}
-                  onClick={() => handleSwitchMode("catalog")}
-                >
-                  {!isForYouMode && (
-                    <motion.span
-                      layoutId="explore-mode-pill"
-                      className="explore-mode-pill-bg"
-                      transition={{ type: "spring", stiffness: 460, damping: 34 }}
-                    />
-                  )}
-                  <span className="explore-mode-label">All Catalog</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={isForYouMode}
-                  className={`explore-mode-btn ${isForYouMode ? "is-active" : ""}`}
-                  onClick={() => handleSwitchMode("for-you")}
-                >
-                  {isForYouMode && (
-                    <motion.span
-                      layoutId="explore-mode-pill"
-                      className="explore-mode-pill-bg"
-                      transition={{ type: "spring", stiffness: 460, damping: 34 }}
-                    />
-                  )}
-                  <Sparkles size={13} className="explore-mode-icon" aria-hidden="true" />
-                  <span className="explore-mode-label">Movies You&apos;ll Like</span>
-                </button>
-              </div>
-
-              {isForYouMode && !needsForYouCalibration && (
-                <div className="explore-for-you-tools">
-                  <button
-                    type="button"
-                    className="explore-tool-btn"
-                    onClick={() => {
-                      if (filters.sortBy !== "for_you") {
-                        updateFilters({ sortBy: "for_you" }, { replace: true });
-                      }
-                      setShuffleSeed((s) => s + 17 + Math.floor(Math.random() * 97));
-                    }}
-                    disabled={isForYouLoading || forYouState.items.length === 0}
-                    title="Reshuffle viewing order while keeping top matches weighted early"
-                  >
-                    <Shuffle size={13} aria-hidden="true" />
-                    <span>Shuffle</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="explore-tool-btn"
-                    onClick={() => setForYouRefreshNonce((n) => n + 1)}
-                    disabled={isForYouLoading}
-                    title="Re-curate fresh picks from your latest Taste DNA"
-                  >
-                    <RefreshCw size={13} className={isForYouLoading ? "spin-icon" : ""} aria-hidden="true" />
-                    <span>Refresh</span>
-                  </button>
-                </div>
-              )}
-
               <button
                 type="button"
                 className="explore-mobile-filter-trigger"
@@ -1243,6 +1209,86 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               </div>
             </div>
           </header>
+
+          {/* Zero-Shift Mode Switcher & Right-Aligned For-You Utilities */}
+          <div className="explore-mode-toolbar">
+            <div className="explore-mode-switch" role="tablist" aria-label="Explore catalog mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!isForYouMode}
+                className={`explore-mode-btn ${!isForYouMode ? "is-active" : ""}`}
+                onClick={() => handleSwitchMode("catalog")}
+              >
+                {!isForYouMode && (
+                  <motion.span
+                    layoutId="explore-mode-pill"
+                    className="explore-mode-pill-bg"
+                    transition={{ type: "spring", stiffness: 500, damping: 36 }}
+                  />
+                )}
+                <span className="explore-mode-label">All Catalog</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isForYouMode}
+                className={`explore-mode-btn ${isForYouMode ? "is-active" : ""}`}
+                onClick={() => handleSwitchMode("for-you")}
+              >
+                {isForYouMode && (
+                  <motion.span
+                    layoutId="explore-mode-pill"
+                    className="explore-mode-pill-bg"
+                    transition={{ type: "spring", stiffness: 500, damping: 36 }}
+                  />
+                )}
+                <Sparkles size={13} className="explore-mode-icon" aria-hidden="true" />
+                <span className="explore-mode-label">Movies You&apos;ll Like</span>
+              </button>
+            </div>
+
+            <div className="explore-mode-toolbar-right">
+              {isForYouMode && !needsForYouCalibration && (
+                <motion.div
+                  className="explore-for-you-tools"
+                  initial={{ opacity: 0, x: 6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <button
+                    type="button"
+                    className="explore-tool-btn"
+                    onClick={() => {
+                      if (filters.sortBy !== "for_you") {
+                        updateFilters({ sortBy: "for_you" }, { replace: true });
+                      }
+                      setShuffleSeed((s) => s + 17 + Math.floor(Math.random() * 97));
+                    }}
+                    disabled={isForYouLoading || forYouState.items.length === 0}
+                    title="Reshuffle viewing order while keeping top matches weighted early"
+                  >
+                    <Shuffle size={13} aria-hidden="true" />
+                    <span>Shuffle</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="explore-tool-btn"
+                    onClick={() => setForYouRefreshNonce((n) => n + 1)}
+                    disabled={isForYouLoading || isForYouEnhancing}
+                    title="Re-curate fresh picks from your latest Taste DNA"
+                  >
+                    <RefreshCw
+                      size={13}
+                      className={isForYouLoading || isForYouEnhancing ? "spin-icon" : ""}
+                      aria-hidden="true"
+                    />
+                    <span>Refresh</span>
+                  </button>
+                </motion.div>
+              )}
+            </div>
+          </div>
 
           {/* Active Filter Chips */}
           {activeChips.length > 0 && (
@@ -1389,10 +1435,20 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                 <div className="explore-pagination">
                   <Button
                     variant="secondary"
-                    disabled={isLoadingMore}
-                    onClick={() => updateFilters({ page: filters.page + 1 }, { resetPage: false })}
+                    disabled={!isForYouMode && isLoadingMore}
+                    onClick={() => {
+                      if (isForYouMode) {
+                        setVisibleForYouCount((c) => c + 48);
+                      } else {
+                        updateFilters({ page: filters.page + 1 }, { resetPage: false });
+                      }
+                    }}
                   >
-                    {isLoadingMore ? "Loading more films…" : "Load More Films"}
+                    {isForYouMode
+                      ? `Show More Matches (${remainingForYouCount} remaining)`
+                      : isLoadingMore
+                        ? "Loading more films…"
+                        : "Load More Films"}
                   </Button>
                 </div>
               )}

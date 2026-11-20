@@ -48,7 +48,7 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 | Rating studio | 10-star stage, live percentile calibration, optional 4-aspect craft scores, and watch-session metadata. |
 | Demo onboarding | One-click `"Try a sample vault"` loads 14 rated films + 6 watchlist films locally without touching cloud sync. |
 | Import and export | Letterboxd and CinemaVault CSV import, Schema v2 JSON backup, and a diff preview before applying. |
-| Discovery & Explore For You | Discover rows with opt-in smooth wheel scrolling, a filterable `/explore` workbench, and **"Movies You'll Like"** (~100 unseen taste-matched picks cached locally + optional Supabase RLS sync with weighted shuffle). |
+| Discovery & Explore For You | Discover rows with opt-in smooth wheel scrolling, a filterable `/explore` workbench, and **"Movies You'll Like"** (~250 unseen taste-matched picks powered by local ML embeddings + single-shot Flash-Lite curation, cached locally + optional Supabase RLS sync with weighted shuffle). |
 | Compare | Two to three films side by side, with shared cast, genres, and taste similarity. |
 | Sync | Optional Supabase sign-in with Postgres row-level security. |
 | Security | Serverless `/api/*` proxies keep API keys out of the browser bundle, bound prompt payloads, and support optional Upstash Redis daily caps. |
@@ -180,7 +180,7 @@ On a first visit with fewer than three rated films, a 30-film deck opens. Visito
 ### 14. Explore workbench (`/explore`) & "Movies You'll Like"
 
 - **All Catalog mode:** deep filters across genres (include and exclude), decades or custom years, runtime, minimum rating, minimum votes, language, country, keyword and person search, streaming services, and hide-watched.
-- **"Movies You'll Like" mode (`?mode=for-you`):** combines your on-device ML taste math (embeddings, genre/auteur affinities, negative repulsion) with a single-shot Flash-Lite curation pass to build a personalized pool of up to ~100 unseen TMDB-verified films with match percentages and concise vibe tags.
+- **"Movies You'll Like" mode (`?mode=for-you`):** combines your full on-device ML taste stack (25k CVEM v1 collaborative embeddings, content embeddings, cinematic DNA, negative repulsion, and personalized logistic ranker) with a single-shot Flash-Lite pass over the top flagship picks to build a **~250-film** personalized library of unseen TMDB-verified movies with match percentages and editorial vibe tags.
   - Cached locally in IndexedDB (7-day TTL) and optionally synced per user via the RLS-protected Supabase `public.user_explore_picks` table (sample vaults stay strictly local).
   - Supports instant client-side Deep Filtering across your personalized pool and quality-weighted **"Shuffle"** reordering with zero extra API calls.
 - Every filter is stored in the URL, so searches can be shared and reloaded.

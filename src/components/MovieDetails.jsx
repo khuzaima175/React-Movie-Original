@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
-import { HeroParallaxController, StickyTitleBar, PosterArrival } from "./MovieDetailEffects";
+import { HeroParallaxController, StickyTitleBar } from "./MovieDetailEffects";
 import PersonFilmographyModal from "./PersonFilmographyModal";
 import CollectionTimeline from "./CollectionTimeline";
 import SimilarFilmsStrip from "./SimilarFilmsStrip";
@@ -755,10 +756,15 @@ export default function MovieDetails({
           <div className="netflix-modal-body luxury-detail-body">
             {/* Left Column: Poster & Luxury Rating Deck */}
             <div className="netflix-modal-left">
-              <div className="netflix-modal-poster-wrap elevated-poster-card">
-                <PosterArrival />
+              <motion.div
+                key={`poster-${movie.imdbID || movie.tmdbId || selectedId}`}
+                className="netflix-modal-poster-wrap elevated-poster-card"
+                initial={{ opacity: 0, y: 14, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+              >
                 <PosterImage src={movie.poster} title={movie.title} alt={`${movie.title} poster`} />
-              </div>
+              </motion.div>
 
               {/* 🌟 LUXURY RATING & VAULT DECK */}
               <div className="luxury-rating-deck">

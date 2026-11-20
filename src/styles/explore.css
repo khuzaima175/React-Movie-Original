@@ -892,3 +892,30 @@
 .explore-active-chip:active {
   transform: scale(0.97);
 }
+
+
+/* ============================================================
+   ZERO-SHIFT EXPLORE MODE TOOLBAR & ENHANCING INDICATOR
+   ============================================================ */
+.explore-mode-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  min-height: 4.2rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.explore-mode-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.6rem;
+}
+
+.explore-enhancing-note {
+  color: var(--text-3);
+  font-weight: 500;
+}
