@@ -1167,14 +1167,14 @@
 .ai-chat-wrapper {
   width: 100%;
   display: flex;
-  justify-content: stretch;
+  justify-content: center;
 }
 
 .ai-chat-container {
   width: 100%;
-  max-width: 100%;
-  min-height: 44rem;
-  height: clamp(44rem, calc(100vh - 27rem), 76rem);
+  max-width: 92rem;
+  min-height: 52rem;
+  height: clamp(52rem, calc(100vh - 22rem), 84rem);
   display: flex;
   flex-direction: column;
   background: var(--surface-1);
@@ -1283,20 +1283,20 @@
 
 .chat-bubble-wrapper {
   display: flex;
-  align-items: flex-end;
-  gap: 1rem;
-  max-width: 92%;
+  align-items: flex-start;
+  gap: 1.1rem;
+  max-width: 100%;
 }
 
 .chat-bubble-wrapper.model {
-  align-self: flex-start;
-  width: min(100%, 88rem);
+  align-self: stretch;
+  width: 100%;
 }
 
 .chat-bubble-wrapper.user {
   align-self: flex-end;
   flex-direction: row-reverse;
-  max-width: min(82%, 64rem);
+  max-width: min(82%, 62rem);
 }
 
 .chat-avatar {
@@ -1307,6 +1307,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  margin-top: 0.25rem;
 }
 
 .bot-avatar {
@@ -1324,17 +1325,57 @@
 .chat-bubble {
   position: relative;
   min-width: 0;
-  padding: 1.35rem 1.7rem;
+  padding: 1.45rem 1.8rem;
   border-radius: var(--r-lg);
-  font-size: 1.4rem;
-  line-height: 1.62;
+  font-size: 1.42rem;
+  line-height: 1.65;
 }
 
 .chat-bubble.model {
+  flex: 1;
   background: var(--surface-2);
   border: 1px solid var(--hairline);
   color: var(--text-2);
-  border-bottom-left-radius: 0.4rem;
+  border-top-left-radius: 0.4rem;
+}
+
+.chat-ref-chips-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.chat-ref-chips-label {
+  font-size: 1.15rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin-right: 0.2rem;
+}
+
+.chat-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 0.55rem;
+  background: rgba(226, 177, 60, 0.08);
+  border: 1px solid rgba(226, 177, 60, 0.26);
+  color: var(--accent, #e2b13c);
+  font-size: 1.2rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.chat-ref-chip:hover {
+  background: rgba(226, 177, 60, 0.16);
+  border-color: rgba(226, 177, 60, 0.45);
 }
 
 .chat-bubble.user {

@@ -4,7 +4,8 @@ import {
   parseMovieCardsFromText,
   parseChatMessageBlocks,
   buildCompanionStarterPrompts,
-  buildCompanionFollowUpPrompts
+  buildCompanionFollowUpPrompts,
+  partitionChatMovieCards
 } from "../src/services/chatCardHelpers.js";
 
 test("parseMovieCardsFromText extracts up to 8 unique bold or quoted films with years", () => {
@@ -84,4 +85,22 @@ test("buildCompanionFollowUpPrompts adapts follow-up chips cleanly", () => {
   });
   assert.ok(chips.length >= 2 && chips.length <= 4);
   assert.ok(chips.some((c) => /Watchlist/i.test(c)));
+});
+
+test("partitionChatMovieCards separates already-watched references into compact chips and keeps unseen films as recommendation cards", () => {
+  const parsed = [
+    { title: "Inception", year: "2010" },
+    { title: "The Departed", year: "2006" },
+    { title: "Catch Me If You Can", year: "2002" },
+    { title: "Blood Diamond", year: "2006" }
+  ];
+  const watched = [
+    { title: "Inception", year: "2010", imdbID: "tt1375666", userRating: 9 },
+    { title: "The Departed", year: "2006", imdbID: "tt0407887", userRating: 8 }
+  ];
+  const { referenceChips, recommendedCards } = partitionChatMovieCards(parsed, watched, []);
+  assert.deepEqual(referenceChips.map((c) => c.title), ["Inception", "The Departed"]);
+  assert.equal(referenceChips[0].userRating, 9);
+  assert.equal(referenceChips[0].imdbID, "tt1375666");
+  assert.deepEqual(recommendedCards.map((c) => c.title), ["Catch Me If You Can", "Blood Diamond"]);
 });

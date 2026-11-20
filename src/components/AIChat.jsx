@@ -7,7 +7,8 @@ import {
   parseMovieCardsFromText,
   parseChatMessageBlocks,
   buildCompanionStarterPrompts,
-  buildCompanionFollowUpPrompts
+  buildCompanionFollowUpPrompts,
+  partitionChatMovieCards
 } from "../services/chatCardHelpers";
 import { findMatchingMovie } from "../services/movieIdentity";
 import { getCanonicalMovieKey } from "../services/vaultSyncService";
@@ -680,6 +681,10 @@ export default function AIChat({
           {messages.map((msg, index) => {
             const detectedMovies =
               msg.role === "model" ? parseMovieCardsFromText(msg.text) : [];
+            const { referenceChips, recommendedCards } =
+              detectedMovies.length > 0
+                ? partitionChatMovieCards(detectedMovies, watched, activeWatchlist)
+                : { referenceChips: [], recommendedCards: [] };
 
             return (
               <div key={index} className={`chat-bubble-wrapper ${msg.role}`}>
@@ -696,10 +701,32 @@ export default function AIChat({
                     <p className="bubble-text">{renderInlineSegments(msg.text)}</p>
                   )}
 
-                  {/* Render interactive film cards matched against Vault & Watchlist */}
-                  {detectedMovies.length > 0 && (
+                  {/* Compact inline Vault chips for already-watched references */}
+                  {referenceChips.length > 0 && (
+                    <div className="chat-ref-chips-bar" aria-label="Referenced films from your Vault">
+                      <span className="chat-ref-chips-label">From your Vault:</span>
+                      {referenceChips.map((ref, refIdx) => {
+                        const refId = ref.imdbID || (ref.tmdbId ? `tmdb_${ref.tmdbId}` : null);
+                        const label = `${ref.title}${ref.userRating > 0 ? ` · ${Math.round(ref.userRating)}/10` : ""}`;
+                        return refId ? (
+                          <Link key={`${ref.title}-${refIdx}`} to={`/movie/${refId}`} className="chat-ref-chip">
+                            <Star size={11} fill="currentColor" aria-hidden="true" />
+                            <span>{label}</span>
+                          </Link>
+                        ) : (
+                          <span key={`${ref.title}-${refIdx}`} className="chat-ref-chip">
+                            <Star size={11} fill="currentColor" aria-hidden="true" />
+                            <span>{label}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Full interactive poster cards reserved for unseen recommendations */}
+                  {recommendedCards.length > 0 && (
                     <div className="chat-inline-movies-grid">
-                      {detectedMovies.map((m, i) => (
+                      {recommendedCards.map((m, i) => (
                         <InlineMovieCard
                           key={`${m.title}-${m.year || i}`}
                           title={m.title}

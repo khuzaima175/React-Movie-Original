@@ -1,4 +1,5 @@
 import { sanitizeLine } from "./filmChatService.js";
+import { findMatchingMovie } from "./movieIdentity.js";
 
 export const DEFAULT_MAX_INLINE_CHAT_CARDS = 8;
 
@@ -155,4 +156,44 @@ export function buildCompanionFollowUpPrompts({
     chips.push("What blind spots am I missing in this style?");
   }
   return chips;
+}
+
+/**
+ * Separates already-watched Vault references from new unseen recommendation mentions
+ * so chat replies render watched references as compact chips and reserve full poster
+ * cards strictly for unseen recommendations.
+ */
+export function partitionChatMovieCards(parsedCards = [], watched = [], watchlist = []) {
+  const referenceChips = [];
+  const recommendedCards = [];
+
+  for (const item of parsedCards || []) {
+    if (!item || !item.title) continue;
+    const watchedMatch = findMatchingMovie(watched || [], {
+      title: item.title,
+      Title: item.title,
+      year: item.year
+    });
+    if (watchedMatch) {
+      referenceChips.push({
+        title: watchedMatch.title || watchedMatch.Title || item.title,
+        year: watchedMatch.year || watchedMatch.Year || item.year || "",
+        imdbID: watchedMatch.imdbID || null,
+        tmdbId: watchedMatch.tmdbId || null,
+        userRating: Number(watchedMatch.userRating) || 0
+      });
+    } else {
+      const watchlistMatch = findMatchingMovie(watchlist || [], {
+        title: item.title,
+        Title: item.title,
+        year: item.year
+      });
+      recommendedCards.push({
+        ...item,
+        inWatchlist: Boolean(watchlistMatch)
+      });
+    }
+  }
+
+  return { referenceChips, recommendedCards };
 }
