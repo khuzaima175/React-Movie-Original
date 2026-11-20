@@ -11,13 +11,15 @@ import {
   SlidersHorizontal,
   ArrowUpDown,
   MoreHorizontal,
-  Cloud
+  Cloud,
+  User
 } from "lucide-react";
 import { Menu } from "./ui/Menu";
 import {
   getSearchShortcutHint,
   getCloudSyncBadgeLabel,
-  formatVaultNavCount
+  formatVaultNavCount,
+  getAccountNavState
 } from "../services/navHelpers";
 
 function NavTab({ to, end = false, children }) {
@@ -66,6 +68,7 @@ function MobileTab({ to, end = false, icon: Icon, label }) {
     </NavLink>
   );
 }
+
 function useScrolled(threshold = 8) {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -76,6 +79,7 @@ function useScrolled(threshold = 8) {
   }, [threshold]);
   return scrolled;
 }
+
 export default function NavBar({
   onOpenSearch,
   onOpenRandomPicker,
@@ -86,7 +90,7 @@ export default function NavBar({
   hasCloudConfig = false,
   cloudSyncStatus = "idle"
 }) {
-  const { watched = [], watchlist = [] } = useApp();
+  const { watched = [], watchlist = [], cloudProfile = null } = useApp();
   const isScrolled = useScrolled();
   const shortcutLabel = getSearchShortcutHint(
     typeof navigator !== "undefined" ? navigator.platform : ""
@@ -96,6 +100,12 @@ export default function NavBar({
     configured: Boolean(hasCloudConfig),
     userEmail: cloudUser?.email || null,
     status: cloudSyncStatus
+  });
+  const accountNav = getAccountNavState({
+    hasCloudConfig: Boolean(hasCloudConfig),
+    cloudUser,
+    cloudProfile,
+    cloudSyncStatus
   });
 
   return (
@@ -145,6 +155,32 @@ export default function NavBar({
                 <span className="watchlist-count tabular-num">{watchlistCountLabel}</span>
               )}
             </NavLink>
+
+            {accountNav.visible && (
+              <NavLink
+                to={accountNav.to}
+                className={`nav-account-btn ${accountNav.isSignedIn ? "is-signed-in" : ""}`}
+                aria-label={accountNav.isSignedIn ? `Account (${accountNav.label})` : "Sign In"}
+                title={accountNav.isSignedIn ? `${accountNav.label} · Account & Sync` : "Sign in or create account"}
+              >
+                {accountNav.isSignedIn ? (
+                  <>
+                    <span className="nav-account-avatar" aria-hidden="true">
+                      {accountNav.initial}
+                    </span>
+                    <span
+                      className={`nav-account-dot is-${accountNav.syncTone}`}
+                      aria-hidden="true"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <User size={14} aria-hidden="true" />
+                    <span className="nav-account-label">Sign In</span>
+                  </>
+                )}
+              </NavLink>
+            )}
 
             {(onOpenBackup || onOpenTasteDeck || onOpenRandomPicker || onOpenCloudSync) && (
               <Menu>

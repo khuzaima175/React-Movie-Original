@@ -62,3 +62,54 @@ export function resolveMenuAlignment(
   }
   return normalized;
 }
+
+export function getAccountNavState({
+  hasCloudConfig = false,
+  cloudUser = null,
+  cloudProfile = null,
+  cloudSyncStatus = "idle"
+} = {}) {
+  if (!hasCloudConfig) {
+    return {
+      visible: false,
+      isSignedIn: false,
+      label: "Guest",
+      initial: "",
+      to: "/auth",
+      syncTone: "idle"
+    };
+  }
+
+  if (!cloudUser) {
+    return {
+      visible: true,
+      isSignedIn: false,
+      label: "Sign In",
+      initial: "",
+      to: "/auth",
+      syncTone: "idle"
+    };
+  }
+
+  const displayName = String(cloudProfile?.displayName || "").trim();
+  const email = String(cloudUser.email || "").trim();
+  const label = displayName || email.split("@")[0] || "Account";
+  const initial = (displayName || email || "A").charAt(0).toUpperCase();
+  const syncTone =
+    cloudSyncStatus === "synced"
+      ? "synced"
+      : cloudSyncStatus === "syncing"
+        ? "syncing"
+        : cloudSyncStatus === "error"
+          ? "error"
+          : "ready";
+
+  return {
+    visible: true,
+    isSignedIn: true,
+    label,
+    initial,
+    to: "/account",
+    syncTone
+  };
+}

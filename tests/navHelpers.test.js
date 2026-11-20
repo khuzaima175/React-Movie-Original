@@ -7,7 +7,8 @@ import {
   hasBrowserHistory,
   goBackOrHome,
   formatDocumentTitle,
-  resolveMenuAlignment
+  resolveMenuAlignment,
+  getAccountNavState
 } from "../src/services/navHelpers.js";
 
 test("getSearchShortcutHint adapts shortcut glyph to OS platform", () => {
@@ -74,4 +75,28 @@ test("resolveMenuAlignment flips right-aligned menu to left when trigger wraps n
     resolveMenuAlignment("left", { left: 300, right: 356 }, 390, 260),
     "right"
   );
+});
+
+test("getAccountNavState returns guest sign-in state when signed out and user initial + sync status when signed in", () => {
+  const unconfigured = getAccountNavState({ hasCloudConfig: false, cloudUser: null });
+  assert.equal(unconfigured.visible, false);
+
+  const guest = getAccountNavState({ hasCloudConfig: true, cloudUser: null, cloudSyncStatus: "idle" });
+  assert.equal(guest.visible, true);
+  assert.equal(guest.isSignedIn, false);
+  assert.equal(guest.label, "Sign In");
+  assert.equal(guest.to, "/auth");
+
+  const authed = getAccountNavState({
+    hasCloudConfig: true,
+    cloudUser: { email: "khuzaima@example.com" },
+    cloudProfile: { displayName: "Khuzaima" },
+    cloudSyncStatus: "synced"
+  });
+  assert.equal(authed.visible, true);
+  assert.equal(authed.isSignedIn, true);
+  assert.equal(authed.initial, "K");
+  assert.equal(authed.label, "Khuzaima");
+  assert.equal(authed.to, "/account");
+  assert.equal(authed.syncTone, "synced");
 });

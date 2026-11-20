@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   CheckCircle2,
@@ -8,7 +9,8 @@ import {
   LogOut,
   Mail,
   RefreshCw,
-  ShieldCheck
+  ShieldCheck,
+  User
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { Modal } from "./ui/Modal";
@@ -29,6 +31,7 @@ function formatSyncTimestamp(isoString) {
 }
 
 export default function CloudSyncModal({ isOpen, onClose }) {
+  const navigate = useNavigate();
   const {
     hasCloudConfig,
     cloudUser,
@@ -188,15 +191,28 @@ export default function CloudSyncModal({ isOpen, onClose }) {
             </p>
 
             <div className="flex flex-wrap items-center justify-between gap-[1.2rem] pt-[0.4rem]">
-              <Button
-                variant="secondary"
-                className="text-[1.35rem] px-[1.5rem] py-[0.9rem]"
-                icon={LogOut}
-                onClick={signOutCloud}
-                disabled={isSyncing}
-              >
-                Sign Out
-              </Button>
+              <div className="flex flex-wrap items-center gap-[0.8rem]">
+                <Button
+                  variant="secondary"
+                  className="text-[1.35rem] px-[1.5rem] py-[0.9rem]"
+                  icon={LogOut}
+                  onClick={() => signOutCloud?.({ clearLocal: false })}
+                  disabled={isSyncing}
+                >
+                  Sign Out
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="text-[1.3rem] px-[1.3rem] py-[0.9rem]"
+                  icon={User}
+                  onClick={() => {
+                    onClose?.();
+                    navigate("/account");
+                  }}
+                >
+                  Account Settings
+                </Button>
+              </div>
               <Button
                 variant="accent"
                 className="text-[1.35rem] px-[1.6rem] py-[0.9rem]"
@@ -271,7 +287,18 @@ export default function CloudSyncModal({ isOpen, onClose }) {
               </div>
             </form>
 
-            <div className="flex justify-end pt-[0.4rem]">
+            <div className="flex flex-wrap items-center justify-between gap-[1rem] pt-[0.4rem]">
+              <Button
+                variant="secondary"
+                className="text-[1.3rem] px-[1.5rem] py-[0.85rem]"
+                icon={User}
+                onClick={() => {
+                  onClose?.();
+                  navigate("/auth");
+                }}
+              >
+                Sign In / Create Account with Password
+              </Button>
               <Button
                 variant="ghost"
                 className="text-[1.3rem] px-[1.4rem] py-[0.8rem]"

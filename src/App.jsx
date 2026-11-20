@@ -22,6 +22,8 @@ const MoviePage = lazy(() => import("./pages/MoviePage"));
 const PersonPage = lazy(() => import("./pages/PersonPage"));
 const VaultPage = lazy(() => import("./pages/VaultPage"));
 const AIPage = lazy(() => import("./pages/AIPage"));
+const AuthPage = lazy(() => import("./pages/AuthPage"));
+const AccountPage = lazy(() => import("./pages/AccountPage"));
 import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
@@ -53,7 +55,8 @@ function AppContent() {
     addToWatchlist,
     hasCloudConfig,
     cloudUser,
-    cloudSyncStatus
+    cloudSyncStatus,
+    isPasswordRecovery
   } = useApp();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRandomPickerOpen, setIsRandomPickerOpen] = useState(false);
@@ -70,6 +73,12 @@ function AppContent() {
   useEffect(() => {
     syncDebugFlagFromSearch({ search: location.search });
   }, [location.search]);
+
+  useEffect(() => {
+    if (isPasswordRecovery && location.pathname !== "/auth") {
+      navigate("/auth?mode=reset", { replace: true });
+    }
+  }, [isPasswordRecovery, location.pathname, navigate]);
 
   useEffect(() => {
     if (didCheckOnboardingRef.current) return;
@@ -234,6 +243,10 @@ function AppContent() {
             }
           />
           <Route path="/ai" element={<AIPage onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")} />} />
+          <Route path="/auth" element={<AuthPage defaultMode="signin" />} />
+          <Route path="/login" element={<AuthPage defaultMode="signin" />} />
+          <Route path="/signup" element={<AuthPage defaultMode="signup" />} />
+          <Route path="/account" element={<AccountPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </Suspense>
