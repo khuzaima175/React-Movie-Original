@@ -23,6 +23,34 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "build",
       emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (
+              id.includes("/react/") ||
+              id.includes("/react-dom/") ||
+              id.includes("/react-router") ||
+              id.includes("/scheduler/")
+            ) {
+              return "vendor-react";
+            }
+            if (id.includes("/framer-motion/") || id.includes("/motion-")) {
+              return "vendor-motion";
+            }
+            if (id.includes("/@supabase/")) {
+              return "vendor-supabase";
+            }
+            if (id.includes("/@google/genai/")) {
+              return "vendor-genai";
+            }
+            if (id.includes("/lucide-react/")) {
+              return "vendor-icons";
+            }
+            return undefined;
+          },
+        },
+      },
     },
   };
 });

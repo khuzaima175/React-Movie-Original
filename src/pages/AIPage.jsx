@@ -19,6 +19,7 @@ import {
 import { fetchOmdbJson } from "../services/apiTransport";
 import { SlidersHorizontal } from "lucide-react";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import "../styles/oracle.css";
 
 function normalizeResolvedFocusMovie(rawMovie, parsedParams = {}) {
   if (!rawMovie && !parsedParams.movieKey && !parsedParams.tmdbId) return null;

@@ -9,6 +9,7 @@ import {
   annotateCreditsWithVaultState,
   filterAndSortPersonCredits
 } from "../services/personService";
+import "../styles/person.css";
 
 function toMovieActionCandidate(credit) {
   const tmdbRating = Number(credit.voteAverage) > 0

@@ -56,6 +56,7 @@ import {
   saveExploreForYouCache
 } from "../services/exploreForYouCache";
 import { isSameMovie } from "../services/movieIdentity";
+import "../styles/explore.css";
 
 const VOTE_FLOOR_OPTIONS = [
   { value: 150, label: "Popular (150+ votes)" },

@@ -3,9 +3,6 @@
 @import "./styles/primitives.css";
 @import "./styles/nav-discover.css";
 @import "./styles/vault.css";
-@import "./styles/oracle.css";
-@import "./styles/person.css";
-@import "./styles/explore.css";
 @import "./styles/compare.css";
 
 /* Tailwind v4 @theme Binding */
