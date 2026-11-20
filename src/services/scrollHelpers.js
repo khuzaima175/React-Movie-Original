@@ -1,8 +1,7 @@
 /**
  * Pure wheel-to-horizontal-scroll helpers for cinema poster carousels & film strips.
- * Converts vertical mouse-wheel deltas into smooth frame-rate-independent horizontal
- * momentum while yielding cleanly back to vertical page scroll at edges, on
- * non-overflowing rails, and during native trackpad horizontal gestures.
+ * Requires explicit opt-in (row engagement or Shift+Wheel) so plain vertical page
+ * scrolling is never hijacked merely by passing the cursor over a horizontal rail.
  */
 
 export function computeHorizontalWheelDelta({
@@ -12,8 +11,15 @@ export function computeHorizontalWheelDelta({
   scrollLeft = 0,
   scrollWidth = 0,
   clientWidth = 0,
-  clientHeight = 0
+  clientHeight = 0,
+  engaged = false,
+  shiftKey = false,
+  requireActivation = true
 } = {}) {
+  if (requireActivation && !engaged && !shiftKey) {
+    return null;
+  }
+
   const maxScrollLeft = scrollWidth - clientWidth;
   if (!Number.isFinite(maxScrollLeft) || maxScrollLeft <= 1) {
     return null;
@@ -66,6 +72,11 @@ export function attachHorizontalWheelScroll(el, options = {}) {
 
   const multiplier = Number.isFinite(options.multiplier) ? options.multiplier : 1.25;
   const speed = Number.isFinite(options.speed) && options.speed > 0 ? options.speed : 11.5;
+  const requireActivation = options.requireActivation !== false;
+  const isEngagedFn = typeof options.isEngagedFn === "function"
+    ? options.isEngagedFn
+    : () => Boolean(options.engaged);
+
   const rafFn =
     typeof options.requestAnimationFrameFn === "function"
       ? options.requestAnimationFrameFn
@@ -122,6 +133,7 @@ export function attachHorizontalWheelScroll(el, options = {}) {
   };
 
   const handleWheel = (e) => {
+    const engaged = Boolean(isEngagedFn());
     const activeLeft = rafId !== null ? targetLeft : el.scrollLeft;
     const horizontalDelta = computeHorizontalWheelDelta({
       deltaX: e.deltaX,
@@ -130,7 +142,10 @@ export function attachHorizontalWheelScroll(el, options = {}) {
       scrollLeft: activeLeft,
       scrollWidth: el.scrollWidth,
       clientWidth: el.clientWidth,
-      clientHeight: el.clientHeight
+      clientHeight: el.clientHeight,
+      engaged,
+      shiftKey: Boolean(e.shiftKey),
+      requireActivation
     });
 
     if (horizontalDelta === null) return;

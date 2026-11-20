@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { Sparkles, ArrowRight, ArrowLeftRight } from "lucide-react";
 import MovieCard from "./MovieCard";
 import { buildExploreRoute } from "../services/exploreService";
 import { useHorizontalWheelScroll } from "../hooks/useHorizontalWheelScroll";
@@ -18,7 +18,14 @@ export default function SimilarFilmsStrip({
   onSelectMovie,
   onQuickRate
 }) {
-  const stripRef = useHorizontalWheelScroll([films?.length || 0, loading]);
+  const {
+    ref: stripRef,
+    containerRef: wheelScopeRef,
+    isEngaged: isWheelEngaged,
+    release: releaseWheel,
+    toggleEngaged: toggleWheelEngaged,
+    handleTrackClick
+  } = useHorizontalWheelScroll([films?.length || 0, loading]);
 
   if (loading && (!films || films.length === 0)) {
     return (
@@ -47,7 +54,13 @@ export default function SimilarFilmsStrip({
     : "/explore";
 
   return (
-    <section className="rabbit-hole-section" aria-label="Movies Like This">
+    <section
+      ref={wheelScopeRef}
+      className={`rabbit-hole-section ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
+      data-wheel-engaged={isWheelEngaged ? "true" : "false"}
+      onPointerLeave={releaseWheel}
+      aria-label="Movies Like This"
+    >
       <div className="rabbit-hole-header">
         <div className="rabbit-hole-title-group">
           <div className="rabbit-hole-kicker">
@@ -59,13 +72,37 @@ export default function SimilarFilmsStrip({
           <h2 className="rabbit-hole-title">Movies Like This</h2>
         </div>
 
-        <Link to={exploreMoreUrl} className="rabbit-hole-explore-link">
-          <span>Open in Explore</span>
-          <ArrowRight size={14} aria-hidden="true" />
-        </Link>
+        <div className="rabbit-hole-header-actions">
+          {films.length > 4 && (
+            <button
+              type="button"
+              className={`btn-wheel-engage ${isWheelEngaged ? "is-active" : ""}`}
+              onClick={toggleWheelEngaged}
+              aria-pressed={isWheelEngaged}
+              title={
+                isWheelEngaged
+                  ? "Mouse wheel locked to this row (press Esc or move away to release)"
+                  : "Click to scroll this row with your mouse wheel (or hold Shift + Scroll)"
+              }
+            >
+              <ArrowLeftRight size={13} aria-hidden="true" />
+              <span>{isWheelEngaged ? "Wheel active" : "Scroll row"}</span>
+            </button>
+          )}
+
+          <Link to={exploreMoreUrl} className="rabbit-hole-explore-link">
+            <span>Open in Explore</span>
+            <ArrowRight size={14} aria-hidden="true" />
+          </Link>
+        </div>
       </div>
 
-      <div ref={stripRef} className="similar-films-strip" role="list">
+      <div
+        ref={stripRef}
+        className={`similar-films-strip ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
+        onClick={handleTrackClick}
+        role="list"
+      >
         {films.map((film) => {
           const targetId = film.imdbID || film.id || `tmdb_${film.tmdbId}`;
           const originTag = ORIGIN_LABEL[film.matchOrigin] || null;

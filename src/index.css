@@ -7523,6 +7523,17 @@ a.clickable-research-chip:hover {
   transition: width 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.rabbit-hole-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.rabbit-hole-section.is-wheel-engaged {
+  border-color: rgba(245, 244, 240, 0.24);
+}
+
 .collection-timeline-strip,
 .similar-films-strip {
   display: flex;

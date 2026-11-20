@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeftRight, ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
 import { shouldShowCarouselArrows } from "../services/dashboardService";
 import { useScrollReveal } from "../hooks/useScrollReveal";
@@ -20,7 +20,13 @@ export default function MovieCarouselRow({
   const [canScroll, setCanScroll] = useState(false);
   const [edges, setEdges] = useState({ start: false, end: true });
   const [revealRef, isRevealed] = useScrollReveal();
-  useHorizontalWheelScroll([movies.length], scrollRef);
+  const {
+    containerRef: wheelScopeRef,
+    isEngaged: isWheelEngaged,
+    release: releaseWheel,
+    toggleEngaged: toggleWheelEngaged,
+    handleTrackClick
+  } = useHorizontalWheelScroll([movies.length], scrollRef);
 
   function updateEdges() {
     const el = scrollRef.current;
@@ -109,8 +115,15 @@ export default function MovieCarouselRow({
 
   return (
     <section
-      ref={revealRef}
-      className={`carousel-section cv-reveal ${isRevealed ? "is-visible" : ""}`}
+      ref={(node) => {
+        revealRef(node);
+        wheelScopeRef.current = node;
+      }}
+      className={`carousel-section cv-reveal ${isRevealed ? "is-visible" : ""} ${
+        isWheelEngaged ? "is-wheel-engaged" : ""
+      }`}
+      data-wheel-engaged={isWheelEngaged ? "true" : "false"}
+      onPointerLeave={releaseWheel}
       aria-label={title}
     >
       <div className="carousel-header page-rail">
@@ -123,6 +136,20 @@ export default function MovieCarouselRow({
           )}
           {canScroll && (
             <div className="carousel-arrows">
+              <button
+                type="button"
+                className={`btn-wheel-engage ${isWheelEngaged ? "is-active" : ""}`}
+                onClick={toggleWheelEngaged}
+                aria-pressed={isWheelEngaged}
+                title={
+                  isWheelEngaged
+                    ? "Mouse wheel locked to this row (press Esc or move away to release)"
+                    : "Click to scroll this row with your mouse wheel (or hold Shift + Scroll)"
+                }
+              >
+                <ArrowLeftRight size={13} aria-hidden="true" />
+                <span>{isWheelEngaged ? "Wheel active" : "Scroll row"}</span>
+              </button>
               <button
                 type="button"
                 className="btn-carousel-arrow"
@@ -148,9 +175,10 @@ export default function MovieCarouselRow({
         <div
           className={`carousel-track ${edges.start ? "fade-start" : ""} ${
             edges.end && canScroll ? "fade-end" : ""
-          }`}
+          } ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
           ref={scrollRef}
           onScroll={updateEdges}
+          onClick={handleTrackClick}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={endDrag}

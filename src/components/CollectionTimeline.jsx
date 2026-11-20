@@ -1,10 +1,17 @@
 import { Link } from "react-router-dom";
-import { Check, Bookmark, Star, Layers } from "lucide-react";
+import { Check, Bookmark, Star, Layers, ArrowLeftRight } from "lucide-react";
 import PosterImage from "./PosterImage";
 import { useHorizontalWheelScroll } from "../hooks/useHorizontalWheelScroll";
 
 export default function CollectionTimeline({ timeline, loading = false }) {
-  const stripRef = useHorizontalWheelScroll([timeline?.parts?.length || 0, loading]);
+  const {
+    ref: stripRef,
+    containerRef: wheelScopeRef,
+    isEngaged: isWheelEngaged,
+    release: releaseWheel,
+    toggleEngaged: toggleWheelEngaged,
+    handleTrackClick
+  } = useHorizontalWheelScroll([timeline?.parts?.length || 0, loading]);
 
   if (loading && !timeline) {
     return (
@@ -33,7 +40,13 @@ export default function CollectionTimeline({ timeline, loading = false }) {
     : 0;
 
   return (
-    <section className="rabbit-hole-section" aria-label={`${timeline.name} Chronological Timeline`}>
+    <section
+      ref={wheelScopeRef}
+      className={`rabbit-hole-section ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
+      data-wheel-engaged={isWheelEngaged ? "true" : "false"}
+      onPointerLeave={releaseWheel}
+      aria-label={`${timeline.name} Chronological Timeline`}
+    >
       <div className="rabbit-hole-header">
         <div className="rabbit-hole-title-group">
           <div className="rabbit-hole-kicker">
@@ -43,17 +56,41 @@ export default function CollectionTimeline({ timeline, loading = false }) {
           <h2 className="rabbit-hole-title">{timeline.name}</h2>
         </div>
 
-        <div className="collection-progress-pill" aria-label={`Watched ${timeline.watchedCount} of ${timeline.totalCount}`}>
-          <span className="tabular-num">
-            {timeline.watchedCount} of {timeline.totalCount} Watched
-          </span>
-          <span className="collection-progress-bar" aria-hidden="true">
-            <span className="collection-progress-fill" style={{ width: `${pct}%` }} />
-          </span>
+        <div className="rabbit-hole-header-actions">
+          {timeline.parts.length > 4 && (
+            <button
+              type="button"
+              className={`btn-wheel-engage ${isWheelEngaged ? "is-active" : ""}`}
+              onClick={toggleWheelEngaged}
+              aria-pressed={isWheelEngaged}
+              title={
+                isWheelEngaged
+                  ? "Mouse wheel locked to this row (press Esc or move away to release)"
+                  : "Click to scroll this row with your mouse wheel (or hold Shift + Scroll)"
+              }
+            >
+              <ArrowLeftRight size={13} aria-hidden="true" />
+              <span>{isWheelEngaged ? "Wheel active" : "Scroll row"}</span>
+            </button>
+          )}
+
+          <div className="collection-progress-pill" aria-label={`Watched ${timeline.watchedCount} of ${timeline.totalCount}`}>
+            <span className="tabular-num">
+              {timeline.watchedCount} of {timeline.totalCount} Watched
+            </span>
+            <span className="collection-progress-bar" aria-hidden="true">
+              <span className="collection-progress-fill" style={{ width: `${pct}%` }} />
+            </span>
+          </div>
         </div>
       </div>
 
-      <div ref={stripRef} className="collection-timeline-strip" role="list">
+      <div
+        ref={stripRef}
+        className={`collection-timeline-strip ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
+        onClick={handleTrackClick}
+        role="list"
+      >
         {timeline.parts.map((part, idx) => {
           const targetId = part.imdbID || `tmdb_${part.tmdbId}`;
           const cardBody = (
