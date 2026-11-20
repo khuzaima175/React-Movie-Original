@@ -42,13 +42,13 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 | Local taste model | 25,000-film collaborative embedding index (3,300,016 bytes, float16), per-user rating normalization, recency decay, persona mixtures, and a 64×64 ridge fold-in. Runs in the browser. |
 | Recommendations | Five retrieval buckets, a calibrated logistic ranker, and 10 picks from a 39-candidate shortlist. Verified TMDB titles only. |
 | Vibes | Six preset moods plus free-text "Match Vibe" queries such as "like Drive but quieter." |
-| Gemini cascade & BYOK | Ordered model fallback with error-specific cooldowns, optional browser-local personal Gemini key (`cv_user_gemini_key`), and deterministic on-device ranker fallback when shared quota is at capacity. |
+| Gemini cascade & BYOK | Dual Flash-Lite cascade (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`, up to 1,000 free requests/day) with error-specific cooldowns, optional browser-local personal Gemini key (`cv_user_gemini_key`), and deterministic on-device ranker fallback when shared quota is at capacity. |
 | Editions (Public / Personal) | Clean Public Edition by default; toggle Personal/Debug UI with `?debug=1` (`?debug=0` to clear) or build with `VITE_APP_EDITION=personal`. |
 | Streaming | 12 services, 13 provider alias families, 15 regions. |
 | Rating studio | 10-star stage, live percentile calibration, optional 4-aspect craft scores, and watch-session metadata. |
 | Demo onboarding | One-click `"Try a sample vault"` loads 14 rated films + 6 watchlist films locally without touching cloud sync. |
 | Import and export | Letterboxd and CinemaVault CSV import, Schema v2 JSON backup, and a diff preview before applying. |
-| Discovery | Discover rows, a filterable `/explore` workbench, and a first-visit taste deck. |
+| Discovery & Explore For You | Discover rows with opt-in smooth wheel scrolling, a filterable `/explore` workbench, and **"Movies You'll Like"** (~100 unseen taste-matched picks cached locally + optional Supabase RLS sync with weighted shuffle). |
 | Compare | Two to three films side by side, with shared cast, genres, and taste similarity. |
 | Sync | Optional Supabase sign-in with Postgres row-level security. |
 | Security | Serverless `/api/*` proxies keep API keys out of the browser bundle, bound prompt payloads, and support optional Upstash Redis daily caps. |
@@ -158,11 +158,12 @@ Click any cast member or crew credit to open their filmography in an overlay, wi
 
 ### 11. Interface & Two Editions
 
-- Dark, neutral palette with brass accents reserved strictly for ratings and focus rings.
-- Discover hero carousel that pauses on hover.
-- Motion respects `prefers-reduced-motion`.
+- Dark, neutral palette with brass accents reserved strictly for ratings and focus rings, plus custom dark glass `<Select>` menus across every filter and sort control.
+- Discover hero carousel with subtle ambient Ken Burns drift that pauses on hover and disables under `prefers-reduced-motion`.
+- Decluttered 2-tier Film Oracle command bar (sliding Mood pill rail + unified Vibe bar) moving Streaming region/platforms, Taste Rules + Auto-Draft, and Personal AI Key into a unified **"Filters & Rules"** popover (bottom sheet on mobile).
+- GPU-accelerated scroll reveals and spring sliding tabs that honor `prefers-reduced-motion`.
 - Toast notifications with Undo for deletions.
-- **Public Edition (default):** clean consumer labels (`"AI Curated"`, `"On-Device Engine"`), Flash-Lite prioritized curation, and one-click `"Try a sample vault"` onboarding.
+- **Public Edition (default):** clean consumer labels (`"AI Curated"`, `"On-Device Engine"`), dual Flash-Lite prioritized curation (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`), and one-click `"Try a sample vault"` onboarding.
 - **Personal / Debug Edition (`?debug=1` or `VITE_APP_EDITION=personal`):** reveals the Gemini model cascade bar, per-message model chips, cascade cooldown tooltips, and primary Hydrogen curation (`npm run start:personal` / `npm run build:personal`).
 
 ### 12. First-visit taste deck & Sample Vault
@@ -171,15 +172,18 @@ On a first visit with fewer than three rated films, a 30-film deck opens. Visito
 
 ### 13. Discover hub
 
-- Rows of unwatched films, with films already in your vault or watchlist excluded across all rows.
+- Rows of unwatched released films, with films already in your vault or watchlist excluded across all rows.
+- **Opt-in smooth horizontal row scrolling:** plain vertical mouse wheel scrolling always scrolls the page cleanly; click **"Scroll row"** (or the row border) or hold `Shift + Wheel` to smoothly glide any horizontal row left/right (auto-releases on pointer leave, outside click, or `Esc`).
 - A filterable "All Films" grid, 24 posters per page.
 - Offline, the app shows built-in fallback rows.
 
-### 14. Explore workbench (`/explore`)
+### 14. Explore workbench (`/explore`) & "Movies You'll Like"
 
-- Filters: genres (include and exclude), decades or custom years, runtime, minimum rating, minimum votes, language, country, keyword and person search, streaming services, and hide-watched or hide-watchlist.
+- **All Catalog mode:** deep filters across genres (include and exclude), decades or custom years, runtime, minimum rating, minimum votes, language, country, keyword and person search, streaming services, and hide-watched.
+- **"Movies You'll Like" mode (`?mode=for-you`):** combines your on-device ML taste math (embeddings, genre/auteur affinities, negative repulsion) with a single-shot Flash-Lite curation pass to build a personalized pool of up to ~100 unseen TMDB-verified films with match percentages and concise vibe tags.
+  - Cached locally in IndexedDB (7-day TTL) and optionally synced per user via the RLS-protected Supabase `public.user_explore_picks` table (sample vaults stay strictly local).
+  - Supports instant client-side Deep Filtering across your personalized pool and quality-weighted **"Shuffle"** reordering with zero extra API calls.
 - Every filter is stored in the URL, so searches can be shared and reloaded.
-- Removable filter chips show active filters.
 - Clicking a genre or keyword on a movie page opens `/explore` with that filter applied.
 
 ### 15. Compare (`/compare`)
