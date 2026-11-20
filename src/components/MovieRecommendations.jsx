@@ -55,7 +55,7 @@ import {
 import PosterImage from "./PosterImage";
 import QuickRateModal from "./QuickRateModal";
 import GeminiKeyModal from "./GeminiKeyModal";
-import { Button, MetaLine } from "./ui";
+import { Button, MetaLine, Select } from "./ui";
 import {
   Sparkles,
   Loader2,
@@ -749,18 +749,18 @@ export default function MovieRecommendations({
           <div className="streaming-drawer-body">
             <div className="streaming-toolbar-row">
               <div className="streaming-region-select">
-                <Globe size={14} aria-hidden="true" />
-                <select
+                <Select
                   value={userRegion}
-                  onChange={(e) => setUserRegion(e.target.value)}
-                  aria-label="Select Streaming Region"
-                >
-                  {AVAILABLE_REGIONS.map((reg) => (
-                    <option key={reg.code} value={reg.code}>
-                      {reg.flag} {reg.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setUserRegion(val)}
+                  ariaLabel="Select Streaming Region"
+                  icon={Globe}
+                  size="sm"
+                  options={AVAILABLE_REGIONS.map((reg) => ({
+                    value: reg.code,
+                    label: reg.name,
+                    sublabel: reg.code === "GLOBAL" ? "All regions" : reg.code
+                  }))}
+                />
               </div>
 
               <div className="streaming-quick-links">
@@ -1252,16 +1252,18 @@ export default function MovieRecommendations({
               </Button>
 
               <div className="recs-sort-controls">
-                <select
-                  className="recs-sort-select"
+                <Select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  aria-label="Sort recommendations"
-                >
-                  <option value="match">Sort: Best Match</option>
-                  <option value="imdb">Sort: IMDb Score</option>
-                  <option value="year">Sort: Release Year</option>
-                </select>
+                  onChange={(val) => setSortBy(val)}
+                  ariaLabel="Sort recommendations"
+                  align="right"
+                  size="sm"
+                  options={[
+                    { value: "match", label: "Sort: Best Match" },
+                    { value: "imdb", label: "Sort: IMDb Score" },
+                    { value: "year", label: "Sort: Release Year" }
+                  ]}
+                />
               </div>
             </div>
           </div>

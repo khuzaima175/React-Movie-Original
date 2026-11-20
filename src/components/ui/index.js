@@ -2,6 +2,7 @@ export { Button } from './Button';
 export { IconButton } from './IconButton';
 export { Menu } from './Menu';
 export { Modal } from './Modal';
+export { Select } from './Select';
 export { Tabs } from './Tabs';
 export { Accordion } from './Accordion';
 export { Skeleton } from './Skeleton';

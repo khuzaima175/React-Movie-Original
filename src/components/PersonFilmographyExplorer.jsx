@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bookmark, Check, Film, Search, Star } from "lucide-react";
 import Tabs from "./ui/Tabs";
+import Select from "./ui/Select";
 import PosterImage from "./PosterImage";
 import { prepareWatchlistPayload } from "../services/ratingTiers";
 import {
@@ -183,16 +184,18 @@ export default function PersonFilmographyExplorer({
             </div>
           )}
 
-          <select
+          <Select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="person-sort-select"
-            aria-label="Sort credits"
-          >
-            <option value="popular">Sort: Popular</option>
-            <option value="top_rated">Sort: Top Rated</option>
-            <option value="newest">Sort: Newest</option>
-          </select>
+            onChange={(val) => setSortBy(val)}
+            ariaLabel="Sort credits"
+            align="right"
+            size="sm"
+            options={[
+              { value: "popular", label: "Sort: Popular" },
+              { value: "top_rated", label: "Sort: Top Rated" },
+              { value: "newest", label: "Sort: Newest" }
+            ]}
+          />
         </div>
       </div>
 

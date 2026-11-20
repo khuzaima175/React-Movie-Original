@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import MovieCard from "../components/MovieCard";
-import { Button } from "../components/ui";
+import { Button, Select } from "../components/ui";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { fetchTmdbJson, hasTmdbBackend } from "../services/apiTransport";
 import {
@@ -832,17 +832,15 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           />
           <div className="explore-select-field">
             <label htmlFor={`${idPrefix}-explore-min-votes`}>Minimum Vote Count</label>
-            <select
+            <Select
               id={`${idPrefix}-explore-min-votes`}
+              ariaLabel="Minimum Vote Count"
               value={filters.minVotes}
-              onChange={(e) => updateFilters({ minVotes: Number(e.target.value) })}
-            >
-              {VOTE_FLOOR_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => updateFilters({ minVotes: Number(val) })}
+              options={VOTE_FLOOR_OPTIONS}
+              size="sm"
+              fullWidth
+            />
             {filters.sortBy === "vote_average.desc" && filters.minVotes < 150 && (
               <p className="explore-facet-hint">
                 Highest Rated sort applies a 150-vote minimum floor so 1-vote anomalies don&apos;t crowd results.
@@ -1015,31 +1013,33 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           <div className="explore-select-pair">
             <div className="explore-select-field">
               <label htmlFor={`${idPrefix}-explore-language`}>Language</label>
-              <select
+              <Select
                 id={`${idPrefix}-explore-language`}
+                ariaLabel="Language"
                 value={filters.language}
-                onChange={(e) => updateFilters({ language: e.target.value })}
-              >
-                {LANGUAGE_OPTIONS.map((lang) => (
-                  <option key={lang.code || "any"} value={lang.code}>
-                    {lang.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => updateFilters({ language: val })}
+                options={LANGUAGE_OPTIONS.map((lang) => ({
+                  value: lang.code,
+                  label: lang.label
+                }))}
+                size="sm"
+                fullWidth
+              />
             </div>
             <div className="explore-select-field">
               <label htmlFor={`${idPrefix}-explore-country`}>Country</label>
-              <select
+              <Select
                 id={`${idPrefix}-explore-country`}
+                ariaLabel="Country"
                 value={filters.country}
-                onChange={(e) => updateFilters({ country: e.target.value })}
-              >
-                {COUNTRY_OPTIONS.map((c) => (
-                  <option key={c.code || "any"} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => updateFilters({ country: val })}
+                options={COUNTRY_OPTIONS.map((c) => ({
+                  value: c.code,
+                  label: c.label
+                }))}
+                size="sm"
+                fullWidth
+              />
             </div>
           </div>
         </section>
@@ -1219,20 +1219,19 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                 )}
               </button>
 
-              <label className="explore-sort-control">
-                <span className="sr-only">Sort results</span>
-                <select
+              <div className="explore-sort-control">
+                <Select
                   value={filters.sortBy}
-                  onChange={(e) => updateFilters({ sortBy: e.target.value })}
-                  aria-label="Sort results"
-                >
-                  {activeSortOptions.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={(val) => updateFilters({ sortBy: val })}
+                  ariaLabel="Sort results"
+                  align="right"
+                  size="sm"
+                  options={activeSortOptions.map((opt) => ({
+                    value: opt.id,
+                    label: opt.label
+                  }))}
+                />
+              </div>
             </div>
           </header>
 

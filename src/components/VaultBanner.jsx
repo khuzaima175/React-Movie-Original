@@ -18,7 +18,7 @@ import {
   Compass
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Button, Menu, StatCell, Tabs } from "./ui";
+import { Button, Menu, Select, StatCell, Tabs } from "./ui";
 import AnimatedNumber from "./ui/AnimatedNumber";
 import { buildRatingHistogramBins } from "../services/vaultStats";
 
@@ -395,35 +395,35 @@ export default function VaultBanner({
           </div>
 
           <div className="spacious-filter-select-wrap">
-            <Filter size={13} className="select-icon-muted" aria-hidden="true" />
-            <select
+            <Select
               value={selectedGenre}
-              onChange={(e) => onGenreSelect(e.target.value)}
-              className="spacious-filter-select"
-              aria-label="Filter by genre"
-            >
-              {genresList.map((genre) => (
-                <option key={genre} value={genre}>
-                  {genre === "All" ? "All Genres" : genre}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => onGenreSelect(val)}
+              ariaLabel="Filter by genre"
+              icon={Filter}
+              size="sm"
+              options={genresList.map((genre) => ({
+                value: genre,
+                label: genre === "All" ? "All Genres" : genre
+              }))}
+            />
           </div>
 
           <div className="spacious-filter-select-wrap">
-            <SlidersHorizontal size={13} className="select-icon-muted" aria-hidden="true" />
-            <select
+            <Select
               value={sortBy}
-              onChange={(e) => onSortChange(e.target.value)}
-              className="spacious-filter-select"
-              aria-label="Sort collection by"
-            >
-              <option value="input">Date Added</option>
-              <option value="userRating">Your Rating</option>
-              <option value="rating">IMDb Score</option>
-              <option value="runtime">Runtime</option>
-              <option value="title">Title (A-Z)</option>
-            </select>
+              onChange={(val) => onSortChange(val)}
+              ariaLabel="Sort collection by"
+              icon={SlidersHorizontal}
+              align="right"
+              size="sm"
+              options={[
+                { value: "input", label: "Date Added" },
+                { value: "userRating", label: "Your Rating" },
+                { value: "rating", label: "IMDb Score" },
+                { value: "runtime", label: "Runtime" },
+                { value: "title", label: "Title (A-Z)" }
+              ]}
+            />
           </div>
 
           <div className="spacious-view-toggle">

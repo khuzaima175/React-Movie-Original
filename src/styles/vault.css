@@ -406,12 +406,7 @@
 .spacious-filter-select-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  height: 3.6rem;
-  padding: 0 1rem;
-  background: var(--surface-1);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
+  min-width: 14.5rem;
 }
 
 .spacious-filter-select {
