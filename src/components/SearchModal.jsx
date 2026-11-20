@@ -17,6 +17,8 @@ import {
   loadSearchTrendingPosters,
   searchCatalogMovies
 } from "../services/searchService";
+import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { buildTasteMatchContext, predictMovieMatch } from "../services/tasteMatchService";
 
 const QUICK_FILTER_TABS = [
   { id: "all", label: "All" },
@@ -30,7 +32,26 @@ export default function SearchModal({
   onSelectMovie,
   onQuickRate
 }) {
-  const { watched = [], watchlist = [], addToWatchlist } = useApp();
+  const { watched = [], watchlist = [], tasteRules = [], addToWatchlist } = useApp();
+  const [embeddingIndex, setEmbeddingIndex] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen || embeddingIndex) return undefined;
+    let active = true;
+    loadDefaultEmbeddingIndex()
+      .then((idx) => {
+        if (active && idx) setEmbeddingIndex(idx);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isOpen, embeddingIndex]);
+
+  const tasteMatchCtx = useMemo(
+    () => (embeddingIndex ? buildTasteMatchContext({ watched, watchlist, tasteRules, embeddingIndex }) : null),
+    [watched, watchlist, tasteRules, embeddingIndex]
+  );
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [trendingPosters, setTrendingPosters] = useState([]);
@@ -376,9 +397,21 @@ export default function SearchModal({
                         <div className="search-result-info">
                           <div className="search-item-title-row">
                             <span className="search-item-title">{movie.Title}</span>
-                            {movie.inVault && movie.userRating != null && (
+                            {movie.inVault && movie.userRating != null ? (
                               <span className="search-badge-vault">★ {movie.userRating}/10</span>
-                            )}
+                            ) : tasteMatchCtx?.ready && Number(movie.tmdbId) > 0 && embeddingIndex?.idToIndex?.has(Number(movie.tmdbId)) ? (
+                              (() => {
+                                const pred = predictMovieMatch({ movie, cachedContext: tasteMatchCtx });
+                                return pred.available ? (
+                                  <span
+                                    className="text-[1.1rem] font-semibold text-[#46d369] bg-[#46d369]/10 border border-[#46d369]/25 px-[0.65rem] py-[0.15rem] rounded-[0.45rem] tabular-num shrink-0"
+                                    title={pred.summary}
+                                  >
+                                    {pred.matchPct}% match
+                                  </span>
+                                ) : null;
+                              })()
+                            ) : null}
                             {!movie.inVault && movie.inWatchlist && (
                               <span className="search-badge-watchlist">Watchlist</span>
                             )}

@@ -1,0 +1,137 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  TASTE_MATCH_MIN_RATED,
+  calibratePredictedRating,
+  buildTasteMatchContext,
+  predictMovieMatch
+} from "../src/services/tasteMatchService.js";
+
+function makeTinyEmbeddingIndex() {
+  const dim = 4;
+  // 10 & 11 = loved sci-fi thrillers; 20 = close unseen match; 30 = hated horror; 31 = close to hated horror
+  const ids = [10, 11, 20, 30, 31];
+  const vecs = [
+    [0.98, 0.2, 0, 0],
+    [0.94, 0.34, 0, 0],
+    [0.96, 0.28, 0, 0],
+    [0, 0, 0.99, 0.14],
+    [0, 0, 0.97, 0.24]
+  ];
+  const vectors = new Float32Array(ids.length * dim);
+  const idToIndex = new Map();
+  ids.forEach((id, i) => {
+    idToIndex.set(id, i);
+    for (let d = 0; d < dim; d += 1) {
+      vectors[i * dim + d] = vecs[i][d];
+    }
+  });
+  return { dim, count: ids.length, ids: new Uint32Array(ids), vectors, idToIndex };
+}
+
+test("predictMovieMatch returns insufficient confidence when fewer than 3 rated films exist", () => {
+  assert.equal(TASTE_MATCH_MIN_RATED, 3);
+  const res = predictMovieMatch({
+    movie: { tmdbId: 20, title: "Arrival", tmdbGenreIds: [878, 18], vote_average: 7.9, vote_count: 15000 },
+    watched: [
+      { tmdbId: 10, title: "Inception", userRating: 10 },
+      { tmdbId: 11, title: "Interstellar", userRating: 9 }
+    ],
+    embeddingIndex: makeTinyEmbeddingIndex()
+  });
+  assert.equal(res.available, false);
+  assert.equal(res.confidence, "insufficient");
+  assert.equal(res.matchPct, null);
+  assert.equal(res.predictedRating, null);
+});
+
+test("predictMovieMatch scores indexed CVEM neighbors high, penalizes disliked repulsion neighbors, and calibrates Est. Rating", () => {
+  const index = makeTinyEmbeddingIndex();
+  const watched = [
+    { tmdbId: 10, title: "Inception", userRating: 10, genre: "Sci-Fi, Thriller", director: "Christopher Nolan", tmdbGenreIds: [878, 53] },
+    { tmdbId: 11, title: "Interstellar", userRating: 9, genre: "Sci-Fi, Drama", director: "Christopher Nolan", tmdbGenreIds: [878, 18] },
+    { tmdbId: 30, title: "Slasher X", userRating: 3, genre: "Horror", director: "Unknown", tmdbGenreIds: [27] }
+  ];
+
+  const ctx = buildTasteMatchContext({ watched, embeddingIndex: index });
+
+  const highMatch = predictMovieMatch({
+    movie: {
+      tmdbId: 20,
+      title: "Tenet",
+      genre: "Sci-Fi, Thriller",
+      director: "Christopher Nolan",
+      tmdbGenreIds: [878, 53],
+      vote_average: 7.4,
+      vote_count: 9000
+    },
+    cachedContext: ctx
+  });
+
+  const lowMatch = predictMovieMatch({
+    movie: {
+      tmdbId: 31,
+      title: "Slasher Y",
+      genre: "Horror",
+      director: "Other",
+      tmdbGenreIds: [27],
+      vote_average: 5.5,
+      vote_count: 400
+    },
+    cachedContext: ctx
+  });
+
+  assert.equal(highMatch.available, true);
+  assert.equal(highMatch.confidence, "high");
+  assert.ok(highMatch.matchPct >= 80, `Expected high match >= 80, got ${highMatch.matchPct}`);
+  assert.ok(highMatch.predictedRating >= 7.5 && highMatch.predictedRating <= 9.9);
+  assert.ok(highMatch.summary.length > 0);
+  assert.ok(highMatch.anchorTitles.includes("Inception") || highMatch.anchorTitles.includes("Interstellar"));
+
+  assert.equal(lowMatch.available, true);
+  assert.ok(lowMatch.matchPct < highMatch.matchPct - 15, `Disliked neighbor (${lowMatch.matchPct}) must score well below loved neighbor (${highMatch.matchPct})`);
+});
+
+test("predictMovieMatch falls back cleanly to metadata confidence for unindexed 2025-2026 films without collapsing to 50%", () => {
+  const index = makeTinyEmbeddingIndex();
+  const watched = [
+    { tmdbId: 10, title: "Inception", userRating: 10, genre: "Sci-Fi, Thriller", director: "Christopher Nolan", tmdbGenreIds: [878, 53] },
+    { tmdbId: 11, title: "Interstellar", userRating: 9, genre: "Sci-Fi, Drama", director: "Christopher Nolan", tmdbGenreIds: [878, 18] },
+    { tmdbId: 30, title: "Slasher X", userRating: 4, genre: "Horror", director: "Other", tmdbGenreIds: [27] }
+  ];
+
+  const recentUnindexed = predictMovieMatch({
+    movie: {
+      tmdbId: 999999,
+      title: "The Odyssey",
+      year: "2026",
+      genre: "Sci-Fi, Drama",
+      director: "Christopher Nolan",
+      tmdbGenreIds: [878, 18],
+      vote_average: 8.4,
+      vote_count: 2500
+    },
+    watched,
+    embeddingIndex: index
+  });
+
+  assert.equal(recentUnindexed.available, true);
+  assert.equal(recentUnindexed.confidence, "metadata");
+  assert.ok(recentUnindexed.matchPct >= 70, `Strong director+genre unindexed film should score >= 70, got ${recentUnindexed.matchPct}`);
+  assert.match(recentUnindexed.summary, /Christopher Nolan|Sci-Fi/i);
+});
+
+test("calibratePredictedRating maps matchPct cleanly onto user rating distribution in [4.5, 9.9]", () => {
+  const watched = [
+    { userRating: 10 },
+    { userRating: 9 },
+    { userRating: 8 },
+    { userRating: 7 }
+  ];
+  const high = calibratePredictedRating({ matchPct: 95, watched });
+  const mid = calibratePredictedRating({ matchPct: 72, watched });
+  const low = calibratePredictedRating({ matchPct: 52, watched });
+
+  assert.ok(high > mid && mid > low);
+  assert.ok(high <= 9.9 && low >= 4.5);
+});

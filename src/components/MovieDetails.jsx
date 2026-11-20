@@ -24,6 +24,7 @@ import {
 import { fetchOmdbJson, getMovieDetailsBatch } from "../services/apiTransport";
 import { toDashboardCardItem } from "../services/dashboardService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { predictMovieMatch } from "../services/tasteMatchService";
 import { buildExploreRoute } from "../services/exploreService";
 import {
   normalizeCollectionTimeline,
@@ -103,12 +104,14 @@ export default function MovieDetails({
   const navigate = useNavigate();
   const {
     userRegion,
+    tasteRules = [],
     addToWatchlist: contextAddToWatchlist,
     deleteWatchlist: contextDeleteWatchlist,
     compareItems = [],
     toggleCompare
   } = useApp();
   const [movie, setMovie] = useState(null);
+  const [embeddingIndex, setEmbeddingIndex] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [userRating, setUserRating] = useState(0);
@@ -135,6 +138,37 @@ export default function MovieDetails({
   useEffect(() => {
     setActivePerson(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    let active = true;
+    loadDefaultEmbeddingIndex()
+      .then((idx) => {
+        if (active && idx) setEmbeddingIndex(idx);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const personalTasteMatch = useMemo(
+    () =>
+      movie
+        ? predictMovieMatch({
+            movie: {
+              ...movie,
+              genre: Array.isArray(movie.genres) ? movie.genres.join(", ") : movie.genre,
+              vote_average: Number(movie.tmdbRating || movie.imdbRating || 0),
+              vote_count: Number(String(movie.tmdbVotes || "0").replace(/[^0-9]/g, "")) || 0
+            },
+            watched,
+            watchlist,
+            tasteRules,
+            embeddingIndex
+          })
+        : null,
+    [movie, watched, watchlist, tasteRules, embeddingIndex]
+  );
 
   useEffect(() => {
     setCollectionRaw(null);
@@ -1202,6 +1236,32 @@ export default function MovieDetails({
                       <span className="score-sub-num">★</span>
                     </div>
                     {movie.tmdbVotes && <span className="score-meta-text">{movie.tmdbVotes} cinephiles</span>}
+                  </div>
+                )}
+
+                {/* On-Device Personal Taste Prediction Card ("Chance You'll Like") */}
+                {personalTasteMatch?.available && (
+                  <div
+                    className="score-matrix-card for-you-match-card"
+                    title={personalTasteMatch.summary}
+                  >
+                    <div className="score-card-header">
+                      <Sparkles size={16} className="text-[var(--match)]" aria-hidden="true" />
+                      <span className="score-source-name">For You</span>
+                    </div>
+                    <div className="score-card-value">
+                      <span className="score-main-num text-[var(--match)] tabular-num">
+                        {personalTasteMatch.matchPct}%
+                      </span>
+                      {personalTasteMatch.predictedRating != null && (
+                        <span className="score-sub-num tabular-num">
+                          · Est. {personalTasteMatch.predictedRating}/10
+                        </span>
+                      )}
+                    </div>
+                    <span className="score-meta-text" title={personalTasteMatch.summary}>
+                      {personalTasteMatch.summary}
+                    </span>
                   </div>
                 )}
               </div>
