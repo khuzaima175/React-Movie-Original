@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 15, 2026 (`main`)  
-**Status:** Production-ready on `main` · Verified by the offline service & API test suite (`npm test`) and production Vite build (`npm run build`).
+**Last Updated:** November 20, 2026 (`chore/public-launch-polish` · v5.3)  
+**Status:** Production-ready · Verified by the offline service & API test suite (`npm test`) and production Vite build (`npm run build`).
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
 
@@ -207,6 +207,15 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 - **Rating Studio 2.0, Spoiler-Safe Film Chat & Deep Explore Workbench ([src/services/ratingStudioService.js](./src/services/ratingStudioService.js), [src/services/filmChatService.js](./src/services/filmChatService.js), [src/services/exploreService.js](./src/services/exploreService.js), [src/pages/ExplorePage.jsx](./src/pages/ExplorePage.jsx)):**
   - Added live personal Vault percentile calibration & benchmark anchors (`computeVaultCalibration`), optional 4-aspect Craft Breakdown (`story`, `direction`, `acting`, `visuals`) & Watch Session Log (`format`, `rewatch`, `watchedDate`) with null-tombstone clearing (`buildWatchedRatingPayload({ markCleared: true })`), deep-linked spoiler-safe `"Discuss This Film"` chat (`serializeFilmDossierForPrompt`), and the URL-synced `/explore` filter workbench (`deriveExploreViewState` with 3-page `hideWatched` auto-advance).
 
+### Phase v5.3: 250-Film Math-First Explore `"Movies You'll Like"`, Dual Flash-Lite Cascade & Public Launch Polish
+- **Expanded 250-Film On-Device ML Explore Pool ([src/services/exploreForYouService.js](./src/services/exploreForYouService.js), [src/services/exploreForYouCache.js](./src/services/exploreForYouCache.js)):**
+  - Powers `/explore?mode=for-you` with `EXPLORE_FOR_YOU_TARGET_COUNT = 250` (`EXPLORE_FOR_YOU_AI_BATCH_LIMIT = 100`, `EXPLORE_FOR_YOU_MIN_RATED = 3`) by loading all three local models (`item_embeddings_f16.bin` 25k `CVEM v1`, `content_embeddings_f16.bin`, and `dna` index) alongside personalized online-learned ranker weights (`derivePersonalizedRankerWeights`), multi-persona + ridge fold-in taste vectors, quadratic negative repulsion, `200`-item TMDB retrieval, and `160` aligned `CVEM v1` neighbors.
+  - Progressive instant render (`onPreliminaryReady`) shows ~250 math-ranked films with deterministic `buildMathVibeTag()` editorial tags immediately, while a single Flash-Lite batch call refines the top `100` flagship picks in the background.
+  - Cached locally for 7 days in IndexedDB (`cinemavault_explore_for_you_v1`, up to `300` items per `profileHash`, LRU-capped at `5` pools) and optionally synced per signed-in user to Postgres RLS table `public.user_explore_picks` (`<= 120` items; guests and `hasSampleData` sessions stay strictly local). Deep Filters and quality-weighted `Shuffle` run entirely client-side with `0` extra API requests and `48`-card pagination.
+- **Dual Flash-Lite Resilience & Public Launch Guards ([api/gemini.js](./api/gemini.js), [api/_rateStore.js](./api/_rateStore.js), [src/services/geminiService.js](./src/services/geminiService.js), [src/services/debugFlags.js](./src/services/debugFlags.js)):**
+  - Added live-verified `"gemini-3.1-flash-lite"` alongside `"gemini-3.5-flash-lite"` across `ALLOWED_GEMINI_MODELS`, `PUBLIC_CURATION_CASCADE`, `FAST_INTERACTIVE_CASCADE`, and `EXPLORE_FOR_YOU_CASCADE` (up to 1,000 free requests/day combined, `MINIMAL` thinking, `25s` batch timeout).
+  - Separated clean Public Edition (default) from Personal/Debug Edition (`?debug=1` or `VITE_APP_EDITION=personal`), added optional browser-local personal Gemini keys (`cv_user_gemini_key`), optional Upstash Redis daily caps, and `"Try a sample vault"` onboarding (`sampleVaultService.js`, excluded from Supabase sync).
+
 ---
 
 ## 5. Every Error / Bug We Hit & How We Resolved It
@@ -231,6 +240,10 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 | **16** | **Gemini curation dropped `5★` relative dislikes (e.g., *Parasite*, *Spirited Away*), ignored `userNote` cache updates, omitted `userStats`/`topDirectors`/`Watchlist`/candidate themes & cast, and truncated plots at 140 chars** | `buildMovieIdentityLookup` checked flat `item.tmdbId` instead of nested `weightedRatings[].movie`, `buildWatchedHashSegment` excluded `userNote`, `mergeBackfilledMovieMetadata` dropped `cast`/`tagline`/`language`/`runtime`, & candidate formatter omitted hydrated TMDB fields | Fixed nested `{ movie, weight, zScore }` lookup, hashed `userNote` into `vlt_` cache keys, preserved `cast`/`writers`/`tagline`/`originCountry`/`spokenLanguages`/`mpaaRating`/`runtimeMinutes`/`keywordNames`/`overview`, wired `userStats`+`topDirectors`+`[Series]`+`USER'S WATCHLIST`+`180`-char notes, added `< 18,000`-char compact candidate blocks + `#1–#15`/`#16–#30` balance rules, & shared praise/critique `quickReviewTags.js` across `QuickRateModal` (`maxLength=200`) & `MovieDetails` | [geminiService.js](./src/services/geminiService.js), [tmdbService.js](./src/services/tmdbService.js), [quickReviewTags.js](./src/services/quickReviewTags.js), [QuickRateModal.jsx](./src/components/QuickRateModal.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx) |
 | **17** | **Gemini curation felt overly restricted (`Match: XX%` & `#1–#15` anchoring, narrow Top-30 pool, <=10 favorites, dropped series/extra notes, and no outside film escape hatch)** | Rank percentages and `#1–#15` wording anchored Gemini to math order; Top-30 cut off diverse/2024–2026 picks; only 10 favs + notes inside anchors were visible; outside picks risked hallucinations | Removed `Match: XX%` and `#1–#15` bias (`"Curate openly"`) while keeping calibrated `matchScore` locking; added 39-pick `buildDiversifiedGeminiShortlist` (`25+8+6`), `buildExtendedVaultContextSections` (`ADDITIONAL TOP FAVORITES` 11–25, `LOVED SERIES / ANIME`, all remaining `userNote`s `<= 20,000` chars), & TMDB/vault/provider/mood-verified 0–2 `wildcardPicks` (`verifyAndScoreWildcardPicks`) with 10/10 auto-backfill | [geminiService.js](./src/services/geminiService.js), [rankerService.js](./src/services/rankerService.js), [tmdbService.js](./src/services/tmdbService.js) |
 | **18** | **v5.2 Research Hub edge cases: shrunk-vector popularity bias in `findEmbeddingNeighborsForMovie`, resurrected Craft Breakdowns in `upsertMovieEntry`/cloud sync, `%2520` keyword routes & `hideWatched` blank page 1 in `/explore`, and `0%` RT / `_notFound` slot bugs in `/compare`** | Bayesian-shrunk `CVEM v1` vectors have norms in `[0.30, 1.00]` so raw dot product favored high-norm blockbusters; shallow spread kept old `ratingBreakdown`/`watchMeta` when cleared; manual `encodeURIComponent` inside `URLSearchParams` double-encoded spaces; `Number("0") \|\| null` dropped `0%` RT/Metascore | Divided by `normA * normB` in `findEmbeddingNeighborsForMovie`; emitted `markCleared: true` `null` tombstones stripped by `upsertMovieEntry` & honored by `mergeLocalAndCloudVault`; removed double encoding & added `deriveExploreViewState` (`autoAdvanceCap = 3`); preserved `0%` RT / `0` Metascore & cross-scheme `removeUrlCompareSlot` in `compareService.js` | [rabbitHoleService.js](./src/services/rabbitHoleService.js), [ratingStudioService.js](./src/services/ratingStudioService.js), [exploreService.js](./src/services/exploreService.js), [compareService.js](./src/services/compareService.js) |
+| **19** | **Clicking a movie card showed a stuck floating poster ghost over the loading screen / Metacritic cards, and left the Movie Detail poster invisible (`opacity: 0`)** | Legacy imperative `posterFlight.js` cloned poster nodes onto `document.body` and mutated `.netflix-modal-poster-wrap` inline `opacity` inside `useEffect`; React 18 StrictMode double-mounted the effect while `opacity` was `"0"`, overwriting `prevOpacity` with `"0"` so cleanup restored `"0"` permanently | Disabled the imperative DOM ghost in `posterFlight.js`, removed `capturePosterFlight`/`consumePosterFlight` calls from `MovieCard.jsx` & `MovieDetailEffects.jsx`, and replaced `<PosterArrival />` with a direct GPU Framer Motion entrance on `.netflix-modal-poster-wrap` in `MovieDetails.jsx` | [posterFlight.js](./src/services/posterFlight.js), [MovieDetails.jsx](./src/components/MovieDetails.jsx), [MovieCard.jsx](./src/components/MovieCard.jsx) |
+| **20** | **Explore `"Movies You'll Like"` pool felt small (~100 films, only ~12 Sci-Fi), skipped full `CVEM v1` / DNA / personalized ranker wiring initially, and pushed header buttons right on mode switch** | Initial pool targeted 100 items, waited on Gemini before showing results, and rendered `Shuffle`/`Refresh` conditionally right beside the centered mode toggle causing horizontal layout shift | Scaled `EXPLORE_FOR_YOU_TARGET_COUNT = 250` with full `CVEM v1` + Content + DNA + personalized logistic ranker + `160` embedding neighbors + `onPreliminaryReady` instant render + 48-card pagination + dedicated zero-shift 2-band `.explore-mode-toolbar` (`0px` shift) | [exploreForYouService.js](./src/services/exploreForYouService.js), [ExplorePage.jsx](./src/pages/ExplorePage.jsx) |
+| **21** | **Horizontal carousel wheel scrolling hijacked vertical page scrolling, and Discover rows leaked unreleased future titles or failed transiently on cold load** | Global wheel listener intercepted vertical scroll whenever cursor crossed a row; Discover TMDB queries lacked an upper release-date ceiling and ran unbounded parallel requests without retry | Switched to opt-in smooth wheel engagement (`"Scroll row"` pill / border click / `Shift + Wheel` with `pointerleave` + outside-click + `Esc` release) via `useHorizontalWheelScroll.js` & `scrollHelpers.js`; added `primary_release_date.lte: todayIso` (`releaseGuardVersion: 2`), `3`-lane concurrency cap, & single retry in `dashboardService.js` | [useHorizontalWheelScroll.js](./src/hooks/useHorizontalWheelScroll.js), [scrollHelpers.js](./src/services/scrollHelpers.js), [dashboardService.js](./src/services/dashboardService.js) |
+| **22** | **Prefixed `cinemavault_home_feeds_v2::*` cache entries escaped `localStorage` quota eviction, and demo sample vault data risked leaking into Supabase** | Exact-key purge order missed dynamic `cinemavault_home_feeds_v2::` suffixes; sample rows needed explicit exclusion from cloud vault & `user_explore_picks` upserts | Extracted `storageEviction.js` (`STORAGE_PURGE_ORDER` with prefix sweep for `cinemavault_home_feeds_v2::`) and excluded `isSample` / `hasSampleData` sessions from Supabase sync & cloud For You cache | [storageEviction.js](./src/services/storageEviction.js), [exploreForYouCache.js](./src/services/exploreForYouCache.js), [vaultSyncService.js](./src/services/vaultSyncService.js) |
 
 ---
 
@@ -246,19 +259,28 @@ npm test
 - Exits `0` with all service and API test suites passing (`fail 0`, `skipped 0`), covering:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
+  - `tests/appStorage.test.js`
+  - `tests/chatCardHelpers.test.js`
+  - `tests/chatErrors.test.js`
   - `tests/compareService.test.js`
   - `tests/contentSim.test.js`
   - `tests/csvImport.test.js`
   - `tests/dashboardService.test.js`
+  - `tests/debugFlags.test.js`
   - `tests/dnaService.test.js`
+  - `tests/docsHygiene.test.js`
   - `tests/embeddingService.test.js`
   - `tests/embeddingStep3.test.js`
   - `tests/evalHarness.test.js`
   - `tests/evalRanker.test.js`
+  - `tests/exploreForYouCache.test.js`
+  - `tests/exploreForYouService.test.js`
   - `tests/exploreService.test.js`
   - `tests/feedbackLogging.test.js`
   - `tests/filmChatService.test.js`
   - `tests/geminiDualEngine.test.js`
+  - `tests/geminiKeyStorage.test.js`
+  - `tests/layoutRegression.test.js`
   - `tests/moodPolicy.test.js`
   - `tests/moodRanker.test.js`
   - `tests/movieIdentity.test.js`
@@ -273,8 +295,13 @@ npm test
   - `tests/ratingStudioService.test.js`
   - `tests/ratingTiers.test.js`
   - `tests/recentReleaseSlots.test.js`
+  - `tests/sampleVaultService.test.js`
   - `tests/scoringUtils.test.js`
+  - `tests/scrollHelpers.test.js`
   - `tests/searchService.test.js`
+  - `tests/secretsGuard.test.js`
+  - `tests/selectPrimitive.test.js`
+  - `tests/siteUrl.test.js`
   - `tests/tasteDeckService.test.js`
   - `tests/tasteRulesService.test.js`
   - `tests/tmdbRabbitHoleHelpers.test.js`
@@ -287,7 +314,7 @@ npm test
 npm run build
 ```
 **What "healthy" looks like:**
-- Exits `0`, transforms **`2322 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- Exits `0`, transforms **`2343 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
 - When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
 ### Check 3: Inspect the Active `.bin` Model Header & Exact Byte Count
@@ -340,6 +367,6 @@ Built-in safety gates in [scripts/colab_train_embeddings.py](./scripts/colab_tra
 4. **Offline / Quota Fallback Test:** Temporarily clear/invalidate Gemini credentials (or simulate quota) and click Refresh — verify CinemaVault seamlessly serves the **top `10`** mathematical ranker picks (`pipeline: "ranker-fallback"`) and falls back cleanly on free-text queries via `parseFreeTextMoodFallback`.
 
 ### Check 7: Optional Supabase Cloud Vault Sync Verification (When Configured)
-1. Ensure `.env.local` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, and verify [supabase/migrations/20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql) is applied on your Supabase project (`profiles` and `user_vault_items` tables exist with RLS enabled and `anon` revoked).
+1. Ensure `.env.local` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, and verify both [supabase/migrations/20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql) and [supabase/migrations/20261120000000_explore_for_you_cache.sql](./supabase/migrations/20261120000000_explore_for_you_cache.sql) are applied on your Supabase project (`profiles`, `user_vault_items`, and `user_explore_picks` tables exist with RLS enabled and `anon` revoked).
 2. In Supabase Dashboard → **Authentication → URL Configuration**, add your production domain and `http://localhost:3000` under **Redirect URLs** so magic-link OTP redirects work across environments.
 3. Click the `NavBar` utility menu → **Cloud Sync**, sign in via Email Magic Link, and verify signed-in status transitions to **Synced** with rows populated under your `auth.uid()` inside `public.user_vault_items`.

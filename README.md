@@ -224,7 +224,7 @@ flowchart LR
 
 **Refresh.** Refresh cycles through TMDB pages 1–5 and excludes up to 120 recently shown IDs. If that leaves too few candidates, the list is filled from the rest of the ranked pool.
 
-**Gemini cascade.** Models are tried in order (Flash-Lite first in Public mode; full cascade in Personal mode). Errors are classified:
+**Gemini cascade.** Models are tried in order (dual Flash-Lite `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` first in Public mode; full cascade in Personal mode). Errors are classified:
 
 | Error class | Trigger | Cooldown |
 | :--- | :--- | :--- |
@@ -234,7 +234,7 @@ flowchart LR
 | Auth | 401, 403, 404 | 30 minutes |
 | Proxy rate limit | Proxy returned 429 | No model cooldown; the cascade stops |
 
-Hydrogen uses a 35-second timeout; Flash models use a 15-second timeout. The whole cascade is capped at 45 seconds, and a working model is remembered for 30 minutes.
+Hydrogen uses a 35-second timeout; interactive Flash models use a 15-second timeout, and the Explore "Movies You'll Like" batch curation pass uses a 25-second timeout with minimal thinking. The whole cascade is capped at 45 seconds, and a working model is remembered for 30 minutes.
 
 ### When something fails
 
@@ -256,9 +256,10 @@ Check the "About these picks" panel in Oracle to see which pipeline produced the
 
 - **Guest vault:** stored in `localStorage` (about 5 MB per browser origin). This is comfortable for typical vaults of a few thousand films. Very large hydrated vaults can exceed the limit, and cloud sync is the intended path beyond that.
 - **TMDB detail cache:** stored in IndexedDB for 30 days.
+- **Explore "Movies You'll Like" cache:** stored locally in IndexedDB (`cinemavault_explore_for_you_v1`) for 7 days (up to 300 ranked picks per profile hash, LRU-capped at 5 snapshots) and optionally synced per signed-in user to Supabase `public.user_explore_picks` (capped at 120 picks; sample vaults stay strictly local).
 - **Recommendation cache:** capped at 500 KB. The oldest entries are evicted first.
 - **Compare tray:** stored in `sessionStorage` (`cinemavault_compare_v1`).
-- **Quota recovery:** if the browser reports a storage quota error, derivative caches are purged first, in a fixed order. Vault data is kept.
+- **Quota recovery:** if the browser reports a storage quota error, derivative caches (including prefixed `cinemavault_home_feeds_v2::*` discover caches) are purged first in a deterministic order (`storageEviction.js`). Vault data and Taste Rules are kept.
 - **Clearing site data deletes the guest vault.** If you are not signed in to Supabase, the only recovery path is a Schema v2 JSON backup. Export one regularly from the Backup manager.
 
 ---
@@ -269,7 +270,7 @@ Check the "About these picks" panel in Oracle to see which pipeline produced the
 | :--- | :--- | :--- |
 | TMDB and OMDb | Title, ID, and search or discover parameters. No notes or ratings. | Search, discovery, detail pages, and candidate harvesting. |
 | Gemini | A prompt containing your loved genres, anchor films, notes (up to 180 characters each), recent watches, dislikes, watchlist titles, and candidate films, bounded to 20,000 characters. Chat prompts include the films and notes you discuss. | Curation, chat, and vibe parsing. Only when AI features are used. |
-| Supabase | Your vault rows (excluding `isSample` demo rows), including ratings, notes, and metadata. | Only after you sign in and enable sync. |
+| Supabase | Your vault rows (excluding `isSample` demo rows), ratings, notes, metadata, and optional Explore "Movies You'll Like" cache (`user_explore_picks`, excluding sample vaults). | Only after you sign in and enable sync. |
 | Your browser only | The vault, caches, spend tracking, feedback log, taste rules, and optional personal Gemini key (`cv_user_gemini_key`). | Always. |
 
 In production, Gemini, TMDB, and OMDb requests pass through your own `/api/*` routes (unless a visitor supplies their own Gemini key locally, which calls Google AI directly from the browser). Upstream providers still receive the request contents and see the caller's IP address. The project does not add third-party analytics, and spend tracking stays on your device.
@@ -304,7 +305,7 @@ If you do not want vault content sent to Gemini, do not use the AI features (Ora
 | Styling | Tailwind CSS v4 + editorial CSS variables | Minimal dark theme. |
 | Motion | Framer Motion 12 | Respects reduced-motion settings. |
 | Movie data | TMDB API v3, OMDb API | |
-| Storage | `localStorage`, `sessionStorage` (compare tray), IndexedDB (TMDB detail cache) | Guest vault stays in the browser. |
+| Storage | `localStorage`, `sessionStorage` (compare tray), IndexedDB (TMDB detail cache & Explore For You pool) | Guest vault stays in the browser. |
 | Tests | `node --test`, `scripts/run_eval.mjs` | Offline suites and a rolling evaluation harness. |
 
 ---
@@ -360,7 +361,7 @@ These are the points most likely to cause problems on first run:
 - **Production rejects requests without a browser origin.** When deployed, requests with no `Origin` header and no `Sec-Fetch-Site: same-origin` (or `same-site`) get a 403. This means `curl` against a deployed copy will fail. Test with a browser, or call the proxies from the same site.
 - **`ALLOWED_ORIGIN` is optional.** Set it to a comma-separated list if you serve the app from a domain other than the default Vercel host.
 - **`gemini-4-argon` is blocked by default.** It returns 403 unless `ENABLE_ARGON` is set to `"true"` on the server.
-- **Supabase sync needs two things before it works:** the migration in `supabase/migrations/` applied to your project, and email sign-in enabled in the Supabase Auth settings.
+- **Supabase sync needs two things before it works:** the migrations in `supabase/migrations/` (`20261114000000_init_cinemavault_schema.sql` and `20261120000000_explore_for_you_cache.sql`) applied to your project, and email sign-in enabled in the Supabase Auth settings.
 
 ### 4. Run, test, and build
 
@@ -389,7 +390,7 @@ npm run serve                # Preview the production build
 ## Typical session
 
 1. **Start.** Use `"Try a sample vault"` for instant onboarding, rate 30 films in Taste Calibration, or import a Letterboxd CSV or Schema v2 JSON backup.
-2. **Browse.** Use Discover for unwatched rows and the "All Films" grid. Use `/explore` to filter by decade, runtime, keyword, or streaming service. Use `Cmd + K` or `/` to search.
+2. **Browse.** Use Discover for unwatched rows (with opt-in smooth row scrolling) and the "All Films" grid. Use `/explore` to filter the full catalog or switch to **"Movies You'll Like"** (`?mode=for-you`) to deep-filter and shuffle ~250 taste-matched films instantly. Use `Cmd + K` or `/` to search.
 3. **Rate and discuss.** Open a film, set a rating with the live percentile readout, optionally add craft scores and a watch format, then click **Discuss This Film**. Sign in to sync if you use more than one device.
 4. **Review stats.** Open the Vault page for screen time and the rating distribution.
 5. **Pick a film.** Open Oracle, choose a vibe or type one, filter by your streaming services, and browse the 10 picks. Refresh for new candidates.

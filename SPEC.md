@@ -4,7 +4,7 @@
 
 **Objective:** Replace the "AI-demo" aesthetic (cyan glows, gradient pills, orb backgrounds, emoji chips, badge clutter) with a restrained, content-first, streaming-style frontend. Keep existing features, data structures, and services unchanged, consolidate secondary controls into accessible menus, and add portal-based hover previews and synchronized motion.
 
-> **Status (`main`):** Sections 1–5 describe the v1.2 overhaul. Sections 6 and 7 record later changes: the v4.x recommender upgrades and the v4.3–v5.2 feature set. The current navigation is `Discover / Explore / Vault / Oracle`, which supersedes the initial `Home / My Vault / Recommendations` labels in Phase 3. Behavior and data-layer details live in [ARCHITECTURE.md](./ARCHITECTURE.md). Local model details live in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md). Verification commands are in the README.
+> **Status (`main` / v5.3):** Sections 1–5 describe the v1.2 overhaul. Sections 6, 7, and 8 record later changes: the v4.x recommender upgrades, the v4.3–v5.2 feature set, and the v5.3 UX overhaul & Explore "Movies You'll Like" workbench. The current navigation is `Discover / Explore / Vault / Oracle`, which supersedes the initial `Home / My Vault / Recommendations` labels in Phase 3. Behavior and data-layer details live in [ARCHITECTURE.md](./ARCHITECTURE.md). Local model details live in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md). Verification commands are in the README.
 
 ---
 
@@ -32,11 +32,13 @@ graph TD
   subgraph Shared UI Primitives
     Button --> Shell & Home & Explore & Compare & Vault & AI & Movie
     IconButton --> Shell & Home & Explore & Compare & Vault & AI & Movie
+    Select --> Explore & Vault & AI & Person & GlobalModals
     Menu --> Shell & Vault & AI
     Tabs --> Shell & Vault & AI
     Modal --> GlobalModals
     StatCell --> Vault
     Accordion --> Vault & AI
+    ScrollRevealSection --> Home & Vault & AI & Movie
   end
 
   subgraph Portal Layer
@@ -534,6 +536,33 @@ These features build on the same neutral token system. Brass stays limited to st
 - **Matrix:** `buildCompareMatrix` marks the best value per row, with ties shown as shared. Rows: IMDb, Rotten Tomatoes (0% kept as a real value), Metascore (0 kept), TMDB, shortest runtime, budget, box-office revenue, ROI, your score and note, 64-D taste match (`vaultMatchPct`), and streaming availability in the selected region.
 - **Overlap:** shared cast and crew (linked to filmographies), shared genres and keywords (linked to `/explore`), and pairwise 64-D similarity bars (`computeCompareOverlap`).
 - **URLs:** `/compare?ids=...` works without the tray. Films can be added or removed in URL mode (`addUrlCompareSlot`, `removeUrlCompareSlot`), and the URL can be copied to share.
+
+---
+
+## 8. v5.3 UX Overhaul & Editorial Primitives
+
+### 8.1 Editorial Dark `<Select>` Primitive ([Select.jsx](./src/components/ui/Select.jsx), [selectHelpers.js](./src/services/selectHelpers.js))
+- Replaces all 9 OS-native `<select>` controls across Explore, Vault, Oracle, Cloud Sync, and Person filmography views (`0` native `<select>` elements remain in `src/`).
+- Portaled dark-glass listbox (`document.body`) with full keyboard navigation (`ArrowUp`, `ArrowDown`, `Home`, `End`, `Enter`, `Space`, `Escape`), outside `pointerdown` dismiss, `maxWidth: calc(100vw - 24px)`, and post-mount viewport re-measurement so menus never clip on `390px` mobile screens.
+
+### 8.2 Opt-In Smooth Horizontal Row Scrolling ([scrollHelpers.js](./src/services/scrollHelpers.js), [useHorizontalWheelScroll.js](./src/hooks/useHorizontalWheelScroll.js))
+- Applied across `MovieCarouselRow`, `SimilarFilmsStrip`, and `CollectionTimeline`.
+- Plain vertical wheel scrolling never hijacks page scroll. Users opt in by clicking the subtle **"Scroll row"** pill, clicking the row border/surface, or holding `Shift + Wheel` to smoothly glide via damped `requestAnimationFrame` lerp (`computeWheelTargetScrollLeft`, `stepSmoothScroll`).
+- Active row-scroll mode auto-releases on `pointerleave`, outside `pointerdown`, or `Escape`.
+
+### 8.3 Decluttered 2-Tier Film Oracle Studio ([MovieRecommendations.jsx](./src/components/MovieRecommendations.jsx), [OraclePreferencesPopover.jsx](./src/components/OraclePreferencesPopover.jsx), [oracleViewHelpers.js](./src/services/oracleViewHelpers.js))
+- **Tier 1 — Sliding Mood Pill Rail:** Single-row compact horizontal rail with a Framer Motion `layoutId="oracle-mood-pill"` active indicator (`Any Vibe`, `Mind-Bending`, `Dark Thriller`, `Fun Popcorn`, `Comfort Watch`, `Hidden Gem`).
+- **Tier 2 — Unified Vibe Command Bar:** Single compact row combining the free-text vibe input, **"Filters & Rules"** popover trigger (with live `summarizeOraclePreferences` badge), and primary **"Find Picks"** action.
+- **Unified Preferences Popover / Mobile Sheet (`OraclePreferencesPopover.jsx`):** Consolidates **Where to watch** (region + streaming platforms), **Taste Rules** (list, add/edit/pin/pause, Auto-Draft), and **Personal AI Key** (`cv_user_gemini_key`) into a tabbed desktop popover (`<= 640px` renders as a bottom sheet).
+
+### 8.4 Zero-Shift Explore `"Movies You'll Like"` Workbench ([ExplorePage.jsx](./src/pages/ExplorePage.jsx), [exploreForYouService.js](./src/services/exploreForYouService.js))
+- Dedicated 2-band `.explore-mode-toolbar` anchors the `[All Catalog | Movies You'll Like]` segmented toggle on the left while `Shuffle`, `Refresh`, and Sort live on the right (`0px` horizontal toggle shift when switching modes).
+- Renders a **~250-film** math-powered personalized pool immediately via `onPreliminaryReady` (with deterministic editorial vibe tags) while 1 single Flash-Lite pass refines the top 100 flagship picks in the background.
+- Supports instant zero-API client-side Deep Filtering, quality-weighted **Shuffle** (auto-resetting `sortBy: "for_you"`), and 60fps `48`-card incremental pagination (`"Show More Matches"`).
+
+### 8.5 Dynamic Motion & Movie Detail Poster Entrance ([ScrollRevealSection.jsx](./src/components/ScrollRevealSection.jsx), [Tabs.jsx](./src/components/ui/Tabs.jsx), [HeroBillboard.jsx](./src/components/HeroBillboard.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx))
+- **Movie Detail Poster Entrance:** Replaced the legacy imperative `document.body` `posterFlight.js` ghost clone (which could hang over loading/Metacritic cards and leave `.netflix-modal-poster-wrap` stuck at `opacity: 0` under React 18 StrictMode) with a direct GPU Framer Motion entrance on `.netflix-modal-poster-wrap`.
+- **Site-Wide Motion:** Added `ScrollRevealSection` (`viewport={{ once: true, amount: "some" }}`), spring `layoutId` tab underlines in `Tabs.jsx`, pause-aware Ken Burns ambient drift in `HeroBillboard.jsx`, tactile poster hover specular highlight, and GPU `scaleX`/`scaleY` Vault Insights bars — all honoring `prefers-reduced-motion`.
 
 ---
 
