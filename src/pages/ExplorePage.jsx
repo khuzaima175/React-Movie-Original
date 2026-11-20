@@ -52,8 +52,10 @@ import {
 } from "../services/exploreForYouService";
 import {
   loadExploreForYouCache,
+  loadLatestLocalExploreForYouFallback,
   saveExploreForYouCache
 } from "../services/exploreForYouCache";
+import { isSameMovie } from "../services/movieIdentity";
 
 const VOTE_FLOOR_OPTIONS = [
   { value: 150, label: "Popular (150+ votes)" },
@@ -129,6 +131,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   });
   const [isForYouLoading, setIsForYouLoading] = useState(false);
   const [isForYouEnhancing, setIsForYouEnhancing] = useState(false);
+  const [forYouStageNote, setForYouStageNote] = useState("");
   const [forYouError, setForYouError] = useState("");
   const [forYouRefreshNonce, setForYouRefreshNonce] = useState(0);
   const [shuffleSeed, setShuffleSeed] = useState(() => Math.floor(Date.now() % 100000));
@@ -407,6 +410,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
     const seq = ++forYouSeqRef.current;
     let cancelled = false;
+    const controller = new AbortController();
     const forceRefresh = forYouRefreshNonce !== handledRefreshNonceRef.current;
     handledRefreshNonceRef.current = forYouRefreshNonce;
 
@@ -414,10 +418,13 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
       setForYouError("");
       if (!forceRefresh && forYouState.profileHash === forYouProfileHash && forYouState.items.length > 0) {
         setIsForYouLoading(false);
+        setIsForYouEnhancing(false);
+        setForYouStageNote("");
         return;
       }
 
       setIsForYouLoading(true);
+      setForYouStageNote("Scanning your Taste DNA & local movie map…");
       try {
         if (!forceRefresh) {
           const cached = await loadExploreForYouCache({
@@ -434,11 +441,34 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               generatedAt: cached.generatedAt
             });
             setIsForYouLoading(false);
+            setIsForYouEnhancing(false);
+            setForYouStageNote("");
             return;
+          }
+
+          // Instant stale-while-revalidate fallback (~50ms) when user recently rated/changed a film
+          const staleFallback = await loadLatestLocalExploreForYouFallback();
+          if (!cancelled && forYouSeqRef.current === seq && staleFallback?.items?.length > 0) {
+            const unseenStale = staleFallback.items.filter(
+              (item) =>
+                !watched.some((w) => isSameMovie(w, item)) &&
+                !watchlist.some((w) => isSameMovie(w, item))
+            );
+            if (unseenStale.length > 0) {
+              setForYouState({
+                profileHash: staleFallback.profileHash,
+                items: unseenStale,
+                source: staleFallback.source,
+                fromCache: "indexeddb-stale",
+                generatedAt: staleFallback.generatedAt
+              });
+              setIsForYouLoading(false);
+              setIsForYouEnhancing(true);
+              setForYouStageNote("Updating matches for your latest ratings…");
+            }
           }
         }
 
-        setIsForYouEnhancing(false);
         const result = await generateExploreForYouPool({
           watched,
           watchlist,
@@ -446,6 +476,13 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           feedbackLog: aiFeedbackLog,
           userRegion,
           userWatchProviders,
+          signal: controller.signal,
+          onStageUpdate: (stageInfo) => {
+            if (cancelled || forYouSeqRef.current !== seq) return;
+            if (stageInfo?.label) {
+              setForYouStageNote(stageInfo.label);
+            }
+          },
           onPreliminaryReady: (prelim) => {
             if (cancelled || forYouSeqRef.current !== seq) return;
             if (Array.isArray(prelim?.items) && prelim.items.length > 0) {
@@ -453,16 +490,28 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                 profileHash: prelim.profileHash,
                 items: prelim.items,
                 source: prelim.source,
-                fromCache: "math-live",
+                fromCache: prelim.stage || "math-live",
                 generatedAt: prelim.generatedAt
               });
               setIsForYouLoading(false);
               setIsForYouEnhancing(true);
+              if (prelim.stage === "wave2") {
+                // Persist full math pool immediately so returning visits are instant even if user leaves mid-AI-polish
+                saveExploreForYouCache({
+                  profileHash: prelim.profileHash,
+                  items: prelim.items,
+                  source: prelim.source,
+                  modelUsed: null,
+                  generatedAt: prelim.generatedAt,
+                  userId: null,
+                  hasSampleData
+                }).catch(() => {});
+              }
             }
           }
         });
 
-        if (cancelled || forYouSeqRef.current !== seq) return;
+        if (cancelled || result?.aborted || forYouSeqRef.current !== seq) return;
 
         setForYouState({
           profileHash: result.profileHash,
@@ -472,6 +521,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           generatedAt: result.generatedAt
         });
         setIsForYouEnhancing(false);
+        setForYouStageNote("");
 
         saveExploreForYouCache({
           profileHash: result.profileHash,
@@ -490,6 +540,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
         if (!cancelled && forYouSeqRef.current === seq) {
           setIsForYouLoading(false);
           setIsForYouEnhancing(false);
+          setForYouStageNote("");
         }
       }
     }
@@ -497,6 +548,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     loadOrBuildForYou();
     return () => {
       cancelled = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isForYouMode, forYouProfileHash, watched.length, cloudUser?.id, hasSampleData, forYouRefreshNonce]);
@@ -1165,7 +1217,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                   ? needsForYouCalibration
                     ? `Rate at least ${EXPLORE_FOR_YOU_MIN_RATED} films to unlock your personalized catalog`
                     : isForYouLoading && viewState.displayTotalResults === 0
-                      ? "Ranking personalized matches from your Taste DNA…"
+                      ? forYouStageNote || "Scanning your Taste DNA & local movie map…"
                       : `${viewState.displayTotalResults.toLocaleString()} personalized ${
                           viewState.displayTotalResults === 1 ? "film" : "films"
                         } ready to filter`
@@ -1175,7 +1227,9 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                         viewState.displayTotalResults === 1 ? "film" : "films"
                       }`}
                 {isForYouMode && isForYouEnhancing && (
-                  <span className="explore-enhancing-note"> · Refining top picks…</span>
+                  <span className="explore-enhancing-note">
+                    {" "}· {forYouStageNote || "Refining top picks…"}
+                  </span>
                 )}
                 {viewState.hiddenWatchedCount > 0 && ` · ${viewState.hiddenWatchedCount} watched hidden`}
               </p>

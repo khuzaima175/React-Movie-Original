@@ -40,6 +40,9 @@ import { sanitizeLine } from "./filmChatService.js";
 export const EXPLORE_FOR_YOU_TARGET_COUNT = 250;
 export const EXPLORE_FOR_YOU_AI_BATCH_LIMIT = 100;
 export const EXPLORE_FOR_YOU_MIN_RATED = 3;
+export const EXPLORE_FOR_YOU_WAVE1_POOL_SIZE = 80;
+export const EXPLORE_FOR_YOU_WAVE1_NEIGHBORS = 40;
+export const EXPLORE_FOR_YOU_ENRICH_LIMIT = 120;
 const MAX_FOR_YOU_PROMPT_CHARS = 28000;
 
 function getTodayIso(now = Date.now()) {
@@ -509,9 +512,11 @@ function parseGeminiPicksJson(rawText) {
 
 /**
  * Generates an expanded ~250-film personalized unseen catalog using CinemaVault's full
- * on-device ML stack (25k CVEM v1 embeddings + content embeddings + DNA + logistic ranker),
- * emits immediate preliminary results via `onPreliminaryReady`, and optionally runs 1 single
- * Gemini Flash-Lite batch call to refine and tag the top 100 flagship picks.
+ * on-device ML stack (25k CVEM v1 embeddings + content embeddings + DNA + logistic ranker)
+ * in 3 progressive waves:
+ *   - Wave 1 (~1-2s): Fast TMDB Discover + top 40 CVEM neighbors -> instant poster render
+ *   - Wave 2 (~4-8s): Background expansion to ~250 films with top-120 deep metadata cap
+ *   - Wave 3 (background): Single Flash-Lite batch pass polishing top 100 flagship picks
  */
 export async function generateExploreForYouPool({
   watched = [],
@@ -525,19 +530,46 @@ export async function generateExploreForYouPool({
   embeddingIndex: injectedEmbeddingIndex = undefined,
   contentIndex: injectedContentIndex = undefined,
   dnaIndex: injectedDnaIndex = undefined,
+  fetchCandidatePoolFn = fetchCandidatePool,
+  fetchEmbeddingFn = fetchEmbeddingCandidates,
+  enrichPoolFn = enrichCandidatePoolMetadata,
   onPreliminaryReady = null,
+  onStageUpdate = null,
+  signal = null,
   targetCount = EXPLORE_FOR_YOU_TARGET_COUNT,
   now = Date.now()
 } = {}) {
   const resolvedRegion = userRegion && userRegion !== "GLOBAL" ? userRegion : "US";
   const profileHash = buildExploreForYouProfileHash({ watched, watchlist, tasteRules, userRegion });
-  const profile = await extractTasteProfile(watched, watchlist, { now }).catch(() => ({
-    lovedGenreNames: [],
-    lovedGenreIds: [],
-    weightedRatings: []
-  }));
 
-  const [embeddingIndex, contentIndex, dnaIndex] = await Promise.all([
+  const emitStage = (payload) => {
+    if (typeof onStageUpdate === "function" && !signal?.aborted) {
+      try {
+        onStageUpdate(payload);
+      } catch {
+        // ignore UI callback errors
+      }
+    }
+  };
+
+  const emitPreliminary = (payload) => {
+    if (typeof onPreliminaryReady === "function" && !signal?.aborted && Array.isArray(payload?.items) && payload.items.length > 0) {
+      try {
+        onPreliminaryReady(payload);
+      } catch {
+        // ignore UI callback errors
+      }
+    }
+  };
+
+  emitStage({ stage: "profile", label: "Scanning your Taste DNA & local movie map…", count: 0, target: targetCount });
+
+  const [profile, embeddingIndex, contentIndex, dnaIndex] = await Promise.all([
+    extractTasteProfile(watched, watchlist, { now }).catch(() => ({
+      lovedGenreNames: [],
+      lovedGenreIds: [],
+      weightedRatings: []
+    })),
     injectedEmbeddingIndex !== undefined
       ? Promise.resolve(injectedEmbeddingIndex)
       : loadDefaultEmbeddingIndex().catch(() => null),
@@ -548,6 +580,10 @@ export async function generateExploreForYouPool({
       ? Promise.resolve(injectedDnaIndex)
       : loadDefaultDnaIndex().catch(() => null)
   ]);
+
+  if (signal?.aborted) {
+    return { items: [], profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
+  }
 
   const collabSimMap = embeddingIndex
     ? buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex)
@@ -565,32 +601,87 @@ export async function generateExploreForYouPool({
       .flatMap((f) => [f.tmdbId, f.imdbID, f.id])
   ].filter(Boolean);
 
-  let rawCandidates = Array.isArray(injectedCandidates) ? [...injectedCandidates] : null;
+  const rankerWeights = derivePersonalizedRankerWeights(
+    feedbackLog,
+    watched,
+    DEFAULT_RANKER_WEIGHTS
+  );
+
   const poolGoal = Math.max(targetCount + 40, 300);
+  const todayIso = getTodayIso(now);
 
-  if (!rawCandidates) {
-    const todayIso = getTodayIso(now);
-    const basePool = await fetchCandidatePool(profile, "any", watched, watchlist, {
-      poolSize: Math.min(200, poolGoal),
-      userRegion: resolvedRegion,
-      userWatchProviders,
-      now
-    }).catch(() => []);
+  const dedupeAndFilterRaw = (list) => {
+    const dedup = new Map();
+    for (const c of list || []) {
+      if (!c) continue;
+      const tid = Number(c.tmdbId || c.id);
+      if (!Number.isFinite(tid) || dedup.has(tid)) continue;
+      if (c.release_date && String(c.release_date) > todayIso) continue;
+      if (!c.poster && !c.poster_path) continue;
+      dedup.set(tid, c);
+    }
+    return [...dedup.values()];
+  };
 
-    let embPool = [];
+  const rankAndNormalizePool = (rawPool, limit = poolGoal) => {
+    const contentSimMap = contentIndex
+      ? buildContentSimMap(profile.weightedRatings, contentIndex, rawPool, {
+          collabIndex: embeddingIndex,
+          collabSimMap,
+          enableStructuredFallback: true,
+          coldOnly: true
+        })
+      : null;
+    const dnaSimMap = dnaIndex ? buildDnaSimMap(profile.weightedRatings, dnaIndex) : null;
+    const ranked = rankCandidatePool(
+      rawPool,
+      {
+        profile,
+        mood: "any",
+        excludeIds,
+        collabSimMap,
+        contentSimMap,
+        dnaSimMap,
+        repulsionMap,
+        collabCatalogMax,
+        userProviders: userWatchProviders,
+        tasteRules
+      },
+      rankerWeights,
+      limit
+    );
+    return ranked.map(normalizeCandidateForExplore);
+  };
+
+  let normalizedRanked = [];
+  let mathBaselineItems = [];
+
+  if (Array.isArray(injectedCandidates)) {
+    normalizedRanked = rankAndNormalizePool([...injectedCandidates], poolGoal);
+    mathBaselineItems = mergeExploreForYouResponse(normalizedRanked, [], { targetCount });
+    emitPreliminary({
+      items: mathBaselineItems,
+      profileHash,
+      source: "local-ranker",
+      stage: "wave2",
+      modelUsed: null,
+      generatedAt: now
+    });
+  } else {
+    // Compute all 240 aligned CVEM neighbors upfront on CPU (~25ms)
+    let aligned = [];
     if (embeddingIndex) {
       const numericExcludeSet = new Set([
         ...(watched || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
         ...(watchlist || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
-        ...excludeIds.map((id) => Number(id || 0)),
-        ...basePool.map((c) => Number(c?.tmdbId ?? c?.id ?? 0))
+        ...excludeIds.map((id) => Number(id || 0))
       ]);
       numericExcludeSet.delete(0);
 
       const repulsionWeight =
         Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim;
 
-      const aligned = retrieveAlignedEmbeddingNeighbors(
+      aligned = retrieveAlignedEmbeddingNeighbors(
         profile.weightedRatings,
         embeddingIndex,
         numericExcludeSet,
@@ -602,91 +693,134 @@ export async function generateExploreForYouPool({
           topK: 240
         }
       );
+    }
 
-      if (aligned.length > 0) {
-        embPool = await fetchEmbeddingCandidates(
-          aligned,
-          watched,
-          watchlist,
-          basePool,
-          {
+    // WAVE 1 (~1-2s): Fast Discover + top 40 CVEM neighbors in parallel — NO 300-item enrichment block!
+    const wave1Aligned = aligned.slice(0, 60);
+    const [wave1Base, wave1Emb] = await Promise.all([
+      fetchCandidatePoolFn(profile, "any", watched, watchlist, {
+        poolSize: EXPLORE_FOR_YOU_WAVE1_POOL_SIZE,
+        userRegion: resolvedRegion,
+        userWatchProviders,
+        now
+      }).catch(() => []),
+      wave1Aligned.length > 0
+        ? fetchEmbeddingFn(wave1Aligned, watched, watchlist, [], {
             userRegion: resolvedRegion,
             userProviders: userWatchProviders,
-            maxNeighbors: 160,
-            maxScan: 220
-          }
-        ).catch(() => []);
-      }
+            maxNeighbors: EXPLORE_FOR_YOU_WAVE1_NEIGHBORS,
+            maxScan: 60
+          }).catch(() => [])
+        : Promise.resolve([])
+    ]);
+
+    if (signal?.aborted) {
+      return { items: [], profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    const dedup = new Map();
-    for (const c of [...basePool, ...embPool]) {
-      if (!c) continue;
-      const tid = Number(c.tmdbId || c.id);
-      if (!Number.isFinite(tid) || dedup.has(tid)) continue;
-      if (c.release_date && String(c.release_date) > todayIso) continue;
-      if (!c.poster && !c.poster_path) continue;
-      dedup.set(tid, c);
-    }
+    const wave1Raw = dedupeAndFilterRaw([...wave1Base, ...wave1Emb]);
+    const wave1Normalized = rankAndNormalizePool(wave1Raw, Math.max(wave1Raw.length, 120));
+    const wave1Items = mergeExploreForYouResponse(wave1Normalized, [], { targetCount });
 
-    const mergedRaw = [...dedup.values()];
-    rawCandidates = await enrichCandidatePoolMetadata(mergedRaw, {
-      maxEnrich: Math.min(mergedRaw.length, poolGoal),
-      userRegion: resolvedRegion
-    }).catch(() => mergedRaw);
-  }
-
-  const contentSimMap = contentIndex
-    ? buildContentSimMap(profile.weightedRatings, contentIndex, rawCandidates, {
-        collabIndex: embeddingIndex,
-        collabSimMap,
-        enableStructuredFallback: true,
-        coldOnly: true
-      })
-    : null;
-  const dnaSimMap = dnaIndex
-    ? buildDnaSimMap(profile.weightedRatings, dnaIndex)
-    : null;
-  const rankerWeights = derivePersonalizedRankerWeights(
-    feedbackLog,
-    watched,
-    DEFAULT_RANKER_WEIGHTS
-  );
-
-  const ranked = rankCandidatePool(
-    rawCandidates,
-    {
-      profile,
-      mood: "any",
-      excludeIds,
-      collabSimMap,
-      contentSimMap,
-      dnaSimMap,
-      repulsionMap,
-      collabCatalogMax,
-      userProviders: userWatchProviders,
-      tasteRules
-    },
-    rankerWeights,
-    poolGoal
-  );
-
-  const normalizedRanked = ranked.map(normalizeCandidateForExplore);
-  const mathBaselineItems = mergeExploreForYouResponse(normalizedRanked, [], { targetCount });
-
-  // Progressive instant render: surface the full math-ranked catalog immediately before Flash-Lite
-  if (typeof onPreliminaryReady === "function" && mathBaselineItems.length > 0) {
-    try {
-      onPreliminaryReady({
-        items: mathBaselineItems,
+    if (wave1Items.length > 0) {
+      emitPreliminary({
+        items: wave1Items,
         profileHash,
         source: "local-ranker",
+        stage: "wave1",
         modelUsed: null,
         generatedAt: now
       });
-    } catch {
-      // ignore UI callback errors
+      emitStage({
+        stage: "wave2",
+        label: `Expanding library (${wave1Items.length} → ${targetCount} films)…`,
+        count: wave1Items.length,
+        target: targetCount
+      });
     }
+
+    if (signal?.aborted) {
+      return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
+    }
+
+    // WAVE 2 (background): Expand to full ~250 films and cap deep enrichment at top 120
+    const wave2Aligned = aligned.slice(60, 240);
+    const [wave2Base, wave2Emb] = await Promise.all([
+      fetchCandidatePoolFn(profile, "any", watched, watchlist, {
+        poolSize: 160,
+        pageOffset: 1,
+        userRegion: resolvedRegion,
+        userWatchProviders,
+        now
+      }).catch(() => []),
+      wave2Aligned.length > 0
+        ? fetchEmbeddingFn(wave2Aligned, watched, watchlist, wave1Raw, {
+            userRegion: resolvedRegion,
+            userProviders: userWatchProviders,
+            maxNeighbors: 120,
+            maxScan: 180
+          }).catch(() => [])
+        : Promise.resolve([])
+    ]);
+
+    if (signal?.aborted) {
+      return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
+    }
+
+    const mergedWave2Raw = dedupeAndFilterRaw([...wave1Raw, ...wave2Base, ...wave2Emb]);
+    // Pre-rank so deep metadata enrichment runs ONLY on the top EXPLORE_FOR_YOU_ENRICH_LIMIT (120) films
+    const preRankedRaw = rankCandidatePool(
+      mergedWave2Raw,
+      {
+        profile,
+        mood: "any",
+        excludeIds,
+        collabSimMap,
+        contentSimMap: null,
+        dnaSimMap: null,
+        repulsionMap,
+        collabCatalogMax,
+        userProviders: userWatchProviders,
+        tasteRules
+      },
+      rankerWeights,
+      poolGoal
+    );
+    const enrichCap = Math.min(preRankedRaw.length, EXPLORE_FOR_YOU_ENRICH_LIMIT);
+    const topToEnrich = preRankedRaw.slice(0, enrichCap);
+    const tailCandidates = preRankedRaw.slice(enrichCap);
+    const enrichedTop = await enrichPoolFn(topToEnrich, {
+      maxEnrich: enrichCap,
+      userRegion: resolvedRegion
+    }).catch(() => topToEnrich);
+
+    if (signal?.aborted) {
+      return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
+    }
+
+    const combinedFinalRaw = dedupeAndFilterRaw([...enrichedTop, ...tailCandidates]);
+    normalizedRanked = rankAndNormalizePool(combinedFinalRaw, poolGoal);
+    mathBaselineItems = mergeExploreForYouResponse(normalizedRanked, [], { targetCount });
+
+    emitPreliminary({
+      items: mathBaselineItems,
+      profileHash,
+      source: "local-ranker",
+      stage: "wave2",
+      modelUsed: null,
+      generatedAt: now
+    });
+  }
+
+  if (signal?.aborted) {
+    return {
+      items: mathBaselineItems,
+      profileHash,
+      source: "local-ranker",
+      modelUsed: null,
+      generatedAt: now,
+      aborted: true
+    };
   }
 
   const ai = aiClient !== undefined ? aiClient : createGeminiClient(resolveGeminiKey());
@@ -700,6 +834,13 @@ export async function generateExploreForYouPool({
       generatedAt: now
     };
   }
+
+  emitStage({
+    stage: "wave3",
+    label: "Polishing top picks with AI…",
+    count: mathBaselineItems.length,
+    target: targetCount
+  });
 
   // Single Flash-Lite call refines top <=100 flagship picks while math populates the full ~250 catalog
   const aiBatchCandidates = normalizedRanked.slice(0, EXPLORE_FOR_YOU_AI_BATCH_LIMIT);

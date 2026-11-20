@@ -282,3 +282,53 @@ export async function saveExploreForYouCache({
 export async function clearExploreForYouCache() {
   await clearAllLocalRecords();
 }
+
+async function readAllLocalRecords() {
+  const db = await openExploreDb();
+  if (!db) {
+    return [...memoryFallbackStore.values()];
+  }
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).getAll();
+      req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
+      req.onerror = () => resolve([...memoryFallbackStore.values()]);
+    } catch {
+      resolve([...memoryFallbackStore.values()]);
+    }
+  });
+}
+
+/**
+ * Returns the newest non-expired local IndexedDB Explore For You pool regardless of
+ * `profileHash` so ExplorePage can render instant stale-while-revalidate results
+ * (~50ms) while a fresh pool rebuilds in the background.
+ */
+export async function loadLatestLocalExploreForYouFallback({
+  maxAgeMs = EXPLORE_FOR_YOU_TTL_MS,
+  now = Date.now()
+} = {}) {
+  const all = await readAllLocalRecords();
+  if (!Array.isArray(all) || all.length === 0) return null;
+
+  let newest = null;
+  for (const rec of all) {
+    if (!rec || !Array.isArray(rec.items) || rec.items.length === 0) continue;
+    const ts = Number(rec.generatedAt) || 0;
+    if (ts <= 0 || now - ts >= maxAgeMs) continue;
+    if (!newest || ts > Number(newest.generatedAt || 0)) {
+      newest = rec;
+    }
+  }
+
+  if (!newest) return null;
+  return {
+    profileHash: newest.profileHash || null,
+    items: newest.items,
+    source: newest.source || "local-ranker",
+    modelUsed: newest.modelUsed || null,
+    generatedAt: newest.generatedAt,
+    from: "indexeddb-stale"
+  };
+}
