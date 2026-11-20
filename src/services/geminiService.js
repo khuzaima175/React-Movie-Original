@@ -2528,8 +2528,10 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         ? { requested: targetCount, available: topCandidates.length }
         : null;
 
+    const curationCascadeOpts = { personal: options.personalMode ?? isDebugUiEnabled() };
+
     if (!ai) {
-        const cascade = getCurationCascade();
+        const cascade = getCurationCascade(curationCascadeOpts);
         const rankerFallbackInfo = {
             ...buildCascadeModelInfo(cascade, null, "curation", "ranker-fallback"),
             hydrationCoverage
@@ -2556,7 +2558,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
     ) {
         try {
             const preliminaryModelInfo = {
-                ...buildCascadeModelInfo(getCurationCascade(), null, "curation", "ranker-preliminary"),
+                ...buildCascadeModelInfo(getCurationCascade(curationCascadeOpts), null, "curation", "ranker-preliminary"),
                 hydrationCoverage,
                 fallbackMode: "ranker-preliminary",
                 pipeline: "ranker-preliminary",
@@ -2632,7 +2634,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         }
     };
 
-    const activeCascade = getCurationCascade();
+    const activeCascade = getCurationCascade(curationCascadeOpts);
     const prevSeq = lastCurationModelInfo?.seq || 0;
     const response = await executeCascade(
         ai,
@@ -2734,7 +2736,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         console.warn("Gemini JSON parse/merge failed, falling back to local calibrated ranker:", parseErr);
         const fallbackInfo = {
             ...buildCascadeModelInfo(
-                getCurationCascade(),
+                getCurationCascade(curationCascadeOpts),
                 null,
                 "curation",
                 "ranker-fallback",
@@ -2812,7 +2814,7 @@ ${fallbackRuleLines.length > 0 ? `\nUSER'S STEERABLE TASTE RULES (Follow strictl
         }
     };
 
-    const omdbCascade = getCurationCascade();
+    const omdbCascade = getCurationCascade({ personal: options.personalMode ?? isDebugUiEnabled() });
     const prevOmdbSeq = lastCurationModelInfo?.seq || 0;
     const response = await executeCascade(
         ai,

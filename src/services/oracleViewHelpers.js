@@ -1,5 +1,7 @@
 import { formatModelDisplayName } from "./geminiService.js";
 import { MOOD_OPTIONS } from "./moodPolicy.js";
+import { buildTasteMatchContext, predictMovieMatch } from "./tasteMatchService.js";
+import { isSameMovie } from "./movieIdentity.js";
 
 /**
  * Formatting helpers that keep the AI Oracle UI compact without changing
@@ -453,4 +455,83 @@ export function summarizeOraclePreferences({
     badgeCount,
     summaryText: parts.length > 0 ? parts.join(" · ") : "Filters & Rules"
   };
+}
+
+export const ORACLE_TONIGHT_PRESETS = [
+  {
+    id: "masterpieces",
+    title: "Match My Masterpieces",
+    subtitle: "High-craft cinema calibrated to your 9–10/10 anchors",
+    mood: "any",
+    vibeQuery: "",
+    actionType: "curate"
+  },
+  {
+    id: "watchlist-tonight",
+    title: "Pick From My Watchlist",
+    subtitle: "Instant on-device ranking of what you already saved",
+    mood: "any",
+    vibeQuery: "",
+    actionType: "watchlist"
+  },
+  {
+    id: "tight-thriller",
+    title: "Gripping Thriller Under 2h",
+    subtitle: "Taut, atmospheric tension with zero filler",
+    mood: "dark-thriller",
+    vibeQuery: "tense gripping thriller under 2 hours",
+    actionType: "curate"
+  },
+  {
+    id: "hidden-gem",
+    title: "Uncover a Hidden Gem",
+    subtitle: "Acclaimed cult favorites under 2,000 votes",
+    mood: "hidden-gem",
+    vibeQuery: "",
+    actionType: "curate"
+  }
+];
+
+export function splitOracleSpotlightAndGrid(recommendations = []) {
+  if (!Array.isArray(recommendations) || recommendations.length === 0) {
+    return { spotlight: null, gridPicks: [] };
+  }
+  return {
+    spotlight: recommendations[0],
+    gridPicks: recommendations.slice(1)
+  };
+}
+
+/**
+ * Ranks unseen Watchlist titles instantly on-device ($0.00) using `tasteMatchService`
+ * so users get an immediate "What from my Watchlist should I watch tonight?" answer.
+ */
+export function rankWatchlistForTonight({
+  watchlist = [],
+  watched = [],
+  tasteRules = [],
+  embeddingIndex = null,
+  limit = 5
+} = {}) {
+  const unseen = (Array.isArray(watchlist) ? watchlist : []).filter(
+    (item) => item && !(Array.isArray(watched) ? watched : []).some((w) => isSameMovie(w, item))
+  );
+  if (unseen.length === 0) return [];
+
+  const ctx = buildTasteMatchContext({ watched, watchlist, tasteRules, embeddingIndex });
+  return unseen
+    .map((movie) => {
+      const pred = ctx.ready
+        ? predictMovieMatch({ movie, cachedContext: ctx })
+        : { available: false, matchPct: null, predictedRating: null, summary: "Saved in your Watchlist" };
+      const fallbackScore = Number(movie.imdbRating ?? movie.vote_average ?? 6.5) * 10;
+      return {
+        ...movie,
+        matchPct: pred.available ? pred.matchPct : Math.max(55, Math.min(92, Math.round(fallbackScore))),
+        predictedRating: pred.available ? pred.predictedRating : null,
+        matchSummary: pred.summary || "Saved in your Watchlist"
+      };
+    })
+    .sort((a, b) => (b.matchPct || 0) - (a.matchPct || 0))
+    .slice(0, limit);
 }

@@ -12,7 +12,10 @@ import {
   formatActiveVibeNote,
   nextRefreshExcludeState,
   shouldAutoRefreshOnDrawerClose,
-  summarizeOraclePreferences
+  summarizeOraclePreferences,
+  ORACLE_TONIGHT_PRESETS,
+  splitOracleSpotlightAndGrid,
+  rankWatchlistForTonight
 } from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
@@ -335,4 +338,40 @@ test("summarizeOraclePreferences counts active region, streaming platforms, acti
   });
   assert.equal(withKey.badgeCount, 4);
   assert.equal(withKey.summaryText, "1 platform · 2 rules · Personal key");
+});
+
+test("ORACLE_TONIGHT_PRESETS provides 4 emoji-free starter scenarios including instant Watchlist chooser", () => {
+  assert.equal(ORACLE_TONIGHT_PRESETS.length, 4);
+  for (const preset of ORACLE_TONIGHT_PRESETS) {
+    assert.ok(preset.id && preset.title && preset.subtitle);
+    assert.ok(preset.actionType === "curate" || preset.actionType === "watchlist");
+    assert.equal(/\p{Extended_Pictographic}/u.test(`${preset.title} ${preset.subtitle}`), false);
+  }
+  assert.ok(ORACLE_TONIGHT_PRESETS.some((p) => p.actionType === "watchlist"));
+});
+
+test("splitOracleSpotlightAndGrid isolates Pick #1 as spotlight and Picks #2..N as gridPicks", () => {
+  assert.deepEqual(splitOracleSpotlightAndGrid([]), { spotlight: null, gridPicks: [] });
+  const split = splitOracleSpotlightAndGrid([{ title: "A" }, { title: "B" }, { title: "C" }]);
+  assert.equal(split.spotlight.title, "A");
+  assert.deepEqual(split.gridPicks.map((p) => p.title), ["B", "C"]);
+});
+
+test("rankWatchlistForTonight ranks unseen watchlist items by on-device taste match and excludes already watched", () => {
+  const watched = [
+    { tmdbId: 10, title: "Inception", userRating: 10, genre: "Sci-Fi, Thriller", director: "Christopher Nolan", tmdbGenreIds: [878, 53] },
+    { tmdbId: 11, title: "Interstellar", userRating: 9, genre: "Sci-Fi, Drama", director: "Christopher Nolan", tmdbGenreIds: [878, 18] },
+    { tmdbId: 12, title: "Slasher X", userRating: 3, genre: "Horror", director: "Other", tmdbGenreIds: [27] }
+  ];
+  const watchlist = [
+    { tmdbId: 10, title: "Inception", genre: "Sci-Fi" }, // already watched -> excluded
+    { tmdbId: 201, title: "Dunkirk", genre: "Drama, Sci-Fi", director: "Christopher Nolan", vote_average: 7.9, vote_count: 15000, tmdbGenreIds: [18, 878] },
+    { tmdbId: 202, title: "Generic Slasher", genre: "Horror", director: "Random", vote_average: 5.2, vote_count: 200, tmdbGenreIds: [27] }
+  ];
+
+  const ranked = rankWatchlistForTonight({ watchlist, watched, limit: 5 });
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0].title, "Dunkirk");
+  assert.ok(ranked[0].matchPct > ranked[1].matchPct);
+  assert.ok(ranked[0].predictedRating > 0);
 });

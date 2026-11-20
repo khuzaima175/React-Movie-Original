@@ -32,8 +32,12 @@ import {
   formatActiveVibeNote,
   nextRefreshExcludeState,
   shouldAutoRefreshOnDrawerClose,
-  summarizeOraclePreferences
+  summarizeOraclePreferences,
+  ORACLE_TONIGHT_PRESETS,
+  splitOracleSpotlightAndGrid,
+  rankWatchlistForTonight
 } from "../services/oracleViewHelpers";
+import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
 import {
   DEFAULT_RECOMMENDATION_COUNT,
   MIN_VALID_CACHE_COUNT,
@@ -53,6 +57,7 @@ import PosterImage from "./PosterImage";
 import QuickRateModal from "./QuickRateModal";
 import GeminiKeyModal from "./GeminiKeyModal";
 import OraclePreferencesPopover from "./OraclePreferencesPopover";
+import OracleTopPickSpotlight from "./OracleTopPickSpotlight";
 import { Button, MetaLine, Select } from "./ui";
 import {
   Sparkles,
@@ -131,9 +136,31 @@ export default function MovieRecommendations({
     addAiFeedback,
     addWatched,
     cloudUser,
-    loadSampleVault
+    loadSampleVault,
+    reportOracleJobProgress,
+    dismissBackgroundJobNotice
   } = useApp();
   const canTrySampleVault = !cloudUser && watched.length < 3;
+
+  const [watchlistTonightOpen, setWatchlistTonightOpen] = useState(false);
+  const [oracleEmbeddingIndex, setOracleEmbeddingIndex] = useState(null);
+
+  useEffect(() => {
+    dismissBackgroundJobNotice?.("oracle");
+  }, [dismissBackgroundJobNotice]);
+
+  useEffect(() => {
+    if (!watchlistTonightOpen || oracleEmbeddingIndex) return;
+    let active = true;
+    loadDefaultEmbeddingIndex()
+      .then((idx) => {
+        if (active && idx) setOracleEmbeddingIndex(idx);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [watchlistTonightOpen, oracleEmbeddingIndex]);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isEnhancingWithGemini, setIsEnhancingWithGemini] = useState(false);
@@ -321,6 +348,12 @@ export default function MovieRecommendations({
     setRecommendations(null);
     setError("");
     setDismissingTitle(null);
+    setWatchlistTonightOpen(false);
+    reportOracleJobProgress?.({
+      jobId: requestId,
+      status: "running",
+      label: "Curating Film Oracle picks in the background…"
+    });
 
     try {
       const result = await getMovieRecommendations(watched, watchlist, setProgress, {
@@ -333,6 +366,7 @@ export default function MovieRecommendations({
         userProviders: userWatchProviders,
         feedbackLog: aiFeedbackLog,
         tasteRules,
+        personalMode: debug || usingOwnKey,
         onStage3Ready: (preliminaryResult) => {
           if (activeRequestRef.current !== requestId) return;
           if (
@@ -396,9 +430,20 @@ export default function MovieRecommendations({
       saveAiRecommendations(stampedRecommendations, result.tasteProfile, newHash, liveModelInfo);
       setSmartCache(newHash, cacheableResult);
       setShowFilterDeck(false);
+      reportOracleJobProgress?.({
+        jobId: requestId,
+        status: "done",
+        count: stampedRecommendations.length,
+        label: `Your ${stampedRecommendations.length} Film Oracle picks are ready`
+      });
     } catch (err) {
       if (activeRequestRef.current !== requestId) return;
       setError(err.message || "Failed to generate recommendations. Please try again.");
+      reportOracleJobProgress?.({
+        jobId: requestId,
+        status: "error",
+        label: "Film Oracle curation encountered an issue"
+      });
     } finally {
       if (activeRequestRef.current === requestId) {
         setIsLoading(false);
@@ -828,15 +873,146 @@ export default function MovieRecommendations({
     if (id) navigate(`/movie/${id}`);
   };
 
+  const rankedWatchlistTonight = watchlistTonightOpen
+    ? rankWatchlistForTonight({
+        watchlist,
+        watched,
+        tasteRules,
+        embeddingIndex: oracleEmbeddingIndex,
+        limit: 6
+      })
+    : [];
+
+  const handleSelectTonightPreset = (preset) => {
+    if (!preset) return;
+    if (preset.actionType === "watchlist") {
+      setWatchlistTonightOpen((prev) => !prev);
+      return;
+    }
+    setWatchlistTonightOpen(false);
+    setSelectedMood(preset.mood || "any");
+    if (preset.vibeQuery) {
+      setCustomMoodQuery(preset.vibeQuery);
+      const parsed = normalizeMoodFilters(parseFreeTextMoodFallback(preset.vibeQuery));
+      setActiveMoodFilters(parsed);
+      setMoodParseNote(formatActiveVibeNote(parsed, preset.vibeQuery));
+      handleGetRecommendations({
+        forceRefresh: false,
+        moodOverride: preset.mood || "any",
+        moodFiltersOverride: parsed
+      });
+    } else {
+      setCustomMoodQuery("");
+      setActiveMoodFilters(null);
+      setMoodParseNote("");
+      handleGetRecommendations({
+        forceRefresh: false,
+        moodOverride: preset.mood || "any",
+        moodFiltersOverride: null
+      });
+    }
+  };
+
+  const handleWatchSpotlightTrailer = (pick) => {
+    const url = pick?.trailerKey
+      ? `https://www.youtube.com/watch?v=${pick.trailerKey}`
+      : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${pick?.title || ""} ${pick?.year || ""} official trailer`)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const { spotlight: spotlightPick, gridPicks } = splitOracleSpotlightAndGrid(sortedRecommendations);
+
   return (
     <div className="ai-recommendations">
       {!recommendations && !isLoading && (
-        <div className="ai-discovery-stage">{renderStudioDeck(false)}</div>
+        <div className="ai-discovery-stage">
+          {renderStudioDeck(false)}
+
+          {/* Path 1 Flagship Concierge: Zero-Empty-Space Tonight Starter Cards */}
+          <section className="oracle-tonight-starters" aria-label="Tonight's quick curation presets">
+            <div className="oracle-starters-head">
+              <span className="oracle-starters-kicker">Tonight&apos;s Concierge</span>
+              <span className="oracle-starters-hint">One tap to curate, or rank your Watchlist instantly</span>
+            </div>
+            <div className="oracle-starters-grid">
+              {ORACLE_TONIGHT_PRESETS.map((preset) => {
+                const isWatchlistPreset = preset.actionType === "watchlist";
+                const disabled = isWatchlistPreset && watchlist.length === 0;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    disabled={disabled}
+                    className={`oracle-starter-card ${isWatchlistPreset && watchlistTonightOpen ? "is-active" : ""}`}
+                    onClick={() => handleSelectTonightPreset(preset)}
+                  >
+                    <span className="oracle-starter-title">{preset.title}</span>
+                    <span className="oracle-starter-sub">
+                      {disabled ? "Save films to your Watchlist first" : preset.subtitle}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {watchlistTonightOpen && rankedWatchlistTonight.length > 0 && (
+              <div className="oracle-watchlist-tonight-panel">
+                <div className="oracle-watchlist-tonight-head">
+                  <div>
+                    <h3 className="m-0 text-[1.6rem] font-bold text-[#f4f4f2]">
+                      Best From Your Watchlist Tonight
+                    </h3>
+                    <p className="mt-[0.25rem] mb-0 text-[1.25rem] text-[#9e9e99]">
+                      Ranked instantly on your device using your Taste DNA
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="oracle-inline-cta"
+                    onClick={() => navigate("/ai?tab=chat")}
+                  >
+                    <span>Ask Film Companion to pick 1 →</span>
+                  </button>
+                </div>
+
+                <div className="oracle-watchlist-tonight-grid">
+                  {rankedWatchlistTonight.map((item, idx) => {
+                    const targetId = item.imdbID || item.id || (item.tmdbId ? `tmdb_${item.tmdbId}` : "");
+                    return (
+                      <button
+                        key={targetId || idx}
+                        type="button"
+                        className="oracle-wl-pick-card"
+                        onClick={() => targetId && navigate(`/movie/${targetId}`)}
+                      >
+                        <div className="oracle-wl-pick-poster">
+                          <PosterImage src={item.poster || item.Poster} title={item.title || item.Title} />
+                        </div>
+                        <div className="oracle-wl-pick-info">
+                          <span className="oracle-wl-pick-rank">#{idx + 1} Tonight</span>
+                          <strong className="oracle-wl-pick-title">{item.title || item.Title}</strong>
+                          <span className="oracle-wl-pick-match tabular-num">
+                            {item.matchPct}% Match
+                            {item.predictedRating != null ? ` · Est. ${item.predictedRating}/10` : ""}
+                          </span>
+                          <span className="oracle-wl-pick-summary">{item.matchSummary}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
       )}
 
       {isLoading && (
         <div className="ai-loading-theater">
           <h3 className="theater-title display-title">Curating your next watch</h3>
+          <p className="text-[1.3rem] text-[#9e9e99] m-0">
+            Feel free to browse the rest of CinemaVault — we&apos;ll notify you as soon as your picks are ready.
+          </p>
           <div className="theater-status-badge">
             <Loader2 size={15} className="spin-icon" aria-hidden="true" />
             <span>{progress || "Ranking candidates against your vault..."}</span>
@@ -1060,9 +1236,29 @@ export default function MovieRecommendations({
             </p>
           )}
 
-          {/* Single-Column Editorial Curated List */}
+          {/* Path 1 Flagship #1 Top Pick Tonight Hero Spotlight */}
+          {spotlightPick && (
+            <OracleTopPickSpotlight
+              pick={spotlightPick}
+              watched={watched}
+              inWatchlist={isAlreadyInWatchlist(
+                spotlightPick.title,
+                spotlightPick.year,
+                spotlightPick.imdbID,
+                spotlightPick.tmdbId
+              )}
+              showNumericMatch={hasMeaningfulScoreSpread}
+              onAddWatchlist={handleAdd}
+              onAlreadySeen={(p) => setQuickRateRec(p)}
+              onDismiss={(p) => handleDismiss(p, "Not in the mood")}
+              onWatchTrailer={handleWatchSpotlightTrailer}
+            />
+          )}
+
+          {/* Editorial Curated List (Picks #2–#10) */}
           <ul className="recommendation-list-editorial">
-            {sortedRecommendations.map((rec, index) => {
+            {gridPicks.map((rec, rawIndex) => {
+              const index = rawIndex + 1;
               const rankLabel = String(index + 1).padStart(2, "0");
               const inWatchlist = isAlreadyInWatchlist(rec.title, rec.year, rec.imdbID, rec.tmdbId);
               const isAdding = isAddingMovie === rec.title;
