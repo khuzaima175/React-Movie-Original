@@ -19,6 +19,7 @@ export default function DashboardPage({ onOpenTasteDeck }) {
   const {
     watched = [],
     watchlist = [],
+    tasteRules = [],
     userRegion = "GLOBAL",
     forYouLivePool = null,
     addWatched,
@@ -29,23 +30,36 @@ export default function DashboardPage({ onOpenTasteDeck }) {
   const [cachedForYouItems, setCachedForYouItems] = useState([]);
   const [quickAddMovie, setQuickAddMovie] = useState(null);
 
+  const ratedCount = useMemo(
+    () => (Array.isArray(watched) ? watched.filter((m) => Number(m?.userRating) > 0).length : 0),
+    [watched]
+  );
+
+  const vaultTasteSignature = useMemo(() => {
+    const sample = (Array.isArray(watched) ? watched : [])
+      .slice(0, 10)
+      .map((m) => `${m?.tmdbId || m?.imdbID || m?.title}:${m?.userRating || 0}`)
+      .join("|");
+    return `${ratedCount}:${watched.length}:${sample}`;
+  }, [watched, ratedCount]);
+
   useEffect(() => {
-    if (watched.length < HOME_FOR_YOU_MIN_RATED) {
+    if (ratedCount < HOME_FOR_YOU_MIN_RATED) {
       setCachedForYouItems([]);
       return undefined;
     }
     let active = true;
     loadLatestLocalExploreForYouFallback()
       .then((fallback) => {
-        if (active && fallback?.items?.length > 0) {
-          setCachedForYouItems(fallback.items);
+        if (active) {
+          setCachedForYouItems(fallback?.items?.length > 0 ? fallback.items : []);
         }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [watched.length]);
+  }, [ratedCount, vaultTasteSignature]);
 
   const activeForYouSource =
     Array.isArray(forYouLivePool?.items) && forYouLivePool.items.length > 0
@@ -54,25 +68,39 @@ export default function DashboardPage({ onOpenTasteDeck }) {
 
   const personalizedTasteRow = useMemo(
     () =>
-      watched.length >= HOME_FOR_YOU_MIN_RATED
+      ratedCount >= HOME_FOR_YOU_MIN_RATED
         ? buildPersonalizedHomeRow({
             forYouItems: activeForYouSource,
             watched,
             watchlist,
+            tasteRules,
             limit: 20
           })
         : null,
-    [activeForYouSource, watched, watchlist]
+    [ratedCount, activeForYouSource, watched, watchlist, tasteRules]
   );
 
   const resolvedRows = useMemo(() => {
     const baseRows = Array.isArray(feeds.rows) ? feeds.rows : [];
     if (!personalizedTasteRow) return baseRows;
-    const hasTasteSlot = baseRows.some((r) => r.key === "taste");
-    if (hasTasteSlot) {
-      return baseRows.map((r) => (r.key === "taste" ? personalizedTasteRow : r));
-    }
-    return [personalizedTasteRow, ...baseRows];
+    const tasteKeys = new Set(
+      personalizedTasteRow.movies.flatMap((m) => [
+        m.tmdbId ? `tmdb:${m.tmdbId}` : null,
+        m.imdbID ? `imdb:${String(m.imdbID).toLowerCase()}` : null
+      ]).filter(Boolean)
+    );
+    const dedupedOtherRows = baseRows
+      .filter((r) => r.key !== "taste")
+      .map((row) => ({
+        ...row,
+        movies: (row.movies || []).filter((m) => {
+          if (m.tmdbId && tasteKeys.has(`tmdb:${m.tmdbId}`)) return false;
+          if (m.imdbID && tasteKeys.has(`imdb:${String(m.imdbID).toLowerCase()}`)) return false;
+          return true;
+        })
+      }))
+      .filter((row) => row.movies.length > 0);
+    return [personalizedTasteRow, ...dedupedOtherRows];
   }, [feeds.rows, personalizedTasteRow]);
 
   useEffect(() => {
@@ -173,7 +201,7 @@ export default function DashboardPage({ onOpenTasteDeck }) {
         </div>
 
         <HomePosterGrid
-          rows={feeds.rows}
+          rows={resolvedRows}
           mosaicPool={feeds.mosaicPool}
           watched={watched}
           onSelectMovie={handleSelectMovie}

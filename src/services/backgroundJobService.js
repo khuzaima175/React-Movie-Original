@@ -41,23 +41,43 @@ export function transitionJobState(jobs, jobKey, patch = {}) {
     return base;
   }
 
+  const nextJobId = Number.isFinite(incomingId) ? incomingId : prev.jobId;
+  const isNewJob = nextJobId > prev.jobId;
   const nextStatus = patch.status ?? prev.status;
+  const transitionedToDone = nextStatus === "done" && prev.status !== "done";
   const resetDismissed =
     patch.dismissed !== undefined
       ? Boolean(patch.dismissed)
-      : nextStatus === "running" || nextStatus === "done"
+      : isNewJob || transitionedToDone
         ? false
         : prev.dismissed;
+
+  const nextJob = {
+    ...prev,
+    ...patch,
+    jobId: nextJobId,
+    status: nextStatus,
+    targetRoute: patch.targetRoute || prev.targetRoute || DEFAULT_ROUTES[jobKey] || "/",
+    dismissed: resetDismissed
+  };
+
+  const unchanged =
+    nextJob.jobId === prev.jobId &&
+    nextJob.status === prev.status &&
+    nextJob.stage === prev.stage &&
+    nextJob.label === prev.label &&
+    nextJob.count === prev.count &&
+    nextJob.targetRoute === prev.targetRoute &&
+    nextJob.dismissed === prev.dismissed;
+
+  if (unchanged) {
+    return base;
+  }
 
   return {
     ...base,
     [jobKey]: {
-      ...prev,
-      ...patch,
-      jobId: Number.isFinite(incomingId) ? incomingId : prev.jobId,
-      status: nextStatus,
-      targetRoute: patch.targetRoute || prev.targetRoute || DEFAULT_ROUTES[jobKey] || "/",
-      dismissed: resetDismissed,
+      ...nextJob,
       updatedAt: Number(patch.updatedAt) || Date.now()
     }
   };

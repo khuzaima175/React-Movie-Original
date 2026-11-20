@@ -71,3 +71,23 @@ test("getActiveBackgroundJobNotice hides running banner on the job's own page an
   jobs = transitionJobState(jobs, "forYou", { jobId: 1, dismissed: true });
   assert.equal(getActiveBackgroundJobNotice(jobs, "/movie/tt1375666"), null);
 });
+
+
+test("transitionJobState is referentially idempotent on repeated dismiss and keeps dismissed running jobs hidden until done or new jobId", () => {
+  let jobs = createInitialBackgroundJobs();
+  jobs = transitionJobState(jobs, "forYou", { jobId: 1, status: "running", label: "Wave 1" });
+  const dismissed = transitionJobState(jobs, "forYou", { dismissed: true });
+  assert.equal(dismissed.forYou.dismissed, true);
+
+  // Repeated dismiss returns the exact same reference (prevents React effect loops)
+  const dismissedAgain = transitionJobState(dismissed, "forYou", { dismissed: true });
+  assert.equal(dismissedAgain, dismissed);
+
+  // Subsequent running stage on the same jobId stays dismissed
+  const wave2 = transitionJobState(dismissed, "forYou", { jobId: 1, status: "running", label: "Wave 2" });
+  assert.equal(wave2.forYou.dismissed, true);
+
+  // Completion resurfaces the "View ->" toast once
+  const done = transitionJobState(wave2, "forYou", { jobId: 1, status: "done", label: "Ready" });
+  assert.equal(done.forYou.dismissed, false);
+});

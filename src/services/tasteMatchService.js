@@ -5,8 +5,20 @@ import {
 } from "./embeddingService.js";
 import { computeZScoredWeights } from "./scoringUtils.js";
 import { compileActiveTasteRules, candidateMatchesAvoidRule, candidateMatchesPreferRule } from "./tasteRulesService.js";
+import { extractTmdbNumericId, isSameMovie } from "./movieIdentity.js";
 
 export const TASTE_MATCH_MIN_RATED = 3;
+
+const GENRE_NAME_ALIASES = {
+  "sci-fi": "science fiction",
+  "scifi": "science fiction",
+  "sci fi": "science fiction"
+};
+
+function canonicalGenreName(name) {
+  const lower = String(name || "").trim().toLowerCase();
+  return GENRE_NAME_ALIASES[lower] || lower;
+}
 
 function normalizeNameKey(name) {
   return String(name || "")
@@ -133,7 +145,8 @@ export function buildTasteMatchContext({
       genreScoreById.set(gid, (genreScoreById.get(gid) || 0) + signal);
     }
     for (const gname of parseGenreNames(item.movie)) {
-      const key = gname.toLowerCase();
+      const key = canonicalGenreName(gname);
+      if (!key) continue;
       genreScoreByName.set(key, (genreScoreByName.get(key) || 0) + signal);
     }
     for (const dir of parseDirectorNames(item.movie)) {
@@ -164,9 +177,19 @@ export function buildTasteMatchContext({
   };
 }
 
+function resolveMovieTmdbId(movie) {
+  if (!movie || typeof movie !== "object") return 0;
+  return (
+    extractTmdbNumericId(movie.tmdbId) ||
+    extractTmdbNumericId(movie.id) ||
+    extractTmdbNumericId(movie.imdbID) ||
+    0
+  );
+}
+
 function findClosestAnchors(movie, ctx) {
   const anchors = [];
-  const tmdbId = Number(movie?.tmdbId || movie?.id || 0);
+  const tmdbId = resolveMovieTmdbId(movie);
   const index = ctx.embeddingIndex;
 
   // 1. Vector cosine proximity against user's top loved anchors
@@ -183,7 +206,8 @@ function findClosestAnchors(movie, ctx) {
 
     const scoredAnchors = [];
     for (const anchor of ctx.topAnchors || []) {
-      const aid = Number(anchor.movie?.tmdbId || 0);
+      if (isSameMovie(anchor.movie, movie)) continue;
+      const aid = resolveMovieTmdbId(anchor.movie);
       if (!aid || aid === tmdbId || !index.idToIndex.has(aid)) continue;
       const aIdx = index.idToIndex.get(aid);
       const aBase = aIdx * dim;
@@ -208,12 +232,13 @@ function findClosestAnchors(movie, ctx) {
   // 2. Fallback: same director or overlapping genres from topAnchors
   if (anchors.length === 0) {
     const movieDirs = new Set(parseDirectorNames(movie).map(normalizeNameKey));
-    const movieGenres = new Set(parseGenreNames(movie).map((g) => g.toLowerCase()));
+    const movieGenres = new Set(parseGenreNames(movie).map(canonicalGenreName));
     for (const anchor of ctx.topAnchors || []) {
+      if (isSameMovie(anchor.movie, movie)) continue;
       const title = anchor.movie?.title || anchor.movie?.Title;
       if (!title || anchors.includes(title)) continue;
       const aDirs = parseDirectorNames(anchor.movie).map(normalizeNameKey);
-      const aGenres = parseGenreNames(anchor.movie).map((g) => g.toLowerCase());
+      const aGenres = parseGenreNames(anchor.movie).map(canonicalGenreName);
       if (aDirs.some((d) => movieDirs.has(d)) || aGenres.some((g) => movieGenres.has(g))) {
         anchors.push(title);
       }
@@ -266,7 +291,7 @@ export function predictMovieMatch({
     };
   }
 
-  const tmdbId = Number(movie.tmdbId || movie.id || 0);
+  const tmdbId = resolveMovieTmdbId(movie);
   const hasCollabEntry = Boolean(tmdbId && ctx.collabSimMap && ctx.collabSimMap.has(tmdbId));
   const rawCollab = hasCollabEntry ? Number(ctx.collabSimMap.get(tmdbId) || 0) : 0;
   const catalogMax = Number(ctx.collabCatalogMax) || 0.35;
@@ -275,7 +300,7 @@ export function predictMovieMatch({
     : 0;
   const repulsion = tmdbId && ctx.repulsionMap ? Number(ctx.repulsionMap.get(tmdbId) || 0) : 0;
 
-  // Genre affinity score in [-1, 1]
+  // Genre affinity score in [-1, 1] (ID-first with canonical name fallback for OMDb/CSV vaults)
   const gIds = parseGenreIds(movie);
   const gNames = parseGenreNames(movie);
   let genreSum = 0;
@@ -288,11 +313,12 @@ export function predictMovieMatch({
       genreHits += 1;
     }
   }
+  const useNameScores = genreHits === 0;
   for (const gname of gNames) {
-    const key = gname.toLowerCase();
+    const key = canonicalGenreName(gname);
     if (ctx.genreScoreByName.has(key)) {
       const val = ctx.genreScoreByName.get(key);
-      if (gIds.length === 0) {
+      if (useNameScores) {
         genreSum += val;
         genreHits += 1;
       }
@@ -324,11 +350,11 @@ export function predictMovieMatch({
       ? Math.max(-0.5, Math.min(0.8, (rawVote - 6.8) / 2.2)) * (voteCount >= 50 || movie.imdbRating ? 1 : 0.6)
       : 0;
 
-  // Taste Rules alignment
+  // Taste Rules alignment (properly checks .matched on avoidRules / preferRules arrays)
   let ruleShift = 0;
   if (ctx.compiledRules?.activeRules?.length > 0) {
-    if (candidateMatchesAvoidRule(movie, ctx.compiledRules)) ruleShift -= 1.4;
-    else if (candidateMatchesPreferRule(movie, ctx.compiledRules)) ruleShift += 0.55;
+    if (candidateMatchesAvoidRule(movie, ctx.compiledRules.avoidRules).matched) ruleShift -= 1.4;
+    else if (candidateMatchesPreferRule(movie, ctx.compiledRules.preferRules).matched) ruleShift += 0.55;
   }
 
   let logit = 0;

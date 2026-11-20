@@ -87,17 +87,31 @@ export default function AccountPage() {
   const [communityMsg, setCommunityMsg] = useState({ type: "", text: "" });
 
   const topRatedCandidates = useMemo(() => {
-    return (Array.isArray(watched) ? watched : [])
-      .filter((m) => m && !m.isSample && Number(m.userRating) >= 7)
-      .sort((a, b) => Number(b.userRating || 0) - Number(a.userRating || 0))
-      .slice(0, 16)
+    const allReal = (Array.isArray(watched) ? watched : [])
+      .filter((m) => m && !m.isSample)
       .map((m) => ({
         key: getCanonicalMovieKey(m),
         title: m.title || m.Title || "Untitled",
-        rating: m.userRating
+        rating: Number(m.userRating) || 0
       }))
       .filter((item) => Boolean(item.key));
-  }, [watched]);
+
+    const byKey = new Map(allReal.map((item) => [item.key, item]));
+    const top16 = allReal
+      .filter((item) => item.rating >= 7)
+      .sort((a, b) => b.rating - a.rating)
+      .slice(0, 16);
+    const seen = new Set(top16.map((item) => item.key));
+
+    // Always include any currently pinned favoriteMovieKeys so users can unpin even if a film dropped out of top 16
+    for (const pinnedKey of favoriteMovieKeys) {
+      if (seen.has(pinnedKey)) continue;
+      seen.add(pinnedKey);
+      const found = byKey.get(pinnedKey);
+      top16.push(found || { key: pinnedKey, title: pinnedKey, rating: 0 });
+    }
+    return top16;
+  }, [watched, favoriteMovieKeys]);
 
   useEffect(() => {
     if (!cloudUser?.id) return;
@@ -153,7 +167,6 @@ export default function AccountPage() {
 
       const res = await savePublicProfileSettings({
         userId: cloudUser.id,
-        displayName: displayName || cloudProfile?.displayName || "",
         username: publicHandle,
         bio: publicBio,
         isPublic: isPublicProfile,

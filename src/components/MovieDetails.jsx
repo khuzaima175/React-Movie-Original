@@ -24,7 +24,7 @@ import {
 import { fetchOmdbJson, getMovieDetailsBatch } from "../services/apiTransport";
 import { toDashboardCardItem } from "../services/dashboardService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
-import { predictMovieMatch } from "../services/tasteMatchService";
+import { buildTasteMatchContext, predictMovieMatch } from "../services/tasteMatchService";
 import { buildExploreRoute } from "../services/exploreService";
 import {
   normalizeCollectionTimeline,
@@ -152,6 +152,11 @@ export default function MovieDetails({
     };
   }, []);
 
+  const tasteMatchCtx = useMemo(
+    () => buildTasteMatchContext({ watched, watchlist, tasteRules, embeddingIndex }),
+    [watched, watchlist, tasteRules, embeddingIndex]
+  );
+
   const personalTasteMatch = useMemo(
     () =>
       movie
@@ -162,13 +167,10 @@ export default function MovieDetails({
               vote_average: Number(movie.tmdbRating || movie.imdbRating || 0),
               vote_count: Number(String(movie.tmdbVotes || "0").replace(/[^0-9]/g, "")) || 0
             },
-            watched,
-            watchlist,
-            tasteRules,
-            embeddingIndex
+            cachedContext: tasteMatchCtx
           })
         : null,
-    [movie, watched, watchlist, tasteRules, embeddingIndex]
+    [movie, tasteMatchCtx]
   );
 
   useEffect(() => {
@@ -343,10 +345,12 @@ export default function MovieDetails({
   // Main Data Loading Pipeline: Concurrent TMDB + OMDb Hybrid Extraction
   useEffect(() => {
     if (!selectedId) return;
+    const regionCacheKey = `${selectedId}::${userRegion || "GLOBAL"}`;
 
-    if (enrichedDetailsSessionCache.has(selectedId)) {
+    if (enrichedDetailsSessionCache.has(regionCacheKey)) {
+      setError("");
       setMovie({
-        ...enrichedDetailsSessionCache.get(selectedId),
+        ...enrichedDetailsSessionCache.get(regionCacheKey),
         loadedForSelectedId: selectedId
       });
       setIsLoading(false);
@@ -498,7 +502,7 @@ export default function MovieDetails({
         };
 
         if (isMounted) {
-          enrichedDetailsSessionCache.set(selectedId, combinedData);
+          enrichedDetailsSessionCache.set(regionCacheKey, combinedData);
           setMovie(combinedData);
           setIsLoading(false);
         }
@@ -1520,6 +1524,7 @@ export default function MovieDetails({
             tmdbId={movie.tmdbId}
             imdbID={movie.imdbID}
             title={movie.title}
+            refreshKey={`${watchedItem?.updatedAt || ""}:${watchedItem?.userRating || ""}`}
           />
 
           <SimilarFilmsStrip

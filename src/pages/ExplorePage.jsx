@@ -46,7 +46,6 @@ import {
 import {
   EXPLORE_FOR_YOU_MIN_RATED,
   buildExploreForYouProfileHash,
-  generateExploreForYouPool,
   weightedShuffleForYou,
   filterForYouCatalog
 } from "../services/exploreForYouService";
@@ -409,7 +408,9 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const forYouJob = backgroundJobs?.forYou;
   useEffect(() => {
     if (!isForYouMode) return;
-    if (forYouLivePool?.items?.length > 0 && forYouLivePool.profileHash === forYouProfileHash) {
+    const liveMatchesHash =
+      forYouLivePool?.items?.length > 0 && forYouLivePool.profileHash === forYouProfileHash;
+    if (liveMatchesHash) {
       setForYouState({
         profileHash: forYouLivePool.profileHash,
         items: forYouLivePool.items,
@@ -423,13 +424,15 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
       setForYouError(forYouLivePool.error);
     }
     if (forYouJob?.status === "running") {
-      setIsForYouEnhancing(forYouState.items.length > 0 || (forYouLivePool?.items?.length || 0) > 0);
+      setIsForYouEnhancing(forYouState.items.length > 0 || liveMatchesHash);
       setForYouStageNote(forYouJob.label || "Curating Movies You'll Like…");
-    } else if (forYouJob?.status === "done") {
+    } else if (forYouJob?.status === "done" && liveMatchesHash) {
       setIsForYouLoading(false);
       setIsForYouEnhancing(false);
       setForYouStageNote("");
-      dismissBackgroundJobNotice?.("forYou");
+      if (!forYouJob.dismissed) {
+        dismissBackgroundJobNotice?.("forYou");
+      }
     } else if (forYouJob?.status === "error") {
       setIsForYouLoading(false);
       setIsForYouEnhancing(false);
@@ -499,7 +502,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               (item) =>
                 !watched.some((w) => isSameMovie(w, item)) &&
                 !watchlist.some((w) => isSameMovie(w, item)) &&
-                !candidateMatchesAvoidRule(item, compiledRules)
+                !candidateMatchesAvoidRule(item, compiledRules.avoidRules).matched
             );
             if (unseenStale.length > 0) {
               setForYouState({

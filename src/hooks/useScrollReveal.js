@@ -23,7 +23,8 @@ export function useScrollReveal({
   });
 
   const ref = useCallback((el) => {
-    setNode(el || null);
+    const next = el || null;
+    setNode((prev) => (prev === next ? prev : next));
   }, []);
 
   useEffect(() => {

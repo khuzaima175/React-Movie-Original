@@ -10,6 +10,7 @@ import {
   getRecentReleaseDateFloor,
   TMDB_ID_TO_GENRE
 } from "./tmdbService.js";
+import { compileActiveTasteRules, candidateMatchesAvoidRule } from "./tasteRulesService.js";
 
 export { buildMovieKeys, extractTmdbNumericId, findMatchingMovie, isSameMovie };
 
@@ -587,10 +588,12 @@ export function buildPersonalizedHomeRow({
   forYouItems = [],
   watched = [],
   watchlist = [],
+  tasteRules = [],
   limit = 20
 } = {}) {
   if (!Array.isArray(forYouItems) || forYouItems.length === 0) return null;
   const seenSet = buildSeenCollisionSet(watched, watchlist);
+  const compiledRules = compileActiveTasteRules(tasteRules);
   const placed = new Set();
   const movies = [];
 
@@ -598,6 +601,12 @@ export function buildPersonalizedHomeRow({
     if (!raw || typeof raw !== "object") continue;
     const keys = buildMovieKeys(raw);
     if (keys.some((k) => seenSet.has(k) || placed.has(k))) continue;
+    if (
+      compiledRules.avoidRules.length > 0 &&
+      candidateMatchesAvoidRule(raw, compiledRules.avoidRules).matched
+    ) {
+      continue;
+    }
     const card = toDashboardCardItem(raw);
     if (!card || !card.poster) continue;
     keys.forEach((k) => placed.add(k));

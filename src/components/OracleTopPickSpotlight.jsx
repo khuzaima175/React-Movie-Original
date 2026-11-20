@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Bookmark, Check, Eye, Play, Sparkles, Star, ThumbsDown } from "lucide-react";
+import { Bookmark, Check, Eye, Loader2, Play, Sparkles, Star, ThumbsDown } from "lucide-react";
 import PosterImage from "./PosterImage";
 import { calibratePredictedRating } from "../services/tasteMatchService";
 import { resolveRecommendationAnchors, sanitizeOracleReason } from "../services/oracleViewHelpers";
@@ -8,6 +8,7 @@ export default function OracleTopPickSpotlight({
   pick,
   watched = [],
   inWatchlist = false,
+  isAdding = false,
   showNumericMatch = true,
   onAddWatchlist,
   onAlreadySeen,
@@ -92,10 +93,16 @@ export default function OracleTopPickSpotlight({
               type="button"
               className="oracle-spotlight-btn-primary"
               onClick={() => onAddWatchlist?.(pick)}
-              disabled={inWatchlist}
+              disabled={inWatchlist || isAdding}
             >
-              {inWatchlist ? <Check size={15} aria-hidden="true" /> : <Bookmark size={15} aria-hidden="true" />}
-              <span>{inWatchlist ? "In Watchlist" : "Add to Watchlist"}</span>
+              {isAdding ? (
+                <Loader2 size={15} className="spin-icon" aria-hidden="true" />
+              ) : inWatchlist ? (
+                <Check size={15} aria-hidden="true" />
+              ) : (
+                <Bookmark size={15} aria-hidden="true" />
+              )}
+              <span>{isAdding ? "Saving..." : inWatchlist ? "In Watchlist" : "Add to Watchlist"}</span>
             </button>
 
             {onWatchTrailer && (

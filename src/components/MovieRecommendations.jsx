@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -38,6 +38,7 @@ import {
   rankWatchlistForTonight
 } from "../services/oracleViewHelpers";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { isSameMovie } from "../services/movieIdentity";
 import {
   DEFAULT_RECOMMENDATION_COUNT,
   MIN_VALID_CACHE_COUNT,
@@ -137,6 +138,9 @@ export default function MovieRecommendations({
     addWatched,
     cloudUser,
     loadSampleVault,
+    backgroundJobs,
+    allocateOracleJobId,
+    oracleJobIdRef,
     reportOracleJobProgress,
     dismissBackgroundJobNotice
   } = useApp();
@@ -146,8 +150,10 @@ export default function MovieRecommendations({
   const [oracleEmbeddingIndex, setOracleEmbeddingIndex] = useState(null);
 
   useEffect(() => {
-    dismissBackgroundJobNotice?.("oracle");
-  }, [dismissBackgroundJobNotice]);
+    if (backgroundJobs?.oracle?.status === "done" && !backgroundJobs.oracle.dismissed) {
+      dismissBackgroundJobNotice?.("oracle");
+    }
+  }, [backgroundJobs?.oracle?.status, backgroundJobs?.oracle?.dismissed, dismissBackgroundJobNotice]);
 
   useEffect(() => {
     if (!watchlistTonightOpen || oracleEmbeddingIndex) return;
@@ -227,7 +233,10 @@ export default function MovieRecommendations({
   );
 
   const debug = isDebugUiEnabled();
-  const queuedModel = getPreferredCascadeModel(getCurationCascade({ personal: debug }), "curation");
+  const queuedModel = getPreferredCascadeModel(
+    getCurationCascade({ personal: debug || usingOwnKey }),
+    "curation"
+  );
   const displayedModelInfo = aiModelInfo || getLastModelInfo("curation");
   const prefsSummary = summarizeOraclePreferences({
     userRegion,
@@ -323,9 +332,15 @@ export default function MovieRecommendations({
     }
   };
 
+  const oracleJobRunning = backgroundJobs?.oracle?.status === "running";
+  const effectiveIsLoading = isLoading || (oracleJobRunning && !recommendations?.length);
+
   const handleGetRecommendations = async (invokeOpts = {}) => {
     setIsPrefsOpen(false);
-    const requestId = ++activeRequestRef.current;
+    const requestId = allocateOracleJobId ? allocateOracleJobId() : ++activeRequestRef.current;
+    activeRequestRef.current = requestId;
+    const isLatestRequest = () =>
+      oracleJobIdRef ? oracleJobIdRef.current === requestId : activeRequestRef.current === requestId;
     const isForcedRefresh = invokeOpts?.forceRefresh === true;
     const effectiveMood = invokeOpts?.moodOverride ?? selectedMood;
     const effectiveFilters =
@@ -368,7 +383,7 @@ export default function MovieRecommendations({
         tasteRules,
         personalMode: debug || usingOwnKey,
         onStage3Ready: (preliminaryResult) => {
-          if (activeRequestRef.current !== requestId) return;
+          if (!isLatestRequest()) return;
           if (
             Array.isArray(preliminaryResult?.recommendations) &&
             preliminaryResult.recommendations.length > 0
@@ -388,7 +403,7 @@ export default function MovieRecommendations({
         }
       });
 
-      if (activeRequestRef.current !== requestId) return;
+      if (!isLatestRequest()) return;
 
       const profile = await extractTasteProfile(watched, watchlist);
       const newHash = generateProfileHash(
@@ -437,7 +452,7 @@ export default function MovieRecommendations({
         label: `Your ${stampedRecommendations.length} Film Oracle picks are ready`
       });
     } catch (err) {
-      if (activeRequestRef.current !== requestId) return;
+      if (!isLatestRequest()) return;
       setError(err.message || "Failed to generate recommendations. Please try again.");
       reportOracleJobProgress?.({
         jobId: requestId,
@@ -445,7 +460,7 @@ export default function MovieRecommendations({
         label: "Film Oracle curation encountered an issue"
       });
     } finally {
-      if (activeRequestRef.current === requestId) {
+      if (isLatestRequest()) {
         setIsLoading(false);
         setIsEnhancingWithGemini(false);
         setProgress("");
@@ -594,7 +609,7 @@ export default function MovieRecommendations({
       reason
     });
 
-    const updated = (recommendations || []).filter((r) => r.title !== rec.title);
+    const updated = (recommendations || []).filter((r) => !isSameMovie(r, rec));
     setRecommendations(updated);
     saveAiRecommendations(updated, tasteProfile, aiRecommendationsHash);
     setDismissingTitle(null);
@@ -873,15 +888,19 @@ export default function MovieRecommendations({
     if (id) navigate(`/movie/${id}`);
   };
 
-  const rankedWatchlistTonight = watchlistTonightOpen
-    ? rankWatchlistForTonight({
-        watchlist,
-        watched,
-        tasteRules,
-        embeddingIndex: oracleEmbeddingIndex,
-        limit: 6
-      })
-    : [];
+  const rankedWatchlistTonight = useMemo(
+    () =>
+      watchlistTonightOpen
+        ? rankWatchlistForTonight({
+            watchlist,
+            watched,
+            tasteRules,
+            embeddingIndex: oracleEmbeddingIndex,
+            limit: 6
+          })
+        : [],
+    [watchlistTonightOpen, watchlist, watched, tasteRules, oracleEmbeddingIndex]
+  );
 
   const handleSelectTonightPreset = (preset) => {
     if (!preset) return;
@@ -895,7 +914,7 @@ export default function MovieRecommendations({
       setCustomMoodQuery(preset.vibeQuery);
       const parsed = normalizeMoodFilters(parseFreeTextMoodFallback(preset.vibeQuery));
       setActiveMoodFilters(parsed);
-      setMoodParseNote(formatActiveVibeNote(parsed, preset.vibeQuery));
+      setMoodParseNote(formatActiveVibeNote(parsed, MOOD_OPTIONS));
       handleGetRecommendations({
         forceRefresh: false,
         moodOverride: preset.mood || "any",
@@ -924,7 +943,7 @@ export default function MovieRecommendations({
 
   return (
     <div className="ai-recommendations">
-      {!recommendations && !isLoading && (
+      {!recommendations && !effectiveIsLoading && (
         <div className="ai-discovery-stage">
           {renderStudioDeck(false)}
 
@@ -1007,7 +1026,7 @@ export default function MovieRecommendations({
         </div>
       )}
 
-      {isLoading && (
+      {effectiveIsLoading && (
         <div className="ai-loading-theater">
           <h3 className="theater-title display-title">Curating your next watch</h3>
           <p className="text-[1.3rem] text-[#9e9e99] m-0">
@@ -1044,7 +1063,7 @@ export default function MovieRecommendations({
         </div>
       )}
 
-      {!isLoading && recommendations && recommendations.length > 0 && (
+      {!effectiveIsLoading && recommendations && recommendations.length > 0 && (
         <div className="ai-results-stage">
           {showFilterDeck && renderStudioDeck(true)}
 
@@ -1247,9 +1266,10 @@ export default function MovieRecommendations({
                 spotlightPick.imdbID,
                 spotlightPick.tmdbId
               )}
+              isAdding={isAddingMovie === spotlightPick.title}
               showNumericMatch={hasMeaningfulScoreSpread}
               onAddWatchlist={handleAdd}
-              onAlreadySeen={(p) => setQuickRateRec(p)}
+              onAlreadySeen={(p) => handleDismiss(p, "Already seen")}
               onDismiss={(p) => handleDismiss(p, "Not in the mood")}
               onWatchTrailer={handleWatchSpotlightTrailer}
             />

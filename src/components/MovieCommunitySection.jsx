@@ -5,7 +5,7 @@ import { hasSupabaseConfig } from "../services/supabaseClient";
 import { fetchMovieCommunityRatings } from "../services/communityService";
 import "../styles/community.css";
 
-export default function MovieCommunitySection({ tmdbId, imdbID, title }) {
+export default function MovieCommunitySection({ tmdbId, imdbID, title, refreshKey = "" }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [revealedSpoilers, setRevealedSpoilers] = useState(() => new Set());
@@ -13,8 +13,9 @@ export default function MovieCommunitySection({ tmdbId, imdbID, title }) {
   const enabled = hasSupabaseConfig();
 
   useEffect(() => {
+    setData(null);
+    setRevealedSpoilers(new Set());
     if (!enabled || (!tmdbId && !imdbID)) {
-      setData(null);
       return;
     }
     let active = true;
@@ -29,7 +30,7 @@ export default function MovieCommunitySection({ tmdbId, imdbID, title }) {
     return () => {
       active = false;
     };
-  }, [enabled, tmdbId, imdbID]);
+  }, [enabled, tmdbId, imdbID, refreshKey]);
 
   if (!enabled) return null;
   if (loading && !data) return null;
@@ -82,7 +83,9 @@ export default function MovieCommunitySection({ tmdbId, imdbID, title }) {
 
                 {isSpoilerHidden ? (
                   <div className="community-spoiler-box">
-                    <p className="community-review-note community-spoiler-blur">{rev.user_note}</p>
+                    <p className="community-review-note community-spoiler-blur" aria-hidden="true">
+                      {rev.user_note}
+                    </p>
                     <button
                       type="button"
                       className="community-spoiler-btn"

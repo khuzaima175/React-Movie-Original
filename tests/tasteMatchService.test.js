@@ -135,3 +135,35 @@ test("calibratePredictedRating maps matchPct cleanly onto user rating distributi
   assert.ok(high > mid && mid > low);
   assert.ok(high <= 9.9 && low >= 4.5);
 });
+
+
+test("predictMovieMatch honors Prefer vs Avoid taste rules properly and matches OMDb genre names against TMDB candidates", () => {
+  const watched = [
+    { tmdbId: 10, title: "Inception", userRating: 10, genre: "Sci-Fi, Thriller", director: "Christopher Nolan" },
+    { tmdbId: 11, title: "Interstellar", userRating: 9, genre: "Sci-Fi, Drama", director: "Christopher Nolan" },
+    { tmdbId: 30, title: "Slasher X", userRating: 3, genre: "Horror", director: "Other" }
+  ];
+  const candidate = {
+    tmdbId: 500001,
+    title: "Arrival",
+    genre: "Science Fiction, Drama",
+    tmdbGenreIds: [878, 18],
+    vote_average: 7.9,
+    vote_count: 15000
+  };
+
+  const baseline = predictMovieMatch({ movie: candidate, watched, tasteRules: [] });
+  const withPrefer = predictMovieMatch({
+    movie: candidate,
+    watched,
+    tasteRules: [{ id: "r1", text: "Prefer science fiction", polarity: "prefer", active: true }]
+  });
+  const withAvoid = predictMovieMatch({
+    movie: candidate,
+    watched,
+    tasteRules: [{ id: "r2", text: "Avoid science fiction", polarity: "avoid", active: true }]
+  });
+
+  assert.ok(withPrefer.matchPct >= baseline.matchPct, `Prefer rule must not penalize (${withPrefer.matchPct} vs ${baseline.matchPct})`);
+  assert.ok(withAvoid.matchPct < baseline.matchPct - 10, `Avoid rule must penalize (${withAvoid.matchPct} vs ${baseline.matchPct})`);
+});

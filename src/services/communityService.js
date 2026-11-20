@@ -352,8 +352,8 @@ export async function fetchPublicProfileByUsername(rawUsername, currentUserId = 
 export async function fetchMovieCommunityRatings({ tmdbId, imdbID } = {}) {
   if (!hasSupabaseConfig()) return aggregateCommunityRatings([]);
   const cleanTmdb = Number(tmdbId);
-  const cleanImdb = String(imdbID || "").trim();
-  const hasTmdb = Number.isFinite(cleanTmdb) && cleanTmdb > 0;
+  const cleanImdb = String(imdbID || "").trim().toLowerCase();
+  const hasTmdb = Number.isSafeInteger(cleanTmdb) && cleanTmdb > 0;
   const hasImdb = /^tt\d+$/i.test(cleanImdb);
   if (!hasTmdb && !hasImdb) return aggregateCommunityRatings([]);
 

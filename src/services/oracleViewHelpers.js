@@ -345,7 +345,8 @@ export function formatActiveVibeNote(filters, moodOptions = MOOD_OPTIONS) {
 
   const parts = [];
   if (filters.moodId && filters.moodId !== "any") {
-    const preset = (moodOptions || MOOD_OPTIONS).find((m) => m.id === filters.moodId);
+    const list = Array.isArray(moodOptions) ? moodOptions : MOOD_OPTIONS;
+    const preset = list.find((m) => m.id === filters.moodId);
     parts.push(preset ? preset.label : filters.moodId);
   }
   if (Array.isArray(filters.withGenres) && filters.withGenres.length > 0) {

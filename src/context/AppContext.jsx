@@ -188,6 +188,7 @@ export function AppProvider({ children }) {
     error: ""
   });
   const forYouJobIdRef = useRef(0);
+  const oracleJobIdRef = useRef(0);
   const forYouJobControllerRef = useRef(null);
   const forYouInFlightHashRef = useRef(null);
 
@@ -1064,6 +1065,7 @@ export function AppProvider({ children }) {
     persistDeletedVaultKeys({});
 
     if (clearLocal) {
+      abortAndResetBackgroundJobs();
       suppressProfileSyncRef.current = true;
       watchedRef.current = [];
       watchlistRef.current = [];
@@ -1136,6 +1138,7 @@ export function AppProvider({ children }) {
     pendingUpsertsRef.current.clear();
     pendingDeletesRef.current.clear();
 
+    abortAndResetBackgroundJobs();
     watchedRef.current = stampedWatched;
     watchlistRef.current = stampedWatchlist;
     setWatched(stampedWatched);
@@ -1522,6 +1525,34 @@ export function AppProvider({ children }) {
     return { ok: true };
   }, [cloudUser]);
 
+  const abortAndResetBackgroundJobs = useCallback(() => {
+    forYouJobIdRef.current += 1;
+    oracleJobIdRef.current += 1;
+    if (forYouJobControllerRef.current) {
+      try {
+        forYouJobControllerRef.current.abort();
+      } catch {
+        // ignore
+      }
+      forYouJobControllerRef.current = null;
+    }
+    forYouInFlightHashRef.current = null;
+    setForYouLivePool({
+      profileHash: "",
+      items: [],
+      source: "math",
+      fromCache: "",
+      generatedAt: null,
+      error: ""
+    });
+    setBackgroundJobs(createInitialBackgroundJobs());
+  }, []);
+
+  const allocateOracleJobId = useCallback(() => {
+    oracleJobIdRef.current += 1;
+    return oracleJobIdRef.current;
+  }, []);
+
   const dismissBackgroundJobNotice = useCallback((jobKey) => {
     setBackgroundJobs((prev) => transitionJobState(prev, jobKey, { dismissed: true }));
   }, []);
@@ -1693,13 +1724,14 @@ export function AppProvider({ children }) {
   );
 
   const clearSampleVault = useCallback(() => {
+    abortAndResetBackgroundJobs();
     const nextWatched = (watchedRef.current || []).filter((m) => !isSampleItem(m));
     const nextWatchlist = (watchlistRef.current || []).filter((m) => !isSampleItem(m));
     watchedRef.current = nextWatched;
     watchlistRef.current = nextWatchlist;
     setWatched(nextWatched);
     setWatchlist(nextWatchlist);
-  }, []);
+  }, [abortAndResetBackgroundJobs]);
 
   return (
     <AppContext.Provider
@@ -1774,6 +1806,8 @@ export function AppProvider({ children }) {
         forYouLivePool,
         setForYouLivePool,
         startForYouBackgroundJob,
+        allocateOracleJobId,
+        oracleJobIdRef,
         reportOracleJobProgress,
         dismissBackgroundJobNotice
       }}

@@ -49,7 +49,7 @@ export default function SearchModal({
   }, [isOpen, embeddingIndex]);
 
   const tasteMatchCtx = useMemo(
-    () => (embeddingIndex ? buildTasteMatchContext({ watched, watchlist, tasteRules, embeddingIndex }) : null),
+    () => buildTasteMatchContext({ watched, watchlist, tasteRules, embeddingIndex }),
     [watched, watchlist, tasteRules, embeddingIndex]
   );
   const [query, setQuery] = useState("");
@@ -59,6 +59,19 @@ export default function SearchModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const matchPredictionsById = useMemo(() => {
+    const map = new Map();
+    if (!tasteMatchCtx?.ready) return map;
+    for (const item of results) {
+      if (!item || item.inVault) continue;
+      const key = item.imdbID || item.tmdbId || item.Title;
+      if (!key || map.has(key)) continue;
+      const pred = predictMovieMatch({ movie: item, cachedContext: tasteMatchCtx });
+      if (pred.available) map.set(key, pred);
+    }
+    return map;
+  }, [results, tasteMatchCtx]);
 
   const inputRef = useRef(null);
   const rowRefs = useRef([]);
@@ -399,19 +412,17 @@ export default function SearchModal({
                             <span className="search-item-title">{movie.Title}</span>
                             {movie.inVault && movie.userRating != null ? (
                               <span className="search-badge-vault">★ {movie.userRating}/10</span>
-                            ) : tasteMatchCtx?.ready && Number(movie.tmdbId) > 0 && embeddingIndex?.idToIndex?.has(Number(movie.tmdbId)) ? (
-                              (() => {
-                                const pred = predictMovieMatch({ movie, cachedContext: tasteMatchCtx });
-                                return pred.available ? (
-                                  <span
-                                    className="text-[1.1rem] font-semibold text-[#46d369] bg-[#46d369]/10 border border-[#46d369]/25 px-[0.65rem] py-[0.15rem] rounded-[0.45rem] tabular-num shrink-0"
-                                    title={pred.summary}
-                                  >
-                                    {pred.matchPct}% match
-                                  </span>
-                                ) : null;
-                              })()
-                            ) : null}
+                            ) : (() => {
+                              const pred = matchPredictionsById.get(movie.imdbID || movie.tmdbId || movie.Title);
+                              return pred ? (
+                                <span
+                                  className="text-[1.1rem] font-semibold text-[#46d369] bg-[#46d369]/10 border border-[#46d369]/25 px-[0.65rem] py-[0.15rem] rounded-[0.45rem] tabular-num shrink-0"
+                                  title={pred.summary}
+                                >
+                                  {pred.matchPct}% match
+                                </span>
+                              ) : null;
+                            })()}
                             {!movie.inVault && movie.inWatchlist && (
                               <span className="search-badge-watchlist">Watchlist</span>
                             )}

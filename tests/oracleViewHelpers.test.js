@@ -375,3 +375,9 @@ test("rankWatchlistForTonight ranks unseen watchlist items by on-device taste ma
   assert.ok(ranked[0].matchPct > ranked[1].matchPct);
   assert.ok(ranked[0].predictedRating > 0);
 });
+
+
+test("formatActiveVibeNote gracefully falls back to MOOD_OPTIONS when moodOptions arg is non-array", () => {
+  const note = formatActiveVibeNote({ moodId: "dark-thriller", withGenres: ["Thriller"] }, "not-an-array");
+  assert.match(note, /Dark Thriller/);
+});

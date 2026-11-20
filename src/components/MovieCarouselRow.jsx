@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeftRight, ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
@@ -111,14 +111,19 @@ export default function MovieCarouselRow({
     scrollRef.current.scrollBy({ left: amount, behavior: "smooth" });
   }
 
+  const sectionRef = useCallback(
+    (node) => {
+      revealRef(node);
+      wheelScopeRef.current = node;
+    },
+    [revealRef, wheelScopeRef]
+  );
+
   if (!movies || !Array.isArray(movies) || movies.length === 0) return null;
 
   return (
     <section
-      ref={(node) => {
-        revealRef(node);
-        wheelScopeRef.current = node;
-      }}
+      ref={sectionRef}
       className={`carousel-section cv-reveal ${isRevealed ? "is-visible" : ""} ${
         isWheelEngaged ? "is-wheel-engaged" : ""
       }`}

@@ -85,7 +85,7 @@ function InlineMovieCard({ title, year, watched = [], watchlist = [] }) {
           { t: cleanTitle, ...(year ? { y: year } : {}) },
           { signal: controller.signal }
         );
-        if (data?.Response === "True") {
+        if (!controller.signal.aborted && data?.Response === "True") {
           inlineMovieCache.set(cacheKey, data);
           setMovieData(data);
         }
@@ -680,10 +680,10 @@ export default function AIChat({
         <div className="chat-messages" ref={chatContainerRef} aria-live="polite">
           {messages.map((msg, index) => {
             const detectedMovies =
-              msg.role === "model" ? parseMovieCardsFromText(msg.text) : [];
+              msg.role === "model" ? parseMovieCardsFromText(msg.text, 24) : [];
             const { referenceChips, recommendedCards } =
               detectedMovies.length > 0
-                ? partitionChatMovieCards(detectedMovies, watched, activeWatchlist)
+                ? partitionChatMovieCards(detectedMovies, watched, activeWatchlist, 8)
                 : { referenceChips: [], recommendedCards: [] };
 
             return (
@@ -706,10 +706,15 @@ export default function AIChat({
                     <div className="chat-ref-chips-bar" aria-label="Referenced films from your Vault">
                       <span className="chat-ref-chips-label">From your Vault:</span>
                       {referenceChips.map((ref, refIdx) => {
-                        const refId = ref.imdbID || (ref.tmdbId ? `tmdb_${ref.tmdbId}` : null);
+                        const refId =
+                          ref.imdbID || (ref.tmdbId ? `tmdb_${ref.tmdbId}` : ref.id || null);
                         const label = `${ref.title}${ref.userRating > 0 ? ` · ${Math.round(ref.userRating)}/10` : ""}`;
                         return refId ? (
-                          <Link key={`${ref.title}-${refIdx}`} to={`/movie/${refId}`} className="chat-ref-chip">
+                          <Link
+                            key={`${ref.title}-${refIdx}`}
+                            to={`/movie/${encodeURIComponent(refId)}`}
+                            className="chat-ref-chip"
+                          >
                             <Star size={11} fill="currentColor" aria-hidden="true" />
                             <span>{label}</span>
                           </Link>

@@ -163,31 +163,35 @@ export function buildCompanionFollowUpPrompts({
  * so chat replies render watched references as compact chips and reserve full poster
  * cards strictly for unseen recommendations.
  */
-export function partitionChatMovieCards(parsedCards = [], watched = [], watchlist = []) {
+export function partitionChatMovieCards(
+  parsedCards = [],
+  watched = [],
+  watchlist = [],
+  maxRecommended = DEFAULT_MAX_INLINE_CHAT_CARDS
+) {
   const referenceChips = [];
   const recommendedCards = [];
 
   for (const item of parsedCards || []) {
     if (!item || !item.title) continue;
-    const watchedMatch = findMatchingMovie(watched || [], {
+    const probe = {
+      ...item,
       title: item.title,
       Title: item.title,
       year: item.year
-    });
+    };
+    const watchedMatch = findMatchingMovie(watched || [], probe);
     if (watchedMatch) {
       referenceChips.push({
+        id: watchedMatch.id || null,
         title: watchedMatch.title || watchedMatch.Title || item.title,
         year: watchedMatch.year || watchedMatch.Year || item.year || "",
         imdbID: watchedMatch.imdbID || null,
         tmdbId: watchedMatch.tmdbId || null,
         userRating: Number(watchedMatch.userRating) || 0
       });
-    } else {
-      const watchlistMatch = findMatchingMovie(watchlist || [], {
-        title: item.title,
-        Title: item.title,
-        year: item.year
-      });
+    } else if (recommendedCards.length < maxRecommended) {
+      const watchlistMatch = findMatchingMovie(watchlist || [], probe);
       recommendedCards.push({
         ...item,
         inWatchlist: Boolean(watchlistMatch)

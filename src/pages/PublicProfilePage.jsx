@@ -55,6 +55,7 @@ export default function PublicProfilePage() {
 
   useEffect(() => {
     let active = true;
+    setRevealedSpoilers(new Set());
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     fetchPublicProfileByUsername(cleanHandle, cloudUser?.id || null).then((res) => {
       if (!active) return;
@@ -362,7 +363,9 @@ export default function PublicProfilePage() {
                     {note ? (
                       isSpoilerHidden ? (
                         <div className="community-spoiler-box">
-                          <p className="community-review-note community-spoiler-blur">{note}</p>
+                          <p className="community-review-note community-spoiler-blur" aria-hidden="true">
+                            {note}
+                          </p>
                           <button
                             type="button"
                             className="community-spoiler-btn"
