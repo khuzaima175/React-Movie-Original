@@ -1,6 +1,6 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 20, 2026 (`chore/public-launch-polish` · v5.3)  
+**Last Updated:** November 20, 2026 (`v5.4`)  
 **Status:** Production-ready · Verified by the offline service & API test suite (`npm test`) and production Vite build (`npm run build`).
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
@@ -260,6 +260,7 @@ npm test
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/appStorage.test.js`
+  - `tests/authService.test.js`
   - `tests/chatCardHelpers.test.js`
   - `tests/chatErrors.test.js`
   - `tests/compareService.test.js`
@@ -271,10 +272,12 @@ npm test
   - `tests/docsHygiene.test.js`
   - `tests/embeddingService.test.js`
   - `tests/embeddingStep3.test.js`
+  - `tests/embeddingWorkerClient.test.js`
   - `tests/evalHarness.test.js`
   - `tests/evalRanker.test.js`
   - `tests/exploreForYouCache.test.js`
   - `tests/exploreForYouService.test.js`
+  - `tests/exploreForYouStreaming.test.js`
   - `tests/exploreService.test.js`
   - `tests/feedbackLogging.test.js`
   - `tests/filmChatService.test.js`
@@ -314,7 +317,7 @@ npm test
 npm run build
 ```
 **What "healthy" looks like:**
-- Exits `0`, transforms **`2343 modules`**, writes minified assets into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- Exits `0`, transforms **`2351 modules`**, emits vendor-split JS chunks (`index-*.js` ~394 kB, plus lazy `vendor-supabase`, `vendor-genai`, and `embeddingWorker-*.js`) and route-scoped CSS into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
 - When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
 ### Check 3: Inspect the Active `.bin` Model Header & Exact Byte Count
@@ -367,6 +370,6 @@ Built-in safety gates in [scripts/colab_train_embeddings.py](./scripts/colab_tra
 4. **Offline / Quota Fallback Test:** Temporarily clear/invalidate Gemini credentials (or simulate quota) and click Refresh — verify CinemaVault seamlessly serves the **top `10`** mathematical ranker picks (`pipeline: "ranker-fallback"`) and falls back cleanly on free-text queries via `parseFreeTextMoodFallback`.
 
 ### Check 7: Optional Supabase Cloud Vault Sync Verification (When Configured)
-1. Ensure `.env.local` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, and verify both [supabase/migrations/20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql) and [supabase/migrations/20261120000000_explore_for_you_cache.sql](./supabase/migrations/20261120000000_explore_for_you_cache.sql) are applied on your Supabase project (`profiles`, `user_vault_items`, and `user_explore_picks` tables exist with RLS enabled and `anon` revoked).
+1. Ensure `.env.local` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, and verify [supabase/migrations/20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql), [supabase/migrations/20261120000000_explore_for_you_cache.sql](./supabase/migrations/20261120000000_explore_for_you_cache.sql), and [supabase/migrations/20261120120000_profile_prefs_and_for_you_cap.sql](./supabase/migrations/20261120120000_profile_prefs_and_for_you_cap.sql) are applied on your Supabase project (`profiles` with `taste_rules`, `user_vault_items`, and `user_explore_picks` up to 260 items exist with RLS enabled and `anon` revoked).
 2. In Supabase Dashboard → **Authentication → URL Configuration**, add your production domain and `http://localhost:3000` under **Redirect URLs** so magic-link OTP redirects work across environments.
 3. Click the `NavBar` utility menu → **Cloud Sync**, sign in via Email Magic Link, and verify signed-in status transitions to **Synced** with rows populated under your `auth.uid()` inside `public.user_vault_items`.

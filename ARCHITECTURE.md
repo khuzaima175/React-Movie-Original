@@ -1,4 +1,4 @@
-# 🏛️ CinemaVault: Technical Architecture & Mathematics Specification (v5.3)
+# 🏛️ CinemaVault: Technical Architecture & Mathematics Specification (v5.4)
 
 **CinemaVault** is an open-source, local-first cinema logging, analytics, research, and hybrid recommendation platform with optional opt-in Supabase cloud sync.
 
@@ -78,6 +78,7 @@ Rather than prompting an LLM to invent movie lists from scratch, CinemaVault sep
 21. [v5.1 Franchise Collection Guard & Steerable Taste Rules (`tasteRulesService.js`)](#21-v51-franchise-collection-guard--steerable-taste-rules-tasterulesservicejs)
 22. [v5.2 Research Hub: Rating Studio 2.0, Contextual Film Chat, Deep Explore Workbench (`/explore`), Rabbit Hole Discovery & Side-by-Side Film Comparison (`/compare`)](#22-v52-research-hub-rating-studio-20-contextual-film-chat-deep-explore-workbench-explore-rabbit-hole-discovery--side-by-side-film-comparison-compare)
 23. [v5.3 Public Launch Polish, Dual Flash-Lite Cascade, 250-Film Explore "Movies You'll Like", Opt-In Row Scroll, Editorial `<Select>` & Decluttered Film Oracle](#23-v53-public-launch-polish-dual-flash-lite-cascade-250-film-explore-movies-youll-like-opt-in-row-scroll-editorial-select--decluttered-film-oracle)
+24. [v5.4 Full Email Auth (`/auth`, `/account`), 3-Wave Progressive Explore Streaming, Web Worker ML & Bundle/Security Hardening](#24-v54-full-email-auth-auth-account-3-wave-progressive-explore-streaming-web-worker-ml--bundlesecurity-hardening)
 
 ---
 
@@ -1063,5 +1064,21 @@ CinemaVault operates **guest-first in `localStorage`** and enables multi-device 
 - **Dynamic GPU Motion, Broken Poster Flight Replacement & Reliability Fixes:**
   - Disabled legacy imperative `document.body` `posterFlight.js` ghost cloning (which stalled mid-viewport over loading/Metacritic cards and could leave `.netflix-modal-poster-wrap` stuck at `opacity: 0` under React 18 StrictMode) and replaced `<PosterArrival />` with a direct GPU Framer Motion entrance in `MovieDetails.jsx`.
   - Added reusable `ScrollRevealSection.jsx`, spring `layoutId` underline in `Tabs.jsx`, pause-aware Ken Burns ambient drift in `HeroBillboard.jsx`, GPU `scaleX`/`scaleY` Vault Insights bars, canonical `useDocumentTitle` on `ComparePage`/`MoviePage`/`PersonPage`, Discover unreleased-film ceiling (`primary_release_date.lte: todayIso`, `releaseGuardVersion: 2`) + bounded `3`-lane concurrency + single retry in `dashboardService.js`, and `storageEviction.js` (`STORAGE_PURGE_ORDER` sweeping prefixed `cinemavault_home_feeds_v2::*` cache keys).
+
+---
+
+## 24. v5.4 Full Email Auth (`/auth`, `/account`), 3-Wave Progressive Explore Streaming, Web Worker ML & Bundle/Security Hardening
+
+### 24.1 Full Email+Password & Magic-Link Auth + Cloud Profile Preferences ([`authService.js`](./src/services/authService.js), [`AuthPage.jsx`](./src/pages/AuthPage.jsx), [`AccountPage.jsx`](./src/pages/AccountPage.jsx), [`20261120120000_profile_prefs_and_for_you_cap.sql`](./supabase/migrations/20261120120000_profile_prefs_and_for_you_cap.sql))
+- **Guest-First Auth Studio:** Dedicated lazy-loaded `/auth` (`/login`, `/signup`) and `/account` routes supporting Email + Password sign-in/sign-up, Passwordless Magic Link, Forgot/Reset Password (`PASSWORD_RECOVERY` with safe cancel escape hatch), editable Display Name, and explicit **"Sign Out (Keep Local Copy)"** vs **"Sign Out & Clear Browser Data"** options. Pure guests never download `@supabase/supabase-js` on first load (`getSupabaseClientAsync()` + `hasStoredSupabaseSession()`).
+- **Bidirectional Profile & 250-Item Cache Sync:** Migration `20261120120000_profile_prefs_and_for_you_cap.sql` adds `profiles.taste_rules` (`jsonb <= 8`) and raises `user_explore_picks.items` check constraint from `120` to `260` (`MAX_CLOUD_CACHED_ITEMS = 250`). `mergeProfilePreferences` + `pullAndSyncProfilePreferences` sync `display_name`, `user_region`, `preferred_providers`, and `taste_rules` while respecting intentional local clears (`localPrefsUpdatedAt`) and monotonic `sessionEpochRef` guards against sign-out/sync races.
+
+### 24.2 3-Wave Progressive Explore `"Movies You'll Like"` & Off-Main-Thread ML Web Worker ([`exploreForYouService.js`](./src/services/exploreForYouService.js), [`exploreForYouCache.js`](./src/services/exploreForYouCache.js), [`embeddingWorker.js`](./src/workers/embeddingWorker.js), [`embeddingWorkerClient.js`](./src/services/embeddingWorkerClient.js))
+- **Instant Stale-While-Revalidate + 3-Wave Streaming:** `loadLatestLocalExploreForYouFallback` surfaces the newest non-expired local pool in ~50ms (filtered against current vault, watchlist, and Avoid taste rules) while fresh builds stream in 3 abort-safe waves: **Wave 1** (fast Discover page 1 + top 40 `CVEM v1` neighbors in parallel, no enrichment wall -> instant posters), **Wave 2** (TMDB page 2 + remaining 180 neighbors + top-120 deep metadata enrichment cap, saved as `isPreliminary: true`), and **Wave 3** (background Flash-Lite top-100 polish persisted to IndexedDB + Supabase).
+- **Web Worker CVEM Execution:** `embeddingWorker.js` decodes `item_embeddings_f16.bin` and computes `collabSimMap`, `repulsionMap`, `collabCatalogMax`, `collabUserVec` (passed to `buildContentSimMap` for full worker/main-thread parity), and `alignedNeighbors` off the main UI thread with automatic transparent fallback to `embeddingService.js`.
+
+### 24.3 Vite Vendor Chunking, Route-Scoped CSS & `vercel.json` Hardening ([`vite.config.js`](./vite.config.js), [`vercel.json`](./vercel.json), [`index.html`](./index.html), [`public/manifest.json`](./public/manifest.json))
+- Splits `vendor-react`, `vendor-motion`, `vendor-supabase`, `vendor-genai`, and `vendor-icons` via `manualChunks`, reducing the initial JS entry bundle from ~893 KB to ~394 KB uncompressed (zero >500 kB Vite chunk warnings) and scoping `oracle.css`, `explore.css`, `person.css`, and `auth.css` to their lazy routes.
+- Adds `image.tmdb.org` preconnect + PWA `manifest.json` in `index.html`, excludes `assets/` & `og-image.png` from the SPA rewrite in `vercel.json`, sets HTTP security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`), and uses revalidating cache headers (`max-age=86400, stale-while-revalidate=604800`) for unhashed `/models/*.bin`.
 
 ---

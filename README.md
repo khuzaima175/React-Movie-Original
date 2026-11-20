@@ -50,7 +50,7 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 | Import and export | Letterboxd and CinemaVault CSV import, Schema v2 JSON backup, and a diff preview before applying. |
 | Discovery & Explore For You | Discover rows with opt-in smooth wheel scrolling, a filterable `/explore` workbench, and **"Movies You'll Like"** (~250 unseen taste-matched picks powered by local ML embeddings + single-shot Flash-Lite curation, cached locally + optional Supabase RLS sync with weighted shuffle). |
 | Compare | Two to three films side by side, with shared cast, genres, and taste similarity. |
-| Sync | Optional Supabase sign-in with Postgres row-level security. |
+| Sync & Accounts | Optional `/auth` (Email + Password, Magic Link, Password Reset) and `/account` dashboard backed by Supabase Auth + Postgres row-level security, syncing ratings, watchlist, streaming preferences, taste rules, and your 250-film Explore For You cache while keeping Guest Mode 100% unlocked. |
 | Security | Serverless `/api/*` proxies keep API keys out of the browser bundle, bound prompt payloads, and support optional Upstash Redis daily caps. |
 
 ---
@@ -256,7 +256,7 @@ Check the "About these picks" panel in Oracle to see which pipeline produced the
 
 - **Guest vault:** stored in `localStorage` (about 5 MB per browser origin). This is comfortable for typical vaults of a few thousand films. Very large hydrated vaults can exceed the limit, and cloud sync is the intended path beyond that.
 - **TMDB detail cache:** stored in IndexedDB for 30 days.
-- **Explore "Movies You'll Like" cache:** stored locally in IndexedDB (`cinemavault_explore_for_you_v1`) for 7 days (up to 300 ranked picks per profile hash, LRU-capped at 5 snapshots) and optionally synced per signed-in user to Supabase `public.user_explore_picks` (capped at 120 picks; sample vaults stay strictly local).
+- **Explore "Movies You'll Like" cache:** stored locally in IndexedDB (`cinemavault_explore_for_you_v1`) for 7 days (up to 300 ranked picks per profile hash, LRU-capped at 5 snapshots, with instant stale-while-revalidate fallback + 3-wave progressive streaming) and optionally synced per signed-in user to Supabase `public.user_explore_picks` (up to 250 picks; sample vaults stay strictly local).
 - **Recommendation cache:** capped at 500 KB. The oldest entries are evicted first.
 - **Compare tray:** stored in `sessionStorage` (`cinemavault_compare_v1`).
 - **Quota recovery:** if the browser reports a storage quota error, derivative caches (including prefixed `cinemavault_home_feeds_v2::*` discover caches) are purged first in a deterministic order (`storageEviction.js`). Vault data and Taste Rules are kept.
@@ -361,7 +361,7 @@ These are the points most likely to cause problems on first run:
 - **Production rejects requests without a browser origin.** When deployed, requests with no `Origin` header and no `Sec-Fetch-Site: same-origin` (or `same-site`) get a 403. This means `curl` against a deployed copy will fail. Test with a browser, or call the proxies from the same site.
 - **`ALLOWED_ORIGIN` is optional.** Set it to a comma-separated list if you serve the app from a domain other than the default Vercel host.
 - **`gemini-4-argon` is blocked by default.** It returns 403 unless `ENABLE_ARGON` is set to `"true"` on the server.
-- **Supabase sync needs two things before it works:** the migrations in `supabase/migrations/` (`20261114000000_init_cinemavault_schema.sql` and `20261120000000_explore_for_you_cache.sql`) applied to your project, and email sign-in enabled in the Supabase Auth settings.
+- **Supabase sync needs two things before it works:** the migrations in `supabase/migrations/` (`20261114000000_init_cinemavault_schema.sql`, `20261120000000_explore_for_you_cache.sql`, and `20261120120000_profile_prefs_and_for_you_cap.sql`) applied to your project, and Email Auth / Redirect URLs configured in the Supabase Auth dashboard.
 
 ### 4. Run, test, and build
 

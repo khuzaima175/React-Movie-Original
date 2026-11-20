@@ -4,7 +4,7 @@
 
 **Objective:** Replace the "AI-demo" aesthetic (cyan glows, gradient pills, orb backgrounds, emoji chips, badge clutter) with a restrained, content-first, streaming-style frontend. Keep existing features, data structures, and services unchanged, consolidate secondary controls into accessible menus, and add portal-based hover previews and synchronized motion.
 
-> **Status (`main` / v5.3):** Sections 1–5 describe the v1.2 overhaul. Sections 6, 7, and 8 record later changes: the v4.x recommender upgrades, the v4.3–v5.2 feature set, and the v5.3 UX overhaul & Explore "Movies You'll Like" workbench. The current navigation is `Discover / Explore / Vault / Oracle`, which supersedes the initial `Home / My Vault / Recommendations` labels in Phase 3. Behavior and data-layer details live in [ARCHITECTURE.md](./ARCHITECTURE.md). Local model details live in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md). Verification commands are in the README.
+> **Status (`main` / v5.4):** Sections 1–5 describe the v1.2 overhaul. Sections 6–8 record later changes through v5.4 (recommender upgrades, Research Hub, Editorial UX Overhaul, `/auth` + `/account` editorial pages, and 3-wave progressive Explore `"Movies You'll Like"` streaming). The current navigation is `Discover / Explore / Vault / Oracle` plus an optional top-right `Sign In` / Account entry. Behavior and data-layer details live in [ARCHITECTURE.md](./ARCHITECTURE.md). Local model details live in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md). Verification commands are in the README.
 
 ---
 
@@ -563,6 +563,11 @@ These features build on the same neutral token system. Brass stays limited to st
 ### 8.5 Dynamic Motion & Movie Detail Poster Entrance ([ScrollRevealSection.jsx](./src/components/ScrollRevealSection.jsx), [Tabs.jsx](./src/components/ui/Tabs.jsx), [HeroBillboard.jsx](./src/components/HeroBillboard.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx))
 - **Movie Detail Poster Entrance:** Replaced the legacy imperative `document.body` `posterFlight.js` ghost clone (which could hang over loading/Metacritic cards and leave `.netflix-modal-poster-wrap` stuck at `opacity: 0` under React 18 StrictMode) with a direct GPU Framer Motion entrance on `.netflix-modal-poster-wrap`.
 - **Site-Wide Motion:** Added `ScrollRevealSection` (`viewport={{ once: true, amount: "some" }}`), spring `layoutId` tab underlines in `Tabs.jsx`, pause-aware Ken Burns ambient drift in `HeroBillboard.jsx`, tactile poster hover specular highlight, and GPU `scaleX`/`scaleY` Vault Insights bars — all honoring `prefers-reduced-motion`.
+
+### 8.6 v5.4 Editorial Auth & Account Studio ([AuthPage.jsx](./src/pages/AuthPage.jsx), [AccountPage.jsx](./src/pages/AccountPage.jsx), [NavBar.jsx](./src/components/NavBar.jsx))
+- **Routes:** `/auth`, `/login`, `/signup`, and `/account` (all lazy-loaded with route-scoped `src/styles/auth.css`).
+- **Guest-First UX:** Top-right NavBar shows a compact `Sign In` pill for guests (or avatar initial + sync status dot when signed in). `/auth` supports Email + Password sign-in/sign-up, Magic Link, Forgot/Reset Password (with cancel escape hatch), guest vault merge summary, and an explicit **"Continue as Guest"** button. `/account` provides Display Name editing, manual Sync Now, Change Password, and **"Sign Out (Keep Local Copy)"** vs **"Sign Out & Clear Browser Data"**.
+- **Progressive Explore Status:** `/explore?mode=for-you` renders instant stale-while-revalidate results or Wave 1 poster cards in ~1–3s while displaying a non-blocking progressive stage note (`"Expanding library…"`, `"Polishing top picks with AI…"`).
 
 ---
 
