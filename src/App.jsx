@@ -25,6 +25,7 @@ const VaultPage = lazy(() => import("./pages/VaultPage"));
 const AIPage = lazy(() => import("./pages/AIPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 const AccountPage = lazy(() => import("./pages/AccountPage"));
+const PublicProfilePage = lazy(() => import("./pages/PublicProfilePage"));
 import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
@@ -249,6 +250,7 @@ function AppContent() {
           <Route path="/login" element={<AuthPage defaultMode="signin" />} />
           <Route path="/signup" element={<AuthPage defaultMode="signup" />} />
           <Route path="/account" element={<AccountPage />} />
+          <Route path="/u/:username" element={<PublicProfilePage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </Suspense>

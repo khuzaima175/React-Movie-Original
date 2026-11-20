@@ -1,11 +1,15 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
+  AtSign,
   CheckCircle2,
   Cloud,
+  ExternalLink,
+  Globe,
   KeyRound,
   Loader2,
+  Lock,
   LogOut,
   RefreshCw,
   Trash2,
@@ -14,8 +18,17 @@ import {
 import { useApp } from "../context/AppContext";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { validateAuthForm, MIN_PASSWORD_LENGTH } from "../services/authService";
+import {
+  computeProfileTasteVector,
+  fetchMyCommunitySettings,
+  savePublicProfileSettings,
+  validateUsername
+} from "../services/communityService";
+import { getCanonicalMovieKey } from "../services/vaultSyncService";
+import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
 import { Button } from "../components/ui/Button";
 import "../styles/auth.css";
+import "../styles/community.css";
 
 function formatSyncTime(isoString) {
   if (!isoString) return "Not synced yet";
@@ -62,6 +75,111 @@ export default function AccountPage() {
   const [passwordMsg, setPasswordMsg] = useState({ type: "", text: "" });
 
   const [confirmClearSignOut, setConfirmClearSignOut] = useState(false);
+
+  // Opt-in Public Profile (Community Mode) state — defaults strictly private (OFF)
+  const [publicHandle, setPublicHandle] = useState("");
+  const [publicBio, setPublicBio] = useState("");
+  const [isPublicProfile, setIsPublicProfile] = useState(false);
+  const [favoriteMovieKeys, setFavoriteMovieKeys] = useState([]);
+  const [savedPublicUsername, setSavedPublicUsername] = useState("");
+  const [isLoadingCommunity, setIsLoadingCommunity] = useState(false);
+  const [isSavingCommunity, setIsSavingCommunity] = useState(false);
+  const [communityMsg, setCommunityMsg] = useState({ type: "", text: "" });
+
+  const topRatedCandidates = useMemo(() => {
+    return (Array.isArray(watched) ? watched : [])
+      .filter((m) => m && !m.isSample && Number(m.userRating) >= 7)
+      .sort((a, b) => Number(b.userRating || 0) - Number(a.userRating || 0))
+      .slice(0, 16)
+      .map((m) => ({
+        key: getCanonicalMovieKey(m),
+        title: m.title || m.Title || "Untitled",
+        rating: m.userRating
+      }))
+      .filter((item) => Boolean(item.key));
+  }, [watched]);
+
+  useEffect(() => {
+    if (!cloudUser?.id) return;
+    let active = true;
+    setIsLoadingCommunity(true);
+    fetchMyCommunitySettings(cloudUser.id)
+      .then((settings) => {
+        if (!active || !settings) return;
+        setPublicHandle(settings.username || "");
+        setPublicBio(settings.bio || "");
+        setIsPublicProfile(Boolean(settings.isPublic));
+        setFavoriteMovieKeys(settings.favoriteMovieKeys || []);
+        setSavedPublicUsername(settings.isPublic && settings.username ? settings.username : "");
+      })
+      .finally(() => {
+        if (active) setIsLoadingCommunity(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [cloudUser?.id]);
+
+  function toggleFavoriteMovieKey(key) {
+    setFavoriteMovieKeys((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      if (prev.length >= 4) return prev;
+      return [...prev, key];
+    });
+  }
+
+  async function handleSaveCommunityProfile(e) {
+    e.preventDefault();
+    setCommunityMsg({ type: "", text: "" });
+    if (isPublicProfile) {
+      const check = validateUsername(publicHandle);
+      if (!check.ok) {
+        setCommunityMsg({ type: "error", text: check.error });
+        return;
+      }
+    }
+
+    setIsSavingCommunity(true);
+    try {
+      let tasteVector = null;
+      if (isPublicProfile && watched.length >= 3) {
+        try {
+          const idx = await loadDefaultEmbeddingIndex();
+          if (idx) tasteVector = computeProfileTasteVector(watched, idx);
+        } catch {
+          // non-fatal: profile can still be saved without taste vector
+        }
+      }
+
+      const res = await savePublicProfileSettings({
+        userId: cloudUser.id,
+        displayName: displayName || cloudProfile?.displayName || "",
+        username: publicHandle,
+        bio: publicBio,
+        isPublic: isPublicProfile,
+        favoriteMovieKeys,
+        tasteVector
+      });
+
+      if (res.ok) {
+        setPublicHandle(res.profile.username);
+        setPublicBio(res.profile.bio);
+        setIsPublicProfile(res.profile.isPublic);
+        setFavoriteMovieKeys(res.profile.favoriteMovieKeys);
+        setSavedPublicUsername(res.profile.isPublic ? res.profile.username : "");
+        setCommunityMsg({
+          type: "success",
+          text: res.profile.isPublic
+            ? `Public profile live at /u/${res.profile.username}. Your real ratings and reviews are now visible.`
+            : "Your profile is now private. All ratings and reviews have been hidden from public pages."
+        });
+      } else {
+        setCommunityMsg({ type: "error", text: res.error || "Could not save public profile." });
+      }
+    } finally {
+      setIsSavingCommunity(false);
+    }
+  }
 
   useEffect(() => {
     if (hasCloudConfig) {
@@ -310,6 +428,126 @@ export default function AccountPage() {
                 className="self-start px-[1.8rem] py-[0.95rem] text-[1.35rem]"
               >
                 {isSavingPassword ? "Updating..." : "Update Password"}
+              </Button>
+            </form>
+          </section>
+
+          <section className="account-card is-full" aria-label="Public profile community settings">
+            <div className="flex flex-wrap items-center justify-between gap-[1rem]">
+              <h2 className="account-card-title flex items-center gap-[0.8rem]">
+                {isPublicProfile ? (
+                  <Globe size={18} className="text-emerald-400" aria-hidden="true" />
+                ) : (
+                  <Lock size={18} className="text-[#9e9e99]" aria-hidden="true" />
+                )}
+                Public Profile (Community Mode)
+              </h2>
+              {savedPublicUsername && (
+                <Link
+                  to={`/u/${savedPublicUsername}`}
+                  className="inline-flex items-center gap-[0.5rem] text-[1.3rem] font-semibold text-emerald-300 hover:text-emerald-200 no-underline"
+                >
+                  <span>View /u/{savedPublicUsername}</span>
+                  <ExternalLink size={14} aria-hidden="true" />
+                </Link>
+              )}
+            </div>
+
+            <p className="m-0 text-[1.35rem] text-[#9e9e99] leading-[1.55]">
+              Private by default. Enable Community Mode to get a shareable <code>/u/your_handle</code> profile, show your ratings &amp; written reviews on film pages, and unlock 64-D Taste Twin compatibility with friends. Your email address is never shared.
+            </p>
+
+            {communityMsg.text && (
+              <div className={`auth-alert ${communityMsg.type === "error" ? "is-error" : "is-success"}`}>
+                {communityMsg.type === "error" ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                <span>{communityMsg.text}</span>
+              </div>
+            )}
+
+            <form className="auth-form" onSubmit={handleSaveCommunityProfile}>
+              <label className="flex items-center gap-[1rem] cursor-pointer text-[1.4rem] text-[#f4f4f2] font-medium">
+                <input
+                  type="checkbox"
+                  checked={isPublicProfile}
+                  onChange={(e) => setIsPublicProfile(e.target.checked)}
+                  disabled={isLoadingCommunity || isSavingCommunity}
+                  className="w-[1.8rem] h-[1.8rem] accent-emerald-500 cursor-pointer"
+                />
+                <span>Make my ratings, reviews &amp; Top 4 showcase public</span>
+              </label>
+
+              <div className="auth-field">
+                <label htmlFor="account-public-handle" className="auth-label">
+                  Public Handle
+                </label>
+                <div className="auth-input-wrap">
+                  <AtSign size={16} className="auth-input-icon" aria-hidden="true" />
+                  <input
+                    id="account-public-handle"
+                    type="text"
+                    className="auth-input"
+                    value={publicHandle}
+                    onChange={(e) => setPublicHandle(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                    placeholder="e.g. cinephile_99"
+                    maxLength={24}
+                    disabled={isLoadingCommunity || isSavingCommunity}
+                  />
+                </div>
+              </div>
+
+              <div className="auth-field">
+                <label htmlFor="account-public-bio" className="auth-label">
+                  Short Bio ({publicBio.length}/240)
+                </label>
+                <textarea
+                  id="account-public-bio"
+                  rows={2}
+                  maxLength={240}
+                  value={publicBio}
+                  onChange={(e) => setPublicBio(e.target.value)}
+                  placeholder="Neo-noir, sci-fi worldbuilding, and late-night thrillers..."
+                  disabled={isLoadingCommunity || isSavingCommunity}
+                  className="auth-input pl-[1.4rem] py-[1rem] resize-none"
+                />
+              </div>
+
+              {topRatedCandidates.length > 0 && (
+                <div className="auth-field">
+                  <span className="auth-label">
+                    Top 4 Showcase ({favoriteMovieKeys.length}/4 selected)
+                  </span>
+                  <div className="account-fav-picker-grid">
+                    {topRatedCandidates.map((item) => {
+                      const selected = favoriteMovieKeys.includes(item.key);
+                      const disabled = !selected && favoriteMovieKeys.length >= 4;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          disabled={disabled || isSavingCommunity}
+                          className={`account-fav-chip ${selected ? "is-selected" : ""}`}
+                          onClick={() => toggleFavoriteMovieKey(item.key)}
+                        >
+                          <span>{item.title}</span>
+                          <span className="opacity-70 tabular-num">{item.rating}/10</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                variant={isPublicProfile ? "accent" : "secondary"}
+                disabled={isLoadingCommunity || isSavingCommunity}
+                className="self-start px-[1.8rem] py-[0.95rem] text-[1.35rem]"
+              >
+                {isSavingCommunity
+                  ? "Saving..."
+                  : isPublicProfile
+                    ? "Save & Publish Profile"
+                    : "Save Privacy Settings"}
               </Button>
             </form>
           </section>
