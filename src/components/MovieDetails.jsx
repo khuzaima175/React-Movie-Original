@@ -56,6 +56,7 @@ import {
   buildFilmChatRoute,
   saveFilmFocusCache
 } from "../services/filmChatService";
+import MovieCommunitySection from "./MovieCommunitySection";
 import {
   ArrowLeft,
   ChevronRight,
@@ -1514,6 +1515,12 @@ export default function MovieDetails({
           </div>
 
           <CollectionTimeline timeline={collectionTimeline} loading={collectionLoading} />
+
+          <MovieCommunitySection
+            tmdbId={movie.tmdbId}
+            imdbID={movie.imdbID}
+            title={movie.title}
+          />
 
           <SimilarFilmsStrip
             films={similarFilms}

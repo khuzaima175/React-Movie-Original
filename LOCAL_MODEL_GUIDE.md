@@ -1,6 +1,6 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 20, 2026 (`v5.4`)  
+**Last Updated:** November 20, 2026 (`v5.5`)  
 **Status:** Production-ready · Verified by the offline service & API test suite (`npm test`) and production Vite build (`npm run build`).
 
 If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.

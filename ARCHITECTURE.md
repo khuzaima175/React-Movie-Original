@@ -1,4 +1,4 @@
-# 🏛️ CinemaVault: Technical Architecture & Mathematics Specification (v5.4)
+# 🏛️ CinemaVault: Technical Architecture & Mathematics Specification (v5.5)
 
 **CinemaVault** is an open-source, local-first cinema logging, analytics, research, and hybrid recommendation platform with optional opt-in Supabase cloud sync.
 
@@ -79,6 +79,7 @@ Rather than prompting an LLM to invent movie lists from scratch, CinemaVault sep
 22. [v5.2 Research Hub: Rating Studio 2.0, Contextual Film Chat, Deep Explore Workbench (`/explore`), Rabbit Hole Discovery & Side-by-Side Film Comparison (`/compare`)](#22-v52-research-hub-rating-studio-20-contextual-film-chat-deep-explore-workbench-explore-rabbit-hole-discovery--side-by-side-film-comparison-compare)
 23. [v5.3 Public Launch Polish, Dual Flash-Lite Cascade, 250-Film Explore "Movies You'll Like", Opt-In Row Scroll, Editorial `<Select>` & Decluttered Film Oracle](#23-v53-public-launch-polish-dual-flash-lite-cascade-250-film-explore-movies-youll-like-opt-in-row-scroll-editorial-select--decluttered-film-oracle)
 24. [v5.4 Full Email Auth (`/auth`, `/account`), 3-Wave Progressive Explore Streaming, Web Worker ML & Bundle/Security Hardening](#24-v54-full-email-auth-auth-account-3-wave-progressive-explore-streaming-web-worker-ml--bundlesecurity-hardening)
+25. [v5.5 Universal Taste Match, Flagship Film Oracle Concierge, Background Curation & Opt-In Community Layer](#25-v55-universal-taste-match-flagship-film-oracle-concierge-background-curation--opt-in-community-layer)
 
 ---
 
@@ -1080,5 +1081,26 @@ CinemaVault operates **guest-first in `localStorage`** and enables multi-device 
 ### 24.3 Vite Vendor Chunking, Route-Scoped CSS & `vercel.json` Hardening ([`vite.config.js`](./vite.config.js), [`vercel.json`](./vercel.json), [`index.html`](./index.html), [`public/manifest.json`](./public/manifest.json))
 - Splits `vendor-react`, `vendor-motion`, `vendor-supabase`, `vendor-genai`, and `vendor-icons` via `manualChunks`, reducing the initial JS entry bundle from ~893 KB to ~394 KB uncompressed (zero >500 kB Vite chunk warnings) and scoping `oracle.css`, `explore.css`, `person.css`, and `auth.css` to their lazy routes.
 - Adds `image.tmdb.org` preconnect + PWA `manifest.json` in `index.html`, excludes `assets/` & `og-image.png` from the SPA rewrite in `vercel.json`, sets HTTP security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`), and uses revalidating cache headers (`max-age=86400, stale-while-revalidate=604800`) for unhashed `/models/*.bin`.
+
+---
+
+## 25. v5.5 Universal Taste Match, Flagship Film Oracle Concierge, Background Curation & Opt-In Community Layer
+
+### 25.1 Centered Film Companion Chat & Vault Card Partitioning ([`chatCardHelpers.js`](./src/services/chatCardHelpers.js), [`AIChat.jsx`](./src/components/AIChat.jsx), [`oracle.css`](./src/styles/oracle.css))
+- Caps `.ai-chat-wrapper` cleanly at `max-width: 92rem` (`margin-inline: auto`) to eliminate wide-monitor horizontal void.
+- `partitionChatMovieCards` separates already-watched Vault references into compact inline chips (`From your Vault: Inception · 9/10`) while reserving full poster recommendation cards strictly for unseen suggestions.
+
+### 25.2 Universal On-Device `"Chance You'll Like"` Predictor & Real Personalized Discover Row ([`tasteMatchService.js`](./src/services/tasteMatchService.js), [`dashboardService.js`](./src/services/dashboardService.js), [`MovieDetails.jsx`](./src/components/MovieDetails.jsx), [`SearchModal.jsx`](./src/components/SearchModal.jsx), [`DashboardPage.jsx`](./src/pages/DashboardPage.jsx))
+- `predictMovieMatch` runs in `< 5ms` on-device (`$0.00` API cost) combining `CVEM v1` 64-D persona + ridge alignment, quadratic disliked-film repulsion, taste rules, and metadata fallback for unindexed recent releases, calibrating a personal `Est. X.X/10` score onto the user's own rating distribution (`calibratePredictedRating`).
+- Surfaced as a compact **"For You"** score tile on Movie Detail pages (with Match `%`, `Est. X.X/10`, and anchor summary) and as instant Match `%` pills on indexed unseen Search results.
+- Discover's `"Picked For Your Taste"` row (`buildPersonalizedHomeRow`) directly mirrors the user's real `CVEM v1` `"Movies You'll Like"` pool with Match `%` badges and a `"See all →"` `/explore?mode=for-you` link.
+
+### 25.3 Non-Blocking Background Curation & Flagship Film Oracle Tonight's Concierge ([`backgroundJobService.js`](./src/services/backgroundJobService.js), [`BackgroundJobBanner.jsx`](./src/components/BackgroundJobBanner.jsx), [`OracleTopPickSpotlight.jsx`](./src/components/OracleTopPickSpotlight.jsx), [`oracleViewHelpers.js`](./src/services/oracleViewHelpers.js), [`MovieRecommendations.jsx`](./src/components/MovieRecommendations.jsx))
+- `AppContext` owns persistent background job state (`startForYouBackgroundJob`, `reportOracleJobProgress`, `forYouLivePool`), keeping Explore `"Movies You'll Like"` builds alive across route changes and surfacing a non-blocking corner status pill + clickable `"View →"` completion toast.
+- Overhauls Film Oracle into **Tonight's Concierge** (keeping the 4-tab `Discover · Explore · Vault · Oracle` IA): 4 emoji-free Tonight Starter Cards (`ORACLE_TONIGHT_PRESETS`), an instant `$0.00` on-device **"Pick From My Watchlist"** ranker (`rankWatchlistForTonight`), full-bleed **`#1 Top Pick Tonight`** Spotlight hero (`OracleTopPickSpotlight.jsx`), and Personal/BYOK `gemini-4-hydrogen` (`thinkingLevel: "HIGH"`) priority while keeping Public shared quota on Dual Flash-Lite.
+
+### 25.4 Privacy-First Opt-In Community Layer & 64-D Taste Twin % ([`communityService.js`](./src/services/communityService.js), [`PublicProfilePage.jsx`](./src/pages/PublicProfilePage.jsx), [`MovieCommunitySection.jsx`](./src/components/MovieCommunitySection.jsx), [`20261120180000_community_profiles_and_reviews.sql`](./supabase/migrations/20261120180000_community_profiles_and_reviews.sql), [`20261120183000_community_sync_spoiler_path.sql`](./supabase/migrations/20261120183000_community_sync_spoiler_path.sql))
+- Adds opt-in `username`, `bio`, `is_public` (default `false`), `favorite_movie_keys`, and 64-D `taste_vector` to private `public.profiles`, synchronized exclusively via non-exposed `cv_internal` `security definer` triggers into RLS-protected read-only `public.public_profiles` and `public.community_ratings` (`is_visible = true` RLS — toggling `is_public = false` hides all public rows instantaneously; `auth.users.email` and `isSample` items are never published), plus `public.user_follows`.
+- Lazy `/u/:username` profiles render Top 4 Showcase, rating distribution histogram, Follow/Unfollow, **64-D Taste Twin %** (`computeTasteTwinCompatibility`), *"Films They Loved You Haven't Seen"*, and spoiler-blurred Watch Diary reviews; `MovieCommunitySection` displays live CinemaVault Community averages and reviews on Movie Detail pages.
 
 ---

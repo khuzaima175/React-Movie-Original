@@ -4,7 +4,7 @@
 
 **Objective:** Replace the "AI-demo" aesthetic (cyan glows, gradient pills, orb backgrounds, emoji chips, badge clutter) with a restrained, content-first, streaming-style frontend. Keep existing features, data structures, and services unchanged, consolidate secondary controls into accessible menus, and add portal-based hover previews and synchronized motion.
 
-> **Status (`main` / v5.4):** Sections 1–5 describe the v1.2 overhaul. Sections 6–8 record later changes through v5.4 (recommender upgrades, Research Hub, Editorial UX Overhaul, `/auth` + `/account` editorial pages, and 3-wave progressive Explore `"Movies You'll Like"` streaming). The current navigation is `Discover / Explore / Vault / Oracle` plus an optional top-right `Sign In` / Account entry. Behavior and data-layer details live in [ARCHITECTURE.md](./ARCHITECTURE.md). Local model details live in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md). Verification commands are in the README.
+> **Status (`main` / v5.5):** Sections 1–5 describe the v1.2 overhaul. Sections 6–8 record later changes through v5.5 (recommender upgrades, Research Hub, Editorial UX Overhaul, `/auth` + `/account` editorial pages, 3-wave progressive Explore `"Movies You'll Like"`, Universal Taste Match, Flagship Film Oracle Tonight's Concierge, Background Curation, and opt-in Community Profiles `/u/:username`). The current navigation is `Discover / Explore / Vault / Oracle` plus an optional top-right `Sign In` / Account entry. Behavior and data-layer details live in [ARCHITECTURE.md](./ARCHITECTURE.md). Local model details live in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md). Verification commands are in the README.
 
 ---
 
@@ -568,6 +568,12 @@ These features build on the same neutral token system. Brass stays limited to st
 - **Routes:** `/auth`, `/login`, `/signup`, and `/account` (all lazy-loaded with route-scoped `src/styles/auth.css`).
 - **Guest-First UX:** Top-right NavBar shows a compact `Sign In` pill for guests (or avatar initial + sync status dot when signed in). `/auth` supports Email + Password sign-in/sign-up, Magic Link, Forgot/Reset Password (with cancel escape hatch), guest vault merge summary, and an explicit **"Continue as Guest"** button. `/account` provides Display Name editing, manual Sync Now, Change Password, and **"Sign Out (Keep Local Copy)"** vs **"Sign Out & Clear Browser Data"**.
 - **Progressive Explore Status:** `/explore?mode=for-you` renders instant stale-while-revalidate results or Wave 1 poster cards in ~1–3s while displaying a non-blocking progressive stage note (`"Expanding library…"`, `"Polishing top picks with AI…"`).
+
+### 8.7 v5.5 Taste Match, Film Oracle Tonight's Concierge, Background Roaming & Community Profiles
+- **Film Companion Layout:** Centered `92rem` chat container; watched Vault references render as compact inline chips while unseen suggestions render as actionable poster cards.
+- **Universal `"For You"` Match:** Compact Match `%` + calibrated `Est. X.X/10` tile on Movie Detail pages and Match `%` pills on indexed unseen Search results; Discover's `"Picked For Your Taste"` row mirrors the user's real `"Movies You'll Like"` pool.
+- **Flagship Film Oracle Concierge:** 4 Tonight Starter Cards (including an instant `$0.00` Watchlist Tonight ranker), full-bleed `#1 Top Pick Tonight` Spotlight hero, and non-blocking corner job banner + `"View →"` completion toast so users can freely browse the site while curation finishes.
+- **Opt-In Community Mode:** Private-by-default toggle in `/account`, lazy `/u/:username` profile page with route-scoped `community.css` (Top 4 Showcase, 64-D Taste Twin %, Unseen Favorites, Rating Histogram, Spoiler-Safe Watch Diary), and CinemaVault Community ratings/reviews on Movie Detail pages.
 
 ---
 
