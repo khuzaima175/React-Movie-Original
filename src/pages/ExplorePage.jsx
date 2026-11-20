@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   SlidersHorizontal,
   X,
@@ -10,11 +11,14 @@ import {
   ChevronDown,
   ChevronUp,
   Film,
-  Tv
+  Tv,
+  Shuffle,
+  RefreshCw
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import MovieCard from "../components/MovieCard";
 import { Button } from "../components/ui";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { fetchTmdbJson, hasTmdbBackend } from "../services/apiTransport";
 import {
   POPULAR_WATCH_PROVIDERS,
@@ -28,6 +32,7 @@ import {
   DECADE_PRESETS,
   RUNTIME_PRESETS,
   EXPLORE_SORT_OPTIONS,
+  EXPLORE_FOR_YOU_SORT_OPTIONS,
   LANGUAGE_OPTIONS,
   COUNTRY_OPTIONS,
   parseExploreSearchParams,
@@ -38,6 +43,17 @@ import {
   deriveExploreViewState,
   mergeYearDraftIntoFilters
 } from "../services/exploreService";
+import {
+  EXPLORE_FOR_YOU_MIN_RATED,
+  buildExploreForYouProfileHash,
+  generateExploreForYouPool,
+  weightedShuffleForYou,
+  filterForYouCatalog
+} from "../services/exploreForYouService";
+import {
+  loadExploreForYouCache,
+  saveExploreForYouCache
+} from "../services/exploreForYouCache";
 
 const VOTE_FLOOR_OPTIONS = [
   { value: 150, label: "Popular (150+ votes)" },
@@ -52,14 +68,20 @@ function serializeFilterSignature(filters, defaultRegion) {
   return sp.toString();
 }
 
-export default function ExplorePage({ onQuickRate }) {
+export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
+  useDocumentTitle("Explore");
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     watched = [],
     watchlist = [],
     userRegion = "GLOBAL",
-    userWatchProviders = []
+    userWatchProviders = [],
+    tasteRules = [],
+    aiFeedbackLog = [],
+    cloudUser = null,
+    hasSampleData = false,
+    loadSampleVault
   } = useApp();
 
   const defaultRegion = userRegion && userRegion !== "GLOBAL" ? userRegion : "US";
@@ -96,6 +118,26 @@ export default function ExplorePage({ onQuickRate }) {
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [showExcludeGenres, setShowExcludeGenres] = useState(() => filters.withoutGenres.length > 0);
 
+  // Personalized Explore "For You" 100-film pool state
+  const isForYouMode = filters.mode === "for-you";
+  const [forYouState, setForYouState] = useState({
+    profileHash: null,
+    items: [],
+    source: null,
+    fromCache: null,
+    generatedAt: 0
+  });
+  const [isForYouLoading, setIsForYouLoading] = useState(false);
+  const [forYouError, setForYouError] = useState("");
+  const [forYouRefreshNonce, setForYouRefreshNonce] = useState(0);
+  const [shuffleSeed, setShuffleSeed] = useState(() => Math.floor(Date.now() % 100000));
+  const forYouSeqRef = useRef(0);
+
+  const forYouProfileHash = useMemo(
+    () => buildExploreForYouProfileHash({ watched, watchlist, tasteRules, userRegion }),
+    [watched, watchlist, tasteRules, userRegion]
+  );
+
   // Local controlled inputs for debounced year typing
   const [yearFromDraft, setYearFromDraft] = useState(filters.yearFrom);
   const [yearToDraft, setYearToDraft] = useState(filters.yearTo);
@@ -130,10 +172,6 @@ export default function ExplorePage({ onQuickRate }) {
       setShowExcludeGenres(true);
     }
   }, [filters.withoutGenres.length]);
-
-  useEffect(() => {
-    document.title = "Explore Catalog | CinemaVault";
-  }, []);
 
   // Dismiss autocomplete popovers cleanly on outside click across desktop/mobile mounts
   useEffect(() => {
@@ -209,9 +247,27 @@ export default function ExplorePage({ onQuickRate }) {
     setKeywordQuery("");
     setKeywordSuggestions([]);
     setIsKeywordMenuOpen(false);
+    const currentMode = filtersRef.current.mode === "for-you" ? "for-you" : "catalog";
     setSearchParams(
-      buildExploreSearchParams({ ...DEFAULT_EXPLORE_FILTERS, region: defaultRegion }, { defaultRegion })
+      buildExploreSearchParams(
+        {
+          ...DEFAULT_EXPLORE_FILTERS,
+          mode: currentMode,
+          sortBy: currentMode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy,
+          region: defaultRegion
+        },
+        { defaultRegion }
+      )
     );
+  }
+
+  function handleSwitchMode(nextMode) {
+    if (nextMode === filters.mode) return;
+    updateFilters({
+      mode: nextMode,
+      sortBy: nextMode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy,
+      ...(nextMode === "for-you" ? { minImdb: 0, minVotes: 0 } : { minImdb: DEFAULT_EXPLORE_FILTERS.minImdb, minVotes: DEFAULT_EXPLORE_FILTERS.minVotes })
+    });
   }
 
   function applyYearDrafts(nextFrom, nextTo) {
@@ -264,8 +320,9 @@ export default function ExplorePage({ onQuickRate }) {
     return resolved;
   }, [userWatchProviders]);
 
-  // Fetch /3/discover/movie with request-sequence & AbortController protection
+  // Fetch /3/discover/movie with request-sequence & AbortController protection (Catalog mode only)
   useEffect(() => {
+    if (isForYouMode) return undefined;
     const seq = ++requestSeqRef.current;
     const controller = new AbortController();
 
@@ -332,7 +389,94 @@ export default function ExplorePage({ onQuickRate }) {
       });
 
     return () => controller.abort();
-  }, [filters, filterSignature, retryNonce]);
+  }, [filters, filterSignature, retryNonce, isForYouMode]);
+
+  // Load or generate cached ~100-film personalized "Movies You'll Like" pool
+  useEffect(() => {
+    if (!isForYouMode) return undefined;
+    if (watched.length < EXPLORE_FOR_YOU_MIN_RATED) {
+      setIsForYouLoading(false);
+      setForYouError("");
+      return undefined;
+    }
+
+    const seq = ++forYouSeqRef.current;
+    let cancelled = false;
+    const forceRefresh = forYouRefreshNonce > 0;
+
+    async function loadOrBuildForYou() {
+      setForYouError("");
+      if (!forceRefresh && forYouState.profileHash === forYouProfileHash && forYouState.items.length > 0) {
+        setIsForYouLoading(false);
+        return;
+      }
+
+      setIsForYouLoading(true);
+      try {
+        if (!forceRefresh) {
+          const cached = await loadExploreForYouCache({
+            profileHash: forYouProfileHash,
+            userId: cloudUser?.id || null,
+            hasSampleData
+          });
+          if (!cancelled && forYouSeqRef.current === seq && cached?.items?.length > 0) {
+            setForYouState({
+              profileHash: forYouProfileHash,
+              items: cached.items,
+              source: cached.source,
+              fromCache: cached.from,
+              generatedAt: cached.generatedAt
+            });
+            setIsForYouLoading(false);
+            return;
+          }
+        }
+
+        const result = await generateExploreForYouPool({
+          watched,
+          watchlist,
+          tasteRules,
+          feedbackLog: aiFeedbackLog,
+          userRegion,
+          userWatchProviders
+        });
+
+        if (cancelled || forYouSeqRef.current !== seq) return;
+
+        setForYouState({
+          profileHash: result.profileHash,
+          items: result.items,
+          source: result.source,
+          fromCache: "fresh",
+          generatedAt: result.generatedAt
+        });
+
+        saveExploreForYouCache({
+          profileHash: result.profileHash,
+          items: result.items,
+          source: result.source,
+          modelUsed: result.modelUsed,
+          generatedAt: result.generatedAt,
+          userId: cloudUser?.id || null,
+          hasSampleData
+        }).catch(() => {});
+      } catch (err) {
+        if (!cancelled && forYouSeqRef.current === seq) {
+          setForYouError("Could not build personalized Explore picks right now. Try refreshing.");
+        }
+      } finally {
+        if (!cancelled && forYouSeqRef.current === seq) {
+          setIsForYouLoading(false);
+        }
+      }
+    }
+
+    loadOrBuildForYou();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isForYouMode, forYouProfileHash, watched.length, cloudUser?.id, hasSampleData, forYouRefreshNonce]);
 
   // Debounced Person search autocomplete
   useEffect(() => {
@@ -406,6 +550,16 @@ export default function ExplorePage({ onQuickRate }) {
     };
   }, [keywordQuery]);
 
+  const forYouShuffledPool = useMemo(
+    () => (isForYouMode ? weightedShuffleForYou(forYouState.items, shuffleSeed) : []),
+    [isForYouMode, forYouState.items, shuffleSeed]
+  );
+
+  const forYouFilteredResults = useMemo(
+    () => (isForYouMode ? filterForYouCatalog(forYouShuffledPool, filters, watched, watchlist) : []),
+    [isForYouMode, forYouShuffledPool, filters, watched, watchlist]
+  );
+
   const filteredResults = useMemo(
     () =>
       filterExploreResults(rawPagesState.items, watched, watchlist, {
@@ -414,7 +568,7 @@ export default function ExplorePage({ onQuickRate }) {
     [rawPagesState.items, watched, watchlist, filters.hideWatched]
   );
 
-  const viewState = useMemo(
+  const catalogViewState = useMemo(
     () =>
       deriveExploreViewState({
         rawPagesState,
@@ -429,8 +583,25 @@ export default function ExplorePage({ onQuickRate }) {
     [rawPagesState, filterSignature, filteredResults, isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page]
   );
 
+  const needsForYouCalibration = isForYouMode && watched.length < EXPLORE_FOR_YOU_MIN_RATED;
+  const viewState = isForYouMode
+    ? {
+        hasFreshData: !isForYouLoading && forYouState.items.length > 0,
+        visibleItems: needsForYouCalibration ? [] : forYouFilteredResults,
+        displayTotalResults: needsForYouCalibration ? 0 : forYouFilteredResults.length,
+        displayTotalPages: 1,
+        hiddenWatchedCount: 0,
+        shouldAutoAdvance: false,
+        showSkeleton: !needsForYouCalibration && !forYouError && isForYouLoading && forYouFilteredResults.length === 0,
+        showEmptyState: !needsForYouCalibration && !forYouError && !isForYouLoading && forYouFilteredResults.length === 0,
+        showGrid: !needsForYouCalibration && forYouFilteredResults.length > 0
+      }
+    : catalogViewState;
+
+  const activeErrorMsg = isForYouMode ? forYouError : errorMsg;
+  const activeSortOptions = isForYouMode ? EXPLORE_FOR_YOU_SORT_OPTIONS : EXPLORE_SORT_OPTIONS;
   const activeChips = useMemo(() => getActiveFilterChips(filters), [filters]);
-  const hasMorePages = filters.page < viewState.displayTotalPages;
+  const hasMorePages = !isForYouMode && filters.page < viewState.displayTotalPages;
 
   // Auto-advance once if hideWatched hides everything on page 1 cleanly
   useEffect(() => {
@@ -950,19 +1121,92 @@ export default function ExplorePage({ onQuickRate }) {
         <section className="explore-main" aria-label="Explore Results">
           <header className="explore-header">
             <div className="explore-header-copy">
-              <div className="explore-kicker">Precision Catalog Workbench</div>
-              <h1 className="explore-title">Explore Films</h1>
+              <div className="explore-kicker">
+                {isForYouMode ? "Taste-Matched Personal Catalog" : "Precision Catalog Workbench"}
+              </div>
+              <h1 className="explore-title">
+                {isForYouMode ? "Movies You'll Like" : "Explore Films"}
+              </h1>
               <p className="explore-subtitle tabular-num">
-                {!viewState.hasFreshData && isLoading
-                  ? "Querying TMDB catalog…"
-                  : `${viewState.displayTotalResults.toLocaleString()} matching ${
-                      viewState.displayTotalResults === 1 ? "film" : "films"
-                    }`}
+                {isForYouMode
+                  ? needsForYouCalibration
+                    ? `Rate at least ${EXPLORE_FOR_YOU_MIN_RATED} films to unlock your personalized catalog`
+                    : isForYouLoading
+                      ? "Curating personalized matches from your Taste DNA…"
+                      : `${viewState.displayTotalResults.toLocaleString()} personalized ${
+                          viewState.displayTotalResults === 1 ? "film" : "films"
+                        } ready to filter`
+                  : !viewState.hasFreshData && isLoading
+                    ? "Querying TMDB catalog…"
+                    : `${viewState.displayTotalResults.toLocaleString()} matching ${
+                        viewState.displayTotalResults === 1 ? "film" : "films"
+                      }`}
                 {viewState.hiddenWatchedCount > 0 && ` · ${viewState.hiddenWatchedCount} watched hidden`}
               </p>
             </div>
 
             <div className="explore-header-actions">
+              <div className="explore-mode-switch" role="tablist" aria-label="Explore catalog mode">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!isForYouMode}
+                  className={`explore-mode-btn ${!isForYouMode ? "is-active" : ""}`}
+                  onClick={() => handleSwitchMode("catalog")}
+                >
+                  {!isForYouMode && (
+                    <motion.span
+                      layoutId="explore-mode-pill"
+                      className="explore-mode-pill-bg"
+                      transition={{ type: "spring", stiffness: 460, damping: 34 }}
+                    />
+                  )}
+                  <span className="explore-mode-label">All Catalog</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isForYouMode}
+                  className={`explore-mode-btn ${isForYouMode ? "is-active" : ""}`}
+                  onClick={() => handleSwitchMode("for-you")}
+                >
+                  {isForYouMode && (
+                    <motion.span
+                      layoutId="explore-mode-pill"
+                      className="explore-mode-pill-bg"
+                      transition={{ type: "spring", stiffness: 460, damping: 34 }}
+                    />
+                  )}
+                  <Sparkles size={13} className="explore-mode-icon" aria-hidden="true" />
+                  <span className="explore-mode-label">Movies You&apos;ll Like</span>
+                </button>
+              </div>
+
+              {isForYouMode && !needsForYouCalibration && (
+                <div className="explore-for-you-tools">
+                  <button
+                    type="button"
+                    className="explore-tool-btn"
+                    onClick={() => setShuffleSeed((s) => s + 17 + Math.floor(Math.random() * 97))}
+                    disabled={isForYouLoading || forYouState.items.length === 0}
+                    title="Reshuffle viewing order while keeping top matches weighted early"
+                  >
+                    <Shuffle size={13} aria-hidden="true" />
+                    <span>Shuffle</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="explore-tool-btn"
+                    onClick={() => setForYouRefreshNonce((n) => n + 1)}
+                    disabled={isForYouLoading}
+                    title="Re-curate fresh picks from your latest Taste DNA"
+                  >
+                    <RefreshCw size={13} className={isForYouLoading ? "spin-icon" : ""} aria-hidden="true" />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              )}
+
               <button
                 type="button"
                 className="explore-mobile-filter-trigger"
@@ -982,7 +1226,7 @@ export default function ExplorePage({ onQuickRate }) {
                   onChange={(e) => updateFilters({ sortBy: e.target.value })}
                   aria-label="Sort results"
                 >
-                  {EXPLORE_SORT_OPTIONS.map((opt) => (
+                  {activeSortOptions.map((opt) => (
                     <option key={opt.id} value={opt.id}>
                       {opt.label}
                     </option>
@@ -1017,17 +1261,51 @@ export default function ExplorePage({ onQuickRate }) {
           )}
 
           {/* Error Banner */}
-          {errorMsg && (
+          {activeErrorMsg && (
             <div className="explore-state-card error" role="alert">
-              <p>{errorMsg}</p>
-              <Button variant="secondary" onClick={() => setRetryNonce((n) => n + 1)}>
+              <p>{activeErrorMsg}</p>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  isForYouMode ? setForYouRefreshNonce((n) => n + 1) : setRetryNonce((n) => n + 1)
+                }
+              >
                 Retry
               </Button>
             </div>
           )}
 
-          {/* Loading Skeleton */}
-          {viewState.showSkeleton ? (
+          {/* For You Empty-Vault Calibration Prompt */}
+          {needsForYouCalibration ? (
+            <div className="explore-state-card">
+              <Sparkles size={32} className="explore-empty-icon" aria-hidden="true" />
+              <h3>Rate 3 films to unlock Movies You&apos;ll Like</h3>
+              <p>
+                CinemaVault analyzes your rated library with on-device taste math and AI curation to
+                build a filterable 100-film personal catalog.
+              </p>
+              <div className="explore-empty-actions">
+                {onOpenTasteDeck && (
+                  <Button variant="primary" onClick={onOpenTasteDeck}>
+                    Calibrate Taste
+                  </Button>
+                )}
+                {!cloudUser && typeof loadSampleVault === "function" && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      loadSampleVault();
+                    }}
+                  >
+                    Try a sample vault
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={() => handleSwitchMode("catalog")}>
+                  Browse All Catalog
+                </Button>
+              </div>
+            </div>
+          ) : viewState.showSkeleton ? (
             <div className="explore-grid" aria-busy="true">
               {Array.from({ length: 12 }).map((_, idx) => (
                 <div key={idx} className="explore-skeleton-card">
@@ -1063,10 +1341,18 @@ export default function ExplorePage({ onQuickRate }) {
           ) : viewState.showGrid ? (
             <>
               <div className="explore-grid">
-                {viewState.visibleItems.map((movie) => {
+                {viewState.visibleItems.map((movie, idx) => {
                   const id = movie.imdbID || movie.id || `tmdb_${movie.tmdbId}`;
                   return (
                     <div key={id} className="explore-card-wrap">
+                      {isForYouMode && Number(movie.forYouScore) > 0 && (
+                        <span
+                          className="explore-match-badge tabular-num"
+                          title={movie.forYouReason || "Taste DNA match score"}
+                        >
+                          {Math.round(movie.forYouScore)}% match
+                        </span>
+                      )}
                       {movie._inWatchlist && !movie._watched && (
                         <span className="explore-watchlist-badge" title="In your Watchlist">
                           <Check size={11} aria-hidden="true" /> Watchlist
@@ -1074,11 +1360,18 @@ export default function ExplorePage({ onQuickRate }) {
                       )}
                       <MovieCard
                         movie={movie}
+                        animateOnScroll={true}
+                        revealIndex={idx}
                         showCaption={true}
                         isWatched={Boolean(movie._watched)}
                         onSelectMovie={(movieId) => navigate(`/movie/${movieId}`)}
                         onQuickAdd={onQuickRate}
                       />
+                      {isForYouMode && movie.vibeTag && (
+                        <span className="explore-vibe-tag" title={movie.forYouReason || movie.vibeTag}>
+                          {movie.vibeTag}
+                        </span>
+                      )}
                     </div>
                   );
                 })}

@@ -6,6 +6,7 @@ import {
 import { findMatchingMovie } from "./movieIdentity.js";
 
 export const DEFAULT_EXPLORE_FILTERS = Object.freeze({
+  mode: "catalog",
   genres: [],
   genreMode: "and",
   withoutGenres: [],
@@ -23,6 +24,7 @@ export const DEFAULT_EXPLORE_FILTERS = Object.freeze({
   region: "US",
   sortBy: "popularity.desc",
   hideWatched: false,
+  includeUpcoming: false,
   page: 1
 });
 
@@ -73,8 +75,13 @@ export const EXPLORE_SORT_OPTIONS = [
   { id: "vote_count.desc", label: "Most Reviewed" }
 ];
 
-const VALID_SORT_SET = new Set(EXPLORE_SORT_OPTIONS.map((o) => o.id));
-const SORT_LABEL_BY_ID = new Map(EXPLORE_SORT_OPTIONS.map((o) => [o.id, o.label]));
+export const EXPLORE_FOR_YOU_SORT_OPTIONS = [
+  { id: "for_you", label: "Best Match For You" },
+  ...EXPLORE_SORT_OPTIONS
+];
+
+const VALID_SORT_SET = new Set(EXPLORE_FOR_YOU_SORT_OPTIONS.map((o) => o.id));
+const SORT_LABEL_BY_ID = new Map(EXPLORE_FOR_YOU_SORT_OPTIONS.map((o) => [o.id, o.label]));
 
 export const LANGUAGE_OPTIONS = [
   { code: "", label: "Any Language" },
@@ -249,8 +256,12 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
 
   const sortRaw = String(sp.get("sortBy") || "").trim();
   const pageRaw = Number(sp.get("page"));
+  const modeRaw = String(sp.get("mode") || "").trim().toLowerCase();
+  const mode = modeRaw === "for-you" ? "for-you" : "catalog";
+  const defaultSort = mode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy;
 
   return {
+    mode,
     genres: parseIntIdList(sp.get("genres")),
     genreMode: sp.get("genreMode") === "or" ? "or" : "and",
     withoutGenres: parseIntIdList(sp.get("withoutGenres")),
@@ -266,8 +277,9 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
     person: parsePersonParam(sp.get("person")),
     providers: parseIntIdList(sp.get("providers")),
     region: sp.has("region") ? normalizeRegion(sp.get("region"), fallbackRegion) : fallbackRegion,
-    sortBy: VALID_SORT_SET.has(sortRaw) ? sortRaw : DEFAULT_EXPLORE_FILTERS.sortBy,
+    sortBy: VALID_SORT_SET.has(sortRaw) ? sortRaw : defaultSort,
     hideWatched: sp.get("hideWatched") === "1" || sp.get("hideWatched") === "true",
+    includeUpcoming: sp.get("upcoming") === "1" || sp.get("upcoming") === "true",
     page: Number.isSafeInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1
   };
 }
@@ -278,6 +290,8 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
 export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT_EXPLORE_FILTERS.region } = {}) {
   const sp = new URLSearchParams();
   const effectiveDefaultRegion = normalizeRegion(defaultRegion, DEFAULT_EXPLORE_FILTERS.region);
+  const mode = filters.mode === "for-you" ? "for-you" : "catalog";
+  if (mode === "for-you") sp.set("mode", "for-you");
 
   const genres = parseIntIdList(filters.genres);
   if (genres.length > 0) sp.set("genres", genres.join(","));
@@ -331,11 +345,13 @@ export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT
   const region = String(filters.region || "").trim().toUpperCase();
   if (region && region !== effectiveDefaultRegion) sp.set("region", region);
 
-  if (filters.sortBy && VALID_SORT_SET.has(filters.sortBy) && filters.sortBy !== DEFAULT_EXPLORE_FILTERS.sortBy) {
+  const defaultSortForMode = mode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy;
+  if (filters.sortBy && VALID_SORT_SET.has(filters.sortBy) && filters.sortBy !== defaultSortForMode) {
     sp.set("sortBy", filters.sortBy);
   }
 
   if (filters.hideWatched) sp.set("hideWatched", "1");
+  if (filters.includeUpcoming) sp.set("upcoming", "1");
 
   const page = Number(filters.page);
   if (Number.isSafeInteger(page) && page > 1) sp.set("page", String(page));
@@ -424,9 +440,10 @@ export function deriveExploreViewState({
  * Compile Explore filter state into query params for TMDB /3/discover/movie.
  */
 export function buildTmdbDiscoverParams(filters = {}, options = {}) {
-  const sortBy = VALID_SORT_SET.has(filters.sortBy)
+  const rawSort = VALID_SORT_SET.has(filters.sortBy) && filters.sortBy !== "for_you"
     ? filters.sortBy
     : DEFAULT_EXPLORE_FILTERS.sortBy;
+  const sortBy = rawSort;
 
   const page = Number.isSafeInteger(Number(filters.page)) && Number(filters.page) > 0
     ? Number(filters.page)
@@ -454,7 +471,12 @@ export function buildTmdbDiscoverParams(filters = {}, options = {}) {
   if (yearFrom) params["primary_release_date.gte"] = `${yearFrom}-01-01`;
 
   const yearTo = parseYearString(filters.yearTo);
-  if (yearTo) params["primary_release_date.lte"] = `${yearTo}-12-31`;
+  if (yearTo) {
+    params["primary_release_date.lte"] = `${yearTo}-12-31`;
+  } else if (!filters.includeUpcoming) {
+    const nowMs = Number.isFinite(Number(options?.now)) ? Number(options.now) : Date.now();
+    params["primary_release_date.lte"] = new Date(nowMs).toISOString().slice(0, 10);
+  }
 
   const runtimeMin = parseOptionalPositiveInt(filters.runtimeMin);
   if (runtimeMin !== "") params["with_runtime.gte"] = String(runtimeMin);

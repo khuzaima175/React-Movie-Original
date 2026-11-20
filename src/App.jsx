@@ -212,7 +212,15 @@ function AppContent() {
               />
             }
           />
-          <Route path="/explore" element={<ExplorePage onQuickRate={(m) => setQuickRateTarget(m)} />} />
+          <Route
+            path="/explore"
+            element={
+              <ExplorePage
+                onQuickRate={(m) => setQuickRateTarget(m)}
+                onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")}
+              />
+            }
+          />
           <Route path="/compare" element={<ComparePage onQuickRate={(m) => setQuickRateTarget(m)} />} />
           <Route path="/movie/:id" element={<MoviePage onQuickRate={(m) => setQuickRateTarget(m)} />} />
           <Route path="/person/:id" element={<PersonPage onQuickRate={(m) => setQuickRateTarget(m)} />} />

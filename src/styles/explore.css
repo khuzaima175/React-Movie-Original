@@ -750,3 +750,129 @@
     gap: 1.6rem 1.2rem;
   }
 }
+
+
+/* ── Explore Mode Switch & "Movies You'll Like" Controls ────────────────── */
+.explore-header {
+  flex-wrap: wrap;
+}
+
+.explore-header-actions {
+  flex-wrap: wrap;
+}
+
+.explore-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-1);
+  gap: 0.25rem;
+}
+
+.explore-mode-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 3.2rem;
+  padding: 0 1.25rem;
+  border: none;
+  border-radius: calc(var(--r-sm) - 2px);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 1.28rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-1) ease;
+  z-index: 0;
+}
+
+.explore-mode-btn:hover {
+  color: var(--text-1);
+}
+
+.explore-mode-btn.is-active {
+  color: var(--btn-primary-fg);
+  font-weight: 600;
+}
+
+.explore-mode-pill-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(var(--r-sm) - 2px);
+  background: var(--btn-primary-bg);
+  z-index: -1;
+}
+
+.explore-mode-icon,
+.explore-mode-label {
+  position: relative;
+  z-index: 1;
+}
+
+.explore-for-you-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.explore-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 3.6rem;
+  padding: 0 1.15rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 1.25rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.explore-tool-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--text-1);
+}
+
+.explore-tool-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.explore-match-badge {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  z-index: 6;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--r-sm);
+  background: rgba(13, 14, 17, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px);
+  color: var(--text-1);
+  font-size: 1.08rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.explore-vibe-tag {
+  display: inline-block;
+  margin-top: 0.35rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.12rem;
+  color: var(--text-3);
+  letter-spacing: 0.01em;
+}

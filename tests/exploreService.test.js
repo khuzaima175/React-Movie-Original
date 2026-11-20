@@ -236,3 +236,33 @@ test("buildExploreSearchParams preserves explicit region=US for non-US defaults 
   });
   assert.equal(switchFailed.showGrid, false);
 });
+
+test("buildExploreRoute and parseExploreSearchParams round-trip For You mode and includeUpcoming flag", () => {
+  const route = buildExploreRoute({ mode: "for-you", sortBy: "for_you", includeUpcoming: true });
+  const parsed = parseExploreSearchParams(route.split("?")[1], "US");
+  assert.equal(parsed.mode, "for-you");
+  assert.equal(parsed.sortBy, "for_you");
+  assert.equal(parsed.includeUpcoming, true);
+
+  const defaultParsed = parseExploreSearchParams("", "US");
+  assert.equal(defaultParsed.mode, "catalog");
+  assert.equal(defaultParsed.includeUpcoming, false);
+});
+
+test("buildTmdbDiscoverParams caps primary_release_date.lte to today when yearTo is empty unless includeUpcoming is true", () => {
+  const fixedNow = Date.UTC(2026, 10, 20);
+  const capped = buildTmdbDiscoverParams({ ...DEFAULT_EXPLORE_FILTERS }, { now: fixedNow });
+  assert.equal(capped["primary_release_date.lte"], "2026-11-20");
+
+  const withUpcoming = buildTmdbDiscoverParams(
+    { ...DEFAULT_EXPLORE_FILTERS, includeUpcoming: true },
+    { now: fixedNow }
+  );
+  assert.equal(withUpcoming["primary_release_date.lte"], undefined);
+
+  const explicitYear = buildTmdbDiscoverParams(
+    { ...DEFAULT_EXPLORE_FILTERS, yearTo: "2027" },
+    { now: fixedNow }
+  );
+  assert.equal(explicitYear["primary_release_date.lte"], "2027-12-31");
+});
