@@ -7,6 +7,7 @@ import { HeroParallaxController, StickyTitleBar, PosterArrival } from "./MovieDe
 import PersonFilmographyModal from "./PersonFilmographyModal";
 import CollectionTimeline from "./CollectionTimeline";
 import SimilarFilmsStrip from "./SimilarFilmsStrip";
+import ScrollRevealSection from "./ScrollRevealSection";
 import StarRatingStage from "./StarRatingStage";
 import { useApp } from "../context/AppContext";
 import {
@@ -1231,7 +1232,7 @@ export default function MovieDetails({
 
               {/* Where to Stream / Watch Providers */}
               {(movie.streamProviders?.length > 0 || movie.buyRentProviders?.length > 0 || movie.freeProviders?.length > 0) && (
-                <div className="streaming-providers-card">
+                <ScrollRevealSection as="div" delay={0.04} className="streaming-providers-card">
                   <div className="stream-header-row">
                     <div className="stream-header-title">
                       <Tv size={16} className="text-[var(--text-3)]" aria-hidden="true" />
@@ -1285,18 +1286,18 @@ export default function MovieDetails({
                       </div>
                     )}
                   </div>
-                </div>
+                </ScrollRevealSection>
               )}
 
               {/* Synopsis */}
-              <div className="netflix-plot-block">
+              <ScrollRevealSection as="div" delay={0.05} className="netflix-plot-block">
                 <h3 className="section-subtitle">The Narrative</h3>
                 <p className="netflix-plot-text luxury-plot-text">{movie.plot}</p>
-              </div>
+              </ScrollRevealSection>
 
               {/* Cast & Characters Gallery with Headshots */}
               {creditPeople.cast.length > 0 && (
-                <div className="cast-gallery-section">
+                <ScrollRevealSection as="div" delay={0.06} className="cast-gallery-section">
                   <h3 className="section-subtitle">Starring Cast & Characters</h3>
                   <div className="cast-gallery-grid">
                     {creditPeople.cast.slice(0, 8).map((actor) => (
@@ -1336,11 +1337,11 @@ export default function MovieDetails({
                       </button>
                     ))}
                   </div>
-                </div>
+                </ScrollRevealSection>
               )}
 
               {/* Creative Credits Matrix */}
-              <div className="netflix-credits-grid luxury-credits-grid">
+              <ScrollRevealSection as="div" delay={0.07} className="netflix-credits-grid luxury-credits-grid">
                 {[
                   { key: "directors", label: "Director", Icon: Clapperboard, people: creditPeople.directors },
                   { key: "writers", label: "Screenplay & Writers", Icon: Film, people: creditPeople.writers },
@@ -1377,7 +1378,7 @@ export default function MovieDetails({
                       </div>
                     </div>
                   ))}
-              </div>
+              </ScrollRevealSection>
 
               {/* Financial & Studio Production Intel */}
               {(movie.budget || movie.revenue || movie.boxOffice || movie.productionCompanies) && (

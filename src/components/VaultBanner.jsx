@@ -271,7 +271,7 @@ export default function VaultBanner({
                   </div>
 
                   <div className="histogram-bars-spacious">
-                    {histogramBins.map(({ score, label, count, heightPct }) => (
+                    {histogramBins.map(({ score, label, count, heightPct }, idx) => (
                       <div
                         key={score}
                         className="hist-column-item"
@@ -280,9 +280,18 @@ export default function VaultBanner({
                         <span className="hist-count-num">{count > 0 ? count : ""}</span>
                         <div className="hist-track-housing">
                           <motion.div
-                            initial={{ height: 0 }}
-                            animate={{ height: count > 0 ? `${Math.max(14, heightPct)}%` : "3px" }}
-                            transition={{ duration: 0.4, delay: (10 - score) * 0.03 }}
+                            initial={{ scaleY: 0, opacity: 0.4 }}
+                            animate={{ scaleY: 1, opacity: 1 }}
+                            transition={{
+                              type: "spring",
+                              stiffness: 340,
+                              damping: 26,
+                              delay: idx * 0.032
+                            }}
+                            style={{
+                              height: count > 0 ? `${Math.max(14, heightPct)}%` : "3px",
+                              transformOrigin: "bottom"
+                            }}
                             className={`hist-bar-fill ${score === 10 ? "gold" : ""}`}
                           />
                         </div>
@@ -299,7 +308,7 @@ export default function VaultBanner({
                   </div>
 
                   <div className="genre-progress-group">
-                    {sortedGenres.map(([genre, count]) => {
+                    {sortedGenres.map(([genre, count], idx) => {
                       const pct = Math.round((count / totalGenreHits) * 100);
                       return (
                         <div key={genre} className="genre-progress-item">
@@ -309,9 +318,15 @@ export default function VaultBanner({
                           </div>
                           <div className="genre-progress-track">
                             <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: `${pct}%` }}
-                              transition={{ duration: 0.45, ease: "easeOut" }}
+                              initial={{ scaleX: 0 }}
+                              animate={{ scaleX: 1 }}
+                              transition={{
+                                type: "spring",
+                                stiffness: 300,
+                                damping: 28,
+                                delay: idx * 0.055
+                              }}
+                              style={{ width: `${pct}%`, transformOrigin: "left" }}
                               className="genre-progress-fill"
                             />
                           </div>

@@ -159,7 +159,7 @@ function HeroCarousel({
       </AnimatePresence>
       <motion.div
         ref={heroRef}
-        className="hero-billboard"
+        className={`hero-billboard ${isPaused || prefersReducedMotion ? "is-paused" : ""}`}
         style={{ touchAction: "pan-y" }}
         onPanEnd={handlePanEnd}
         onKeyDown={handleKeyDown}
@@ -173,14 +173,13 @@ function HeroCarousel({
             {hasBackdrop ? (
               <motion.div
                 key={`bd-${slideId || safeIndex}`}
-                className="hero-backdrop"
+                className="hero-backdrop hero-backdrop-ken-burns"
                 style={{ backgroundImage: `url(${slide.backdrop})` }}
-                initial={{ opacity: 0, scale: 1 }}
-                animate={{ opacity: 1, scale: 1.08 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
                 exit={{ opacity: 0, transition: { duration: 0.5, delay: 0.3 } }}
                 transition={{
-                  opacity: { duration: 0.7, ease: EASE },
-                  scale: { duration: SLIDE_MS / 1000 + 2, ease: "linear" }
+                  opacity: { duration: 0.7, ease: EASE }
                 }}
               />
             ) : (

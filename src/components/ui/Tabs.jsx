@@ -1,10 +1,14 @@
-import React from "react";
+import React, { useId } from "react";
+import { motion } from "framer-motion";
 
 /**
- * Editorial underline Tabs primitive.
+ * Editorial underline Tabs primitive with Framer Motion spring sliding hairline.
  * Plain text with subtle bottom hairline indicator and muted tabular count.
  */
-export function Tabs({ tabs, activeTab, onChange, className = "" }) {
+export function Tabs({ tabs, activeTab, onChange, layoutIdPrefix, className = "" }) {
+  const autoId = useId().replace(/:/g, "");
+  const indicatorId = `${layoutIdPrefix || `cv-tabs-${autoId}`}-tab-indicator`;
+
   return (
     <div
       className={`cv-tabs-bar ${className}`}
@@ -26,6 +30,14 @@ export function Tabs({ tabs, activeTab, onChange, className = "" }) {
             <span>{tab.label}</span>
             {tab.count !== undefined && (
               <span className="cv-tab-count tabular-num">{tab.count}</span>
+            )}
+            {isActive && (
+              <motion.span
+                layoutId={indicatorId}
+                className="cv-tab-indicator"
+                transition={{ type: "spring", stiffness: 520, damping: 36 }}
+                aria-hidden="true"
+              />
             )}
           </button>
         );

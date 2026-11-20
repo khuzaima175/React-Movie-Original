@@ -458,3 +458,22 @@
   color: #f3f1eb;
   flex-shrink: 0;
 }
+
+
+/* ============================================================
+   TABS SLIDING SPRING HAIRLINE (ui/Tabs.jsx)
+   ============================================================ */
+.cv-tab-item.is-active {
+  border-bottom-color: transparent;
+}
+
+.cv-tab-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 2px;
+  background: var(--text-1);
+  border-radius: 2px;
+  pointer-events: none;
+}

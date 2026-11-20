@@ -2118,3 +2118,96 @@
     display: none;
   }
 }
+
+
+/* ============================================================
+   HERO KEN BURNS AMBIENT DRIFT & DISCOVER EDITORIAL CRAFT
+   ============================================================ */
+@keyframes hero-ken-burns {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.055);
+  }
+}
+
+.hero-backdrop-ken-burns {
+  animation: hero-ken-burns 8.5s linear forwards;
+  will-change: transform, opacity;
+}
+
+.hero-billboard.is-paused .hero-backdrop-ken-burns {
+  animation-play-state: paused;
+}
+
+.dashboard-carousel-section + .dashboard-carousel-section {
+  position: relative;
+}
+
+.dashboard-carousel-section + .dashboard-carousel-section::before {
+  content: "";
+  display: block;
+  height: 1px;
+  margin-bottom: 2.2rem;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 18%,
+    rgba(255, 255, 255, 0.08) 82%,
+    transparent 100%
+  );
+}
+
+/* Tactile Poster Specular Edge Catch-Light & Staggered Action Reveal */
+@media (hover: hover) {
+  .unified-movie-card:hover .unified-card-poster,
+  .unified-movie-card:focus-within .unified-card-poster {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 245, 224, 0.36),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      0 18px 36px rgba(0, 0, 0, 0.58);
+  }
+
+  .unified-overlay-actions .btn-card-action {
+    transform: translateY(6px);
+    opacity: 0;
+    transition:
+      transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.2s ease,
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .unified-movie-card:hover .unified-overlay-actions .btn-card-action,
+  .unified-movie-card:focus-within .unified-overlay-actions .btn-card-action {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  .unified-movie-card:hover .unified-overlay-actions .btn-card-action:nth-child(2),
+  .unified-movie-card:focus-within .unified-overlay-actions .btn-card-action:nth-child(2) {
+    transition-delay: 35ms;
+  }
+
+  .unified-movie-card:hover .unified-overlay-actions .btn-card-action:nth-child(3),
+  .unified-movie-card:focus-within .unified-overlay-actions .btn-card-action:nth-child(3) {
+    transition-delay: 70ms;
+  }
+
+  .btn-card-action:active {
+    transform: scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-backdrop-ken-burns {
+    animation: none !important;
+    transform: scale(1) !important;
+  }
+
+  .unified-overlay-actions .btn-card-action {
+    transform: none !important;
+    transition-delay: 0ms !important;
+  }
+}

@@ -7802,3 +7802,29 @@ a.collection-part-card:hover {
     max-width: 14.6rem;
   }
 }
+
+
+/* ============================================================
+   GLOBAL EDITORIAL SCROLLBARS & TACTILE MICRO-INTERACTIONS
+   ============================================================ */
+html {
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.26);
+}

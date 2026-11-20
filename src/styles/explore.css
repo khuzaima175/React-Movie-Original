@@ -876,3 +876,19 @@
   color: var(--text-3);
   letter-spacing: 0.01em;
 }
+
+
+/* ============================================================
+   EXPLORE SURFACE DEPTH & TACTILE PILL FEEDBACK
+   ============================================================ */
+.explore-sidebar {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 12px 32px rgba(0, 0, 0, 0.32);
+}
+
+.explore-chip-btn:active,
+.explore-tool-btn:active,
+.explore-active-chip:active {
+  transform: scale(0.97);
+}

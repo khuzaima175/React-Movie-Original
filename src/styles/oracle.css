@@ -2843,3 +2843,14 @@
     justify-content: center;
   }
 }
+
+
+/* ============================================================
+   ORACLE TACTILE FEEDBACK & EDITORIAL MOTION POLISH
+   ============================================================ */
+.oracle-mood-pill:active,
+.oracle-prefs-trigger:active,
+.mood-example-pill:active,
+.streaming-provider-btn:active {
+  transform: scale(0.97);
+}

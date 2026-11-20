@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Check, Bookmark, Star, Layers, ArrowLeftRight } from "lucide-react";
 import PosterImage from "./PosterImage";
+import ScrollRevealSection from "./ScrollRevealSection";
 import { useHorizontalWheelScroll } from "../hooks/useHorizontalWheelScroll";
 
 export default function CollectionTimeline({ timeline, loading = false }) {
@@ -40,6 +41,7 @@ export default function CollectionTimeline({ timeline, loading = false }) {
     : 0;
 
   return (
+    <ScrollRevealSection as="div" delay={0.02}>
     <section
       ref={wheelScopeRef}
       className={`rabbit-hole-section ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
@@ -163,5 +165,6 @@ export default function CollectionTimeline({ timeline, loading = false }) {
         })}
       </div>
     </section>
+    </ScrollRevealSection>
   );
 }

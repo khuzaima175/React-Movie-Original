@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Sparkles, ArrowRight, ArrowLeftRight } from "lucide-react";
 import MovieCard from "./MovieCard";
+import ScrollRevealSection from "./ScrollRevealSection";
 import { buildExploreRoute } from "../services/exploreService";
 import { useHorizontalWheelScroll } from "../hooks/useHorizontalWheelScroll";
 
@@ -54,6 +55,7 @@ export default function SimilarFilmsStrip({
     : "/explore";
 
   return (
+    <ScrollRevealSection as="div" delay={0.04}>
     <section
       ref={wheelScopeRef}
       className={`rabbit-hole-section ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
@@ -125,5 +127,6 @@ export default function SimilarFilmsStrip({
         })}
       </div>
     </section>
+    </ScrollRevealSection>
   );
 }
