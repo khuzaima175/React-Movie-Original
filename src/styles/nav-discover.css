@@ -2070,3 +2070,51 @@
     filter: blur(40px) saturate(1.4);
   }
 }
+
+
+/* ── Opt-in Horizontal Row Wheel Engagement ─────────────────────────────── */
+.carousel-section.is-wheel-engaged .carousel-arrows {
+  opacity: 1;
+}
+
+.btn-wheel-engage {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 3rem;
+  padding: 0 0.95rem;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 1.18rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.btn-wheel-engage:hover {
+  background: var(--surface-2);
+  border-color: var(--hairline-strong);
+  color: var(--text-1);
+}
+
+.btn-wheel-engage.is-active {
+  background: rgba(245, 244, 240, 0.11);
+  border-color: rgba(245, 244, 240, 0.32);
+  color: var(--text-1);
+}
+
+.carousel-track.is-wheel-engaged {
+  outline: 1px solid rgba(245, 244, 240, 0.22);
+  outline-offset: 6px;
+  border-radius: var(--r-sm);
+}
+
+@media (hover: none), (max-width: 760px) {
+  .btn-wheel-engage {
+    display: none;
+  }
+}
