@@ -134,12 +134,12 @@ export default function OraclePreferencesPopover({
 
     window.addEventListener("resize", handleResize);
     window.addEventListener("scroll", handleScroll, true);
-    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("pointerdown", handleOutside);
     document.addEventListener("keydown", handleEsc);
     return () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("scroll", handleScroll, true);
-      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("pointerdown", handleOutside);
       document.removeEventListener("keydown", handleEsc);
     };
   }, [isOpen, onClose, triggerRef, updatePosition]);
@@ -444,6 +444,8 @@ export default function OraclePreferencesPopover({
                                     e.preventDefault();
                                     handleSaveRuleEdit(rule.id);
                                   } else if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    e.stopPropagation();
                                     setEditingRuleId(null);
                                   }
                                 }}

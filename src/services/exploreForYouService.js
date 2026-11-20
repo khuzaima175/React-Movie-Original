@@ -2,7 +2,9 @@ import { Type } from "@google/genai";
 import {
   extractTasteProfile,
   fetchCandidatePool,
-  fetchEmbeddingCandidates
+  fetchEmbeddingCandidates,
+  enrichCandidatePoolMetadata,
+  expandProviderIds
 } from "./tmdbService.js";
 import {
   DEFAULT_RANKER_WEIGHTS,
@@ -19,7 +21,6 @@ import {
   EXPLORE_FOR_YOU_CASCADE,
   executeCascade,
   createGeminiClient,
-  generateProfileHash,
   getLastModelInfo
 } from "./geminiService.js";
 import { resolveGeminiKey } from "./apiTransport.js";
@@ -46,6 +47,70 @@ function mulberry32(seed) {
   };
 }
 
+function fnv1aHex(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i += 1) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function parseRuntimeMinutes(candidate) {
+  const numeric = Number(candidate?.runtimeMinutes ?? candidate?.runtime);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+  if (typeof candidate?.runtime === "string") {
+    const match = candidate.runtime.match(/(\d+)/);
+    if (match) {
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return null;
+}
+
+function parseOriginCountries(candidate) {
+  const raw = candidate?.originCountry ?? candidate?.origin_country;
+  if (Array.isArray(raw)) {
+    return Array.from(
+      new Set(
+        raw
+          .map((c) => String(c || "").trim().toUpperCase())
+          .filter((c) => /^[A-Z]{2}$/.test(c))
+      )
+    );
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return Array.from(
+      new Set(
+        raw
+          .split(/[,/|]+/)
+          .map((c) => c.trim().toUpperCase())
+          .filter((c) => /^[A-Z]{2}$/.test(c))
+      )
+    );
+  }
+  return [];
+}
+
+function parseOriginalLanguage(candidate) {
+  const direct = String(candidate?.original_language || "").trim().toLowerCase();
+  if (/^[a-z]{2,3}$/.test(direct)) return direct;
+  const spoken = String(candidate?.spokenLanguages || "").trim().toLowerCase();
+  if (/^[a-z]{2,3}$/.test(spoken)) return spoken;
+  return "";
+}
+
+function extractNumericIds(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  for (const item of list) {
+    const num = Number(typeof item === "object" && item !== null ? (item.id ?? item.provider_id) : item);
+    if (Number.isSafeInteger(num) && num > 0) seen.add(num);
+  }
+  return [...seen];
+}
+
 function normalizeCandidateForExplore(c, fallbackScore = 72) {
   const tmdbId = Number(c.tmdbId || c.id);
   const rawScore = Number(c.forYouScore ?? c.matchScore ?? fallbackScore);
@@ -60,6 +125,22 @@ function normalizeCandidateForExplore(c, fallbackScore = 72) {
       : (typeof c.release_date === "string" && c.release_date.length >= 4
           ? c.release_date.slice(0, 4)
           : "");
+
+  const personIds = extractNumericIds([
+    ...(Array.isArray(c.personIds) ? c.personIds : []),
+    ...(Array.isArray(c.castIds) ? c.castIds : []),
+    ...(c.crewPersonId ? [c.crewPersonId] : [])
+  ]).slice(0, 20);
+
+  const keywordIds = extractNumericIds(
+    Array.isArray(c.keywordIds) ? c.keywordIds : c.tmdbKeywords
+  ).slice(0, 25);
+
+  const providerIds = extractNumericIds([
+    ...(Array.isArray(c.providerIds) ? c.providerIds : []),
+    ...(Array.isArray(c.streamProviders) ? c.streamProviders : []),
+    ...(Array.isArray(c.freeProviders) ? c.freeProviders : [])
+  ]).slice(0, 20);
 
   return {
     id: c.imdbID || c.id || (Number.isFinite(tmdbId) ? `tmdb_${tmdbId}` : ""),
@@ -79,13 +160,12 @@ function normalizeCandidateForExplore(c, fallbackScore = 72) {
     vote_average: Number.isFinite(ratingNum) ? ratingNum : 0,
     vote_count: Number(c.vote_count) || 0,
     popularity: Number(c.popularity) || 0,
-    runtime: Number(c.runtime) || null,
-    original_language: c.original_language || "",
-    originCountry: Array.isArray(c.originCountry)
-      ? c.originCountry
-      : Array.isArray(c.origin_country)
-        ? c.origin_country
-        : [],
+    runtime: parseRuntimeMinutes(c),
+    original_language: parseOriginalLanguage(c),
+    originCountry: parseOriginCountries(c),
+    personIds,
+    keywordIds,
+    providerIds,
     forYouScore,
     matchScore: forYouScore,
     vibeTag: c.vibeTag || "",
@@ -94,8 +174,8 @@ function normalizeCandidateForExplore(c, fallbackScore = 72) {
 }
 
 /**
- * Deterministic profile hash so Explore For You caches stay valid until the user's
- * watched ratings, taste rules, or region materially change.
+ * Deterministic profile hash so Explore For You caches invalidate whenever the user's
+ * watched library, ratings, notes, watchlist, taste rules, or region change.
  */
 export function buildExploreForYouProfileHash({
   watched = [],
@@ -103,8 +183,33 @@ export function buildExploreForYouProfileHash({
   tasteRules = [],
   userRegion = "GLOBAL"
 } = {}) {
-  const base = generateProfileHash(watched, watchlist, "explore-for-you", userRegion, [], null, null, tasteRules);
-  return `explore_fy_v1_${base}`;
+  const normalizedRegion = String(userRegion || "GLOBAL").trim().toUpperCase() || "GLOBAL";
+
+  const watchedSig = (Array.isArray(watched) ? watched : [])
+    .filter((m) => m && typeof m === "object")
+    .map((m) => {
+      const id = String(m.tmdbId ?? m.imdbID ?? m.id ?? m.title ?? "").trim().toLowerCase();
+      const rating = Number(m.userRating ?? m.UserRating ?? 0);
+      const note = String(m.userNote || "").trim().slice(0, 60);
+      return `${id}:${Number.isFinite(rating) ? rating : 0}:${note}`;
+    })
+    .sort()
+    .join("|");
+
+  const watchlistSig = (Array.isArray(watchlist) ? watchlist : [])
+    .filter((m) => m && typeof m === "object")
+    .map((m) => String(m.tmdbId ?? m.imdbID ?? m.id ?? m.title ?? "").trim().toLowerCase())
+    .sort()
+    .join("|");
+
+  const { activeRules } = compileActiveTasteRules(tasteRules);
+  const rulesSig = activeRules
+    .map((r) => `${r.polarity}:${r.pinned ? "1" : "0"}:${String(r.text || "").trim().toLowerCase()}`)
+    .sort()
+    .join("|");
+
+  const raw = `v2::${normalizedRegion}::W[${watchedSig}]::WL[${watchlistSig}]::R[${rulesSig}]`;
+  return `explore_fy_v2_${fnv1aHex(raw)}_${fnv1aHex(`${raw.length}:${raw.split("").reverse().join("")}`)}`;
 }
 
 /**
@@ -257,6 +362,15 @@ export function filterForYouCatalog(items = [], filters = {}, watched = [], watc
   const language = String(filters?.language || "").trim().toLowerCase();
   const country = String(filters?.country || "").trim().toUpperCase();
 
+  const personId = Number(filters?.person?.id);
+  const hasPersonFilter = Number.isSafeInteger(personId) && personId > 0;
+  const keywordIdsFilter = Array.isArray(filters?.keywords)
+    ? filters.keywords.map((kw) => Number(kw?.id ?? kw)).filter((id) => Number.isSafeInteger(id) && id > 0)
+    : [];
+  const expandedProviderFilter = Array.isArray(filters?.providers) && filters.providers.length > 0
+    ? new Set(expandProviderIds(filters.providers))
+    : null;
+
   const filtered = annotated.filter((m) => {
     const itemGenres = Array.isArray(m.tmdbGenreIds) ? m.tmdbGenreIds.map(Number) : [];
     if (genres.length > 0) {
@@ -273,18 +387,49 @@ export function filterForYouCatalog(items = [], filters = {}, watched = [], watc
     if (yearFrom !== null && (!Number.isFinite(itemYear) || itemYear < yearFrom)) return false;
     if (yearTo !== null && (!Number.isFinite(itemYear) || itemYear > yearTo)) return false;
 
-    const itemRuntime = Number(m.runtime);
-    if (runtimeMin !== null && Number.isFinite(itemRuntime) && itemRuntime > 0 && itemRuntime < runtimeMin) return false;
-    if (runtimeMax !== null && Number.isFinite(itemRuntime) && itemRuntime > 0 && itemRuntime > runtimeMax) return false;
+    const itemRuntime = parseRuntimeMinutes(m);
+    if (runtimeMin !== null && (!itemRuntime || itemRuntime < runtimeMin)) return false;
+    if (runtimeMax !== null && (!itemRuntime || itemRuntime > runtimeMax)) return false;
 
     const score = Number(m.imdbRating ?? m.vote_average ?? 0);
     if (minImdb > 0 && (!Number.isFinite(score) || score < minImdb)) return false;
     if (minVotes > 0 && Number(m.vote_count || 0) < minVotes) return false;
 
-    if (language && m.original_language && m.original_language.toLowerCase() !== language) return false;
-    if (country && Array.isArray(m.originCountry) && m.originCountry.length > 0 && !m.originCountry.includes(country)) {
-      return false;
+    if (language) {
+      const itemLang = parseOriginalLanguage(m);
+      if (!itemLang || itemLang !== language) return false;
     }
+
+    if (country) {
+      const countries = parseOriginCountries(m);
+      if (countries.length === 0 || !countries.includes(country)) return false;
+    }
+
+    if (hasPersonFilter) {
+      const itemPeople = extractNumericIds([
+        ...(Array.isArray(m.personIds) ? m.personIds : []),
+        ...(Array.isArray(m.castIds) ? m.castIds : []),
+        ...(m.crewPersonId ? [m.crewPersonId] : [])
+      ]);
+      if (!itemPeople.includes(personId)) return false;
+    }
+
+    if (keywordIdsFilter.length > 0) {
+      const itemKeywords = extractNumericIds(
+        Array.isArray(m.keywordIds) ? m.keywordIds : m.tmdbKeywords
+      );
+      if (!keywordIdsFilter.every((kid) => itemKeywords.includes(kid))) return false;
+    }
+
+    if (expandedProviderFilter && expandedProviderFilter.size > 0) {
+      const itemProviders = extractNumericIds([
+        ...(Array.isArray(m.providerIds) ? m.providerIds : []),
+        ...(Array.isArray(m.streamProviders) ? m.streamProviders : []),
+        ...(Array.isArray(m.freeProviders) ? m.freeProviders : [])
+      ]);
+      if (!itemProviders.some((pid) => expandedProviderFilter.has(pid))) return false;
+    }
+
     return true;
   });
 
@@ -325,8 +470,9 @@ function parseGeminiPicksJson(rawText) {
 
 /**
  * Generates up to 100 deeply personalized unseen films using CinemaVault's on-device
- * ML ranker + a single batched Gemini Flash-Lite call (3.5-flash-lite -> 3.1-flash-lite),
- * falling back cleanly to the deterministic local ranker whenever Gemini is unavailable.
+ * ML ranker + CVEM v1 collaborative embeddings + a single batched Gemini Flash-Lite call
+ * (3.5-flash-lite -> 3.1-flash-lite), falling back cleanly to the deterministic local ranker
+ * whenever Gemini is unavailable.
  */
 export async function generateExploreForYouPool({
   watched = [],
@@ -341,44 +487,83 @@ export async function generateExploreForYouPool({
   targetCount = EXPLORE_FOR_YOU_TARGET_COUNT,
   now = Date.now()
 } = {}) {
+  const resolvedRegion = userRegion && userRegion !== "GLOBAL" ? userRegion : "US";
   const profileHash = buildExploreForYouProfileHash({ watched, watchlist, tasteRules, userRegion });
   const profile = await extractTasteProfile(watched, watchlist, { now }).catch(() => ({
     lovedGenreNames: [],
-    lovedGenreIds: []
+    lovedGenreIds: [],
+    weightedRatings: []
   }));
 
   const embeddingIndex = injectedEmbeddingIndex !== undefined
     ? injectedEmbeddingIndex
     : await loadDefaultEmbeddingIndex().catch(() => null);
 
-  let rawCandidates = Array.isArray(injectedCandidates) ? [...injectedCandidates] : null;
+  const collabSimMap = embeddingIndex
+    ? buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex)
+    : null;
+  const repulsionMap = embeddingIndex
+    ? buildRepulsionMapFromIndex(profile.weightedRatings, embeddingIndex)
+    : null;
+  const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
+
   const excludeIds = [
     ...(watched || []).flatMap((m) => [m?.tmdbId, m?.imdbID, m?.id]),
+    ...(watchlist || []).flatMap((m) => [m?.tmdbId, m?.imdbID, m?.id]),
     ...(feedbackLog || [])
       .filter((f) => f && (f.action === "dismissed" || f.action === "already_seen"))
       .flatMap((f) => [f.tmdbId, f.imdbID, f.id])
   ].filter(Boolean);
 
+  let rawCandidates = Array.isArray(injectedCandidates) ? [...injectedCandidates] : null;
+  const poolGoal = Math.max(targetCount + 20, 120);
+
   if (!rawCandidates) {
     const todayIso = getTodayIso(now);
     const basePool = await fetchCandidatePool(profile, "any", watched, watchlist, {
-      userRegion: userRegion && userRegion !== "GLOBAL" ? userRegion : "US",
+      poolSize: poolGoal,
+      userRegion: resolvedRegion,
       userWatchProviders,
       now
     }).catch(() => []);
 
     let embPool = [];
     if (embeddingIndex) {
-      const aligned = retrieveAlignedEmbeddingNeighbors(watched, embeddingIndex, {
-        topK: 60,
-        excludeIds
-      });
+      const numericExcludeSet = new Set([
+        ...(watched || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
+        ...(watchlist || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
+        ...excludeIds.map((id) => Number(id || 0)),
+        ...basePool.map((c) => Number(c?.tmdbId ?? c?.id ?? 0))
+      ]);
+      numericExcludeSet.delete(0);
+
+      const repulsionWeight =
+        Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim;
+
+      const aligned = retrieveAlignedEmbeddingNeighbors(
+        profile.weightedRatings,
+        embeddingIndex,
+        numericExcludeSet,
+        {
+          collabSimMap,
+          repulsionMap,
+          catalogMax: collabCatalogMax,
+          repulsionWeight,
+          topK: 80
+        }
+      );
+
       if (aligned.length > 0) {
         embPool = await fetchEmbeddingCandidates(
-          aligned.map((n) => n.tmdbId),
+          aligned,
           watched,
           watchlist,
-          { userRegion: userRegion && userRegion !== "GLOBAL" ? userRegion : "US" }
+          basePool,
+          {
+            userRegion: resolvedRegion,
+            userProviders: userWatchProviders,
+            maxNeighbors: 50
+          }
         ).catch(() => []);
       }
     }
@@ -392,15 +577,12 @@ export async function generateExploreForYouPool({
       if (!c.poster && !c.poster_path) continue;
       dedup.set(tid, c);
     }
-    rawCandidates = [...dedup.values()];
-  }
 
-  let collabSimMap = null;
-  let repulsionMap = null;
-  if (embeddingIndex) {
-    const catalogMax = getCollabCatalogMax(embeddingIndex);
-    collabSimMap = buildCollabSimMapFromIndex(watched, rawCandidates, embeddingIndex, { catalogMax });
-    repulsionMap = buildRepulsionMapFromIndex(watched, rawCandidates, embeddingIndex);
+    const mergedRaw = [...dedup.values()];
+    rawCandidates = await enrichCandidatePoolMetadata(mergedRaw, {
+      maxEnrich: poolGoal,
+      userRegion: resolvedRegion
+    }).catch(() => mergedRaw);
   }
 
   const ranked = rankCandidatePool(
@@ -411,11 +593,12 @@ export async function generateExploreForYouPool({
       excludeIds,
       collabSimMap,
       repulsionMap,
+      collabCatalogMax,
       userProviders: userWatchProviders,
       tasteRules
     },
     DEFAULT_RANKER_WEIGHTS,
-    Math.max(targetCount + 20, 120)
+    poolGoal
   );
 
   const normalizedRanked = ranked.map(normalizeCandidateForExplore);
@@ -467,7 +650,7 @@ export async function generateExploreForYouPool({
       ai,
       EXPLORE_FOR_YOU_CASCADE,
       { contents: prompt, config: generationConfig },
-      { cascadeType: "fast" }
+      { cascadeType: "fast", timeoutMs: 25000, maxCascadeDurationMs: 45000 }
     );
 
     if (response?.text) {

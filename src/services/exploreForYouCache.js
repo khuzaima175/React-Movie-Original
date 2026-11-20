@@ -3,10 +3,25 @@ import { getSupabaseClient } from "./supabaseClient.js";
 export const EXPLORE_FOR_YOU_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const IDB_NAME = "cinemavault_explore_for_you_v1";
 const IDB_STORE = "pools";
-const LOCAL_RECORD_KEY = "latest";
 const MAX_CACHED_ITEMS = 120;
+const MAX_LOCAL_POOLS = 5;
 
 const memoryFallbackStore = new Map();
+
+function compactNumericIdList(list, maxLen) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const val of list) {
+    const num = Number(val);
+    if (Number.isSafeInteger(num) && num > 0 && !seen.has(num)) {
+      seen.add(num);
+      out.push(num);
+      if (out.length >= maxLen) break;
+    }
+  }
+  return out;
+}
 
 export function compactForYouItemForCache(movie) {
   if (!movie || typeof movie !== "object") return null;
@@ -30,6 +45,9 @@ export function compactForYouItemForCache(movie) {
     runtime: Number(movie.runtime) || null,
     original_language: movie.original_language || "",
     originCountry: Array.isArray(movie.originCountry) ? movie.originCountry.slice(0, 4) : [],
+    personIds: compactNumericIdList(movie.personIds, 20),
+    keywordIds: compactNumericIdList(movie.keywordIds, 25),
+    providerIds: compactNumericIdList(movie.providerIds, 20),
     forYouScore: Number(movie.forYouScore ?? movie.matchScore) || 72,
     matchScore: Number(movie.matchScore ?? movie.forYouScore) || 72,
     vibeTag: typeof movie.vibeTag === "string" ? movie.vibeTag.slice(0, 40) : "",
@@ -58,31 +76,66 @@ function openExploreDb() {
   });
 }
 
-async function readLocalRecord() {
+function pruneMemoryStore() {
+  if (memoryFallbackStore.size <= MAX_LOCAL_POOLS) return;
+  const entries = [...memoryFallbackStore.entries()].sort(
+    (a, b) => Number(b[1]?.generatedAt || 0) - Number(a[1]?.generatedAt || 0)
+  );
+  memoryFallbackStore.clear();
+  for (const [k, v] of entries.slice(0, MAX_LOCAL_POOLS)) {
+    memoryFallbackStore.set(k, v);
+  }
+}
+
+async function readLocalRecord(profileHash) {
   const db = await openExploreDb();
   if (!db) {
-    return memoryFallbackStore.get(LOCAL_RECORD_KEY) || null;
+    return memoryFallbackStore.get(profileHash) || null;
   }
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(IDB_STORE, "readonly");
-      const req = tx.objectStore(IDB_STORE).get(LOCAL_RECORD_KEY);
+      const req = tx.objectStore(IDB_STORE).get(profileHash);
       req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => resolve(memoryFallbackStore.get(LOCAL_RECORD_KEY) || null);
+      req.onerror = () => resolve(memoryFallbackStore.get(profileHash) || null);
     } catch {
-      resolve(memoryFallbackStore.get(LOCAL_RECORD_KEY) || null);
+      resolve(memoryFallbackStore.get(profileHash) || null);
     }
   });
 }
 
-async function writeLocalRecord(record) {
-  memoryFallbackStore.set(LOCAL_RECORD_KEY, record);
+async function writeLocalRecord(profileHash, record) {
+  memoryFallbackStore.set(profileHash, record);
+  pruneMemoryStore();
+
   const db = await openExploreDb();
   if (!db) return;
   await new Promise((resolve) => {
     try {
       const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).put(record, LOCAL_RECORD_KEY);
+      const store = tx.objectStore(IDB_STORE);
+      store.put(record, profileHash);
+
+      // Prune oldest records if store exceeds MAX_LOCAL_POOLS
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        const keys = Array.isArray(keysReq.result) ? keysReq.result : [];
+        if (keys.length > MAX_LOCAL_POOLS) {
+          const allReq = store.getAll();
+          allReq.onsuccess = () => {
+            const vals = Array.isArray(allReq.result) ? allReq.result : [];
+            const pairs = keys.map((k, idx) => ({
+              key: k,
+              ts: Number(vals[idx]?.generatedAt || 0)
+            }));
+            pairs.sort((a, b) => b.ts - a.ts);
+            for (const stale of pairs.slice(MAX_LOCAL_POOLS)) {
+              store.delete(stale.key);
+            }
+          };
+        }
+      };
+
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     } catch {
@@ -91,14 +144,14 @@ async function writeLocalRecord(record) {
   });
 }
 
-async function deleteLocalRecord() {
-  memoryFallbackStore.delete(LOCAL_RECORD_KEY);
+async function clearAllLocalRecords() {
+  memoryFallbackStore.clear();
   const db = await openExploreDb();
   if (!db) return;
   await new Promise((resolve) => {
     try {
       const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).delete(LOCAL_RECORD_KEY);
+      tx.objectStore(IDB_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     } catch {
@@ -127,7 +180,7 @@ export async function loadExploreForYouCache({
 } = {}) {
   if (!profileHash) return null;
 
-  const local = await readLocalRecord();
+  const local = await readLocalRecord(profileHash);
   if (isFreshRecord(local, profileHash, now)) {
     return {
       items: local.items,
@@ -165,7 +218,7 @@ export async function loadExploreForYouCache({
       modelUsed: data.model_used || null,
       generatedAt: updatedMs
     };
-    await writeLocalRecord(hydrated);
+    await writeLocalRecord(profileHash, hydrated);
     return { ...hydrated, from: "supabase" };
   } catch {
     return null;
@@ -195,7 +248,7 @@ export async function saveExploreForYouCache({
 
   if (compactItems.length === 0) return;
 
-  await writeLocalRecord({
+  await writeLocalRecord(profileHash, {
     profileHash,
     items: compactItems,
     source,
@@ -226,5 +279,5 @@ export async function saveExploreForYouCache({
 }
 
 export async function clearExploreForYouCache() {
-  await deleteLocalRecord();
+  await clearAllLocalRecords();
 }

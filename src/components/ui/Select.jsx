@@ -106,7 +106,7 @@ export function Select({
     setCoords({
       top,
       left: clampedLeft,
-      minWidth: Math.max(rect.width, 168),
+      minWidth: Math.min(Math.max(rect.width, 168), viewportWidth - margin * 2),
       maxHeight: availableHeight,
       openAbove,
       resolvedAlign,
@@ -114,9 +114,18 @@ export function Select({
   }, [align, options.length]);
 
   useLayoutEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setCoords(null);
+      return;
+    }
     updatePosition();
   }, [isOpen, updatePosition]);
+
+  // Second pass once the portaled panel mounts so actual rendered width is clamped safely on 390px mobile
+  useLayoutEffect(() => {
+    if (!isOpen || !coords || !panelRef.current) return;
+    updatePosition();
+  }, [isOpen, Boolean(coords), updatePosition]);
 
   // Keep panel anchored if window scrolls/resizes (ignoring scroll inside listbox itself)
   useEffect(() => {
@@ -164,13 +173,13 @@ export function Select({
 
     window.addEventListener("resize", handleResize);
     window.addEventListener("scroll", handleScroll, true);
-    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("pointerdown", handleOutside);
     document.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("scroll", handleScroll, true);
-      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("pointerdown", handleOutside);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [isOpen, options, activeIndex, updatePosition, closeMenu, commitOption]);

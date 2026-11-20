@@ -382,6 +382,7 @@
 
 .cv-select-panel {
   z-index: 10010;
+  max-width: calc(100vw - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0.5rem;

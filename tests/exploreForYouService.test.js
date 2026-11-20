@@ -181,3 +181,190 @@ test("generateExploreForYouPool falls back cleanly to local ranker when aiClient
   assert.equal(geminiRes.items.length, 100);
   assert.equal(geminiRes.items[0].vibeTag, "Editorial Sci-Fi");
 });
+
+
+test("buildExploreForYouProfileHash changes whenever watched movies, ratings, notes, or watchlist change", () => {
+  const watchedA = [
+    { tmdbId: 10, title: "Film A", userRating: 10 },
+    { tmdbId: 20, title: "Film B", userRating: 9 },
+    { tmdbId: 30, title: "Film C", userRating: 8 }
+  ];
+  const watchedB = [
+    { tmdbId: 99, title: "Different Film", userRating: 10 },
+    { tmdbId: 20, title: "Film B", userRating: 9 },
+    { tmdbId: 30, title: "Film C", userRating: 8 }
+  ];
+  const watchedRatingChanged = [
+    { tmdbId: 10, title: "Film A", userRating: 4 },
+    { tmdbId: 20, title: "Film B", userRating: 9 },
+    { tmdbId: 30, title: "Film C", userRating: 8 }
+  ];
+  const watchedNoteChanged = [
+    { tmdbId: 10, title: "Film A", userRating: 10, userNote: "Loved the score" },
+    { tmdbId: 20, title: "Film B", userRating: 9 },
+    { tmdbId: 30, title: "Film C", userRating: 8 }
+  ];
+
+  const hA = buildExploreForYouProfileHash({ watched: watchedA, watchlist: [{ tmdbId: 1 }], userRegion: "US" });
+  const hB = buildExploreForYouProfileHash({ watched: watchedB, watchlist: [{ tmdbId: 1 }], userRegion: "US" });
+  const hRating = buildExploreForYouProfileHash({ watched: watchedRatingChanged, watchlist: [{ tmdbId: 1 }], userRegion: "US" });
+  const hNote = buildExploreForYouProfileHash({ watched: watchedNoteChanged, watchlist: [{ tmdbId: 1 }], userRegion: "US" });
+  const hWl = buildExploreForYouProfileHash({ watched: watchedA, watchlist: [{ tmdbId: 2 }], userRegion: "US" });
+
+  assert.notEqual(hA, hB, "Different watched films must produce different profile hashes");
+  assert.notEqual(hA, hRating, "Changed userRating must invalidate profile hash");
+  assert.notEqual(hA, hNote, "Changed userNote must invalidate profile hash");
+  assert.notEqual(hA, hWl, "Changed watchlist must invalidate profile hash");
+});
+
+test("generateExploreForYouPool wires collaborative embeddings and negative repulsion from embeddingIndex", async () => {
+  // Build a minimal 4-film 2-dim embedding index matching embeddingService's binary format
+  // Film 1 (loved 10/10): [1, 0]
+  // Film 2 (disliked 2/10): [0, 1]
+  // Candidate 201 (aligned with loved): [0.99, 0.1]
+  // Candidate 202 (aligned with disliked): [0.1, 0.99]
+  const idToIndex = new Map([
+    [1, 0],
+    [2, 1],
+    [201, 2],
+    [202, 3]
+  ]);
+  const ids = new Int32Array([1, 2, 201, 202]);
+  const vectors = new Float32Array([
+    1.0, 0.0,
+    0.0, 1.0,
+    0.99, 0.1,
+    0.1, 0.99
+  ]);
+  const mockEmbeddingIndex = { count: 4, dim: 2, idToIndex, ids, vectors };
+
+  const watched = [
+    { tmdbId: 1, title: "Loved Anchor", year: "2014", userRating: 10, tmdbGenreIds: [18] },
+    { tmdbId: 2, title: "Hated Anchor", year: "2015", userRating: 2, tmdbGenreIds: [18] },
+    { tmdbId: 3, title: "Neutral Film", year: "2016", userRating: 7, tmdbGenreIds: [18] }
+  ];
+
+  // Give both candidates identical metadata so ONLY collaborative similarity + repulsion can separate them!
+  const identicalCandidates = [
+    {
+      id: 202,
+      tmdbId: 202,
+      title: "Near Disliked Film",
+      year: "2020",
+      release_date: "2020-05-01",
+      poster: "https://image.tmdb.org/t/p/w500/202.jpg",
+      genre: "Drama",
+      tmdbGenreIds: [18],
+      vote_average: 7.5,
+      vote_count: 1000,
+      popularity: 50
+    },
+    {
+      id: 201,
+      tmdbId: 201,
+      title: "Near Loved Film",
+      year: "2020",
+      release_date: "2020-05-01",
+      poster: "https://image.tmdb.org/t/p/w500/201.jpg",
+      genre: "Drama",
+      tmdbGenreIds: [18],
+      vote_average: 7.5,
+      vote_count: 1000,
+      popularity: 50
+    }
+  ];
+
+  const res = await generateExploreForYouPool({
+    watched,
+    watchlist: [],
+    candidates: identicalCandidates,
+    embeddingIndex: mockEmbeddingIndex,
+    aiClient: null,
+    targetCount: 10
+  });
+
+  assert.equal(res.items.length, 2);
+  assert.equal(res.items[0].tmdbId, 201, "Loved embedding neighbor must outrank disliked neighbor");
+  assert.ok(res.items[0].forYouScore > res.items[1].forYouScore);
+});
+
+test("filterForYouCatalog enforces Runtime, Language, Country, Person, Keywords, and Streaming provider facets", () => {
+  const rawPool = [
+    {
+      tmdbId: 301,
+      title: "Korean Neo-Noir",
+      year: "2022",
+      tmdbGenreIds: [53, 80],
+      imdbRating: "8.1",
+      vote_count: 1200,
+      runtime: 112,
+      original_language: "ko",
+      originCountry: ["KR"],
+      personIds: [555, 666],
+      keywordIds: [9001, 9002],
+      providerIds: [8],
+      forYouScore: 95
+    },
+    {
+      tmdbId: 302,
+      title: "Long US Epic",
+      year: "2021",
+      tmdbGenreIds: [18],
+      imdbRating: "8.0",
+      vote_count: 2500,
+      runtime: 165,
+      original_language: "en",
+      originCountry: ["US"],
+      personIds: [777],
+      keywordIds: [9009],
+      providerIds: [1899],
+      forYouScore: 93
+    },
+    {
+      tmdbId: 303,
+      title: "Sparse Unhydrated Film",
+      year: "2020",
+      tmdbGenreIds: [53],
+      imdbRating: "7.5",
+      vote_count: 500,
+      runtime: null,
+      original_language: "",
+      originCountry: [],
+      personIds: [],
+      keywordIds: [],
+      providerIds: [],
+      forYouScore: 88
+    }
+  ];
+
+  assert.deepEqual(
+    filterForYouCatalog(rawPool, { runtimeMax: 120 }).map((m) => m.tmdbId),
+    [301],
+    "runtimeMax must exclude longer films AND films missing runtime"
+  );
+  assert.deepEqual(
+    filterForYouCatalog(rawPool, { language: "ko" }).map((m) => m.tmdbId),
+    [301],
+    "language filter must exclude mismatched and unknown language films"
+  );
+  assert.deepEqual(
+    filterForYouCatalog(rawPool, { country: "KR" }).map((m) => m.tmdbId),
+    [301],
+    "country filter must exclude mismatched and unknown country films"
+  );
+  assert.deepEqual(
+    filterForYouCatalog(rawPool, { person: { id: 555, name: "Park" } }).map((m) => m.tmdbId),
+    [301],
+    "person filter must match personIds"
+  );
+  assert.deepEqual(
+    filterForYouCatalog(rawPool, { keywords: [{ id: 9001, name: "noir" }] }).map((m) => m.tmdbId),
+    [301],
+    "keywords filter must match keywordIds"
+  );
+  assert.deepEqual(
+    filterForYouCatalog(rawPool, { providers: [8] }).map((m) => m.tmdbId),
+    [301],
+    "providers filter must match providerIds"
+  );
+});

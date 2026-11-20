@@ -132,6 +132,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const [forYouRefreshNonce, setForYouRefreshNonce] = useState(0);
   const [shuffleSeed, setShuffleSeed] = useState(() => Math.floor(Date.now() % 100000));
   const forYouSeqRef = useRef(0);
+  const handledRefreshNonceRef = useRef(0);
 
   const forYouProfileHash = useMemo(
     () => buildExploreForYouProfileHash({ watched, watchlist, tasteRules, userRegion }),
@@ -404,7 +405,8 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
     const seq = ++forYouSeqRef.current;
     let cancelled = false;
-    const forceRefresh = forYouRefreshNonce > 0;
+    const forceRefresh = forYouRefreshNonce !== handledRefreshNonceRef.current;
+    handledRefreshNonceRef.current = forYouRefreshNonce;
 
     async function loadOrBuildForYou() {
       setForYouError("");
@@ -1189,7 +1191,12 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                   <button
                     type="button"
                     className="explore-tool-btn"
-                    onClick={() => setShuffleSeed((s) => s + 17 + Math.floor(Math.random() * 97))}
+                    onClick={() => {
+                      if (filters.sortBy !== "for_you") {
+                        updateFilters({ sortBy: "for_you" }, { replace: true });
+                      }
+                      setShuffleSeed((s) => s + 17 + Math.floor(Math.random() * 97));
+                    }}
                     disabled={isForYouLoading || forYouState.items.length === 0}
                     title="Reshuffle viewing order while keeping top matches weighted early"
                   >

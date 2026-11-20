@@ -297,6 +297,7 @@ export default function MovieRecommendations({
   };
 
   const handleGetRecommendations = async (invokeOpts = {}) => {
+    setIsPrefsOpen(false);
     const requestId = ++activeRequestRef.current;
     const isForcedRefresh = invokeOpts?.forceRefresh === true;
     const effectiveMood = invokeOpts?.moodOverride ?? selectedMood;
@@ -408,6 +409,7 @@ export default function MovieRecommendations({
   };
 
   const handleResetSearch = () => {
+    setIsPrefsOpen(false);
     activeRequestRef.current++;
     refreshStateRef.current = { key: "", seenIds: [], page: 1 };
     setIsLoading(false);

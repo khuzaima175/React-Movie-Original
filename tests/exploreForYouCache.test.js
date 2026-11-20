@@ -167,3 +167,32 @@ test("Supabase cache reads on local miss, writes on save, and is strictly bypass
   assert.equal(upsertCall.payload.profile_hash, "hash_new");
   assert.equal("overview" in upsertCall.payload.items[0], false);
 });
+
+
+test("local explore For You cache keys pools by profileHash so switching vaults does not overwrite earlier pools", async () => {
+  const now = 1_800_000_000_000;
+  await clearExploreForYouCache();
+
+  await saveExploreForYouCache({
+    profileHash: "hash_vault_1",
+    items: [{ tmdbId: 101, title: "Real Vault Pick", forYouScore: 96, personIds: [11], keywordIds: [22], providerIds: [8] }],
+    source: "gemini-flash-lite",
+    generatedAt: now
+  });
+
+  await saveExploreForYouCache({
+    profileHash: "hash_sample_2",
+    items: [{ tmdbId: 202, title: "Sample Vault Pick", forYouScore: 90 }],
+    source: "local-ranker",
+    generatedAt: now + 500
+  });
+
+  const hit1 = await loadExploreForYouCache({ profileHash: "hash_vault_1", now: now + 1000 });
+  const hit2 = await loadExploreForYouCache({ profileHash: "hash_sample_2", now: now + 1000 });
+
+  assert.equal(hit1?.items?.[0]?.tmdbId, 101);
+  assert.deepEqual(hit1?.items?.[0]?.personIds, [11]);
+  assert.deepEqual(hit1?.items?.[0]?.keywordIds, [22]);
+  assert.deepEqual(hit1?.items?.[0]?.providerIds, [8]);
+  assert.equal(hit2?.items?.[0]?.tmdbId, 202);
+});
