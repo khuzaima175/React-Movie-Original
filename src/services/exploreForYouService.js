@@ -11,13 +11,7 @@ import {
   rankCandidatePool
 } from "./rankerService.js";
 import { derivePersonalizedRankerWeights } from "./onlineLearningService.js";
-import {
-  loadDefaultEmbeddingIndex,
-  buildCollabSimMapFromIndex,
-  buildRepulsionMapFromIndex,
-  getCollabCatalogMax,
-  retrieveAlignedEmbeddingNeighbors
-} from "./embeddingService.js";
+import { computeExploreEmbeddingSignals } from "./embeddingWorkerClient.js";
 import {
   loadDefaultContentIndex,
   buildContentSimMap
@@ -564,15 +558,12 @@ export async function generateExploreForYouPool({
 
   emitStage({ stage: "profile", label: "Scanning your Taste DNA & local movie map…", count: 0, target: targetCount });
 
-  const [profile, embeddingIndex, contentIndex, dnaIndex] = await Promise.all([
+  const [profile, contentIndex, dnaIndex] = await Promise.all([
     extractTasteProfile(watched, watchlist, { now }).catch(() => ({
       lovedGenreNames: [],
       lovedGenreIds: [],
       weightedRatings: []
     })),
-    injectedEmbeddingIndex !== undefined
-      ? Promise.resolve(injectedEmbeddingIndex)
-      : loadDefaultEmbeddingIndex().catch(() => null),
     injectedContentIndex !== undefined
       ? Promise.resolve(injectedContentIndex)
       : loadDefaultContentIndex().catch(() => null),
@@ -585,14 +576,6 @@ export async function generateExploreForYouPool({
     return { items: [], profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
   }
 
-  const collabSimMap = embeddingIndex
-    ? buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex)
-    : null;
-  const repulsionMap = embeddingIndex
-    ? buildRepulsionMapFromIndex(profile.weightedRatings, embeddingIndex)
-    : null;
-  const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
-
   const excludeIds = [
     ...(watched || []).flatMap((m) => [m?.tmdbId, m?.imdbID, m?.id]),
     ...(watchlist || []).flatMap((m) => [m?.tmdbId, m?.imdbID, m?.id]),
@@ -600,6 +583,40 @@ export async function generateExploreForYouPool({
       .filter((f) => f && (f.action === "dismissed" || f.action === "already_seen"))
       .flatMap((f) => [f.tmdbId, f.imdbID, f.id])
   ].filter(Boolean);
+
+  const numericExcludeSet = new Set([
+    ...(watched || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
+    ...(watchlist || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
+    ...excludeIds.map((id) => Number(id || 0))
+  ]);
+  numericExcludeSet.delete(0);
+
+  const repulsionWeight =
+    Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim;
+
+  const embSignals = await computeExploreEmbeddingSignals({
+    weightedRatings: profile.weightedRatings,
+    excludeNumericIds: [...numericExcludeSet],
+    topK: 240,
+    repulsionWeight,
+    embeddingIndex: injectedEmbeddingIndex
+  }).catch(() => ({
+    embeddingIndex: null,
+    collabSimMap: null,
+    repulsionMap: null,
+    collabCatalogMax: null,
+    alignedNeighbors: []
+  }));
+
+  if (signal?.aborted) {
+    return { items: [], profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
+  }
+
+  const embeddingIndex = embSignals.embeddingIndex ?? (injectedEmbeddingIndex !== undefined ? injectedEmbeddingIndex : null);
+  const collabSimMap = embSignals.collabSimMap || null;
+  const repulsionMap = embSignals.repulsionMap || null;
+  const collabCatalogMax = embSignals.collabCatalogMax ?? null;
+  const aligned = Array.isArray(embSignals.alignedNeighbors) ? embSignals.alignedNeighbors : [];
 
   const rankerWeights = derivePersonalizedRankerWeights(
     feedbackLog,
@@ -668,33 +685,6 @@ export async function generateExploreForYouPool({
       generatedAt: now
     });
   } else {
-    // Compute all 240 aligned CVEM neighbors upfront on CPU (~25ms)
-    let aligned = [];
-    if (embeddingIndex) {
-      const numericExcludeSet = new Set([
-        ...(watched || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
-        ...(watchlist || []).map((m) => Number(m?.tmdbId ?? m?.id ?? 0)),
-        ...excludeIds.map((id) => Number(id || 0))
-      ]);
-      numericExcludeSet.delete(0);
-
-      const repulsionWeight =
-        Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim;
-
-      aligned = retrieveAlignedEmbeddingNeighbors(
-        profile.weightedRatings,
-        embeddingIndex,
-        numericExcludeSet,
-        {
-          collabSimMap,
-          repulsionMap,
-          catalogMax: collabCatalogMax,
-          repulsionWeight,
-          topK: 240
-        }
-      );
-    }
-
     // WAVE 1 (~1-2s): Fast Discover + top 40 CVEM neighbors in parallel — NO 300-item enrichment block!
     const wave1Aligned = aligned.slice(0, 60);
     const [wave1Base, wave1Emb] = await Promise.all([
