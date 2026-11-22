@@ -234,7 +234,7 @@
 .public-diary-list,
 .movie-community-reviews {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(30rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr));
   gap: 1.4rem;
 }
 
@@ -317,9 +317,14 @@
 
 /* MovieDetails Community Section */
 .movie-community-section {
-  margin-top: 3.4rem;
-  padding-top: 2.8rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 0;
+  padding: 2.8rem 3.6rem 3.2rem;
+  border-top: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012) 0%, transparent 100%);
+}
+
+.movie-community-section:last-child {
+  padding-bottom: 4rem;
 }
 
 .movie-community-header {
@@ -329,6 +334,10 @@
   justify-content: space-between;
   gap: 1.4rem;
   margin-bottom: 1.8rem;
+}
+
+.movie-community-header:last-child {
+  margin-bottom: 0;
 }
 
 .movie-community-score-pill {
@@ -369,6 +378,15 @@
   color: #a7f3d0;
 }
 
+@media (max-width: 900px) {
+  .movie-community-section {
+    padding: 2.2rem 1.8rem 2.6rem;
+  }
+  .movie-community-section:last-child {
+    padding-bottom: 3rem;
+  }
+}
+
 @media (max-width: 760px) {
   .public-profile-hero {
     padding: 2rem;
@@ -382,5 +400,11 @@
   .public-diary-list,
   .movie-community-reviews {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .movie-community-section {
+    padding: 2rem 1.4rem 2.4rem;
   }
 }
