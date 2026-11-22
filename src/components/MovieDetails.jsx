@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { MovieDetailsSkeleton } from "./Loader";
 import ErrorMessage from "./ErrorMessage";
 import PosterImage from "./PosterImage";
@@ -9,7 +9,7 @@ import PersonFilmographyModal from "./PersonFilmographyModal";
 import CollectionTimeline from "./CollectionTimeline";
 import SimilarFilmsStrip from "./SimilarFilmsStrip";
 import ScrollRevealSection from "./ScrollRevealSection";
-import StarRatingStage from "./StarRatingStage";
+import StarRatingStage, { getEditorialScorePalette } from "./StarRatingStage";
 import { useApp } from "../context/AppContext";
 import {
   TMDB_GENRE_MAP,
@@ -123,6 +123,7 @@ export default function MovieDetails({
   const [dateWatchedInput, setDateWatchedInput] = useState("");
   const [isDateDirty, setIsDateDirty] = useState(false);
   const [showAllTags, setShowAllTags] = useState(false);
+  const [showReviewComposer, setShowReviewComposer] = useState(false);
   const [openDrawer, setOpenDrawer] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -138,6 +139,7 @@ export default function MovieDetails({
 
   useEffect(() => {
     setActivePerson(null);
+    setShowReviewComposer(false);
   }, [selectedId]);
 
   useEffect(() => {
@@ -823,19 +825,36 @@ export default function MovieDetails({
                       {(() => {
                         const savedRating = Number(watchedItem?.userRating) || 0;
                         const savedTier = getRatingTier(savedRating);
+                        const savedPalette = getEditorialScorePalette(savedRating);
                         return savedRating > 0 ? (
                           <>
                             <div className="vault-score-display">
-                              <span className="vault-score-num">★ {savedRating}</span>
+                              <span className="vault-score-num display-title" style={{ color: savedPalette.color }}>
+                                {savedRating}
+                              </span>
                               <span className="vault-score-denom">/ 10</span>
                             </div>
-                            <div className="vault-tier-pill" style={{ background: savedTier.bg, borderColor: savedTier.border, color: savedTier.color }}>
-                              <Star size={13} fill="currentColor" aria-hidden="true" />
+                            <div
+                              className="vault-tier-pill"
+                              style={{
+                                background: savedPalette.bg,
+                                borderColor: savedPalette.border,
+                                color: savedPalette.color
+                              }}
+                            >
+                              <Star size={12} fill="currentColor" aria-hidden="true" />
                               <span>{savedTier.shortLabel || savedTier.label.split("(")[0].trim()}</span>
                             </div>
                           </>
                         ) : (
-                          <div className="vault-tier-pill" style={{ background: savedTier.bg, borderColor: savedTier.border, color: savedTier.color }}>
+                          <div
+                            className="vault-tier-pill"
+                            style={{
+                              background: savedPalette.bg,
+                              borderColor: savedPalette.border,
+                              color: savedPalette.color
+                            }}
+                          >
                             <span>Unrated — tap Edit below to score 1–10</span>
                           </div>
                         );
@@ -918,177 +937,238 @@ export default function MovieDetails({
                       ariaLabel="Rate this film from 1 to 10"
                     />
 
-                    {/* Progressive Quick Review Tags */}
-                    <div className="quick-tags-section">
-                      <div className="quick-tags-header-row">
-                        <span className="quick-tags-label"><Tag size={12} aria-hidden="true" /> Quick Review Tags</span>
-                        <button
-                          type="button"
-                          className="quick-tags-expand-btn"
-                          onClick={() => setShowAllTags((prev) => !prev)}
-                        >
-                          {showAllTags ? "Fewer tags" : `More tags (+${Math.max(0, QUICK_REVIEW_TAGS.length - displayedQuickTags.length)})`}
-                        </button>
-                      </div>
-                      <div className="quick-tags-row">
-                        {displayedQuickTags.map(({ id: tag }) => {
-                          const isTagActive = hasQuickTagInNote(userNote, tag);
-                          return (
+                    {/* Progressive Review Studio (auto-expands on score pick or manual toggle) */}
+                    {(() => {
+                      const isReviewComposerExpanded = Boolean(
+                        showReviewComposer ||
+                        Number(userRating) > 0 ||
+                        isEditing ||
+                        userNote.trim() ||
+                        ratingBreakdown ||
+                        watchMeta?.format ||
+                        watchMeta?.containsSpoilers ||
+                        Number(watchMeta?.rewatchCount) >= 1
+                      );
+
+                      return (
+                        <>
+                          {!isReviewComposerExpanded && (
                             <button
-                              key={tag}
                               type="button"
-                              className={`quick-tag-chip ${isTagActive ? "tag-active" : ""}`}
-                              onClick={() => handleToggleTag(tag)}
+                              className="studio-expand-review-btn"
+                              onClick={() => setShowReviewComposer(true)}
                             >
-                              #{tag}
+                              <Plus size={13} aria-hidden="true" />
+                              <span>Add tags, craft breakdown &amp; note</span>
                             </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                          )}
 
-                    {/* Optional Collapsed Studio Drawers: Craft Breakdown & Watch Log */}
-                    <div className="studio-drawers-wrap">
-                      <div className="studio-drawers-tabs">
-                        <button
-                          type="button"
-                          className={`studio-drawer-tab ${openDrawer === "craft" ? "is-open" : ""} ${craftAverage ? "has-data" : ""}`}
-                          onClick={() => setOpenDrawer((prev) => (prev === "craft" ? null : "craft"))}
-                          aria-expanded={openDrawer === "craft"}
-                        >
-                          <span>Craft Breakdown{craftAverage ? ` · ${craftAverage}★` : ""}</span>
-                          {openDrawer === "craft" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
-                        </button>
-
-                        <button
-                          type="button"
-                          className={`studio-drawer-tab ${openDrawer === "watchlog" ? "is-open" : ""} ${(watchMeta?.format || watchMeta?.containsSpoilers || Number(watchMeta?.rewatchCount) >= 1 || isDateDirty) ? "has-data" : ""}`}
-                          onClick={() => setOpenDrawer((prev) => (prev === "watchlog" ? null : "watchlog"))}
-                          aria-expanded={openDrawer === "watchlog"}
-                        >
-                          <span>Watch Log{watchMeta?.format ? ` · ${WATCH_FORMATS.find((f) => f.id === watchMeta.format)?.label}` : ""}</span>
-                          {openDrawer === "watchlog" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
-                        </button>
-                      </div>
-
-                      {openDrawer === "craft" && (
-                        <div className="studio-drawer-panel craft-drawer-panel">
-                          <div className="craft-panel-header">
-                            <span className="craft-panel-hint">Optional 1–5 aspect scores</span>
-                            {ratingBreakdown && (
-                              <button
-                                type="button"
-                                className="studio-drawer-clear-btn"
-                                onClick={() => setRatingBreakdown(null)}
+                          <AnimatePresence initial={false}>
+                            {isReviewComposerExpanded && (
+                              <motion.div
+                                key="studio-review-composer"
+                                className="studio-review-composer"
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                                style={{ overflow: "hidden" }}
                               >
-                                Clear craft
-                              </button>
-                            )}
-                          </div>
-                          <div className="craft-rows-list">
-                            {CRAFT_ASPECTS.map((aspect) => {
-                              const currentVal = Number(ratingBreakdown?.[aspect.id]) || 0;
-                              return (
-                                <div key={aspect.id} className="craft-aspect-row">
-                                  <span className="craft-aspect-label">{aspect.label}</span>
-                                  <div className="craft-pips-group" role="group" aria-label={`${aspect.label} score out of 5`}>
-                                    {[1, 2, 3, 4, 5].map((pip) => {
-                                      const lit = pip <= currentVal;
+                                {/* Progressive Quick Review Tags */}
+                                <div className="quick-tags-section">
+                                  <div className="quick-tags-header-row">
+                                    <span className="quick-tags-label"><Tag size={12} aria-hidden="true" /> Quick Review Tags</span>
+                                    <button
+                                      type="button"
+                                      className="quick-tags-expand-btn"
+                                      onClick={() => setShowAllTags((prev) => !prev)}
+                                    >
+                                      {showAllTags ? "Fewer tags" : `More tags (+${Math.max(0, QUICK_REVIEW_TAGS.length - displayedQuickTags.length)})`}
+                                    </button>
+                                  </div>
+                                  <div className="quick-tags-row">
+                                    {displayedQuickTags.map(({ id: tag }) => {
+                                      const isTagActive = hasQuickTagInNote(userNote, tag);
                                       return (
                                         <button
-                                          key={pip}
+                                          key={tag}
                                           type="button"
-                                          className={`craft-pip-btn ${lit ? "is-lit" : ""}`}
-                                          onClick={() => handleCraftToggle(aspect.id, pip)}
-                                          aria-pressed={currentVal === pip}
-                                          aria-label={`${aspect.label} ${pip} out of 5`}
+                                          className={`quick-tag-chip ${isTagActive ? "tag-active" : ""}`}
+                                          onClick={() => handleToggleTag(tag)}
                                         >
-                                          {pip}
+                                          #{tag}
                                         </button>
                                       );
                                     })}
                                   </div>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
 
-                      {openDrawer === "watchlog" && (
-                        <div className="studio-drawer-panel watchlog-drawer-panel">
-                          <div className="watchlog-field-group">
-                            <span className="watchlog-field-label">Format</span>
-                            <div className="watchlog-formats-row">
-                              {WATCH_FORMATS.map((fmt) => {
-                                const isFmtActive = watchMeta?.format === fmt.id;
-                                return (
-                                  <button
-                                    key={fmt.id}
-                                    type="button"
-                                    className={`watchlog-pill-btn ${isFmtActive ? "is-active" : ""}`}
-                                    onClick={() => handleWatchMetaPatch({ format: isFmtActive ? undefined : fmt.id })}
-                                  >
-                                    {fmt.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
+                                {/* Optional Collapsed Studio Drawers: Craft Breakdown & Watch Log */}
+                                <div className="studio-drawers-wrap">
+                                  <div className="studio-drawers-tabs">
+                                    <button
+                                      type="button"
+                                      className={`studio-drawer-tab ${openDrawer === "craft" ? "is-open" : ""} ${craftAverage ? "has-data" : ""}`}
+                                      onClick={() => setOpenDrawer((prev) => (prev === "craft" ? null : "craft"))}
+                                      aria-expanded={openDrawer === "craft"}
+                                    >
+                                      <span>Craft Breakdown{craftAverage ? ` · ${craftAverage}★` : ""}</span>
+                                      {openDrawer === "craft" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
+                                    </button>
 
-                          <div className="watchlog-inline-controls">
-                            <label className="watchlog-field-group">
-                              <span className="watchlog-field-label">Date Watched</span>
-                              <input
-                                type="date"
-                                className="watchlog-date-input"
-                                value={dateWatchedInput}
-                                onChange={(e) => {
-                                  setDateWatchedInput(e.target.value);
-                                  setIsDateDirty(true);
-                                }}
-                              />
-                            </label>
+                                    <button
+                                      type="button"
+                                      className={`studio-drawer-tab ${openDrawer === "watchlog" ? "is-open" : ""} ${(watchMeta?.format || watchMeta?.containsSpoilers || Number(watchMeta?.rewatchCount) >= 1 || isDateDirty) ? "has-data" : ""}`}
+                                      onClick={() => setOpenDrawer((prev) => (prev === "watchlog" ? null : "watchlog"))}
+                                      aria-expanded={openDrawer === "watchlog"}
+                                    >
+                                      <span>Watch Log{watchMeta?.format ? ` · ${WATCH_FORMATS.find((f) => f.id === watchMeta.format)?.label}` : ""}</span>
+                                      {openDrawer === "watchlog" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
+                                    </button>
+                                  </div>
 
-                            <label className="watchlog-field-group">
-                              <span className="watchlog-field-label">Watch Count</span>
-                              <input
-                                type="number"
-                                min="1"
-                                max="999"
-                                placeholder="1"
-                                className="watchlog-rewatch-input"
-                                value={watchMeta?.rewatchCount || ""}
-                                onChange={(e) => {
-                                  const parsed = parseInt(e.target.value, 10);
-                                  handleWatchMetaPatch({ rewatchCount: Number.isFinite(parsed) && parsed >= 1 ? parsed : undefined });
-                                }}
-                              />
-                            </label>
-                          </div>
+                                  <AnimatePresence initial={false}>
+                                    {openDrawer === "craft" && (
+                                      <motion.div
+                                        key="craft-drawer"
+                                        className="studio-drawer-panel craft-drawer-panel"
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: "auto" }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                                        style={{ overflow: "hidden" }}
+                                      >
+                                        <div className="craft-panel-header">
+                                          <span className="craft-panel-hint">Optional 1–5 aspect scores</span>
+                                          {ratingBreakdown && (
+                                            <button
+                                              type="button"
+                                              className="studio-drawer-clear-btn"
+                                              onClick={() => setRatingBreakdown(null)}
+                                            >
+                                              Clear craft
+                                            </button>
+                                          )}
+                                        </div>
+                                        <div className="craft-rows-list">
+                                          {CRAFT_ASPECTS.map((aspect) => {
+                                            const currentVal = Number(ratingBreakdown?.[aspect.id]) || 0;
+                                            return (
+                                              <div key={aspect.id} className="craft-aspect-row">
+                                                <span className="craft-aspect-label">{aspect.label}</span>
+                                                <div className="craft-pips-group" role="group" aria-label={`${aspect.label} score out of 5`}>
+                                                  {[1, 2, 3, 4, 5].map((pip) => {
+                                                    const lit = pip <= currentVal;
+                                                    return (
+                                                      <button
+                                                        key={pip}
+                                                        type="button"
+                                                        className={`craft-pip-btn ${lit ? "is-lit" : ""}`}
+                                                        onClick={() => handleCraftToggle(aspect.id, pip)}
+                                                        aria-pressed={currentVal === pip}
+                                                        aria-label={`${aspect.label} ${pip} out of 5`}
+                                                      >
+                                                        {pip}
+                                                      </button>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </motion.div>
+                                    )}
 
-                          <button
-                            type="button"
-                            className={`watchlog-spoiler-toggle ${watchMeta?.containsSpoilers ? "is-active" : ""}`}
-                            onClick={() => handleWatchMetaPatch({ containsSpoilers: !watchMeta?.containsSpoilers })}
-                            aria-pressed={Boolean(watchMeta?.containsSpoilers)}
-                          >
-                            <ShieldAlert size={13} aria-hidden="true" />
-                            <span>{watchMeta?.containsSpoilers ? "Marked: Contains spoilers" : "Flag review as containing spoilers"}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                                    {openDrawer === "watchlog" && (
+                                      <motion.div
+                                        key="watchlog-drawer"
+                                        className="studio-drawer-panel watchlog-drawer-panel"
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: "auto" }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                                        style={{ overflow: "hidden" }}
+                                      >
+                                        <div className="watchlog-field-group">
+                                          <span className="watchlog-field-label">Format</span>
+                                          <div className="watchlog-formats-row">
+                                            {WATCH_FORMATS.map((fmt) => {
+                                              const isFmtActive = watchMeta?.format === fmt.id;
+                                              return (
+                                                <button
+                                                  key={fmt.id}
+                                                  type="button"
+                                                  className={`watchlog-pill-btn ${isFmtActive ? "is-active" : ""}`}
+                                                  onClick={() => handleWatchMetaPatch({ format: isFmtActive ? undefined : fmt.id })}
+                                                >
+                                                  {fmt.label}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
 
-                    {/* Personal Notes Textarea */}
-                    <textarea
-                      className="user-note-input luxury-notes-area"
-                      placeholder="1–2 lines on why you liked or disliked it (Gemini reads this to sharpen picks)..."
-                      value={userNote}
-                      onChange={(e) => setUserNote(e.target.value)}
-                      aria-label="Personal notes on movie"
-                      rows={3}
-                    />
+                                        <div className="watchlog-inline-controls">
+                                          <label className="watchlog-field-group">
+                                            <span className="watchlog-field-label">Date Watched</span>
+                                            <input
+                                              type="date"
+                                              className="watchlog-date-input"
+                                              value={dateWatchedInput}
+                                              onChange={(e) => {
+                                                setDateWatchedInput(e.target.value);
+                                                setIsDateDirty(true);
+                                              }}
+                                            />
+                                          </label>
+
+                                          <label className="watchlog-field-group">
+                                            <span className="watchlog-field-label">Watch Count</span>
+                                            <input
+                                              type="number"
+                                              min="1"
+                                              max="999"
+                                              placeholder="1"
+                                              className="watchlog-rewatch-input"
+                                              value={watchMeta?.rewatchCount || ""}
+                                              onChange={(e) => {
+                                                const parsed = parseInt(e.target.value, 10);
+                                                handleWatchMetaPatch({ rewatchCount: Number.isFinite(parsed) && parsed >= 1 ? parsed : undefined });
+                                              }}
+                                            />
+                                          </label>
+                                        </div>
+
+                                        <button
+                                          type="button"
+                                          className={`watchlog-spoiler-toggle ${watchMeta?.containsSpoilers ? "is-active" : ""}`}
+                                          onClick={() => handleWatchMetaPatch({ containsSpoilers: !watchMeta?.containsSpoilers })}
+                                          aria-pressed={Boolean(watchMeta?.containsSpoilers)}
+                                        >
+                                          <ShieldAlert size={13} aria-hidden="true" />
+                                          <span>{watchMeta?.containsSpoilers ? "Marked: Contains spoilers" : "Flag review as containing spoilers"}</span>
+                                        </button>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+
+                                {/* Personal Notes Textarea */}
+                                <textarea
+                                  className="user-note-input luxury-notes-area"
+                                  placeholder="1–2 lines on why you liked or disliked it (Gemini reads this to sharpen picks)..."
+                                  value={userNote}
+                                  onChange={(e) => setUserNote(e.target.value)}
+                                  aria-label="Personal notes on movie"
+                                  rows={3}
+                                />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </>
+                      );
+                    })()}
 
                     {/* Actions */}
                     <div className="rating-box-actions">
@@ -1105,18 +1185,18 @@ export default function MovieDetails({
                           </>
                         ) : !(Number(userRating) > 0) ? (
                           <>
-                            <Star size={18} aria-hidden="true" />
+                            <Star size={16} aria-hidden="true" />
                             <span>Select Rating (1–10)</span>
                           </>
                         ) : isWatched ? (
                           <>
-                            <Check size={18} aria-hidden="true" />
-                            <span>Update Vault Entry</span>
+                            <Check size={17} aria-hidden="true" />
+                            <span>Update {userRating}/10 Entry</span>
                           </>
                         ) : (
                           <>
-                            <Plus size={18} aria-hidden="true" />
-                            <span>Save to Film Vault</span>
+                            <Plus size={17} aria-hidden="true" />
+                            <span>Save {userRating}/10 to Vault</span>
                           </>
                         )}
                       </button>

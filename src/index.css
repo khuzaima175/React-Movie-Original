@@ -4928,21 +4928,31 @@
   color: var(--btn-primary-fg);
   font-size: 1.4rem;
   font-weight: 600;
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
   cursor: pointer;
   box-shadow: none;
-  transition: background 0.16s ease, transform 0.16s ease;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.16s ease;
 }
 
-.luxury-save-btn:hover {
+.luxury-save-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   background: #ffffff;
+}
+
+.btn-vault-primary:disabled,
+.luxury-save-btn:disabled {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-3);
+  border-color: var(--hairline);
+  cursor: default;
+  transform: none;
 }
 
 .luxury-save-btn.is-saved {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: #ffffff;
+  border-color: transparent;
   box-shadow: 0 4px 18px rgba(16, 185, 129, 0.4);
 }
 
@@ -6765,7 +6775,8 @@
 
 .btn-discuss-film-deck:focus-visible,
 .btn-hero-discuss:focus-visible,
-.star-stage-btn:focus-visible,
+.cinema-fader-cell:focus-visible,
+.studio-expand-review-btn:focus-visible,
 .star-stage-anchor-chip:focus-visible,
 .studio-drawer-tab:focus-visible,
 .craft-pip-btn:focus-visible,
@@ -6777,14 +6788,15 @@
 }
 
 /* ============================================================
-   Sculpted 10-Star Cinema Stage & Synchronized Light Track
+   35mm Illuminated Cinema Aperture Fader & Rolling Serif Stage
    ============================================================ */
 
 .star-rating-stage {
-  --tier-color: #b6b6b2;
-  --tier-bg: rgba(255, 255, 255, 0.05);
-  --tier-border: rgba(255, 255, 255, 0.14);
-  --tier-glow: 0 0 16px rgba(255, 255, 255, 0.08);
+  --tier-color: #9c9b96;
+  --tier-bg: rgba(255, 255, 255, 0.035);
+  --tier-border: rgba(255, 255, 255, 0.11);
+  --tier-glow: none;
+  --tier-beam: rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   gap: 1.15rem;
@@ -6806,11 +6818,11 @@
 }
 
 .star-stage-percentile-pill {
-  font-size: 1.08rem;
+  font-size: 1.05rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--tier-color);
-  padding: 0.22rem 0.65rem;
+  padding: 0.22rem 0.68rem;
   border-radius: 9999px;
   background: var(--tier-bg);
   border: 1px solid var(--tier-border);
@@ -6820,86 +6832,102 @@
 
 .star-stage-hero {
   position: relative;
+  overflow: hidden;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 1.25rem;
-  padding: 1.1rem 1.25rem;
-  border-radius: 1.1rem;
+  gap: 1.45rem;
+  min-height: 9.2rem;
+  padding: 1.35rem 1.45rem 1.55rem;
+  border-radius: 1.15rem;
   background:
-    radial-gradient(125% 120% at 0% 0%, var(--tier-bg) 0%, rgba(24, 25, 28, 0.2) 72%),
-    rgba(255, 255, 255, 0.02);
+    radial-gradient(125% 140% at 8% 15%, var(--tier-bg) 0%, rgba(14, 15, 19, 0.25) 68%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032) 0%, rgba(255, 255, 255, 0.01) 100%);
   border: 1px solid var(--tier-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: border-color 0.24s ease, background 0.24s ease, box-shadow 0.24s ease;
 }
 
 .star-rating-stage.has-score .star-stage-hero {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--tier-glow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.11), var(--tier-glow);
 }
 
 .star-stage-score-block {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  padding-right: 1.15rem;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding-right: 1.4rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.09);
 }
 
-.star-stage-crest {
-  width: 2.5rem;
-  height: 2.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--tier-color);
-  transition: color 0.22s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), filter 0.22s ease;
+.star-stage-score-aura {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6.4rem;
+  height: 6.4rem;
+  transform: translate(-58%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--tier-beam) 0%, transparent 70%);
+  filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
 }
 
-.star-rating-stage.has-score .star-stage-crest {
-  filter: drop-shadow(0 0 8px var(--tier-border));
-  transform: scale(1.06);
-}
-
-.star-stage-crest-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
+.star-rating-stage.has-score .star-stage-score-aura {
+  opacity: 0.9;
 }
 
 .star-stage-score-readout {
-  display: flex;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
   align-items: baseline;
   gap: 0.25rem;
   font-variant-numeric: tabular-nums;
 }
 
+.star-stage-score-slot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.5rem;
+  height: 4.8rem;
+  overflow: hidden;
+}
+
 .star-stage-score-num {
-  font-size: 3rem;
-  font-weight: 800;
+  display: inline-block;
+  font-size: 4.4rem;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.045em;
   color: var(--tier-color);
-  transition: color 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  text-shadow: 0 2px 18px var(--tier-bg);
+  transition: color 0.2s ease;
 }
 
 .star-stage-score-denom {
   font-size: 1.15rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-3);
 }
 
 .star-stage-verdict {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.28rem;
   min-width: 0;
 }
 
 .star-stage-tier-name {
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 1.38rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
   color: var(--tier-color);
   white-space: nowrap;
   overflow: hidden;
@@ -6908,219 +6936,300 @@
 }
 
 .star-stage-tier-desc {
-  font-size: 1.12rem;
+  font-size: 1.13rem;
   color: var(--text-2);
-  line-height: 1.32;
+  line-height: 1.36;
+  min-height: 3.1rem;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* 10-Star Wave-Cascade Track & Synchronized Light Rail */
-.star-stage-track-wrap {
-  padding: 0.2rem 0 0.1rem;
-}
-
-.star-stage-radiogroup {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 0.15rem;
-  width: 100%;
-  box-sizing: border-box;
-  user-select: none;
-}
-
-.star-stage-rail {
+/* Synchronized live hairline progress meter along hero base */
+.star-stage-hero-meter {
   position: absolute;
-  left: 1.1rem;
-  right: 1.1rem;
-  bottom: 2.02rem;
-  height: 0.26rem;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.08);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0.24rem;
+  background: rgba(255, 255, 255, 0.05);
   overflow: hidden;
   pointer-events: none;
-  z-index: 1;
 }
 
-.star-stage-rail-fill {
+.star-stage-hero-meter-fill {
   display: block;
   height: 100%;
-  border-radius: 9999px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.35) 0%, var(--tier-color) 100%);
-  box-shadow: 0 0 10px var(--tier-color);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.28) 0%, var(--tier-color) 100%);
+  box-shadow: 0 0 12px var(--tier-color);
   transition: width 0.24s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease;
 }
 
-.star-stage-btn {
+/* Sculpted Ascending 10-Bar Cinema Instrument */
+.cinema-fader-housing {
   position: relative;
-  z-index: 2;
+  border-radius: 1.05rem;
+  background: linear-gradient(180deg, #0b0c10 0%, #0e1015 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 2px 14px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 1.05rem 0.65rem 0.72rem;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.star-rating-stage.is-scrubbing .cinema-fader-housing,
+.cinema-fader-housing:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.star-rating-stage.is-zenith .cinema-fader-housing {
+  border-color: rgba(246, 208, 122, 0.34);
+  box-shadow:
+    inset 0 2px 14px rgba(0, 0, 0, 0.68),
+    0 0 24px rgba(246, 208, 122, 0.09);
+}
+
+.cinema-fader-beam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: radial-gradient(
+    110% 120% at 100% 50%,
+    var(--tier-beam) 0%,
+    rgba(255, 255, 255, 0.015) 75%
+  );
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 0;
+  transition: width 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease;
+}
+
+.cinema-fader-radiogroup {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 0.42rem;
+  width: 100%;
+  box-sizing: border-box;
+  user-select: none;
+  touch-action: none;
+  cursor: ew-resize;
+}
+
+.cinema-fader-cell {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  gap: 0.45rem;
+  justify-content: flex-end;
+  gap: 0.55rem;
   min-width: 0;
-  padding: 0.35rem 0 0.2rem;
+  padding: 0;
   background: transparent;
   border: none;
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.22);
-  transition: color 0.18s ease;
 }
 
-.star-stage-icon-wrap {
-  width: 2.2rem;
-  height: 2.2rem;
+.cinema-bar-well {
+  width: 100%;
+  height: 5.4rem;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
+}
+
+.cinema-bar-slab {
+  position: relative;
+  width: 100%;
+  height: var(--bar-h, 50%);
+  border-radius: 0.42rem 0.42rem 0.24rem 0.24rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0.03) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  transform-origin: bottom center;
   transition:
-    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.22s ease;
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.2s ease,
+    opacity 0.18s ease;
   transition-delay: var(--stagger-ms, 0ms);
 }
 
-.star-stage-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-  overflow: visible;
+.cinema-fader-cell:hover .cinema-bar-slab {
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
-.star-stage-svg-outer {
-  fill: rgba(255, 255, 255, 0.05);
-  stroke: currentColor;
-  stroke-width: 1.65;
-  stroke-linejoin: round;
-  transition: fill 0.18s ease, stroke 0.18s ease;
+.cinema-fader-cell.is-filled .cinema-bar-slab {
+  background: linear-gradient(180deg, var(--tier-bar-top) 0%, var(--tier-bar-bottom) 100%);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    0 4px 12px rgba(0, 0, 0, 0.42);
 }
 
-.star-stage-svg-glint {
-  fill: rgba(255, 255, 255, 0.24);
+.cinema-fader-cell.is-wave-neighbor .cinema-bar-slab {
+  transform: translateY(-2px) scaleY(1.03);
+  transition-delay: 0ms;
+}
+
+.cinema-fader-cell.is-current .cinema-bar-slab,
+.cinema-fader-cell.is-selected .cinema-bar-slab {
+  transform: translateY(-4px) scaleY(1.06);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    0 0 16px var(--tier-beam),
+    0 6px 14px rgba(0, 0, 0, 0.5);
+  transition-delay: 0ms;
+}
+
+@keyframes cinemaBarZenithSheen {
+  0% {
+    transform: translateY(110%);
+  }
+  100% {
+    transform: translateY(-130%);
+  }
+}
+
+.star-rating-stage.is-zenith .cinema-fader-cell.is-filled .cinema-bar-slab::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.42) 50%, transparent 100%);
+  animation: cinemaBarZenithSheen 2.4s ease-in-out infinite;
+  animation-delay: var(--stagger-ms, 0ms);
   pointer-events: none;
 }
 
-.star-stage-btn.is-filled {
-  color: var(--tier-color);
-}
-
-.star-stage-btn.is-filled .star-stage-svg-outer {
-  fill: var(--tier-color);
-  stroke: var(--tier-color);
-}
-
-.star-stage-btn.is-filled .star-stage-icon-wrap {
-  filter: drop-shadow(0 0 6px var(--tier-border));
-}
-
-.star-stage-btn.is-wave-neighbor .star-stage-icon-wrap {
-  transform: translateY(-2px) scale(1.12);
-  transition-delay: 0ms;
-}
-
-.star-stage-btn.is-current .star-stage-icon-wrap {
-  transform: translateY(-4px) scale(1.26);
-  filter: drop-shadow(0 0 11px var(--tier-color));
-  transition-delay: 0ms;
-}
-
-@keyframes starStagePop {
+@keyframes cinemaSlabPop {
   0% {
-    transform: translateY(-4px) scale(1.26);
+    transform: translateY(-4px) scaleY(1.06);
   }
   45% {
-    transform: translateY(-6px) scale(1.42) rotate(-6deg);
+    transform: translateY(-6px) scaleY(1.13);
   }
   100% {
-    transform: translateY(-4px) scale(1.26) rotate(0deg);
+    transform: translateY(-4px) scaleY(1.06);
   }
 }
 
-.star-stage-btn.is-popped .star-stage-icon-wrap {
-  animation: starStagePop 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+.cinema-fader-cell.is-popped .cinema-bar-slab {
+  animation: cinemaSlabPop 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.star-stage-node {
-  width: 0.52rem;
-  height: 0.52rem;
-  border-radius: 9999px;
-  background: #23252a;
-  border: 1.5px solid rgba(255, 255, 255, 0.22);
-  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
-}
-
-.star-stage-node.is-lit {
-  background: var(--tier-color);
-  border-color: var(--tier-color);
-  box-shadow: 0 0 6px var(--tier-color);
-}
-
-.star-stage-btn.is-current .star-stage-node {
-  transform: scale(1.3);
-  background: #ffffff;
-  border-color: var(--tier-color);
-}
-
-.star-stage-num {
+.cinema-fader-num {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 1.08rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  font-size: 1.04rem;
+  font-weight: 600;
   line-height: 1;
+  padding-bottom: 0.45rem;
   color: var(--text-3);
-  transition: color 0.16s ease, transform 0.16s ease;
+  transition: color 0.16s ease;
 }
 
-.star-stage-btn.is-filled .star-stage-num {
+.cinema-fader-dot {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0.38rem;
+  height: 0.38rem;
+  margin-left: -0.19rem;
+  border-radius: 50%;
+  background: var(--tier-color);
+  box-shadow: 0 0 8px var(--tier-color);
+}
+
+.cinema-fader-cell.is-filled .cinema-fader-num {
   color: var(--text-2);
 }
 
-.star-stage-btn.is-current .star-stage-num,
-.star-stage-btn.is-selected .star-stage-num {
+.cinema-fader-cell.is-current .cinema-fader-num,
+.cinema-fader-cell.is-selected .cinema-fader-num {
   color: var(--tier-color);
   font-weight: 800;
-  transform: translateY(1px);
 }
 
-/* Inline De-boxed Vault Calibration Anchors */
+/* Fixed-Height Zero-Shift Vault Calibration Comparison Strip */
 .star-stage-anchors {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding-top: 0.85rem;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.9rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.star-stage-anchors-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
 .star-stage-anchors-label {
-  font-size: 1.08rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-3);
 }
 
-.star-stage-anchors-list {
+.star-stage-anchors-score {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--tier-color);
+}
+
+.star-stage-anchors-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  height: 3.1rem;
+  align-items: stretch;
+}
+
+.star-stage-anchors-placeholder {
+  height: 3.1rem;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem;
+  padding: 0 0.85rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  color: var(--text-3);
+  font-size: 1.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .star-stage-anchor-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.24rem 0.68rem;
-  border-radius: 9999px;
+  justify-content: space-between;
+  gap: 0.45rem;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0.78rem;
+  border-radius: 0.6rem;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.09);
   color: var(--text-2);
-  font-size: 1.08rem;
+  font-size: 1.1rem;
   font-weight: 600;
   cursor: pointer;
-  max-width: 100%;
   transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
@@ -7128,20 +7237,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 16rem;
+  min-width: 0;
 }
 
 .star-stage-anchor-chip small {
+  flex-shrink: 0;
   font-size: 1rem;
   font-variant-numeric: tabular-nums;
   color: var(--tier-color);
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 .star-stage-anchor-chip:hover {
   border-color: var(--tier-border);
   color: var(--text-1);
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.075);
 }
 
 /* Compact variant for QuickRateModal */
@@ -7150,11 +7260,62 @@
 }
 
 .star-rating-stage.is-compact .star-stage-hero {
-  padding: 0.85rem 1.1rem;
+  min-height: 7.8rem;
+  padding: 1rem 1.2rem 1.2rem;
+}
+
+.star-rating-stage.is-compact .star-stage-score-slot {
+  min-width: 3.6rem;
+  height: 3.9rem;
 }
 
 .star-rating-stage.is-compact .star-stage-score-num {
-  font-size: 2.5rem;
+  font-size: 3.4rem;
+}
+
+.star-rating-stage.is-compact .cinema-bar-well {
+  height: 4.4rem;
+}
+
+.studio-expand-review-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.82rem 1rem;
+  border-radius: var(--r-sm);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 1.2rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
+}
+
+.studio-expand-review-btn:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-1);
+}
+
+.studio-review-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cinema-fader-beam,
+  .cinema-bar-slab,
+  .star-stage-hero-meter-fill,
+  .cinema-fader-cell.is-popped .cinema-bar-slab,
+  .star-rating-stage.is-zenith .cinema-fader-cell.is-filled .cinema-bar-slab::after {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 /* De-boxed Quick Review Tags & Studio Drawers */
