@@ -7,6 +7,7 @@ import { findMatchingMovie } from "./movieIdentity.js";
 
 export const DEFAULT_EXPLORE_FILTERS = Object.freeze({
   mode: "catalog",
+  query: "",
   genres: [],
   genreMode: "and",
   withoutGenres: [],
@@ -237,12 +238,25 @@ function toSearchParams(searchOrString) {
   return new URLSearchParams(qs);
 }
 
-function getModeDefaults(mode) {
-  const isForYou = mode === "for-you";
+export function getExploreModeDefaults(mode, hasQuery = false) {
+  if (mode === "for-you") {
+    return {
+      minImdb: 0,
+      minVotes: 0,
+      sortBy: "for_you"
+    };
+  }
+  if (hasQuery) {
+    return {
+      minImdb: 0,
+      minVotes: 0,
+      sortBy: DEFAULT_EXPLORE_FILTERS.sortBy
+    };
+  }
   return {
-    minImdb: isForYou ? 0 : DEFAULT_EXPLORE_FILTERS.minImdb,
-    minVotes: isForYou ? 0 : DEFAULT_EXPLORE_FILTERS.minVotes,
-    sortBy: isForYou ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy
+    minImdb: DEFAULT_EXPLORE_FILTERS.minImdb,
+    minVotes: DEFAULT_EXPLORE_FILTERS.minVotes,
+    sortBy: DEFAULT_EXPLORE_FILTERS.sortBy
   };
 }
 
@@ -255,7 +269,8 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
 
   const modeRaw = String(sp.get("mode") || "").trim().toLowerCase();
   const mode = modeRaw === "for-you" ? "for-you" : "catalog";
-  const modeDefaults = getModeDefaults(mode);
+  const query = String(sp.get("q") || sp.get("query") || "").trim();
+  const modeDefaults = getExploreModeDefaults(mode, Boolean(query));
 
   const minImdbRaw = sp.get("minImdb");
   const minImdbParsed = minImdbRaw !== null && minImdbRaw !== "" && Number.isFinite(Number(minImdbRaw))
@@ -272,6 +287,7 @@ export function parseExploreSearchParams(searchOrString = "", defaultRegion = "U
 
   return {
     mode,
+    query,
     genres: parseIntIdList(sp.get("genres")),
     genreMode: sp.get("genreMode") === "or" ? "or" : "and",
     withoutGenres: parseIntIdList(sp.get("withoutGenres")),
@@ -301,8 +317,10 @@ export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT
   const sp = new URLSearchParams();
   const effectiveDefaultRegion = normalizeRegion(defaultRegion, DEFAULT_EXPLORE_FILTERS.region);
   const mode = filters.mode === "for-you" ? "for-you" : "catalog";
-  const modeDefaults = getModeDefaults(mode);
+  const query = String(filters.query || "").trim();
+  const modeDefaults = getExploreModeDefaults(mode, Boolean(query));
   if (mode === "for-you") sp.set("mode", "for-you");
+  if (query) sp.set("q", query);
 
   const genres = parseIntIdList(filters.genres);
   if (genres.length > 0) sp.set("genres", genres.join(","));
@@ -374,9 +392,10 @@ export function buildExploreSearchParams(filters = {}, { defaultRegion = DEFAULT
  */
 export function buildExploreRoute(partialFilters = {}, options = {}) {
   const mode = partialFilters?.mode === "for-you" ? "for-you" : "catalog";
+  const hasQuery = Boolean(String(partialFilters?.query || "").trim());
   const merged = {
     ...DEFAULT_EXPLORE_FILTERS,
-    ...getModeDefaults(mode),
+    ...getExploreModeDefaults(mode, hasQuery),
     ...(partialFilters && typeof partialFilters === "object" ? partialFilters : {})
   };
   const qs = buildExploreSearchParams(merged, options).toString();
@@ -593,12 +612,21 @@ export function filterExploreResults(movies = [], watched = [], watchlist = [], 
  */
 export function getActiveFilterChips(filters = {}) {
   const chips = [];
-  const modeDefaults = getModeDefaults(filters.mode);
+  const query = String(filters.query || "").trim();
+  const modeDefaults = getExploreModeDefaults(filters.mode, Boolean(query));
   const genres = parseIntIdList(filters.genres);
   const withoutGenres = parseIntIdList(filters.withoutGenres);
   const keywords = parseKeywordList(filters.keywords);
   const providers = parseIntIdList(filters.providers);
   const person = parsePersonParam(filters.person);
+
+  if (query) {
+    chips.push({
+      key: "query",
+      label: `Search: "${query}"`,
+      clearPatch: { query: "" }
+    });
+  }
 
   for (const id of genres) {
     chips.push({
@@ -740,4 +768,171 @@ export function getActiveFilterChips(filters = {}) {
   }
 
   return chips;
+}
+
+/**
+ * Transition Explore filters when entering or clearing a title search query,
+ * automatically relaxing catalog rating/vote defaults during search and restoring
+ * them when cleared unless the user customized them.
+ */
+export function applyExploreQueryTransition(baseFilters = {}, nextQuery = "") {
+  const prevQuery = String(baseFilters?.query || "").trim();
+  const cleanNext = String(nextQuery || "").trim();
+  let minImdb = baseFilters?.minImdb;
+  let minVotes = baseFilters?.minVotes;
+
+  if (baseFilters?.mode !== "for-you") {
+    if (!prevQuery && cleanNext) {
+      if (Number(minImdb) === DEFAULT_EXPLORE_FILTERS.minImdb) minImdb = 0;
+      if (Number(minVotes) === DEFAULT_EXPLORE_FILTERS.minVotes) minVotes = 0;
+    } else if (prevQuery && !cleanNext) {
+      if (Number(minImdb) === 0) minImdb = DEFAULT_EXPLORE_FILTERS.minImdb;
+      if (Number(minVotes) === 0) minVotes = DEFAULT_EXPLORE_FILTERS.minVotes;
+    }
+  }
+
+  return {
+    ...baseFilters,
+    query: cleanNext,
+    minImdb,
+    minVotes,
+    page: 1
+  };
+}
+
+/**
+ * Attach raw TMDB metadata fields needed for client-side Explore search filtering & sorting.
+ */
+export function attachExploreSearchMeta(card = {}, rawTmdbItem = {}) {
+  return {
+    ...card,
+    tmdbGenreIds: Array.isArray(rawTmdbItem?.genre_ids)
+      ? rawTmdbItem.genre_ids.map(Number).filter(Number.isFinite)
+      : (Array.isArray(card?.tmdbGenreIds) ? card.tmdbGenreIds : []),
+    vote_count: Number(rawTmdbItem?.vote_count ?? card?.vote_count) || 0,
+    popularity: Number(rawTmdbItem?.popularity ?? card?.popularity) || 0,
+    original_language: String(rawTmdbItem?.original_language ?? card?.original_language ?? "")
+      .trim()
+      .toLowerCase(),
+    release_date: String(rawTmdbItem?.release_date ?? card?.release_date ?? "").trim()
+  };
+}
+
+/**
+ * Check whether client-side search narrowing facets are active on top of the title query.
+ */
+export function hasSearchNarrowingFilters(filters = {}) {
+  return Boolean(
+    (Array.isArray(filters?.genres) && filters.genres.length > 0) ||
+    (Array.isArray(filters?.withoutGenres) && filters.withoutGenres.length > 0) ||
+    parseYearString(filters?.yearFrom) ||
+    parseYearString(filters?.yearTo) ||
+    Number(filters?.minImdb) > 0 ||
+    Number(filters?.minVotes) > 0 ||
+    String(filters?.language || "").trim()
+  );
+}
+
+/**
+ * Check whether discover-only facets are active alongside an active title search query.
+ */
+export function hasSearchUnsupportedFacets(filters = {}) {
+  if (!String(filters?.query || "").trim()) return false;
+  return Boolean(
+    parseOptionalPositiveInt(filters?.runtimeMin) !== "" ||
+    parseOptionalPositiveInt(filters?.runtimeMax) !== "" ||
+    parsePersonParam(filters?.person) ||
+    parseKeywordList(filters?.keywords).length > 0 ||
+    String(filters?.country || "").trim() ||
+    parseIntIdList(filters?.providers).length > 0
+  );
+}
+
+/**
+ * Filter and sort TMDB /3/search/movie results locally using Explore sidebar facets & sort mode.
+ */
+export function filterAndSortSearchResults(items = [], filters = {}, watched = [], watchlist = []) {
+  const annotated = filterExploreResults(items, watched, watchlist, {
+    hideWatched: Boolean(filters?.hideWatched)
+  });
+
+  const genres = parseIntIdList(filters?.genres);
+  const genreMode = filters?.genreMode === "or" ? "or" : "and";
+  const withoutGenres = new Set(parseIntIdList(filters?.withoutGenres));
+  const yearFromStr = parseYearString(filters?.yearFrom);
+  const yearToStr = parseYearString(filters?.yearTo);
+  const yearFrom = yearFromStr ? Number(yearFromStr) : null;
+  const yearTo = yearToStr ? Number(yearToStr) : null;
+  const minImdb = Number.isFinite(Number(filters?.minImdb)) && Number(filters.minImdb) > 0
+    ? Number(filters.minImdb)
+    : 0;
+  const minVotes = Number.isFinite(Number(filters?.minVotes)) && Number(filters.minVotes) > 0
+    ? Number(filters.minVotes)
+    : 0;
+  const language = String(filters?.language || "").trim().toLowerCase();
+
+  const filtered = annotated.filter((m) => {
+    const itemGenres = Array.isArray(m.tmdbGenreIds) ? m.tmdbGenreIds.map(Number) : [];
+    if (genres.length > 0) {
+      const matchesGenre = genreMode === "or"
+        ? genres.some((gid) => itemGenres.includes(gid))
+        : genres.every((gid) => itemGenres.includes(gid));
+      if (!matchesGenre) return false;
+    }
+    if (withoutGenres.size > 0 && itemGenres.some((gid) => withoutGenres.has(gid))) {
+      return false;
+    }
+
+    const itemYear = Number(m.year);
+    if (yearFrom !== null && (!Number.isFinite(itemYear) || itemYear < yearFrom)) return false;
+    if (yearTo !== null && (!Number.isFinite(itemYear) || itemYear > yearTo)) return false;
+
+    const score = Number(m.imdbRating ?? m.vote_average ?? 0);
+    if (minImdb > 0 && (!Number.isFinite(score) || score < minImdb)) return false;
+    if (minVotes > 0 && (Number(m.vote_count) || 0) < minVotes) return false;
+
+    if (language) {
+      const itemLang = String(m.original_language || "").trim().toLowerCase();
+      if (!itemLang || itemLang !== language) return false;
+    }
+
+    return true;
+  });
+
+  const sortBy = String(filters?.sortBy || DEFAULT_EXPLORE_FILTERS.sortBy);
+  return [...filtered].sort((a, b) => {
+    if (sortBy === "vote_average.desc") {
+      const votesA = Number(a.vote_count) || 0;
+      const votesB = Number(b.vote_count) || 0;
+      const tierA = votesA >= 50 ? 2 : votesA > 0 ? 1 : 0;
+      const tierB = votesB >= 50 ? 2 : votesB > 0 ? 1 : 0;
+      if (tierB !== tierA) return tierB - tierA;
+      const scoreDiff = (Number(b.imdbRating) || 0) - (Number(a.imdbRating) || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const voteDiff = votesB - votesA;
+      if (voteDiff !== 0) return voteDiff;
+      return (Number(b.popularity) || 0) - (Number(a.popularity) || 0);
+    }
+
+    if (sortBy === "primary_release_date.desc") {
+      const dateCmp = String(b.release_date || b.year || "").localeCompare(
+        String(a.release_date || a.year || "")
+      );
+      if (dateCmp !== 0) return dateCmp;
+      return (Number(b.popularity) || 0) - (Number(a.popularity) || 0);
+    }
+
+    if (sortBy === "vote_count.desc") {
+      const voteDiff = (Number(b.vote_count) || 0) - (Number(a.vote_count) || 0);
+      if (voteDiff !== 0) return voteDiff;
+      return (Number(b.popularity) || 0) - (Number(a.popularity) || 0);
+    }
+
+    // popularity.desc, revenue.desc, or default
+    const popDiff = (Number(b.popularity) || 0) - (Number(a.popularity) || 0);
+    if (popDiff !== 0) return popDiff;
+    const voteDiff = (Number(b.vote_count) || 0) - (Number(a.vote_count) || 0);
+    if (voteDiff !== 0) return voteDiff;
+    return (b.poster ? 1 : 0) - (a.poster ? 1 : 0);
+  });
 }

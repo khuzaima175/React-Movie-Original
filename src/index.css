@@ -3850,6 +3850,29 @@
   opacity: 0.82;
 }
 
+.search-explore-all-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e6e5e0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.search-explore-all-btn:hover {
+  background: rgba(243, 241, 235, 0.14);
+  border-color: rgba(243, 241, 235, 0.45);
+  color: #ffffff;
+}
+
 .search-theater-empty {
   padding: 2rem 2.2rem 2.2rem;
   max-height: 66vh;

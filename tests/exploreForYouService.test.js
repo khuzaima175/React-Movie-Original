@@ -430,3 +430,13 @@ test("expanded math-first For You pool targets >= 250 films, emits immediate pre
   // Math-ranked tail items must also carry clean deterministic vibe tags
   assert.ok(finalRes.items.every((m) => typeof m.vibeTag === "string" && m.vibeTag.length > 0));
 });
+
+test("filterForYouCatalog filters personalized pool by query across title, genre, director, and plot", () => {
+  const pool = [
+    { tmdbId: 329, title: "Jurassic Park", genre: "Adventure, Sci-Fi", director: "Steven Spielberg" },
+    { tmdbId: 135397, title: "Jurassic World", genre: "Action, Sci-Fi", director: "Colin Trevorrow" },
+    { tmdbId: 27205, title: "Inception", genre: "Action, Sci-Fi", director: "Christopher Nolan" }
+  ];
+  const matched = filterForYouCatalog(pool, { query: "jurassic" });
+  assert.deepEqual(matched.map((m) => m.tmdbId), [329, 135397]);
+});

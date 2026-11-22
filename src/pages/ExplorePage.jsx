@@ -35,13 +35,19 @@ import {
   EXPLORE_FOR_YOU_SORT_OPTIONS,
   LANGUAGE_OPTIONS,
   COUNTRY_OPTIONS,
+  getExploreModeDefaults,
   parseExploreSearchParams,
   buildExploreSearchParams,
   buildTmdbDiscoverParams,
   filterExploreResults,
   getActiveFilterChips,
   deriveExploreViewState,
-  mergeYearDraftIntoFilters
+  mergeYearDraftIntoFilters,
+  applyExploreQueryTransition,
+  attachExploreSearchMeta,
+  filterAndSortSearchResults,
+  hasSearchNarrowingFilters,
+  hasSearchUnsupportedFacets
 } from "../services/exploreService";
 import {
   EXPLORE_FOR_YOU_MIN_RATED,
@@ -57,6 +63,8 @@ import {
 import { isSameMovie } from "../services/movieIdentity";
 import { compileActiveTasteRules, candidateMatchesAvoidRule } from "../services/tasteRulesService";
 import "../styles/explore.css";
+
+const SEARCH_PAGES_PER_BATCH = 3;
 
 const VOTE_FLOOR_OPTIONS = [
   { value: 150, label: "Popular (150+ votes)" },
@@ -110,6 +118,11 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     [filters, defaultRegion]
   );
 
+  const hasSearchQuery = Boolean(filters.query);
+  const catalogFetchSignature = hasSearchQuery
+    ? `search:${filters.query.toLowerCase()}`
+    : filterSignature;
+
   const [rawPagesState, setRawPagesState] = useState({
     signature: null,
     items: [],
@@ -148,9 +161,10 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     [watched, watchlist, tasteRules, userRegion]
   );
 
-  // Local controlled inputs for debounced year typing
+  // Local controlled inputs for debounced year & title-search typing
   const [yearFromDraft, setYearFromDraft] = useState(filters.yearFrom);
   const [yearToDraft, setYearToDraft] = useState(filters.yearTo);
+  const [queryDraft, setQueryDraft] = useState(filters.query);
 
   // Live autocomplete states
   const [personQuery, setPersonQuery] = useState("");
@@ -169,6 +183,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const yearDebounceTimerRef = useRef(null);
+  const queryDebounceTimerRef = useRef(null);
   const personMenuRefs = useRef({ desktop: null, mobile: null });
   const keywordMenuRefs = useRef({ desktop: null, mobile: null });
 
@@ -176,6 +191,10 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     setYearFromDraft(filters.yearFrom);
     setYearToDraft(filters.yearTo);
   }, [filters.yearFrom, filters.yearTo]);
+
+  useEffect(() => {
+    setQueryDraft(filters.query);
+  }, [filters.query]);
 
   useEffect(() => {
     if (filters.withoutGenres.length > 0) {
@@ -213,15 +232,26 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   }, [isMobileFiltersOpen]);
 
   function updateFilters(patch, { resetPage = true, replace = false } = {}) {
-    const { __fromYearTimer, ...cleanPatch } = patch || {};
+    const { __fromYearTimer, __fromQueryTimer, ...cleanPatch } = patch || {};
     if (!__fromYearTimer && yearDebounceTimerRef.current) {
       clearTimeout(yearDebounceTimerRef.current);
       yearDebounceTimerRef.current = null;
     }
+    if (!__fromQueryTimer && queryDebounceTimerRef.current) {
+      clearTimeout(queryDebounceTimerRef.current);
+      queryDebounceTimerRef.current = null;
+    }
     const baseFilters = filtersRef.current;
+    let mergedBase = baseFilters;
+    if (Object.prototype.hasOwnProperty.call(cleanPatch, "query")) {
+      mergedBase = applyExploreQueryTransition(baseFilters, cleanPatch.query);
+    }
     const next = {
-      ...baseFilters,
+      ...mergedBase,
       ...cleanPatch,
+      ...(Object.prototype.hasOwnProperty.call(cleanPatch, "query")
+        ? { query: mergedBase.query }
+        : {}),
       page: resetPage ? 1 : (cleanPatch.page ?? baseFilters.page)
     };
     const nextParams = buildExploreSearchParams(next, { defaultRegion });
@@ -249,8 +279,13 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
       clearTimeout(yearDebounceTimerRef.current);
       yearDebounceTimerRef.current = null;
     }
+    if (queryDebounceTimerRef.current) {
+      clearTimeout(queryDebounceTimerRef.current);
+      queryDebounceTimerRef.current = null;
+    }
     setYearFromDraft("");
     setYearToDraft("");
+    setQueryDraft("");
     setPersonQuery("");
     setPersonSuggestions([]);
     setIsPersonMenuOpen(false);
@@ -258,14 +293,13 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     setKeywordSuggestions([]);
     setIsKeywordMenuOpen(false);
     const currentMode = filtersRef.current.mode === "for-you" ? "for-you" : "catalog";
+    const modeDefaults = getExploreModeDefaults(currentMode, false);
     setSearchParams(
       buildExploreSearchParams(
         {
           ...DEFAULT_EXPLORE_FILTERS,
+          ...modeDefaults,
           mode: currentMode,
-          minImdb: currentMode === "for-you" ? 0 : DEFAULT_EXPLORE_FILTERS.minImdb,
-          minVotes: currentMode === "for-you" ? 0 : DEFAULT_EXPLORE_FILTERS.minVotes,
-          sortBy: currentMode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy,
           region: defaultRegion
         },
         { defaultRegion }
@@ -275,12 +309,44 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
   function handleSwitchMode(nextMode) {
     if (nextMode === filters.mode) return;
+    const modeDefaults = getExploreModeDefaults(nextMode, Boolean(filtersRef.current.query));
     updateFilters({
       mode: nextMode,
-      sortBy: nextMode === "for-you" ? "for_you" : DEFAULT_EXPLORE_FILTERS.sortBy,
-      ...(nextMode === "for-you" ? { minImdb: 0, minVotes: 0 } : { minImdb: DEFAULT_EXPLORE_FILTERS.minImdb, minVotes: DEFAULT_EXPLORE_FILTERS.minVotes })
+      ...modeDefaults
     });
   }
+
+  function applyQueryDraft(nextVal) {
+    if (queryDebounceTimerRef.current) {
+      clearTimeout(queryDebounceTimerRef.current);
+      queryDebounceTimerRef.current = null;
+    }
+    const clean = String(nextVal || "").trim();
+    if (clean !== filtersRef.current.query) {
+      updateFilters({ query: clean });
+    }
+  }
+
+  // Sync debounced title-search typing against latest filter state
+  useEffect(() => {
+    const trimmed = String(queryDraft || "").trim();
+    if (trimmed === filtersRef.current.query) return undefined;
+
+    queryDebounceTimerRef.current = setTimeout(() => {
+      queryDebounceTimerRef.current = null;
+      if (trimmed !== filtersRef.current.query) {
+        updateFilters({ query: trimmed, __fromQueryTimer: true }, { replace: true });
+      }
+    }, 320);
+
+    return () => {
+      if (queryDebounceTimerRef.current) {
+        clearTimeout(queryDebounceTimerRef.current);
+        queryDebounceTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryDraft]);
 
   function applyYearDrafts(nextFrom, nextTo) {
     if (yearDebounceTimerRef.current) {
@@ -332,11 +398,12 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     return resolved;
   }, [userWatchProviders]);
 
-  // Fetch /3/discover/movie with request-sequence & AbortController protection (Catalog mode only)
+  // Fetch /3/search/movie (when query is active) or /3/discover/movie (Catalog mode only)
   useEffect(() => {
     if (isForYouMode) return undefined;
     const seq = ++requestSeqRef.current;
     const controller = new AbortController();
+    const currentFilters = filtersRef.current;
 
     if (!hasTmdbBackend()) {
       setIsLoading(false);
@@ -347,9 +414,9 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
     const prev = rawStateRef.current;
     const isAppending =
-      filters.page > 1 &&
-      prev.signature === filterSignature &&
-      filters.page === prev.loadedPage + 1;
+      currentFilters.page > 1 &&
+      prev.signature === catalogFetchSignature &&
+      currentFilters.page === prev.loadedPage + 1;
 
     setErrorMsg("");
     if (isAppending) {
@@ -358,20 +425,84 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
       setIsLoading(true);
     }
 
-    const discoverParams = buildTmdbDiscoverParams(filters);
+    async function runCatalogFetch() {
+      try {
+        let normalizedBatch = [];
+        let totalResults = 0;
+        let totalPages = 1;
 
-    fetchTmdbJson("/3/discover/movie", discoverParams, { signal: controller.signal })
-      .then((data) => {
-        if (controller.signal.aborted || requestSeqRef.current !== seq) return;
-        if (!data || !Array.isArray(data.results)) {
-          setErrorMsg("Could not load catalog results right now. Try adjusting filters or retrying.");
-          return;
+        if (currentFilters.query) {
+          const batchStartPage = (currentFilters.page - 1) * SEARCH_PAGES_PER_BATCH + 1;
+          const firstData = await fetchTmdbJson(
+            "/3/search/movie",
+            {
+              query: currentFilters.query,
+              include_adult: false,
+              language: "en-US",
+              page: batchStartPage
+            },
+            { signal: controller.signal }
+          );
+          if (controller.signal.aborted || requestSeqRef.current !== seq) return;
+          if (!firstData || !Array.isArray(firstData.results)) {
+            setErrorMsg("Could not load search results right now. Try adjusting your query or retrying.");
+            return;
+          }
+
+          const tmdbTotalPages = Math.max(1, Number(firstData.total_pages) || 1);
+          const tmdbTotalResults = Number(firstData.total_results) || 0;
+          const batchEndPage = Math.min(batchStartPage + SEARCH_PAGES_PER_BATCH - 1, tmdbTotalPages);
+
+          let combinedRaw = [...firstData.results];
+          if (batchEndPage > batchStartPage) {
+            const extraPages = [];
+            for (let p = batchStartPage + 1; p <= batchEndPage; p += 1) {
+              extraPages.push(
+                fetchTmdbJson(
+                  "/3/search/movie",
+                  {
+                    query: currentFilters.query,
+                    include_adult: false,
+                    language: "en-US",
+                    page: p
+                  },
+                  { signal: controller.signal }
+                )
+              );
+            }
+            const settled = await Promise.allSettled(extraPages);
+            if (controller.signal.aborted || requestSeqRef.current !== seq) return;
+            for (const res of settled) {
+              if (res.status === "fulfilled" && Array.isArray(res.value?.results)) {
+                combinedRaw = combinedRaw.concat(res.value.results);
+              }
+            }
+          }
+
+          normalizedBatch = combinedRaw.map((item) =>
+            attachExploreSearchMeta(toDashboardCardItem(item), item)
+          );
+          totalResults = tmdbTotalResults;
+          totalPages = Math.max(1, Math.ceil(tmdbTotalPages / SEARCH_PAGES_PER_BATCH));
+        } else {
+          const discoverParams = buildTmdbDiscoverParams(currentFilters);
+          const data = await fetchTmdbJson("/3/discover/movie", discoverParams, {
+            signal: controller.signal
+          });
+          if (controller.signal.aborted || requestSeqRef.current !== seq) return;
+          if (!data || !Array.isArray(data.results)) {
+            setErrorMsg("Could not load catalog results right now. Try adjusting filters or retrying.");
+            return;
+          }
+
+          normalizedBatch = data.results.map((item) => toDashboardCardItem(item));
+          totalResults = Number(data.total_results) || 0;
+          totalPages = Math.max(1, Number(data.total_pages) || 1);
         }
 
-        const normalizedBatch = data.results.map((item) => toDashboardCardItem(item));
         setRawPagesState((curr) => {
           const baseItems =
-            isAppending && curr.signature === filterSignature ? curr.items : [];
+            isAppending && curr.signature === catalogFetchSignature ? curr.items : [];
           const seen = new Set(baseItems.map((m) => Number(m.tmdbId || m.id)));
           const merged = [...baseItems];
           for (const card of normalizedBatch) {
@@ -381,27 +512,29 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
             merged.push(card);
           }
           return {
-            signature: filterSignature,
+            signature: catalogFetchSignature,
             items: merged,
-            loadedPage: filters.page,
-            totalResults: Number(data.total_results) || merged.length,
-            totalPages: Math.max(1, Number(data.total_pages) || 1)
+            loadedPage: currentFilters.page,
+            totalResults: totalResults || merged.length,
+            totalPages
           };
         });
-      })
-      .catch((err) => {
+      } catch (err) {
         if (controller.signal.aborted || err?.name === "AbortError") return;
         if (requestSeqRef.current !== seq) return;
         setErrorMsg("Failed to fetch matching films from TMDB.");
-      })
-      .finally(() => {
-        if (controller.signal.aborted || requestSeqRef.current !== seq) return;
-        setIsLoading(false);
-        setIsLoadingMore(false);
-      });
+      } finally {
+        if (!controller.signal.aborted && requestSeqRef.current === seq) {
+          setIsLoading(false);
+          setIsLoadingMore(false);
+        }
+      }
+    }
+
+    runCatalogFetch();
 
     return () => controller.abort();
-  }, [filters, filterSignature, retryNonce, isForYouMode]);
+  }, [catalogFetchSignature, filters.page, retryNonce, isForYouMode]);
 
   // Load or generate cached ~100-film personalized "Movies You'll Like" pool
   // Mirror global non-blocking For You job state into ExplorePage cleanly
@@ -620,19 +753,20 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     [isForYouMode, forYouShuffledPool, filters, watched, watchlist]
   );
 
-  const filteredResults = useMemo(
-    () =>
-      filterExploreResults(rawPagesState.items, watched, watchlist, {
-        hideWatched: filters.hideWatched
-      }),
-    [rawPagesState.items, watched, watchlist, filters.hideWatched]
-  );
+  const filteredResults = useMemo(() => {
+    if (!isForYouMode && hasSearchQuery) {
+      return filterAndSortSearchResults(rawPagesState.items, filters, watched, watchlist);
+    }
+    return filterExploreResults(rawPagesState.items, watched, watchlist, {
+      hideWatched: filters.hideWatched
+    });
+  }, [rawPagesState.items, watched, watchlist, filters, isForYouMode, hasSearchQuery]);
 
   const catalogViewState = useMemo(
     () =>
       deriveExploreViewState({
         rawPagesState,
-        filterSignature,
+        filterSignature: catalogFetchSignature,
         filteredResults,
         isLoading,
         isLoadingMore,
@@ -640,7 +774,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
         hideWatched: filters.hideWatched,
         page: filters.page
       }),
-    [rawPagesState, filterSignature, filteredResults, isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page]
+    [rawPagesState, catalogFetchSignature, filteredResults, isLoading, isLoadingMore, errorMsg, filters.hideWatched, filters.page]
   );
 
   // Reset visible slice cleanly whenever filters or shuffle order change
@@ -666,6 +800,10 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const activeErrorMsg = isForYouMode ? forYouError : errorMsg;
   const activeSortOptions = isForYouMode ? EXPLORE_FOR_YOU_SORT_OPTIONS : EXPLORE_SORT_OPTIONS;
   const activeChips = useMemo(() => getActiveFilterChips(filters), [filters]);
+  const displayCatalogCount = !isForYouMode && hasSearchQuery && viewState.hasFreshData &&
+    (hasSearchNarrowingFilters(filters) || filters.page >= viewState.displayTotalPages)
+      ? viewState.visibleItems.length
+      : viewState.displayTotalResults;
   const remainingForYouCount = isForYouMode
     ? Math.max(0, forYouFilteredResults.length - visibleForYouCount)
     : 0;
@@ -1192,10 +1330,18 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           <header className="explore-header">
             <div className="explore-header-copy">
               <div className="explore-kicker">
-                {isForYouMode ? "Taste-Matched Personal Catalog" : "Precision Catalog Workbench"}
+                {isForYouMode
+                  ? "Taste-Matched Personal Catalog"
+                  : hasSearchQuery
+                    ? "Catalog Title Search"
+                    : "Precision Catalog Workbench"}
               </div>
               <h1 className="explore-title">
-                {isForYouMode ? "Movies You'll Like" : "Explore Films"}
+                {isForYouMode
+                  ? "Movies You'll Like"
+                  : hasSearchQuery
+                    ? `Results for "${filters.query}"`
+                    : "Explore Films"}
               </h1>
               <p className="explore-subtitle tabular-num">
                 {isForYouMode
@@ -1208,15 +1354,18 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                         } ready to filter`
                   : !viewState.hasFreshData && isLoading
                     ? "Querying TMDB catalog…"
-                    : `${viewState.displayTotalResults.toLocaleString()} matching ${
-                        viewState.displayTotalResults === 1 ? "film" : "films"
+                    : `${displayCatalogCount.toLocaleString()} matching ${
+                        displayCatalogCount === 1 ? "film" : "films"
                       }`}
                 {isForYouMode && isForYouEnhancing && (
                   <span className="explore-enhancing-note">
                     {" "}· {forYouStageNote || "Refining top picks…"}
                   </span>
                 )}
-                {viewState.hiddenWatchedCount > 0 && ` · ${viewState.hiddenWatchedCount} watched hidden`}
+                {filters.hideWatched &&
+                  (!hasSearchQuery || !hasSearchNarrowingFilters(filters)) &&
+                  viewState.hiddenWatchedCount > 0 &&
+                  ` · ${viewState.hiddenWatchedCount} watched hidden`}
               </p>
             </div>
 
@@ -1288,6 +1437,38 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
             </div>
 
             <div className="explore-mode-toolbar-right">
+              <form
+                className="explore-title-search-form"
+                role="search"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  applyQueryDraft(queryDraft);
+                }}
+              >
+                <Search size={14} className="explore-title-search-icon" aria-hidden="true" />
+                <input
+                  type="search"
+                  className="explore-title-search-input"
+                  value={queryDraft}
+                  onChange={(e) => setQueryDraft(e.target.value)}
+                  placeholder="Search titles or franchise (e.g. Jurassic)…"
+                  aria-label="Search films by title or franchise"
+                />
+                {queryDraft && (
+                  <button
+                    type="button"
+                    className="explore-title-search-clear"
+                    onClick={() => {
+                      setQueryDraft("");
+                      applyQueryDraft("");
+                    }}
+                    aria-label="Clear title search"
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </form>
+
               {isForYouMode && !needsForYouCalibration && (
                 <motion.div
                   className="explore-for-you-tools"
@@ -1353,6 +1534,12 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
             </div>
           )}
 
+          {!isForYouMode && hasSearchQuery && hasSearchUnsupportedFacets(filters) && (
+            <p className="explore-search-scope-hint">
+              Title search filters by Era, Genres, Score, Votes, Language, and Watch status. Clear the search query to filter by Runtime, Cast, Motifs, Country, or Streaming.
+            </p>
+          )}
+
           {/* Error Banner */}
           {activeErrorMsg && (
             <div className="explore-state-card error" role="alert">
@@ -1415,9 +1602,18 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               <p>
                 {viewState.hiddenWatchedCount > 0 && hasMorePages
                   ? `All ${viewState.hiddenWatchedCount} matches from this page are already in your Vault.`
-                  : "Try widening your score threshold, removing a motif, or relaxing genre filters."}
+                  : isForYouMode && hasSearchQuery
+                    ? `No matches for "${filters.query}" in your personalized For You pool.`
+                    : !isForYouMode && hasSearchQuery
+                      ? "Try loosening your rating, era, or genre filters, or searching a broader title."
+                      : "Try widening your score threshold, removing a motif, or relaxing genre filters."}
               </p>
               <div className="explore-empty-actions">
+                {isForYouMode && hasSearchQuery && (
+                  <Button variant="primary" onClick={() => handleSwitchMode("catalog")}>
+                    Search All Catalog for &ldquo;{filters.query}&rdquo;
+                  </Button>
+                )}
                 {viewState.hiddenWatchedCount > 0 && hasMorePages && (
                   <Button
                     variant="primary"

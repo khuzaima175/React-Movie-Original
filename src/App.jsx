@@ -30,6 +30,7 @@ import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
 } from "./services/tasteDeckService";
+import { buildExploreRoute } from "./services/exploreService";
 import { syncDebugFlagFromSearch } from "./services/debugFlags";
 import { motion, AnimatePresence, MotionConfig, useScroll, useSpring } from "framer-motion";
 import { pageTransition } from "./motion";
@@ -128,6 +129,12 @@ function AppContent() {
     }
   }
 
+  function handleExploreQuery(rawQuery) {
+    const clean = String(rawQuery || "").trim();
+    if (!clean) return;
+    navigate(buildExploreRoute({ mode: "catalog", query: clean }));
+  }
+
   function handleOpenBackup(tab = "export") {
     setBackupInitialTab(tab);
     setIsBackupOpen(true);
@@ -158,6 +165,7 @@ function AppContent() {
         onClose={() => setIsSearchOpen(false)}
         onSelectMovie={handleSelectMovie}
         onQuickRate={(movie) => setQuickRateTarget(movie)}
+        onExploreQuery={handleExploreQuery}
       />
 
       <RandomPicker

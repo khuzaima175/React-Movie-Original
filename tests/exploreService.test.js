@@ -9,7 +9,10 @@ import {
   filterExploreResults,
   getActiveFilterChips,
   deriveExploreViewState,
-  mergeYearDraftIntoFilters
+  mergeYearDraftIntoFilters,
+  applyExploreQueryTransition,
+  attachExploreSearchMeta,
+  filterAndSortSearchResults
 } from "../src/services/exploreService.js";
 
 test("buildExploreRoute and parseExploreSearchParams round-trip complex multi-facet filters including special keyword characters", () => {
@@ -283,4 +286,103 @@ test("For You mode defaults produce zero active filter chips and preserve mode-r
   assert.equal(customChips.length, 2);
   assert.deepEqual(customChips.find((c) => c.key === "minImdb")?.clearPatch, { minImdb: 0 });
   assert.deepEqual(customChips.find((c) => c.key === "sortBy")?.clearPatch, { sortBy: "for_you" });
+});
+
+test("buildExploreRoute and parseExploreSearchParams round-trip title search query with relaxed defaults", () => {
+  const route = buildExploreRoute({ query: "jurassic" });
+  assert.equal(route, "/explore?q=jurassic");
+
+  const parsed = parseExploreSearchParams(route.split("?")[1], "US");
+  assert.equal(parsed.query, "jurassic");
+  assert.equal(parsed.minImdb, 0);
+  assert.equal(parsed.minVotes, 0);
+  assert.equal(parsed.sortBy, "popularity.desc");
+
+  const chips = getActiveFilterChips(parsed);
+  assert.equal(chips.length, 1);
+  assert.equal(chips[0].key, "query");
+  assert.equal(chips[0].label, 'Search: "jurassic"');
+  assert.deepEqual(chips[0].clearPatch, { query: "" });
+});
+
+test("applyExploreQueryTransition relaxes default catalog rating/votes when entering query and restores on clear", () => {
+  const entered = applyExploreQueryTransition({ ...DEFAULT_EXPLORE_FILTERS }, "jurassic");
+  assert.equal(entered.query, "jurassic");
+  assert.equal(entered.minImdb, 0);
+  assert.equal(entered.minVotes, 0);
+  assert.equal(entered.page, 1);
+
+  // Preserves custom user threshold
+  const enteredCustom = applyExploreQueryTransition(
+    { ...DEFAULT_EXPLORE_FILTERS, minImdb: 7.5, minVotes: 500 },
+    "jurassic"
+  );
+  assert.equal(enteredCustom.minImdb, 7.5);
+  assert.equal(enteredCustom.minVotes, 500);
+
+  // Restores defaults when cleared from 0
+  const cleared = applyExploreQueryTransition(entered, "");
+  assert.equal(cleared.query, "");
+  assert.equal(cleared.minImdb, DEFAULT_EXPLORE_FILTERS.minImdb);
+  assert.equal(cleared.minVotes, DEFAULT_EXPLORE_FILTERS.minVotes);
+});
+
+test("filterAndSortSearchResults ranks popular franchise movies ahead of obscure shorts and filters locally", () => {
+  const rawItems = [
+    attachExploreSearchMeta(
+      { tmdbId: 958028, imdbID: "tmdb_958028", title: "Jurassic!", year: "2019", imdbRating: "9.5", poster: "/a.jpg" },
+      { genre_ids: [16, 14], vote_count: 1, popularity: 2.1, original_language: "ja", release_date: "2019-08-24" }
+    ),
+    attachExploreSearchMeta(
+      { tmdbId: 329, imdbID: "tmdb_329", title: "Jurassic Park", year: "1993", imdbRating: "8.0", poster: "/jp.jpg" },
+      { genre_ids: [12, 878], vote_count: 16000, popularity: 85.4, original_language: "en", release_date: "1993-06-11" }
+    ),
+    attachExploreSearchMeta(
+      { tmdbId: 331, imdbID: "tmdb_331", title: "Jurassic Park III", year: "2001", imdbRating: "6.2", poster: "/jp3.jpg" },
+      { genre_ids: [12, 28, 878], vote_count: 7200, popularity: 48.2, original_language: "en", release_date: "2001-07-18" }
+    ),
+    attachExploreSearchMeta(
+      { tmdbId: 135397, imdbID: "tmdb_135397", title: "Jurassic World", year: "2015", imdbRating: "6.7", poster: "/jw.jpg" },
+      { genre_ids: [28, 12, 878], vote_count: 20500, popularity: 72.0, original_language: "en", release_date: "2015-06-12" }
+    )
+  ];
+
+  // popularity.desc places Jurassic Park, Jurassic World, Jurassic Park III ahead of obscure short
+  const byPop = filterAndSortSearchResults(rawItems, { ...DEFAULT_EXPLORE_FILTERS, query: "jurassic", minImdb: 0, minVotes: 0 });
+  assert.deepEqual(
+    byPop.map((m) => m.tmdbId),
+    [329, 135397, 331, 958028]
+  );
+
+  // vote_average.desc tiers 50+ vote films ahead of 1-vote 9.5 short
+  const byScore = filterAndSortSearchResults(rawItems, {
+    ...DEFAULT_EXPLORE_FILTERS,
+    query: "jurassic",
+    minImdb: 0,
+    minVotes: 0,
+    sortBy: "vote_average.desc"
+  });
+  assert.deepEqual(
+    byScore.map((m) => m.tmdbId),
+    [329, 135397, 331, 958028]
+  );
+
+  // Filter by genre, year range, language, and hideWatched
+  const filtered = filterAndSortSearchResults(
+    rawItems,
+    {
+      ...DEFAULT_EXPLORE_FILTERS,
+      query: "jurassic",
+      genres: [878],
+      yearFrom: "2000",
+      yearTo: "2020",
+      language: "en",
+      minImdb: 6.5,
+      minVotes: 0,
+      hideWatched: true
+    },
+    [{ tmdbId: 329, title: "Jurassic Park", userRating: 10 }],
+    []
+  );
+  assert.deepEqual(filtered.map((m) => m.tmdbId), [135397]);
 });

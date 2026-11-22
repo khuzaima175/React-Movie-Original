@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  ArrowRight,
   Bookmark,
   Check,
+  Compass,
   Film,
   Loader2,
   Plus,
@@ -30,7 +32,8 @@ export default function SearchModal({
   isOpen,
   onClose,
   onSelectMovie,
-  onQuickRate
+  onQuickRate,
+  onExploreQuery
 }) {
   const { watched = [], watchlist = [], tasteRules = [], addToWatchlist } = useApp();
   const [embeddingIndex, setEmbeddingIndex] = useState(null);
@@ -195,10 +198,22 @@ export default function SearchModal({
     if (payload) addToWatchlist?.(payload);
   }
 
+  function openInExplore() {
+    const clean = query.trim();
+    if (!clean || !onExploreQuery) return;
+    onExploreQuery(clean);
+    onClose?.();
+  }
+
   function handleKeyDown(e) {
     if (e.key === "Escape") {
       e.preventDefault();
       onClose?.();
+      return;
+    }
+    if (e.key === "Enter" && e.shiftKey && query.trim() && onExploreQuery) {
+      e.preventDefault();
+      openInExplore();
       return;
     }
     if (filteredResults.length === 0) return;
@@ -295,6 +310,18 @@ export default function SearchModal({
                 </button>
               );
             })}
+            {onExploreQuery && (
+              <button
+                type="button"
+                className="search-explore-all-btn"
+                onClick={openInExplore}
+                title={`Browse all "${trimmedQuery}" posters in Explore`}
+              >
+                <Compass size={13} aria-hidden="true" />
+                <span>View all in Explore</span>
+                <ArrowRight size={13} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
 
@@ -558,6 +585,9 @@ export default function SearchModal({
           <div className="search-hint-keys">
             <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
             <span><kbd>Enter</kbd> open</span>
+            {trimmedQuery && onExploreQuery && (
+              <span><kbd>Shift</kbd><kbd>Enter</kbd> view all in Explore</span>
+            )}
             <span><kbd>Esc</kbd> close</span>
           </div>
           {trimmedQuery && (

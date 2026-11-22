@@ -406,8 +406,17 @@ export function filterForYouCatalog(items = [], filters = {}, watched = [], watc
   const expandedProviderFilter = Array.isArray(filters?.providers) && filters.providers.length > 0
     ? new Set(expandProviderIds(filters.providers))
     : null;
+  const query = String(filters?.query || "").trim().toLowerCase();
 
   const filtered = annotated.filter((m) => {
+    if (query) {
+      const haystack = [m.title, m.Title, m.genre, m.director, m.plot]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+
     const itemGenres = Array.isArray(m.tmdbGenreIds) ? m.tmdbGenreIds.map(Number) : [];
     if (genres.length > 0) {
       const matchesGenre = genreMode === "or"

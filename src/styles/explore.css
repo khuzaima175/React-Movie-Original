@@ -909,13 +909,103 @@
 }
 
 .explore-mode-toolbar-right {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.75rem;
   min-height: 3.6rem;
+  flex: 1 1 auto;
+}
+
+.explore-title-search-form {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  height: 3.6rem;
+  min-width: min(29rem, 100%);
+  width: clamp(24rem, 28vw, 34rem);
+  padding: 0 1rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-1);
+  color: var(--text-3);
+  transition: border-color var(--dur-1) ease, background-color var(--dur-1) ease;
+}
+
+.explore-title-search-form:focus-within {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: var(--surface-2);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.explore-title-search-icon {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+.explore-title-search-input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: 1.3rem;
+  outline: none;
+}
+
+.explore-title-search-input::placeholder {
+  color: var(--text-3);
+}
+
+.explore-title-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.explore-title-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--dur-1) ease, background-color var(--dur-1) ease;
+}
+
+.explore-title-search-clear:hover {
+  color: var(--text-1);
+  background: var(--surface-3);
+}
+
+.explore-search-scope-hint {
+  margin: -0.6rem 0 0;
+  font-size: 1.2rem;
+  color: var(--text-3);
 }
 
 .explore-enhancing-note {
   color: var(--text-3);
   font-weight: 500;
+}
+
+@media (max-width: 900px) {
+  .explore-mode-toolbar-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .explore-title-search-form {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
 }
