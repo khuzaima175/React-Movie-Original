@@ -38,6 +38,8 @@ export default function VaultBanner({
   onSearchChange,
   selectedGenre = "All",
   onGenreSelect,
+  selectedRating = null,
+  onSelectRating,
   genresList = [],
   sortBy = "input",
   onSortChange,
@@ -142,7 +144,12 @@ export default function VaultBanner({
     ? `${topRatedFilm.title || topRatedFilm.Title} (★ ${topRatedFilm.userRating})`
     : "N/A";
 
-  const isFiltered = searchQuery.trim() !== "" || selectedGenre !== "All";
+  const isFiltered =
+    searchQuery.trim() !== "" ||
+    selectedGenre !== "All" ||
+    (activeTab === "watched" && selectedRating !== null);
+  const maxHistCount = Math.max(1, ...histogramBins.map((b) => b.count));
+  const ambientPoster = topRatedFilm?.poster || topRatedFilm?.Poster || "";
   const cloudMenuLabel = cloudUser
     ? cloudSyncStatus === "syncing"
       ? "Syncing to Cloud..."
@@ -157,6 +164,13 @@ export default function VaultBanner({
     <div className="vault-studio-header-spacious" aria-label="Vault Control Center">
       {/* ── Tier 1: Editorial Header & Typographic Stats ── */}
       <div className="studio-hero-tier">
+        {ambientPoster && (
+          <div
+            className="vault-hero-ambient"
+            style={{ backgroundImage: `url(${ambientPoster})` }}
+            aria-hidden="true"
+          />
+        )}
         <div className="studio-hero-left">
           <div className="studio-title-stack">
             <h1 className="vault-spacious-title display-title">My Vault</h1>
@@ -192,6 +206,52 @@ export default function VaultBanner({
             </div>
           )}
         </div>
+
+        {activeTab === "watched" && totalMovies > 0 && userRatings.length > 0 && (
+          <div className="vault-mini-histogram" role="group" aria-label="Filter Vault by Rating">
+            <div className="vault-mini-hist-head">
+              <span className="vault-mini-hist-title">Rating Spread</span>
+              {selectedRating !== null && (
+                <button
+                  type="button"
+                  className="vault-mini-hist-clear tabular-num"
+                  onClick={() => onSelectRating?.(selectedRating)}
+                  title="Clear rating filter"
+                >
+                  ★ {selectedRating} ×
+                </button>
+              )}
+            </div>
+            <div className="vault-mini-hist-bars">
+              {histogramBins.map((bin) => {
+                const pct = bin.count > 0 ? Math.max(16, Math.round((bin.count / maxHistCount) * 100)) : 6;
+                const isActive = selectedRating === bin.score;
+                const isGold = bin.score >= 8;
+                return (
+                  <button
+                    key={bin.score}
+                    type="button"
+                    disabled={bin.count === 0}
+                    aria-pressed={isActive}
+                    className={`vault-mini-hist-bar ${isActive ? "is-active" : ""} ${bin.count === 0 ? "is-empty" : ""}`}
+                    onClick={() => bin.count > 0 && onSelectRating?.(bin.score)}
+                    title={`${bin.score}/10: ${bin.count} ${bin.count === 1 ? "film" : "films"}${bin.count > 0 ? " — click to filter" : ""}`}
+                  >
+                    <span className="vault-mini-hist-track">
+                      <motion.span
+                        className={`vault-mini-hist-fill ${isGold ? "is-gold" : ""}`}
+                        initial={{ height: 0 }}
+                        animate={{ height: `${pct}%` }}
+                        transition={{ duration: 0.42, delay: bin.score * 0.025, ease: [0.22, 1, 0.36, 1] }}
+                      />
+                    </span>
+                    <span className="vault-mini-hist-num tabular-num">{bin.score}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="studio-hero-actions">
           {isManageMode && (
@@ -449,7 +509,16 @@ export default function VaultBanner({
               title="Poster Grid View"
               aria-label="Grid view"
             >
-              <LayoutGrid size={15} aria-hidden="true" />
+              {viewMode === "grid" && (
+                <motion.span
+                  layoutId="vault-view-pill"
+                  className="vault-view-pill-bg"
+                  transition={{ type: "spring", stiffness: 520, damping: 36 }}
+                />
+              )}
+              <span className="vault-view-icon">
+                <LayoutGrid size={15} aria-hidden="true" />
+              </span>
             </button>
             <button
               type="button"
@@ -458,7 +527,16 @@ export default function VaultBanner({
               title="Table List View"
               aria-label="List view"
             >
-              <List size={15} aria-hidden="true" />
+              {viewMode === "list" && (
+                <motion.span
+                  layoutId="vault-view-pill"
+                  className="vault-view-pill-bg"
+                  transition={{ type: "spring", stiffness: 520, damping: 36 }}
+                />
+              )}
+              <span className="vault-view-icon">
+                <List size={15} aria-hidden="true" />
+              </span>
             </button>
           </div>
 

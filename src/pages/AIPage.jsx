@@ -54,7 +54,7 @@ function normalizeResolvedFocusMovie(rawMovie, parsedParams = {}) {
   };
 }
 
-export default function AIPage({ onOpenTasteDeck }) {
+export default function AIPage({ onOpenTasteDeck, onOpenImport }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     watched = [],
@@ -239,7 +239,7 @@ export default function AIPage({ onOpenTasteDeck }) {
           </div>
         </header>
 
-        <SampleVaultBanner />
+        <SampleVaultBanner onOpenImport={onOpenImport} />
 
         <main className="ai-page-body">
           {aiSection === "recs" && (
@@ -252,6 +252,7 @@ export default function AIPage({ onOpenTasteDeck }) {
               tasteProfile={aiTasteProfile}
               setTasteProfile={setAiTasteProfile}
               onOpenTasteDeck={onOpenTasteDeck}
+              onOpenImport={onOpenImport}
             />
           )}
 

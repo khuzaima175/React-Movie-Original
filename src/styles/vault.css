@@ -19,6 +19,8 @@
 }
 
 .studio-hero-tier {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
@@ -30,10 +32,150 @@
   border-radius: var(--r-lg);
 }
 
+.vault-hero-ambient {
+  position: absolute;
+  top: -30%;
+  right: -5%;
+  width: 48%;
+  height: 160%;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.14;
+  filter: blur(44px) saturate(1.4);
+  mask-image: radial-gradient(ellipse at 70% 50%, #000 10%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse at 70% 50%, #000 10%, transparent 72%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.studio-hero-left,
+.vault-mini-histogram,
+.studio-hero-actions {
+  position: relative;
+  z-index: 1;
+}
+
 .studio-hero-left {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+}
+
+.vault-mini-histogram {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 24rem;
+  padding: 1.1rem 1.4rem;
+  border-radius: var(--r-md, 0.85rem);
+  background: rgba(13, 14, 17, 0.56);
+  border: 1px solid var(--hairline);
+  backdrop-filter: blur(10px);
+}
+
+.vault-mini-hist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2rem;
+}
+
+.vault-mini-hist-title {
+  font-size: 1.1rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+
+.vault-mini-hist-clear {
+  padding: 0.15rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 184, 105, 0.4);
+  background: rgba(229, 184, 105, 0.14);
+  color: var(--accent);
+  font-size: 1.12rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vault-mini-hist-clear:hover {
+  background: rgba(229, 184, 105, 0.24);
+}
+
+.vault-mini-hist-bars {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.45rem;
+}
+
+.vault-mini-hist-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.vault-mini-hist-bar.is-empty {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.vault-mini-hist-track {
+  width: 100%;
+  height: 4.4rem;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.045);
+  overflow: hidden;
+  transition: background-color 0.15s ease;
+}
+
+.vault-mini-hist-bar:not(.is-empty):hover .vault-mini-hist-track {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.vault-mini-hist-fill {
+  width: 100%;
+  background: rgba(243, 241, 235, 0.36);
+  border-radius: 3px 3px 0 0;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.vault-mini-hist-fill.is-gold {
+  background: rgba(229, 184, 105, 0.72);
+}
+
+.vault-mini-hist-bar:not(.is-empty):hover .vault-mini-hist-fill {
+  background: var(--text-1);
+}
+
+.vault-mini-hist-bar:not(.is-empty):hover .vault-mini-hist-fill.is-gold,
+.vault-mini-hist-bar.is-active .vault-mini-hist-fill {
+  background: var(--accent);
+}
+
+.vault-mini-hist-bar.is-active .vault-mini-hist-track {
+  outline: 1px solid rgba(229, 184, 105, 0.55);
+}
+
+.vault-mini-hist-num {
+  font-size: 1.02rem;
+  color: var(--text-3);
+  line-height: 1;
+}
+
+.vault-mini-hist-bar.is-active .vault-mini-hist-num,
+.vault-mini-hist-bar:not(.is-empty):hover .vault-mini-hist-num {
+  color: var(--text-1);
+  font-weight: 600;
 }
 
 .studio-title-stack {
@@ -437,6 +579,7 @@
 }
 
 .btn-view-choice {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -447,7 +590,8 @@
   border-radius: 4px;
   color: var(--text-3);
   cursor: pointer;
-  transition: background-color var(--dur-1) ease, color var(--dur-1) ease;
+  z-index: 0;
+  transition: color var(--dur-1) ease;
 }
 
 .btn-view-choice:hover {
@@ -455,8 +599,23 @@
 }
 
 .btn-view-choice.active {
-  background: var(--surface-2);
   color: var(--text-1);
+}
+
+.vault-view-pill-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  background: var(--surface-2);
+  z-index: -1;
+}
+
+.vault-view-icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .spacious-count-indicator {
@@ -525,6 +684,11 @@
   .studio-hero-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .vault-mini-histogram {
+    width: 100%;
+    min-width: 0;
   }
 
   .vault-grid {

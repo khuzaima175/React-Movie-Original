@@ -248,12 +248,20 @@ function AppContent() {
             path="/vault"
             element={
               <VaultPage
-                onOpenBackup={() => handleOpenBackup("export")}
+                onOpenBackup={(tab = "export") => handleOpenBackup(typeof tab === "string" ? tab : "export")}
                 onOpenCloudSync={() => setIsCloudSyncOpen(true)}
               />
             }
           />
-          <Route path="/ai" element={<AIPage onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")} />} />
+          <Route
+            path="/ai"
+            element={
+              <AIPage
+                onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")}
+                onOpenImport={() => handleOpenBackup("import")}
+              />
+            }
+          />
           <Route path="/auth" element={<AuthPage defaultMode="signin" />} />
           <Route path="/login" element={<AuthPage defaultMode="signin" />} />
           <Route path="/signup" element={<AuthPage defaultMode="signup" />} />

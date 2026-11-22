@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useApp } from "../context/AppContext";
 import { sendChatMessage } from "../services/geminiChatService";
 import { buildMovieChatStarterPrompts } from "../services/filmChatService";
@@ -540,7 +541,7 @@ export default function AIChat({
             <span className="chat-context-label">
               Tuned to <strong>{watched.length}</strong> rated
               {activeWatchlist.length > 0 ? <> · <strong>{activeWatchlist.length}</strong> queued</> : null}
-              {userRegion ? <> · {userRegion}</> : null}
+              {userRegion ? <> · {userRegion === "GLOBAL" ? "All regions" : userRegion}</> : null}
               {activeRuleCount > 0 ? <> · {activeRuleCount} rules</> : null}
             </span>
           </div>
@@ -678,99 +679,142 @@ export default function AIChat({
 
         {/* Messages list */}
         <div className="chat-messages" ref={chatContainerRef} aria-live="polite">
-          {messages.map((msg, index) => {
-            const detectedMovies =
-              msg.role === "model" ? parseMovieCardsFromText(msg.text, 24) : [];
-            const { referenceChips, recommendedCards } =
-              detectedMovies.length > 0
-                ? partitionChatMovieCards(detectedMovies, watched, activeWatchlist, 8)
-                : { referenceChips: [], recommendedCards: [] };
-
-            return (
-              <div key={index} className={`chat-bubble-wrapper ${msg.role}`}>
-                {msg.role === "model" && (
-                  <div className="chat-avatar bot-avatar">
-                    <Sparkles size={16} />
-                  </div>
-                )}
-
-                <div className={`chat-bubble ${msg.role} ${msg.isError ? "error" : ""}`}>
-                  {msg.role === "model" ? (
-                    <ChatMessageBody text={msg.text} />
-                  ) : (
-                    <p className="bubble-text">{renderInlineSegments(msg.text)}</p>
-                  )}
-
-                  {/* Compact inline Vault chips for already-watched references */}
-                  {referenceChips.length > 0 && (
-                    <div className="chat-ref-chips-bar" aria-label="Referenced films from your Vault">
-                      <span className="chat-ref-chips-label">From your Vault:</span>
-                      {referenceChips.map((ref, refIdx) => {
-                        const refId =
-                          ref.imdbID || (ref.tmdbId ? `tmdb_${ref.tmdbId}` : ref.id || null);
-                        const label = `${ref.title}${ref.userRating > 0 ? ` · ${Math.round(ref.userRating)}/10` : ""}`;
-                        return refId ? (
-                          <Link
-                            key={`${ref.title}-${refIdx}`}
-                            to={`/movie/${encodeURIComponent(refId)}`}
-                            className="chat-ref-chip"
-                          >
-                            <Star size={11} fill="currentColor" aria-hidden="true" />
-                            <span>{label}</span>
-                          </Link>
-                        ) : (
-                          <span key={`${ref.title}-${refIdx}`} className="chat-ref-chip">
-                            <Star size={11} fill="currentColor" aria-hidden="true" />
-                            <span>{label}</span>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Full interactive poster cards reserved for unseen recommendations */}
-                  {recommendedCards.length > 0 && (
-                    <div className="chat-inline-movies-grid">
-                      {recommendedCards.map((m, i) => (
-                        <InlineMovieCard
-                          key={`${m.title}-${m.year || i}`}
-                          title={m.title}
-                          year={m.year}
-                          watched={watched}
-                          watchlist={activeWatchlist}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="bubble-meta-row">
-                    {debug && msg.role === "model" && msg.modelInfo?.model ? (
-                      <span
-                        className={`bubble-model-tag ${msg.modelInfo.isFallback ? "fallback" : ""}`}
-                        title={
-                          msg.modelInfo.cooldownModels?.length
-                            ? `Fallback from: ${msg.modelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ")}`
-                            : `Answered by ${msg.modelInfo.displayName || msg.modelInfo.model}`
-                        }
-                      >
-                        <Cpu size={10} />
-                        {msg.modelInfo.model}
-                      </span>
-                    ) : (
-                      <span />
-                    )}
-                    <span className="bubble-timestamp">{msg.time}</span>
-                  </div>
-                </div>
-
-                {msg.role === "user" && (
-                  <div className="chat-avatar user-avatar">
-                    <User size={16} />
-                  </div>
-                )}
+          {!hasConversationTurns && !isLoading ? (
+            <motion.div
+              key={`welcome-${threadKey}`}
+              className="chat-welcome-stage"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div className="chat-welcome-emblem" aria-hidden="true">
+                <Sparkles size={22} />
               </div>
-            );
-          })}
+              <h2 className="chat-welcome-title display-title">
+                {focusedMovie ? `Discuss ${focusedMovie.title}` : "Film Companion"}
+              </h2>
+              <p className="chat-welcome-sub">
+                {focusedMovie
+                  ? `Ask about themes, craft, or similar watches (${spoilerSafe ? "spoiler-safe mode on" : "spoilers allowed"}).`
+                  : `Grounded in your ${watched.length} rated ${watched.length === 1 ? "film" : "films"}${
+                      activeWatchlist.length > 0 ? ` and ${activeWatchlist.length} queued watches` : ""
+                    }.`}
+              </p>
+              <div className="chat-welcome-grid">
+                {activeStarterPrompts.slice(0, 4).map((promptText, idx) => (
+                  <button
+                    type="button"
+                    key={`${threadKey}-welcome-${idx}`}
+                    className="chat-welcome-card"
+                    onClick={() => handleSendMessage(promptText)}
+                  >
+                    <span className="chat-welcome-card-text">{promptText}</span>
+                    <ArrowUpRight size={15} className="chat-welcome-card-arrow" aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            messages.map((msg, index) => {
+              const detectedMovies =
+                msg.role === "model" ? parseMovieCardsFromText(msg.text, 24) : [];
+              const { referenceChips, recommendedCards } =
+                detectedMovies.length > 0
+                  ? partitionChatMovieCards(detectedMovies, watched, activeWatchlist, 8)
+                  : { referenceChips: [], recommendedCards: [] };
+
+              return (
+                <motion.div
+                  key={index}
+                  className={`chat-bubble-wrapper ${msg.role}`}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  {msg.role === "model" && (
+                    <div className="chat-avatar bot-avatar">
+                      <Sparkles size={16} />
+                    </div>
+                  )}
+
+                  <div className={`chat-bubble ${msg.role} ${msg.isError ? "error" : ""}`}>
+                    {msg.role === "model" ? (
+                      <ChatMessageBody text={msg.text} />
+                    ) : (
+                      <p className="bubble-text">{renderInlineSegments(msg.text)}</p>
+                    )}
+
+                    {/* Compact inline Vault chips for already-watched references */}
+                    {referenceChips.length > 0 && (
+                      <div className="chat-ref-chips-bar" aria-label="Referenced films from your Vault">
+                        <span className="chat-ref-chips-label">From your Vault:</span>
+                        {referenceChips.map((ref, refIdx) => {
+                          const refId =
+                            ref.imdbID || (ref.tmdbId ? `tmdb_${ref.tmdbId}` : ref.id || null);
+                          const label = `${ref.title}${ref.userRating > 0 ? ` · ${Math.round(ref.userRating)}/10` : ""}`;
+                          return refId ? (
+                            <Link
+                              key={`${ref.title}-${refIdx}`}
+                              to={`/movie/${encodeURIComponent(refId)}`}
+                              className="chat-ref-chip"
+                            >
+                              <Star size={11} fill="currentColor" aria-hidden="true" />
+                              <span>{label}</span>
+                            </Link>
+                          ) : (
+                            <span key={`${ref.title}-${refIdx}`} className="chat-ref-chip">
+                              <Star size={11} fill="currentColor" aria-hidden="true" />
+                              <span>{label}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Full interactive poster cards reserved for unseen recommendations */}
+                    {recommendedCards.length > 0 && (
+                      <div className="chat-inline-movies-grid">
+                        {recommendedCards.map((m, i) => (
+                          <InlineMovieCard
+                            key={`${m.title}-${m.year || i}`}
+                            title={m.title}
+                            year={m.year}
+                            watched={watched}
+                            watchlist={activeWatchlist}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="bubble-meta-row">
+                      {debug && msg.role === "model" && msg.modelInfo?.model ? (
+                        <span
+                          className={`bubble-model-tag ${msg.modelInfo.isFallback ? "fallback" : ""}`}
+                          title={
+                            msg.modelInfo.cooldownModels?.length
+                              ? `Fallback from: ${msg.modelInfo.cooldownModels.map((c) => `${c.model} (${c.reason})`).join(", ")}`
+                              : `Answered by ${msg.modelInfo.displayName || msg.modelInfo.model}`
+                          }
+                        >
+                          <Cpu size={10} />
+                          {msg.modelInfo.model}
+                        </span>
+                      ) : (
+                        <span />
+                      )}
+                      <span className="bubble-timestamp">{msg.time}</span>
+                    </div>
+                  </div>
+
+                  {msg.role === "user" && (
+                    <div className="chat-avatar user-avatar">
+                      <User size={16} />
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })
+          )}
 
           {/* Typing Indicator */}
           {isLoading && (
@@ -790,7 +834,7 @@ export default function AIChat({
         </div>
 
         {/* Starter Prompts before multi-turn engagement */}
-        {messages.length <= 2 && !isLoading && (
+        {hasConversationTurns && messages.length <= 2 && !isLoading && (
           <div className="chat-prompts-container">
             <span className="prompts-label">{focusedMovie ? `Explore ${focusedMovie.title}:` : "Try asking:"}</span>
             <div className="prompts-chips">

@@ -23,6 +23,7 @@ export default function MovieCard({
   showCaption = false,
   animateOnScroll = false,
   revealIndex = 0,
+  rank = null,
   className = ""
 }) {
   const appCtx = useOptionalApp();
@@ -142,6 +143,12 @@ export default function MovieCard({
         onPointerLeave={handlePosterPointerLeave}
       >
         <PosterImage src={poster} title={title} alt={`${title} poster`} />
+
+        {rank != null && (
+          <span className="carousel-rank-badge tabular-num" aria-hidden="true">
+            {String(rank).padStart(2, "0")}
+          </span>
+        )}
 
         {isManageMode && (
           <div className="card-manage-checkbox">

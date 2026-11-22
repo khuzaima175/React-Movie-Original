@@ -616,7 +616,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  opacity: 0;
+  opacity: 0.56;
   transition: opacity var(--dur-2) ease;
 }
 
@@ -900,6 +900,32 @@
   object-fit: cover;
   display: block;
   transition: transform 0.35s var(--ease-out);
+}
+
+.carousel-rank-badge {
+  position: absolute;
+  top: 0.85rem;
+  left: 0.85rem;
+  z-index: 2;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--r-sm);
+  background: rgba(11, 12, 15, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(8px);
+  color: var(--text-1);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  pointer-events: none;
+  transition: opacity var(--dur-1) ease, transform var(--dur-1) ease;
+}
+
+.unified-movie-card:hover .carousel-rank-badge,
+.unified-movie-card:focus-within .carousel-rank-badge {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 @media (hover: hover) {
@@ -1490,6 +1516,16 @@
   .carousel-track:has(.unified-movie-card:hover) .unified-movie-card:not(:hover):not(:focus-within) .unified-card-poster img {
     opacity: 0.5;
   }
+
+  .unified-overlay-bottom {
+    transform: translateY(8px);
+    transition: transform 0.24s var(--ease-out);
+  }
+
+  .unified-movie-card:hover .unified-overlay-bottom,
+  .unified-movie-card:focus-within .unified-overlay-bottom {
+    transform: translateY(0);
+  }
 }
 
 /* ── Loading skeletons (hero + rows) ─────────────────────────────────────── */
@@ -2053,13 +2089,13 @@
 .hero-glow {
   position: absolute;
   z-index: -1;
-  top: 6rem;
+  top: 2.5rem;
   left: calc(var(--page-gutter) + 2rem);
   right: calc(var(--page-gutter) + 2rem);
-  bottom: -3rem;
+  bottom: -4.5rem;
   background-size: cover;
   background-position: center;
-  filter: blur(60px) saturate(1.5);
+  filter: blur(74px) saturate(1.7);
   border-radius: var(--r-lg);
   pointer-events: none;
   will-change: opacity;
@@ -2204,6 +2240,16 @@
   .hero-backdrop-ken-burns {
     animation: none !important;
     transform: scale(1) !important;
+  }
+
+  .unified-card-poster::after {
+    transition: none !important;
+    transform: translateX(-115%) !important;
+  }
+
+  .unified-overlay-bottom {
+    transform: none !important;
+    transition: none !important;
   }
 
   .unified-overlay-actions .btn-card-action {

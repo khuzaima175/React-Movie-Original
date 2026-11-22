@@ -172,6 +172,7 @@ export default function DashboardPage({ onOpenTasteDeck }) {
             onAddWatched={addWatched}
             watched={watched}
             seeAllLink={row.seeAllLink}
+            showRank={row.key === "trending"}
           />
         ))}
 

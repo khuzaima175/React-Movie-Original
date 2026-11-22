@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { useApp } from "../context/AppContext";
 import VaultBanner from "../components/VaultBanner";
 import VaultBulkBar from "../components/VaultBulkBar";
@@ -9,7 +10,7 @@ import WatchedMoviesList from "../components/WatchedMoviesList";
 import ToastNotification from "../components/ToastNotification";
 import QuickRateModal from "../components/QuickRateModal";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
-import { Bookmark, Film, Compass, Search } from "lucide-react";
+import { Bookmark, Film, Compass, Search, Upload } from "lucide-react";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
@@ -36,6 +37,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("input");
   const [selectedGenre, setSelectedGenre] = useState("All");
+  const [selectedRating, setSelectedRating] = useState(null);
   const [viewMode, setViewMode] = useState("grid"); // "grid" or "list"
   const [isManageMode, setIsManageMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -54,6 +56,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   function handleTabChange(newTab) {
     setActiveTab(newTab);
     setSelectedIds([]);
+    setSelectedRating(null);
     setIsManageMode(false);
     setSearchParams({ tab: newTab });
   }
@@ -92,6 +95,11 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
       result = result.filter((m) => m.genre && m.genre.includes(selectedGenre));
     }
 
+    // Interactive Rating Sparkline Filter
+    if (activeTab === "watched" && selectedRating !== null) {
+      result = result.filter((m) => Math.round(Number(m.userRating)) === selectedRating);
+    }
+
     // Sorting
     const sorted = [...result];
     if (sortBy === "rating") {
@@ -105,7 +113,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
     }
 
     return sorted;
-  }, [currentList, searchQuery, selectedGenre, sortBy]);
+  }, [currentList, searchQuery, selectedGenre, sortBy, activeTab, selectedRating]);
 
   function handleSelectMovie(id) {
     navigate(`/movie/${id}`);
@@ -230,6 +238,8 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
         onSearchChange={setSearchQuery}
         selectedGenre={selectedGenre}
         onGenreSelect={setSelectedGenre}
+        selectedRating={selectedRating}
+        onSelectRating={(score) => setSelectedRating((prev) => (prev === score ? null : score))}
         genresList={genresList}
         sortBy={sortBy}
         onSortChange={setSortBy}
@@ -239,46 +249,63 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
         totalCount={currentList.length}
       />
 
-      <SampleVaultBanner />
+      <SampleVaultBanner onOpenImport={() => onOpenBackup?.("import")} />
 
       {/* ── 2. Main Collection Grid / List View ── */}
       <div className="vault-collection-body">
         {filtered.length > 0 ? (
-          viewMode === "grid" ? (
-            <div className="vault-grid">
-              {filtered.map((movie, idx) => {
-                const id = movie.imdbID || movie.id;
-                const isSelected = selectedIds.includes(id);
+          <AnimatePresence mode="wait">
+            {viewMode === "grid" ? (
+              <motion.div
+                key="vault-grid"
+                className="vault-grid"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+              >
+                {filtered.map((movie, idx) => {
+                  const id = movie.imdbID || movie.id;
+                  const isSelected = selectedIds.includes(id);
 
-                return (
-                  <MovieCard
-                    key={id}
-                    movie={movie}
-                    animateOnScroll={true}
-                    revealIndex={idx}
-                    onSelectMovie={handleSelectMovie}
-                    onDeleteMovie={handleDeleteSingle}
-                    onQuickAdd={activeTab === "watchlist" ? setQuickAddMovie : null}
-                    onAddWatched={activeTab === "watchlist" ? addWatched : null}
-                    isWatched={activeTab === "watched"}
-                    isManageMode={isManageMode}
-                    isSelected={isSelected}
-                    onToggleSelect={handleToggleSelect}
-                    showCaption={true}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <WatchedMoviesList
-              watched={filtered}
-              onDeleteWatched={handleDeleteSingle}
-              onSelectMovie={handleSelectMovie}
-              isManageMode={isManageMode}
-              selectedIds={selectedIds}
-              onToggleSelect={handleToggleSelect}
-            />
-          )
+                  return (
+                    <MovieCard
+                      key={id}
+                      movie={movie}
+                      animateOnScroll={true}
+                      revealIndex={idx}
+                      onSelectMovie={handleSelectMovie}
+                      onDeleteMovie={handleDeleteSingle}
+                      onQuickAdd={activeTab === "watchlist" ? setQuickAddMovie : null}
+                      onAddWatched={activeTab === "watchlist" ? addWatched : null}
+                      isWatched={activeTab === "watched"}
+                      isManageMode={isManageMode}
+                      isSelected={isSelected}
+                      onToggleSelect={handleToggleSelect}
+                      showCaption={true}
+                    />
+                  );
+                })}
+              </motion.div>
+            ) : (
+              <motion.div
+                key="vault-list"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+              >
+                <WatchedMoviesList
+                  watched={filtered}
+                  onDeleteWatched={handleDeleteSingle}
+                  onSelectMovie={handleSelectMovie}
+                  isManageMode={isManageMode}
+                  selectedIds={selectedIds}
+                  onToggleSelect={handleToggleSelect}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         ) : (
           /* Empty States */
           <div className="vault-empty-wrapper">
@@ -296,8 +323,19 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
                 <div className="watched-empty-card">
                   <Film size={32} className="empty-icon-quiet" aria-hidden="true" />
                   <h3>Your Vault is Empty</h3>
-                  <p>Rate films you have watched to unlock taste insights and recommendations.</p>
+                  <p>
+                    Rate films you have watched or import your Letterboxd / IMDb history to unlock taste insights and recommendations.
+                  </p>
                   <div className="flex flex-wrap items-center justify-center gap-3">
+                    {onOpenBackup && (
+                      <button
+                        type="button"
+                        className="btn-empty-cta"
+                        onClick={() => onOpenBackup("import")}
+                      >
+                        <Upload size={16} aria-hidden="true" /> Import Letterboxd / IMDb CSV
+                      </button>
+                    )}
                     <button type="button" className="btn-empty-cta" onClick={() => navigate("/")}>
                       <Compass size={16} aria-hidden="true" /> Explore Movies
                     </button>
@@ -324,6 +362,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
                   onClick={() => {
                     setSearchQuery("");
                     setSelectedGenre("All");
+                    setSelectedRating(null);
                   }}
                 >
                   Reset Filters

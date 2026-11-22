@@ -152,7 +152,7 @@ function HeroCarousel({
           aria-hidden="true"
           style={{ backgroundImage: `url(${hasBackdrop ? slide.backdrop : slide.poster || ""})` }}
           initial={{ opacity: 0 }}
-          animate={{ opacity: 0.42 }}
+          animate={{ opacity: 0.58 }}
           exit={{ opacity: 0, transition: { duration: 0.6 } }}
           transition={{ duration: 1.1, ease: EASE }}
         />

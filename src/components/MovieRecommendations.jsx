@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   getMovieRecommendations,
   getFallbackPoster,
@@ -81,7 +81,8 @@ import {
   Flame,
   Heart,
   Gem,
-  Search
+  Search,
+  Upload
 } from "lucide-react";
 
 const MOOD_ICON_MAP = {
@@ -114,7 +115,8 @@ export default function MovieRecommendations({
   setRecommendations,
   tasteProfile,
   setTasteProfile,
-  onOpenTasteDeck
+  onOpenTasteDeck,
+  onOpenImport
 }) {
   const navigate = useNavigate();
   const {
@@ -858,6 +860,16 @@ export default function MovieRecommendations({
                   <span>Taste Calibration (30)</span>
                 </button>
               )}
+              {watched.length < 5 && onOpenImport && (
+                <button
+                  type="button"
+                  className="oracle-inline-cta"
+                  onClick={onOpenImport}
+                >
+                  <Upload size={12} aria-hidden="true" />
+                  <span>Import Letterboxd / IMDb CSV</span>
+                </button>
+              )}
               {canTrySampleVault && (
                 <button
                   type="button"
@@ -1065,7 +1077,20 @@ export default function MovieRecommendations({
 
       {!effectiveIsLoading && recommendations && recommendations.length > 0 && (
         <div className="ai-results-stage">
-          {showFilterDeck && renderStudioDeck(true)}
+          <AnimatePresence initial={false}>
+            {showFilterDeck && (
+              <motion.div
+                key="oracle-mood-drawer"
+                initial={{ opacity: 0, height: 0, y: -6 }}
+                animate={{ opacity: 1, height: "auto", y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -6 }}
+                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                style={{ overflow: "hidden" }}
+              >
+                {renderStudioDeck(true)}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Single-Sentence Taste Summary + Link to Breakdown */}
           {tasteProfile && (
@@ -1365,7 +1390,20 @@ export default function MovieRecommendations({
                       ratingTone="neutral"
                     />
 
-                    <p className="rec-reason-prose">{sanitizeOracleReason(rec.reason)}</p>
+                    {(() => {
+                      const cleanRowReason = sanitizeOracleReason(rec.reason);
+                      const isGenericRowReason =
+                        !cleanRowReason ||
+                        /^Selected by the CinemaVault calibrated taste ranker\.?$/i.test(cleanRowReason);
+                      const rowReasonText =
+                        isGenericRowReason && anchors.length > 0
+                          ? `Strong match${rec.genre ? ` in ${rec.genre}` : ""} — shares DNA with ${anchors
+                              .slice(0, 2)
+                              .map((a) => a.title)
+                              .join(" & ")}.`
+                          : cleanRowReason;
+                      return <p className="rec-reason-prose">{rowReasonText}</p>;
+                    })()}
 
                     {anchors.length > 0 && (
                       <div className="rec-anchors-strip">

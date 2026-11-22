@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { Bookmark, Check, Eye, Loader2, Play, Sparkles, Star, ThumbsDown } from "lucide-react";
 import PosterImage from "./PosterImage";
 import { calibratePredictedRating } from "../services/tasteMatchService";
@@ -22,11 +23,30 @@ export default function OracleTopPickSpotlight({
   const hasMatch = showNumericMatch && Number.isFinite(matchScore) && matchScore >= 50;
   const estRating = hasMatch ? calibratePredictedRating({ matchPct: matchScore, watched }) : null;
   const anchors = resolveRecommendationAnchors(pick, watched, 3);
-  const cleanReason = sanitizeOracleReason(pick.reason || "");
+  const rawReason = sanitizeOracleReason(pick.reason || "");
+  const isGenericReason =
+    !rawReason || /^Selected by the CinemaVault calibrated taste ranker\.?$/i.test(rawReason);
+  const cleanReason =
+    isGenericReason && (anchors.length > 0 || pick.genre)
+      ? `Strong taste match${pick.genre ? ` in ${pick.genre}` : ""}${
+          anchors.length > 0
+            ? ` — resonates with ${anchors
+                .slice(0, 2)
+                .map((a) => a.title)
+                .join(" & ")}`
+            : ""
+        }.`
+      : rawReason;
   const backdropUrl = pick.backdrop || pick.backdropUrl || pick.poster || "";
 
   return (
-    <article className="oracle-spotlight-card" aria-label={`Top Pick Tonight: ${pick.title}`}>
+    <motion.article
+      className="oracle-spotlight-card"
+      aria-label={`Top Pick Tonight: ${pick.title}`}
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+    >
       {backdropUrl && (
         <div
           className="oracle-spotlight-backdrop"
@@ -81,8 +101,16 @@ export default function OracleTopPickSpotlight({
               <span className="oracle-spotlight-anchors-label">Because you rated</span>
               {anchors.map((a) => (
                 <Link key={a.id} to={`/movie/${a.id}`} className="oracle-spotlight-anchor-chip">
-                  {a.title}
-                  {a.userRating > 0 ? ` · ${Math.round(a.userRating)}★` : ""}
+                  <span className="oracle-spotlight-anchor-thumb">
+                    <PosterImage src={a.poster} title={a.title} alt="" />
+                  </span>
+                  <span>{a.title}</span>
+                  {a.userRating > 0 && (
+                    <span className="oracle-spotlight-anchor-rating tabular-num">
+                      <Star size={11} fill="currentColor" aria-hidden="true" />
+                      {Math.round(a.userRating)}
+                    </span>
+                  )}
                 </Link>
               ))}
             </div>
@@ -137,6 +165,6 @@ export default function OracleTopPickSpotlight({
           </div>
         </div>
       </div>
-    </article>
+    </motion.article>
   );
 }

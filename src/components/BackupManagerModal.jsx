@@ -621,6 +621,41 @@ export default function BackupManagerModal({
               </div>
             )}
 
+            {!pendingImport && !isProcessing && (
+              <div className="p-[1.6rem] rounded-[1.2rem] bg-[#191a1d] border border-white/10 flex flex-col gap-[1rem]">
+                <div className="text-[1.2rem] font-semibold uppercase tracking-[0.08em] text-[#9e9e99]">
+                  Where to get your export file
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-[1.2rem] text-[1.25rem] leading-[1.5]">
+                  <div className="p-[1.2rem] rounded-[0.9rem] bg-[#141416] border border-white/8">
+                    <div className="font-bold text-[#f4f4f2] mb-[0.35rem]">Letterboxd</div>
+                    <p className="text-[#9e9e99] m-0">
+                      Open <strong className="text-[#d4d4cf] font-medium">Settings → Data → Export Your Data</strong>, unzip the folder, and upload{" "}
+                      <code className="text-[#e6e6e1]">ratings.csv</code>, <code className="text-[#e6e6e1]">diary.csv</code>, or{" "}
+                      <code className="text-[#e6e6e1]">watchlist.csv</code>.
+                    </p>
+                  </div>
+                  <div className="p-[1.2rem] rounded-[0.9rem] bg-[#141416] border border-white/8">
+                    <div className="font-bold text-[#f4f4f2] mb-[0.35rem]">IMDb</div>
+                    <p className="text-[#9e9e99] m-0">
+                      Go to <strong className="text-[#d4d4cf] font-medium">Your Ratings</strong> or{" "}
+                      <strong className="text-[#d4d4cf] font-medium">Your Watchlist</strong>, click{" "}
+                      <strong className="text-[#d4d4cf] font-medium">Export</strong>, and upload the downloaded{" "}
+                      <code className="text-[#e6e6e1]">.csv</code> file.
+                    </p>
+                  </div>
+                  <div className="p-[1.2rem] rounded-[0.9rem] bg-[#141416] border border-white/8">
+                    <div className="font-bold text-[#f4f4f2] mb-[0.35rem]">Other Sites / CSV</div>
+                    <p className="text-[#9e9e99] m-0">
+                      Any <code className="text-[#e6e6e1]">.csv</code> from Trakt or a spreadsheet works as long as it has{" "}
+                      <code className="text-[#e6e6e1]">Title</code>, <code className="text-[#e6e6e1]">Year</code>, and{" "}
+                      <code className="text-[#e6e6e1]">Rating</code> columns (5-star scores auto-convert to /10).
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Enrichment Progress */}
             {isProcessing && (
               <div className="p-[2rem] rounded-[1.2rem] bg-[#1c1d20] border border-white/10 flex flex-col gap-[1.4rem]">

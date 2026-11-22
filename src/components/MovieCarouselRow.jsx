@@ -13,7 +13,8 @@ export default function MovieCarouselRow({
   onQuickAdd,
   onAddWatched,
   watched = [],
-  seeAllLink
+  seeAllLink,
+  showRank = false
 }) {
   const scrollRef = useRef(null);
   const dragRef = useRef({ active: false, startX: 0, startLeft: 0, moved: false, suppressClick: false });
@@ -134,11 +135,6 @@ export default function MovieCarouselRow({
       <div className="carousel-header page-rail">
         <h2 className="carousel-title">{title}</h2>
         <div className="carousel-header-right">
-          {seeAllLink && (
-            <Link to={seeAllLink} className="carousel-see-all">
-              See all <span className="carousel-see-all-arrow" aria-hidden="true">&rarr;</span>
-            </Link>
-          )}
           {canScroll && (
             <div className="carousel-arrows">
               <button
@@ -173,6 +169,11 @@ export default function MovieCarouselRow({
               </button>
             </div>
           )}
+          {seeAllLink && (
+            <Link to={seeAllLink} className="carousel-see-all">
+              See all <span className="carousel-see-all-arrow" aria-hidden="true">&rarr;</span>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -191,7 +192,7 @@ export default function MovieCarouselRow({
           onPointerCancel={endDrag}
           onClickCapture={handleClickCapture}
         >
-          {movies.map((movie) => {
+          {movies.map((movie, idx) => {
             if (!movie) return null;
             const id = movie.imdbID || movie.id;
             const isWatched = (watched || []).some(
@@ -206,6 +207,7 @@ export default function MovieCarouselRow({
                 onQuickAdd={onQuickAdd}
                 onAddWatched={onAddWatched}
                 isWatched={isWatched}
+                rank={showRank && idx < 10 ? idx + 1 : null}
               />
             );
           })}

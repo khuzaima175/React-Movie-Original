@@ -1,12 +1,12 @@
-import { Sparkles, X } from "lucide-react";
+import { Sparkles, Upload, X } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { Button } from "./ui/Button";
 
 /**
  * Quiet status bar shown whenever demo sample entries are loaded so visitors
- * know what they are exploring and can clear sample data in one click.
+ * know what they are exploring and can clear sample data or import their own history.
  */
-export default function SampleVaultBanner() {
+export default function SampleVaultBanner({ onOpenImport }) {
   const { hasSampleData, clearSampleVault } = useApp();
   if (!hasSampleData) return null;
 
@@ -20,10 +20,18 @@ export default function SampleVaultBanner() {
         <span>You are exploring a sample vault.</span>
       </div>
 
-      <Button type="button" variant="secondary" size="sm" onClick={clearSampleVault}>
-        <X size={13} aria-hidden="true" />
-        <span>Clear sample data</span>
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {onOpenImport && (
+          <Button type="button" variant="secondary" size="sm" onClick={onOpenImport}>
+            <Upload size={13} aria-hidden="true" />
+            <span>Import your CSV</span>
+          </Button>
+        )}
+        <Button type="button" variant="secondary" size="sm" onClick={clearSampleVault}>
+          <X size={13} aria-hidden="true" />
+          <span>Clear sample data</span>
+        </Button>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   SlidersHorizontal,
   X,
@@ -136,6 +136,65 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const [retryNonce, setRetryNonce] = useState(0);
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [showExcludeGenres, setShowExcludeGenres] = useState(() => filters.withoutGenres.length > 0);
+  const [openFacets, setOpenFacets] = useState(() => ({
+    runtime: filters.runtimeMin !== "" || filters.runtimeMax !== "",
+    person: Boolean(filters.person),
+    keywords: filters.keywords.length > 0,
+    language: Boolean(filters.language || filters.country),
+    providers: filters.providers.length > 0
+  }));
+
+  useEffect(() => {
+    setOpenFacets((prev) => {
+      const next = {
+        runtime: prev.runtime || filters.runtimeMin !== "" || filters.runtimeMax !== "",
+        person: prev.person || Boolean(filters.person),
+        keywords: prev.keywords || filters.keywords.length > 0,
+        language: prev.language || Boolean(filters.language || filters.country),
+        providers: prev.providers || filters.providers.length > 0
+      };
+      if (
+        next.runtime === prev.runtime &&
+        next.person === prev.person &&
+        next.keywords === prev.keywords &&
+        next.language === prev.language &&
+        next.providers === prev.providers
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [
+    filters.runtimeMin,
+    filters.runtimeMax,
+    filters.person,
+    filters.keywords.length,
+    filters.language,
+    filters.country,
+    filters.providers.length
+  ]);
+
+  function toggleFacet(key) {
+    setOpenFacets((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function renderCollapsibleFacet(facetKey, children) {
+    return (
+      <AnimatePresence initial={false}>
+        {openFacets[facetKey] && (
+          <motion.div
+            key={`facet-${facetKey}`}
+            initial={{ opacity: 0, height: 0, overflow: "hidden" }}
+            animate={{ opacity: 1, height: "auto", transitionEnd: { overflow: "visible" } }}
+            exit={{ opacity: 0, height: 0, overflow: "hidden" }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="explore-facet-collapsible-inner">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
 
   // Personalized Explore "For You" 100-film pool state
   const isForYouMode = filters.mode === "for-you";
@@ -911,7 +970,19 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
         {/* Runtime Presets */}
         <section className="explore-facet-group">
           <div className="explore-facet-header">
-            <h3 className="explore-facet-title">Runtime</h3>
+            <button
+              type="button"
+              className="explore-facet-toggle"
+              onClick={() => toggleFacet("runtime")}
+              aria-expanded={openFacets.runtime}
+            >
+              <span className="explore-facet-title">Runtime</span>
+              <ChevronDown
+                size={14}
+                className={`explore-facet-chevron ${openFacets.runtime ? "is-open" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
             {(filters.runtimeMin !== "" || filters.runtimeMax !== "") && (
               <button
                 type="button"
@@ -922,29 +993,32 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               </button>
             )}
           </div>
-          <div className="explore-preset-grid">
-            {RUNTIME_PRESETS.map((preset) => {
-              const isActive =
-                filters.runtimeMin === preset.runtimeMin &&
-                filters.runtimeMax === preset.runtimeMax;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={`explore-chip-btn ${isActive ? "active" : ""}`}
-                  onClick={() =>
-                    updateFilters(
-                      isActive
-                        ? { runtimeMin: "", runtimeMax: "" }
-                        : { runtimeMin: preset.runtimeMin, runtimeMax: preset.runtimeMax }
-                    )
-                  }
-                >
-                  {preset.label}
-                </button>
-              );
-            })}
-          </div>
+          {renderCollapsibleFacet(
+            "runtime",
+            <div className="explore-preset-grid">
+              {RUNTIME_PRESETS.map((preset) => {
+                const isActive =
+                  filters.runtimeMin === preset.runtimeMin &&
+                  filters.runtimeMax === preset.runtimeMax;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`explore-chip-btn ${isActive ? "active" : ""}`}
+                    onClick={() =>
+                      updateFilters(
+                        isActive
+                          ? { runtimeMin: "", runtimeMax: "" }
+                          : { runtimeMin: preset.runtimeMin, runtimeMax: preset.runtimeMax }
+                      )
+                    }
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Genres + AND/OR Mode + Exclude Genres */}
@@ -1060,7 +1134,19 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
         {/* Director / Actor Search */}
         <section className="explore-facet-group">
           <div className="explore-facet-header">
-            <h3 className="explore-facet-title">Director or Actor</h3>
+            <button
+              type="button"
+              className="explore-facet-toggle"
+              onClick={() => toggleFacet("person")}
+              aria-expanded={openFacets.person}
+            >
+              <span className="explore-facet-title">Director or Actor</span>
+              <ChevronDown
+                size={14}
+                className={`explore-facet-chevron ${openFacets.person ? "is-open" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
             {filters.person && (
               <button
                 type="button"
@@ -1071,71 +1157,86 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               </button>
             )}
           </div>
-          {filters.person ? (
-            <div className="explore-selected-pill">
-              <span>{filters.person.name}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${filters.person.name}`}
-                onClick={() => updateFilters({ person: null })}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          ) : (
-            <div
-              className="explore-autocomplete"
-              {...createAutocompleteContainerProps(
-                personMenuRefs,
-                idPrefix,
-                isPersonMenuOpen,
-                setIsPersonMenuOpen
-              )}
-            >
-              <div className="explore-search-input-wrap">
-                <Search size={14} aria-hidden="true" />
-                <input
-                  type="search"
-                  placeholder="e.g. Denis Villeneuve, Cillian Murphy"
-                  value={personQuery}
-                  onFocus={() => setIsPersonMenuOpen(true)}
-                  onChange={(e) => {
-                    setPersonQuery(e.target.value);
-                    setIsPersonMenuOpen(true);
-                  }}
-                  aria-label="Filter by director or actor"
-                />
+          {renderCollapsibleFacet(
+            "person",
+            filters.person ? (
+              <div className="explore-selected-pill">
+                <span>{filters.person.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${filters.person.name}`}
+                  onClick={() => updateFilters({ person: null })}
+                >
+                  <X size={13} />
+                </button>
               </div>
-              {isPersonMenuOpen && (personSuggestions.length > 0 || isSearchingPerson) && (
-                <ul className="explore-autocomplete-list" role="listbox">
-                  {isSearchingPerson && <li className="explore-autocomplete-status">Searching cast &amp; crew…</li>}
-                  {personSuggestions.map((p) => (
-                    <li key={p.id}>
-                      <button
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          updateFilters({ person: { id: p.id, name: p.name } });
-                          setPersonQuery("");
-                          setPersonSuggestions([]);
-                          setIsPersonMenuOpen(false);
-                        }}
-                      >
-                        <span className="suggestion-name">{p.name}</span>
-                        {p.dept && <span className="suggestion-meta">{p.dept}</span>}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            ) : (
+              <div
+                className="explore-autocomplete"
+                {...createAutocompleteContainerProps(
+                  personMenuRefs,
+                  idPrefix,
+                  isPersonMenuOpen,
+                  setIsPersonMenuOpen
+                )}
+              >
+                <div className="explore-search-input-wrap">
+                  <Search size={14} aria-hidden="true" />
+                  <input
+                    type="search"
+                    placeholder="e.g. Denis Villeneuve, Cillian Murphy"
+                    value={personQuery}
+                    onFocus={() => setIsPersonMenuOpen(true)}
+                    onChange={(e) => {
+                      setPersonQuery(e.target.value);
+                      setIsPersonMenuOpen(true);
+                    }}
+                    aria-label="Filter by director or actor"
+                  />
+                </div>
+                {isPersonMenuOpen && (personSuggestions.length > 0 || isSearchingPerson) && (
+                  <ul className="explore-autocomplete-list" role="listbox">
+                    {isSearchingPerson && <li className="explore-autocomplete-status">Searching cast &amp; crew…</li>}
+                    {personSuggestions.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            updateFilters({ person: { id: p.id, name: p.name } });
+                            setPersonQuery("");
+                            setPersonSuggestions([]);
+                            setIsPersonMenuOpen(false);
+                          }}
+                        >
+                          <span className="suggestion-name">{p.name}</span>
+                          {p.dept && <span className="suggestion-meta">{p.dept}</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )
           )}
         </section>
 
         {/* Motif / Keyword Search */}
         <section className="explore-facet-group">
           <div className="explore-facet-header">
-            <h3 className="explore-facet-title">Cinematic Motifs &amp; Themes</h3>
+            <button
+              type="button"
+              className="explore-facet-toggle"
+              onClick={() => toggleFacet("keywords")}
+              aria-expanded={openFacets.keywords}
+            >
+              <span className="explore-facet-title">Cinematic Motifs &amp; Themes</span>
+              <ChevronDown
+                size={14}
+                className={`explore-facet-chevron ${openFacets.keywords ? "is-open" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
             {filters.keywords.length > 0 && (
               <button
                 type="button"
@@ -1146,118 +1247,161 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               </button>
             )}
           </div>
-          {filters.keywords.length > 0 && (
-            <div className="explore-selected-list">
-              {filters.keywords.map((kw) => (
-                <span key={kw.id} className="explore-selected-pill">
-                  <span>#{kw.name}</span>
-                  <button
-                    type="button"
-                    aria-label={`Remove motif ${kw.name}`}
-                    onClick={() =>
-                      updateFilters({
-                        keywords: filters.keywords.filter((k) => k.id !== kw.id)
-                      })
-                    }
-                  >
-                    <X size={13} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div
-            className="explore-autocomplete"
-            {...createAutocompleteContainerProps(
-              keywordMenuRefs,
-              idPrefix,
-              isKeywordMenuOpen,
-              setIsKeywordMenuOpen
-            )}
-          >
-            <div className="explore-search-input-wrap">
-              <Sparkles size={14} aria-hidden="true" />
-              <input
-                type="search"
-                placeholder="Search theme: time loop, neo noir..."
-                value={keywordQuery}
-                onFocus={() => setIsKeywordMenuOpen(true)}
-                onChange={(e) => {
-                  setKeywordQuery(e.target.value);
-                  setIsKeywordMenuOpen(true);
-                }}
-                aria-label="Filter by cinematic motif or keyword"
-              />
-            </div>
-            {isKeywordMenuOpen && (keywordSuggestions.length > 0 || isSearchingKeywords) && (
-              <ul className="explore-autocomplete-list" role="listbox">
-                {isSearchingKeywords && <li className="explore-autocomplete-status">Searching motifs…</li>}
-                {keywordSuggestions.map((kw) => (
-                  <li key={kw.id}>
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        if (!filters.keywords.some((existing) => existing.id === kw.id)) {
-                          updateFilters({ keywords: [...filters.keywords, kw] });
+          {renderCollapsibleFacet(
+            "keywords",
+            <>
+              {filters.keywords.length > 0 && (
+                <div className="explore-selected-list">
+                  {filters.keywords.map((kw) => (
+                    <span key={kw.id} className="explore-selected-pill">
+                      <span>#{kw.name}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove motif ${kw.name}`}
+                        onClick={() =>
+                          updateFilters({
+                            keywords: filters.keywords.filter((k) => k.id !== kw.id)
+                          })
                         }
-                        setKeywordQuery("");
-                        setKeywordSuggestions([]);
-                        setIsKeywordMenuOpen(false);
-                      }}
-                    >
-                      <span className="suggestion-name">#{kw.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                      >
+                        <X size={13} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div
+                className="explore-autocomplete"
+                {...createAutocompleteContainerProps(
+                  keywordMenuRefs,
+                  idPrefix,
+                  isKeywordMenuOpen,
+                  setIsKeywordMenuOpen
+                )}
+              >
+                <div className="explore-search-input-wrap">
+                  <Sparkles size={14} aria-hidden="true" />
+                  <input
+                    type="search"
+                    placeholder="Search theme: time loop, neo noir..."
+                    value={keywordQuery}
+                    onFocus={() => setIsKeywordMenuOpen(true)}
+                    onChange={(e) => {
+                      setKeywordQuery(e.target.value);
+                      setIsKeywordMenuOpen(true);
+                    }}
+                    aria-label="Filter by cinematic motif or keyword"
+                  />
+                </div>
+                {isKeywordMenuOpen && (keywordSuggestions.length > 0 || isSearchingKeywords) && (
+                  <ul className="explore-autocomplete-list" role="listbox">
+                    {isSearchingKeywords && <li className="explore-autocomplete-status">Searching motifs…</li>}
+                    {keywordSuggestions.map((kw) => (
+                      <li key={kw.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            if (!filters.keywords.some((existing) => existing.id === kw.id)) {
+                              updateFilters({ keywords: [...filters.keywords, kw] });
+                            }
+                            setKeywordQuery("");
+                            setKeywordSuggestions([]);
+                            setIsKeywordMenuOpen(false);
+                          }}
+                        >
+                          <span className="suggestion-name">#{kw.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </section>
 
         {/* Language & Origin Country */}
         <section className="explore-facet-group">
-          <h3 className="explore-facet-title">Language &amp; Region</h3>
-          <div className="explore-select-pair">
-            <div className="explore-select-field">
-              <label htmlFor={`${idPrefix}-explore-language`}>Language</label>
-              <Select
-                id={`${idPrefix}-explore-language`}
-                ariaLabel="Language"
-                value={filters.language}
-                onChange={(val) => updateFilters({ language: val })}
-                options={LANGUAGE_OPTIONS.map((lang) => ({
-                  value: lang.code,
-                  label: lang.label
-                }))}
-                size="sm"
-                fullWidth
+          <div className="explore-facet-header">
+            <button
+              type="button"
+              className="explore-facet-toggle"
+              onClick={() => toggleFacet("language")}
+              aria-expanded={openFacets.language}
+            >
+              <span className="explore-facet-title">Language &amp; Region</span>
+              <ChevronDown
+                size={14}
+                className={`explore-facet-chevron ${openFacets.language ? "is-open" : ""}`}
+                aria-hidden="true"
               />
-            </div>
-            <div className="explore-select-field">
-              <label htmlFor={`${idPrefix}-explore-country`}>Country</label>
-              <Select
-                id={`${idPrefix}-explore-country`}
-                ariaLabel="Country"
-                value={filters.country}
-                onChange={(val) => updateFilters({ country: val })}
-                options={COUNTRY_OPTIONS.map((c) => ({
-                  value: c.code,
-                  label: c.label
-                }))}
-                size="sm"
-                fullWidth
-              />
-            </div>
+            </button>
+            {(filters.language || filters.country) && (
+              <button
+                type="button"
+                className="explore-facet-clear"
+                onClick={() => updateFilters({ language: "", country: "" })}
+              >
+                Clear
+              </button>
+            )}
           </div>
+          {renderCollapsibleFacet(
+            "language",
+            <div className="explore-select-pair">
+              <div className="explore-select-field">
+                <label htmlFor={`${idPrefix}-explore-language`}>Language</label>
+                <Select
+                  id={`${idPrefix}-explore-language`}
+                  ariaLabel="Language"
+                  value={filters.language}
+                  onChange={(val) => updateFilters({ language: val })}
+                  options={LANGUAGE_OPTIONS.map((lang) => ({
+                    value: lang.code,
+                    label: lang.label
+                  }))}
+                  size="sm"
+                  fullWidth
+                />
+              </div>
+              <div className="explore-select-field">
+                <label htmlFor={`${idPrefix}-explore-country`}>Country</label>
+                <Select
+                  id={`${idPrefix}-explore-country`}
+                  ariaLabel="Country"
+                  value={filters.country}
+                  onChange={(val) => updateFilters({ country: val })}
+                  options={COUNTRY_OPTIONS.map((c) => ({
+                    value: c.code,
+                    label: c.label
+                  }))}
+                  size="sm"
+                  fullWidth
+                />
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Streaming Providers */}
         <section className="explore-facet-group">
           <div className="explore-facet-header">
-            <h3 className="explore-facet-title">
-              <Tv size={14} aria-hidden="true" /> Streaming ({filters.region === "GLOBAL" ? "US" : filters.region})
-            </h3>
+            <button
+              type="button"
+              className="explore-facet-toggle"
+              onClick={() => toggleFacet("providers")}
+              aria-expanded={openFacets.providers}
+            >
+              <span className="explore-facet-title">
+                <Tv size={14} aria-hidden="true" /> Streaming ({filters.region === "GLOBAL" ? "US" : filters.region})
+              </span>
+              <ChevronDown
+                size={14}
+                className={`explore-facet-chevron ${openFacets.providers ? "is-open" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
             {configuredUserProviderIds.length > 0 && (
               <button
                 type="button"
@@ -1268,22 +1412,25 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               </button>
             )}
           </div>
-          <div className="explore-chip-pool">
-            {POPULAR_WATCH_PROVIDERS.map((provider) => {
-              const active = filters.providers.includes(provider.id);
-              return (
-                <button
-                  key={provider.id}
-                  type="button"
-                  aria-pressed={active}
-                  className={`explore-chip-btn ${active ? "active" : ""}`}
-                  onClick={() => toggleArrayFilter("providers", provider.id)}
-                >
-                  {provider.name}
-                </button>
-              );
-            })}
-          </div>
+          {renderCollapsibleFacet(
+            "providers",
+            <div className="explore-chip-pool">
+              {POPULAR_WATCH_PROVIDERS.map((provider) => {
+                const active = filters.providers.includes(provider.id);
+                return (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    aria-pressed={active}
+                    className={`explore-chip-btn ${active ? "active" : ""}`}
+                    onClick={() => toggleArrayFilter("providers", provider.id)}
+                  >
+                    {provider.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Hide Already Watched */}
@@ -1336,7 +1483,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                     ? "Catalog Title Search"
                     : "Precision Catalog Workbench"}
               </div>
-              <h1 className="explore-title">
+              <h1 className="explore-title display-title">
                 {isForYouMode
                   ? "Movies You'll Like"
                   : hasSearchQuery
@@ -1513,17 +1660,24 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           {/* Active Filter Chips */}
           {activeChips.length > 0 && (
             <div className="explore-active-chips" role="region" aria-label="Active Filters">
-              {activeChips.map((chip) => (
-                <button
-                  key={chip.key}
-                  type="button"
-                  className="explore-active-chip"
-                  onClick={() => updateFilters(chip.clearPatch)}
-                >
-                  <span>{chip.label}</span>
-                  <X size={13} aria-hidden="true" />
-                </button>
-              ))}
+              <AnimatePresence mode="popLayout">
+                {activeChips.map((chip) => (
+                  <motion.button
+                    layout
+                    key={chip.key}
+                    type="button"
+                    className="explore-active-chip"
+                    onClick={() => updateFilters(chip.clearPatch)}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.88 }}
+                    transition={{ duration: 0.16 }}
+                  >
+                    <span>{chip.label}</span>
+                    <X size={13} aria-hidden="true" />
+                  </motion.button>
+                ))}
+              </AnimatePresence>
               <button
                 type="button"
                 className="explore-clear-all-btn"
@@ -1632,14 +1786,16 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               <div className="explore-grid">
                 {viewState.visibleItems.map((movie, idx) => {
                   const id = movie.imdbID || movie.id || `tmdb_${movie.tmdbId}`;
+                  const scoreVal = Number(movie.forYouScore) > 0 ? Math.round(movie.forYouScore) : 0;
+                  const matchTier = scoreVal >= 90 ? "tier-high" : scoreVal >= 80 ? "tier-mid" : "tier-base";
                   return (
                     <div key={id} className="explore-card-wrap">
-                      {isForYouMode && Number(movie.forYouScore) > 0 && (
+                      {isForYouMode && scoreVal > 0 && (
                         <span
-                          className="explore-match-badge tabular-num"
+                          className={`explore-match-badge ${matchTier} tabular-num`}
                           title={movie.forYouReason || "Taste DNA match score"}
                         >
-                          {Math.round(movie.forYouScore)}% match
+                          {scoreVal}% match
                         </span>
                       )}
                       {movie._inWatchlist && !movie._watched && (
