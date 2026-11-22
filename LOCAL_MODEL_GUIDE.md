@@ -244,6 +244,7 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 | **20** | **Explore `"Movies You'll Like"` pool felt small (~100 films, only ~12 Sci-Fi), skipped full `CVEM v1` / DNA / personalized ranker wiring initially, and pushed header buttons right on mode switch** | Initial pool targeted 100 items, waited on Gemini before showing results, and rendered `Shuffle`/`Refresh` conditionally right beside the centered mode toggle causing horizontal layout shift | Scaled `EXPLORE_FOR_YOU_TARGET_COUNT = 250` with full `CVEM v1` + Content + DNA + personalized logistic ranker + `160` embedding neighbors + `onPreliminaryReady` instant render + 48-card pagination + dedicated zero-shift 2-band `.explore-mode-toolbar` (`0px` shift) | [exploreForYouService.js](./src/services/exploreForYouService.js), [ExplorePage.jsx](./src/pages/ExplorePage.jsx) |
 | **21** | **Horizontal carousel wheel scrolling hijacked vertical page scrolling, and Discover rows leaked unreleased future titles or failed transiently on cold load** | Global wheel listener intercepted vertical scroll whenever cursor crossed a row; Discover TMDB queries lacked an upper release-date ceiling and ran unbounded parallel requests without retry | Switched to opt-in smooth wheel engagement (`"Scroll row"` pill / border click / `Shift + Wheel` with `pointerleave` + outside-click + `Esc` release) via `useHorizontalWheelScroll.js` & `scrollHelpers.js`; added `primary_release_date.lte: todayIso` (`releaseGuardVersion: 2`), `3`-lane concurrency cap, & single retry in `dashboardService.js` | [useHorizontalWheelScroll.js](./src/hooks/useHorizontalWheelScroll.js), [scrollHelpers.js](./src/services/scrollHelpers.js), [dashboardService.js](./src/services/dashboardService.js) |
 | **22** | **Prefixed `cinemavault_home_feeds_v2::*` cache entries escaped `localStorage` quota eviction, and demo sample vault data risked leaking into Supabase** | Exact-key purge order missed dynamic `cinemavault_home_feeds_v2::` suffixes; sample rows needed explicit exclusion from cloud vault & `user_explore_picks` upserts | Extracted `storageEviction.js` (`STORAGE_PURGE_ORDER` with prefix sweep for `cinemavault_home_feeds_v2::`) and excluded `isSample` / `hasSampleData` sessions from Supabase sync & cloud For You cache | [storageEviction.js](./src/services/storageEviction.js), [exploreForYouCache.js](./src/services/exploreForYouCache.js), [vaultSyncService.js](./src/services/vaultSyncService.js) |
+| **23** | **Rating Studio hover preview leaked into save state & Explore lacked direct title/franchise search** | Ephemeral hover state needed strict separation from committed bar selection (`selectedScore`) and calibration card layout height varied dynamically | Upgraded `StarRatingStage` to an ascending 10-bar cinema fader with explicit click-to-lock (`Select Rating (1–10)` → `Save X/10 to Vault`), fixed 2-col calibration strip, progressive review disclosure, and added `?q=` Explore title search + `SearchModal` bridge | [StarRatingStage.jsx](./src/components/StarRatingStage.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx), [exploreService.js](./src/services/exploreService.js), [SearchModal.jsx](./src/components/SearchModal.jsx) |
 
 ---
 
@@ -261,8 +262,10 @@ npm test
   - `tests/apiProxy.test.js`
   - `tests/appStorage.test.js`
   - `tests/authService.test.js`
+  - `tests/backgroundJobService.test.js`
   - `tests/chatCardHelpers.test.js`
   - `tests/chatErrors.test.js`
+  - `tests/communityService.test.js`
   - `tests/compareService.test.js`
   - `tests/contentSim.test.js`
   - `tests/csvImport.test.js`
@@ -306,6 +309,7 @@ npm test
   - `tests/selectPrimitive.test.js`
   - `tests/siteUrl.test.js`
   - `tests/tasteDeckService.test.js`
+  - `tests/tasteMatchService.test.js`
   - `tests/tasteRulesService.test.js`
   - `tests/tmdbRabbitHoleHelpers.test.js`
   - `tests/vaultPortability.test.js`
@@ -317,7 +321,7 @@ npm test
 npm run build
 ```
 **What "healthy" looks like:**
-- Exits `0`, transforms **`2351 modules`**, emits vendor-split JS chunks (`index-*.js` ~394 kB, plus lazy `vendor-supabase`, `vendor-genai`, and `embeddingWorker-*.js`) and route-scoped CSS into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- Exits `0`, transforms **`2359 modules`**, emits vendor-split JS chunks (`index-*.js` ~420 kB, plus lazy `vendor-supabase`, `vendor-genai`, and `embeddingWorker-*.js`) and route-scoped CSS into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
 - When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
 ### Check 3: Inspect the Active `.bin` Model Header & Exact Byte Count

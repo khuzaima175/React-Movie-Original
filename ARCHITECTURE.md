@@ -1104,3 +1104,16 @@ CinemaVault operates **guest-first in `localStorage`** and enables multi-device 
 - Lazy `/u/:username` profiles render Top 4 Showcase, rating distribution histogram, Follow/Unfollow, **64-D Taste Twin %** (`computeTasteTwinCompatibility`), *"Films They Loved You Haven't Seen"*, and spoiler-blurred Watch Diary reviews; `MovieCommunitySection` displays live CinemaVault Community averages and reviews on Movie Detail pages.
 
 ---
+
+## 26. v5.6 Ascending 10-Bar Rating Fader, Explore Search & Visual Polish
+
+- **Ascending 10-Bar Cinema Fader (`src/components/StarRatingStage.jsx`, `src/components/MovieDetails.jsx`):**
+  - Renders 10 proportionally ascending equalizer bars (`1..10`) tinted via `getEditorialScorePalette(score)` with a rolling serif numeric readout and tier badge.
+  - Separates ephemeral hover preview from committed `selectedScore` (`Select Rating (1–10)` disabled until a bar is clicked, then `Save X/10 to Vault` or `Update X/10 Entry`), keeping the calibration strip (`Same tier in Vault`) layout-stable via a fixed-height 2-column grid and folding Quick Review Tags, Craft Breakdown, Watch Log, and Note behind `+ Add tags, craft breakdown & note`.
+- **Explore Title & Franchise Search (`src/services/exploreService.js`, `src/services/exploreForYouService.js`, `src/components/SearchModal.jsx`):**
+  - `applyExploreQueryTransition` and `filterAndSortSearchResults` query TMDB `/search/movie` (`SEARCH_PAGES_PER_BATCH`) when `filters.query` is active in All Catalog mode, while `filterForYouCatalog` filters the ~250-film personalized pool in `"Movies You'll Like"` mode.
+  - `SearchModal` includes a `"View all in Explore"` pill (`Shift+Enter`) that preserves the search query into `/explore?q=...`.
+- **Cross-App Visual & Spacing Overhaul (`HeroBillboard.jsx`, `MovieCarouselRow.jsx`, `MovieCard.jsx`, `VaultBanner.jsx`, `OracleTopPickSpotlight.jsx`, `AIChat.jsx`, `BackupManagerModal.jsx`, `src/styles/community.css`):**
+  - Refined transitions, card depth, `VaultBanner` rating-spread sparkline, CSV import guidance inside `BackupManagerModal` / `SampleVaultBanner`, and responsive container padding alignment on `MovieCommunitySection`.
+
+---

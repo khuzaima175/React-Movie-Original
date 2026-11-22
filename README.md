@@ -45,7 +45,7 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 | Gemini cascade & BYOK | Dual Flash-Lite cascade (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`, up to 1,000 free requests/day) with error-specific cooldowns, optional browser-local personal Gemini key (`cv_user_gemini_key`), and deterministic on-device ranker fallback when shared quota is at capacity. |
 | Editions (Public / Personal) | Clean Public Edition by default; toggle Personal/Debug UI with `?debug=1` (`?debug=0` to clear) or build with `VITE_APP_EDITION=personal`. |
 | Streaming | 12 services, 13 provider alias families, 15 regions. |
-| Rating studio | 10-star stage, live percentile calibration, optional 4-aspect craft scores, and watch-session metadata. |
+| Rating studio | Ascending 10-bar cinema fader with editorial color grading, rolling score readout, live percentile calibration, same-tier pills, optional 4-aspect craft scores, and watch-session log. |
 | Demo onboarding | One-click `"Try a sample vault"` loads 14 rated films + 6 watchlist films locally without touching cloud sync. |
 | Import and export | Letterboxd and CinemaVault CSV import, Schema v2 JSON backup, and a diff preview before applying. |
 | Discovery & Explore For You | Discover's **"Picked For Your Taste"** row mirrors your real `CVEM v1` **"Movies You'll Like"** pool with match badges + `"See all →"`; `/explore` hosts a filterable workbench and 3-wave progressive ~250-film personalized pool backed by Web Worker ML and non-blocking background curation. |
@@ -67,7 +67,7 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 | :---: | :---: |
 | ![Film Oracle Recommendations](assets/screenshots/oracle.png) | ![My Vault and Insights](assets/screenshots/vault.png) |
 
-| 10-Star Rating Studio | Side-by-Side Comparison |
+| Ascending 10-Bar Rating Studio | Side-by-Side Comparison |
 | :---: | :---: |
 | ![Movie Detail Rating Studio](assets/screenshots/movie-rating-studio.png) | ![3-Film Comparison Matrix](assets/screenshots/compare.png) |
 
@@ -130,8 +130,9 @@ Pick a random film from your Watchlist or your Watched list, with an animated re
 
 ### 7. Rating studio
 
-- A 10-star stage with a numeric readout and a tier label for each score.
-- **Live calibration:** as you pick a score, the stage shows your percentile in the vault and up to two films rated the same or nearest.
+- An ascending 10-bar cinema fader (`1` to `10`) with editorial color grading, rolling serif score readout, and a tier label for each score. Clicking a bar locks your score (`Save X/10 to Vault`), while hovering previews without saving accidentally.
+- **Live calibration:** as you hover or lock a score, the stage shows your percentile in the vault and a compact two-column strip of up to two films rated the same or nearest.
+- **Progressive review drawer:** toggle `+ Add tags, craft breakdown & note` when desired to attach Quick Review Tags, 4-aspect craft ratings, Watch Log metadata, or a short review note without cluttering the studio card.
 - **Optional craft scores (1–5):** story, direction, performances, and visuals and sound.
 - **Watch log:** format (streaming, theater, IMAX or Dolby, physical media), rewatch count, and watch date.
 - **Notes and tags:** a short note and one-tap tags such as `#TightPacing` or `#WeakEnding`. Notes in Quick Rate are capped at 200 characters. Notes are passed to Gemini up to 180 characters.
@@ -155,7 +156,7 @@ Click any cast member or crew credit to open their filmography in an overlay, wi
 ### 10. Search and trailers
 
 - `Cmd + K` (Mac) or `Ctrl + K` (Windows and Linux), or `/` outside text fields, opens search.
-- Search queries OMDb and TMDB in parallel, merges results, and marks films already in your vault.
+- Search queries OMDb and TMDB in parallel, merges results, shows instant `"For You"` Match `%` pills on unseen candidates, and lets you jump straight into Explore filtering via **"View all in Explore"** (`Shift + Enter`).
 - Trailers prefer an official English trailer, then other trailers, then teasers. Playback opens on YouTube. Films with no trailer data link to a YouTube search.
 
 ### 11. Interface & Two Editions
@@ -181,7 +182,7 @@ On a first visit with fewer than three rated films, a 30-film deck opens. Visito
 
 ### 14. Explore workbench (`/explore`) & "Movies You'll Like"
 
-- **All Catalog mode:** deep filters across genres (include and exclude), decades or custom years, runtime, minimum rating, minimum votes, language, country, keyword and person search, streaming services, and hide-watched.
+- **All Catalog mode:** direct title and franchise search (`?q=`) plus deep filters across genres (include and exclude), decades or custom years, runtime, minimum rating, minimum votes, language, country, keyword and person search, streaming services, and hide-watched.
 - **"Movies You'll Like" mode (`?mode=for-you`):** combines your full on-device ML taste stack (25k CVEM v1 collaborative embeddings, content embeddings, cinematic DNA, negative repulsion, and personalized logistic ranker) with a single-shot Flash-Lite pass over the top flagship picks to build a **~250-film** personalized library of unseen TMDB-verified movies with match percentages and editorial vibe tags.
   - Cached locally in IndexedDB (7-day TTL) and optionally synced per user via the RLS-protected Supabase `public.user_explore_picks` table (sample vaults stay strictly local).
   - Supports instant client-side Deep Filtering across your personalized pool and quality-weighted **"Shuffle"** reordering with zero extra API calls.
