@@ -1,35 +1,46 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 20, 2026 (`v5.5`)  
-**Status:** Production-ready · Verified by the offline service & API test suite (`npm test`) and production Vite build (`npm run build`).
+**Last Updated:** November 23, 2026 (`v6.0`)  
+**Status:** Production-ready · Verified by **455 / 455** offline service & API unit tests (`npm test`) and production Vite build (`npm run build`).
 
-If you want to understand **what our local ML model actually is**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English.
+If you want to understand **what our local ML models actually are**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English. For the full living benchmark table and ongoing accuracy experiments, see **[MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)**.
 
 ---
 
 ## 1. The Short Version: What Is "Our Local Model"?
 
-Your recommendation engine does **85–90% of the intelligence locally on the user's device (`$0.00` API cost, a few milliseconds)** before Google Gemini ever sees a candidate movie. It consists of three working parts on disk + in JavaScript:
+Your recommendation engine does **85–90% of the intelligence locally on the user's device (`$0.00` API cost, a few milliseconds)** before Google Gemini ever sees a candidate movie. It consists of **four** working parts on disk + in JavaScript:
 
-1. **The Pre-Trained Movie Map ([public/models/item_embeddings_f16.bin](./public/models/item_embeddings_f16.bin))**
+1. **The Exact Full-Rank Sparse EASE^R Graph ([public/models/item_ease_k64.cvea](./public/models/item_ease_k64.cvea)) — NEW in `v6.0`!**
+   - **What it is:** A **`3.47 MB`** (`3,640,016` bytes) full-rank closed-form **EASE^R** item-item regression graph (`14,000 × 14,000` Cholesky solve on MovieLens 32M with `λ = 800`, light `γ = 0.12` popularity damping, pruned to top-64 outgoing neighbors per movie) saved in our compact **`CVEA v1`** binary format.
+   - **Why it crushed 64-D SVD alone:** Low-rank 64-D SVD blurs sharp film-to-film relationships (franchises, cult companions, auteur lineages). Storing each film's exact top-64 full-rank EASE^R neighbors scores any vault in **`< 1 ms`** (`O(|watched| × 64)`) and, when blended **`60% EASE^R / 40% SVD`** (`easeService.js`), lifted **300-user leakage-clean `NDCG@10` by `+47.6%*`**, **`NDCG@20` by `+41.9%*`**, **`HR@20` from `61.7% → 74.7%`**, and **Long-Tail Hits@20 by `+7.1%`**!
+   - **Byte-by-Byte Layout (`CVEA v1`):**
+     - Bytes `0..3`: ASCII magic header `"CVEA"`
+     - Bytes `4..7`: `uint32` version (`1`, little-endian)
+     - Bytes `8..11`: `uint32` item count (`14000`, little-endian)
+     - Bytes `12..15`: `uint32` outgoing neighbors `K` (`64`, little-endian)
+     - Next `14,000 × 4` B: `uint32` `tmdbId` array
+     - Next `14,000 × 64 × 2` B: `uint16` target neighbor index table
+     - Final `14,000 × 64 × 2` B: IEEE-754 `float16` EASE^R weight table (`16 + 56,000 + 1,792,000 + 1,792,000 = 3,640,016` B total).
+
+2. **The Pre-Trained Movie Map ([public/models/item_embeddings_f16.bin](./public/models/item_embeddings_f16.bin))**
    - **What it is:** Your **3.15 MB** (`3,300,016` bytes) Google Colab-trained latent taste matrix saved in our compact **CVEM v1** (`float16` half-precision) binary format.
-   - **What's inside:** **25,000 movies** from the **MovieLens 32M** dataset, each represented by a **64-dimensional L2-normalized vector** (`dim = 64`) capturing which global audiences co-like and co-dislike the film, mapped directly to integer TMDB IDs.
+   - **What's inside:** **25,000 movies** from the **MovieLens 32M** dataset, each represented by a **64-dimensional L2-normalized vector** (`dim = 64`) capturing global audience co-affinity, mapped directly to integer TMDB IDs. Supplies the `40%` generalization half of the collaborative score, persona/repulsion vectors, and automatic fallback for the `11,000` ultra-rare films outside the `14,000`-item EASE^R graph.
    - **Byte-by-Byte Layout (`CVEM v1`):**
      - Bytes `0..3`: ASCII magic header `"CVEM"`
      - Bytes `4..7`: `uint32` version (`1`, little-endian)
      - Bytes `8..11`: `uint32` item count (`25000`, little-endian)
      - Bytes `12..15`: `uint32` embedding dimension (`64`, little-endian)
      - Remaining bytes (`25,000 × (4 + 64 × 2) = 3,300,000` B): repeated `[uint32 tmdbId][64 × float16 components]` records (`16 + 3,300,000 = 3,300,016` B total).
-   - **How the browser loads it safely:** `loadDefaultEmbeddingIndex` in [src/services/embeddingService.js](./src/services/embeddingService.js#L516-L539) fetches `/models/item_embeddings_f16.bin` lazily once per browser session, rejects SPA `text/html` fallback pages, validates header bounds and exact `byteLength`, decodes IEEE-754 `float16` -> `Float32Array`, and caches the index in memory. If the binary is missing or running inside offline unit tests, it returns `null` safely without crashing.
+   - **How the browser loads both safely:** `loadDefaultEmbeddingIndex` (`embeddingService.js`) and `loadDefaultEaseIndex` (`easeService.js`) fetch `/models/item_embeddings_f16.bin` and `/models/item_ease_k64.cvea` lazily once per browser session, reject SPA `text/html` fallback pages, validate header bounds and exact `byteLength`, and cache in memory. If either binary is missing or running inside offline unit tests, it degrades gracefully without crashing.
 
-2. **The 11-Feature Local Logistic Ranker (`DEFAULT_RANKER_WEIGHTS` in [src/services/rankerService.js](./src/services/rankerService.js#L6-L20))**
-   - Computes **12 normalized features** (`11` active weighted features + optional `dnaSim` gated at `0`) for every movie in the merged TMDB + Embedding candidate pool (`collabSim`, `contentSim`, `genreOverlap`, `keywordOverlap`, `crewMatch`, `castMatch`, `bayesianRatingNorm`, `noveltyBonus`, `negativeKeywordPenalty`, `repulsion`, `providerMatch`, `dnaSim`).
-   - Passes them through a temperature-scaled logistic sigmoid $\sigma((b + w^\top x + \text{moodAdjustment}) / \tau)$ (`\tau = 1.45`) and locks each film's order-preserving **50–99% Display Match Score** plus up to 3 deterministic **Match Reason Badges** (`🎭 <Mood> Fit`, `🧬 High Taste-Twin Match`, `🤝 Collaborative Taste Pick`, `🎬 Favorite Filmmaker`, `🎭 Top Cast Match`, `🎯 Core Theme Match`, `💎 Personal Cult Pick`, `🎪 Genre Bullseye`, `⭐ Critical Acclaim`).
-   - **Zero LLM Score Hallucination:** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **`10`** (`DEFAULT_RECOMMENDATION_COUNT = 10`) out of up to **`39`** stratified pre-ranked candidates (`25` top ranker + `8` cold `2024–2026` + `6` outliers via `buildDiversifiedGeminiShortlist`, plus `0–2` optional TMDB-verified `wildcardPicks`), pair each pick with `1–3` vault `anchorTitles`, and write personalized 1-sentence prose free of scoring jargon (backfilling cleanly from the top ranker picks if Gemini returns fewer than `10`).
+3. **The 12-Feature Local Logistic Ranker (`DEFAULT_RANKER_WEIGHTS` in [src/services/rankerService.js](./src/services/rankerService.js#L23-L37))**
+   - Computes **12 normalized features** (`11` active weighted features + optional `dnaSim` gated at `0`) for every movie in the merged TMDB + Collaborative candidate pool (`collabSim` [60/40 EASE^R+SVD], `contentSim`, `genreOverlap`, `keywordOverlap`, `crewMatch`, `castMatch`, `bayesianRatingNorm`, `noveltyBonus`, `negativeKeywordPenalty`, `repulsion`, `providerMatch`, `dnaSim`).
+   - Passes them through a temperature-scaled logistic sigmoid $\sigma((b + w^\top x + \text{moodAdjustment}) / \tau)$ (`\tau = 1.45`) and locks each film's order-preserving **50–99% Display Match Score** plus up to 3 deterministic **Match Reason Badges**.
+   - **Zero LLM Score Hallucination (`100 → 20`):** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **`20`** (`DEFAULT_RECOMMENDATION_COUNT = 20`) out of up to **`100`** stratified pre-ranked candidates (`72` top core + `14` cold `2024–2026` + `14` diverse outliers via `buildDiversifiedGeminiShortlist`, plus `0–2` or `0–4` optional TMDB-verified `wildcardPicks`), pair each pick with `1–3` vault `anchorTitles`, and write grounded 2-sentence editorial pitches free of scoring jargon (backfilling cleanly from the top ranker picks if Gemini returns fewer than `20`).
 
-3. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)), Content/DNA Builders & Trainer ([scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
-   - `public/models/ranker_weights.json` is an offline training/reference JSON (`_source: "v5.0-offline-328-cv"`) exported alongside the Colab trainer and kept synchronized in exact `deepEqual` parity with `DEFAULT_RANKER_WEIGHTS` (`collabSim: 6.4`, `negativeKeywordPenalty: -0.5`, `_metadataDampingFactor: 0.35`, `_displayTemperature: 1.45`). In-app, `onlineLearningService.js` optionally nudges personal weights via bounded `fitRankerWeights` once `>= 10` events (`>= 3` positive, `>= 3` negative) accumulate, while `scripts/build_content_embeddings.mjs` supports building optional `/models/content_embeddings_f16.bin` plot vectors cleanly without metadata leakage.
-   - `scripts/colab_train_embeddings.py` is the Python Truncated SVD trainer (`svds`, `k=64`, Bayesian norm shrinkage `0.5`) with built-in holdout stripping and popularity sanity gates.
+4. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)) & Trainers ([scripts/experiments/train_sparse_ease.py](./scripts/experiments/train_sparse_ease.py), [scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
+   - `public/models/ranker_weights.json` stays synchronized in exact `deepEqual` parity with `DEFAULT_RANKER_WEIGHTS`. `train_sparse_ease.py` trains `item_ease_k64.cvea` locally in ~56 seconds on CPU from MovieLens 32M (`--production --max-items 14000 --k 64 --lam 800 --pop-gamma 0.12`).
 
 ---
 
@@ -326,13 +337,14 @@ npm run build
 - Exits `0`, transforms **`2359 modules`**, emits vendor-split JS chunks (`index-*.js` ~420 kB, plus lazy `vendor-supabase`, `vendor-genai`, and `embeddingWorker-*.js`) and route-scoped CSS into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
 - When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
-### Check 3: Inspect the Active `.bin` Model Header & Exact Byte Count
+### Check 3: Inspect the Active `.bin` & `.cvea` Model Headers & Exact Byte Counts
 ```bash
-node -e "import('node:fs').then(fs=>{const b=fs.readFileSync('public/models/item_embeddings_f16.bin'),d=new DataView(b.buffer,b.byteOffset,b.byteLength);console.log({bytes:b.length,magic:b.slice(0,4).toString(),ver:d.getUint32(4,true),count:d.getUint32(8,true),dim:d.getUint32(12,true)});})"
+node -e "import('node:fs').then(fs=>{for(const f of ['public/models/item_embeddings_f16.bin','public/models/item_ease_k64.cvea']){const b=fs.readFileSync(f),d=new DataView(b.buffer,b.byteOffset,b.byteLength);console.log(f,{bytes:b.length,magic:b.slice(0,4).toString(),ver:d.getUint32(4,true),count:d.getUint32(8,true),dimOrK:d.getUint32(12,true)});}})"
 ```
 **Expected exact output:**
 ```text
-{ bytes: 3300016, magic: 'CVEM', ver: 1, count: 25000, dim: 64 }
+public/models/item_embeddings_f16.bin { bytes: 3300016, magic: 'CVEM', ver: 1, count: 25000, dimOrK: 64 }
+public/models/item_ease_k64.cvea      { bytes: 3640016, magic: 'CVEA', ver: 1, count: 14000, dimOrK: 64 }
 ```
 
 ### Check 4: Run the Local Evaluation Harness (`scripts/run_eval.mjs`)

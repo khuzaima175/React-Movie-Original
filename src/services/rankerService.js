@@ -715,10 +715,10 @@ export function rankCandidatePool(candidates = [], context = {}, weights = DEFAU
 }
 
 export const DEFAULT_SHORTLIST_DIVERSITY_CONFIG = {
-  coreLimit: 25,
-  coldLimit: 8,
-  outlierLimit: 6,
-  shortlistLimit: 39,
+  coreLimit: 72,
+  coldLimit: 14,
+  outlierLimit: 14,
+  shortlistLimit: 100,
   coldMinYear: 2024,
   coldMaxYear: 2026,
   minColdVoteAverage: 6.4,

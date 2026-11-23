@@ -3,7 +3,10 @@ import { motion } from "framer-motion";
 import { Bookmark, Check, Eye, Loader2, Play, Sparkles, Star, ThumbsDown } from "lucide-react";
 import PosterImage from "./PosterImage";
 import { calibratePredictedRating } from "../services/tasteMatchService";
-import { resolveRecommendationAnchors, sanitizeOracleReason } from "../services/oracleViewHelpers";
+import {
+  buildDetailedOracleExplanation,
+  resolveRecommendationAnchors
+} from "../services/oracleViewHelpers";
 
 export default function OracleTopPickSpotlight({
   pick,
@@ -23,20 +26,9 @@ export default function OracleTopPickSpotlight({
   const hasMatch = showNumericMatch && Number.isFinite(matchScore) && matchScore >= 50;
   const estRating = hasMatch ? calibratePredictedRating({ matchPct: matchScore, watched }) : null;
   const anchors = resolveRecommendationAnchors(pick, watched, 3);
-  const rawReason = sanitizeOracleReason(pick.reason || "");
-  const isGenericReason =
-    !rawReason || /^Selected by the CinemaVault calibrated taste ranker\.?$/i.test(rawReason);
-  const cleanReason =
-    isGenericReason && (anchors.length > 0 || pick.genre)
-      ? `Strong taste match${pick.genre ? ` in ${pick.genre}` : ""}${
-          anchors.length > 0
-            ? ` — resonates with ${anchors
-                .slice(0, 2)
-                .map((a) => a.title)
-                .join(" & ")}`
-            : ""
-        }.`
-      : rawReason;
+  const { whyText, premiseNote } = buildDetailedOracleExplanation(pick, anchors);
+  const directorName =
+    pick.director && pick.director !== "Unknown" && pick.director !== "N/A" ? pick.director : null;
   const backdropUrl = pick.backdrop || pick.backdropUrl || pick.poster || "";
 
   return (
@@ -86,6 +78,7 @@ export default function OracleTopPickSpotlight({
           <div className="oracle-spotlight-meta">
             {pick.year && <span>{pick.year}</span>}
             {pick.genre && <span>{pick.genre}</span>}
+            {directorName && <span>Dir. {directorName}</span>}
             {pick.imdbRating && pick.imdbRating !== "N/A" && (
               <span className="oracle-spotlight-imdb tabular-num">
                 <Star size={12} fill="currentColor" aria-hidden="true" />
@@ -94,7 +87,12 @@ export default function OracleTopPickSpotlight({
             )}
           </div>
 
-          {cleanReason && <p className="oracle-spotlight-reason">{cleanReason}</p>}
+          {(whyText || premiseNote) && (
+            <div className="oracle-spotlight-pitch">
+              {whyText && <p className="oracle-spotlight-reason">{whyText}</p>}
+              {premiseNote && <p className="oracle-spotlight-premise">{premiseNote}</p>}
+            </div>
+          )}
 
           {anchors.length > 0 && (
             <div className="oracle-spotlight-anchors">

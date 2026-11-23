@@ -1,0 +1,116 @@
+{
+  "summaryH2": {
+    "local_ranker": {
+      "nUsers": 1,
+      "hitRateAny": 1,
+      "meanHitsAt10": 1,
+      "recall10": 0.1,
+      "ndcg10": 0.0737,
+      "ltRecall10": null,
+      "ltNdcg10": null,
+      "meanLogVc": 8.877,
+      "avgCatalogMatchRate": null
+    },
+    "track1_math_hydrogen": {
+      "nUsers": 1,
+      "hitRateAny": 1,
+      "meanHitsAt10": 2,
+      "recall10": 0.2,
+      "ndcg10": 0.2343,
+      "ltRecall10": null,
+      "ltNdcg10": null,
+      "meanLogVc": 0,
+      "avgCatalogMatchRate": null
+    },
+    "track1_math_flashlite": {
+      "nUsers": 1,
+      "hitRateAny": 1,
+      "meanHitsAt10": 1,
+      "recall10": 0.1,
+      "ndcg10": 0.1169,
+      "ltRecall10": null,
+      "ltNdcg10": null,
+      "meanLogVc": 0,
+      "avgCatalogMatchRate": null
+    },
+    "fullvault_hydrogen": {
+      "nUsers": 1,
+      "hitRateAny": 0,
+      "meanHitsAt10": 0,
+      "recall10": 0,
+      "ndcg10": 0,
+      "ltRecall10": null,
+      "ltNdcg10": null,
+      "meanLogVc": 7.378,
+      "avgCatalogMatchRate": 1
+    },
+    "fullvault_flashlite": {
+      "nUsers": 1,
+      "hitRateAny": 0,
+      "meanHitsAt10": 0,
+      "recall10": 0,
+      "ndcg10": 0,
+      "ltRecall10": null,
+      "ltNdcg10": null,
+      "meanLogVc": 8.399,
+      "avgCatalogMatchRate": 0.95
+    },
+    "dossier_flashlite": {
+      "nUsers": 1,
+      "hitRateAny": 1,
+      "meanHitsAt10": 1,
+      "recall10": 0.1,
+      "ndcg10": 0.1169,
+      "ltRecall10": null,
+      "ltNdcg10": null,
+      "meanLogVc": 0,
+      "avgCatalogMatchRate": null
+    }
+  },
+  "summaryAll": {
+    "local_ranker": {
+      "nUsers": 20,
+      "hitRateAny": 0.35,
+      "meanHitsAt10": 0.75,
+      "recall10": 0.075,
+      "ndcg10": 0.062,
+      "ltRecall10": 0,
+      "ltNdcg10": 0,
+      "meanLogVc": 8.667,
+      "avgCatalogMatchRate": null
+    },
+    "track1_math_flashlite": {
+      "nUsers": 20,
+      "hitRateAny": 0.45,
+      "meanHitsAt10": 0.7,
+      "recall10": 0.07,
+      "ndcg10": 0.0683,
+      "ltRecall10": 0.011,
+      "ltNdcg10": 0.0022,
+      "meanLogVc": 0,
+      "avgCatalogMatchRate": null
+    },
+    "fullvault_flashlite": {
+      "nUsers": 20,
+      "hitRateAny": 0.4,
+      "meanHitsAt10": 0.4,
+      "recall10": 0.04,
+      "ndcg10": 0.0288,
+      "ltRecall10": 0.011,
+      "ltNdcg10": 0.0041,
+      "meanLogVc": 8.212,
+      "avgCatalogMatchRate": 0.908
+    },
+    "track1_math_gemini36flash": {
+      "nUsers": 3,
+      "hitRateAny": 0.3333,
+      "meanHitsAt10": 0.3333,
+      "recall10": 0.0333,
+      "ndcg10": 0.0124,
+      "ltRecall10": 0.0476,
+      "ltNdcg10": 0.0177,
+      "meanLogVc": 0,
+      "avgCatalogMatchRate": null
+    }
+  }
+}

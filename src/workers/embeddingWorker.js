@@ -6,8 +6,14 @@ import {
   getCollabCatalogMax,
   retrieveAlignedEmbeddingNeighbors
 } from "../services/embeddingService.js";
+import {
+  loadDefaultEaseIndex,
+  buildEaseSimMapFromIndex,
+  blendEaseAndCollabSimMaps
+} from "../services/easeService.js";
 
 let cachedIndexPromise = null;
+let cachedEasePromise = null;
 
 function getWorkerEmbeddingIndex() {
   if (!cachedIndexPromise) {
@@ -16,12 +22,22 @@ function getWorkerEmbeddingIndex() {
   return cachedIndexPromise;
 }
 
+function getWorkerEaseIndex() {
+  if (!cachedEasePromise) {
+    cachedEasePromise = loadDefaultEaseIndex().catch(() => null);
+  }
+  return cachedEasePromise;
+}
+
 self.onmessage = async (event) => {
   const { id, type, payload } = event.data || {};
   if (type !== "computeExploreSignals") return;
 
   try {
-    const embeddingIndex = await getWorkerEmbeddingIndex();
+    const [embeddingIndex, easeIndex] = await Promise.all([
+      getWorkerEmbeddingIndex(),
+      getWorkerEaseIndex()
+    ]);
     if (!embeddingIndex) {
       self.postMessage({
         id,
@@ -44,7 +60,9 @@ self.onmessage = async (event) => {
     const rawRepulsionWeight = Number(payload?.repulsionWeight);
     const repulsionWeight = Number.isFinite(rawRepulsionWeight) ? rawRepulsionWeight : 0.25;
 
-    const collabSimMap = buildCollabSimMapFromIndex(weightedRatings, embeddingIndex);
+    const baseCollabSimMap = buildCollabSimMapFromIndex(weightedRatings, embeddingIndex);
+    const easeSimMap = easeIndex ? buildEaseSimMapFromIndex(weightedRatings, easeIndex) : null;
+    const collabSimMap = blendEaseAndCollabSimMaps(easeSimMap, baseCollabSimMap, easeIndex);
     const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, embeddingIndex);
     const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
     const collabUserVec = computeUserEmbedding(weightedRatings, embeddingIndex);

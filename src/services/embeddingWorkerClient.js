@@ -6,6 +6,11 @@ import {
   getCollabCatalogMax,
   retrieveAlignedEmbeddingNeighbors
 } from "./embeddingService.js";
+import {
+  loadDefaultEaseIndex,
+  buildEaseSimMapFromIndex,
+  blendEaseAndCollabSimMaps
+} from "./easeService.js";
 
 let workerInstance = null;
 let workerDisabled = false;
@@ -87,12 +92,18 @@ async function computeOnMainThread({
   topK = 240,
   repulsionWeight = 0.25,
   embeddingIndex = undefined,
-  loadIndexFn = loadDefaultEmbeddingIndex
+  easeIndex = undefined,
+  loadIndexFn = loadDefaultEmbeddingIndex,
+  loadEaseFn = loadDefaultEaseIndex
 }) {
-  const index =
+  const [index, resolvedEaseIndex] = await Promise.all([
     embeddingIndex !== undefined
-      ? embeddingIndex
-      : await loadIndexFn().catch(() => null);
+      ? Promise.resolve(embeddingIndex)
+      : loadIndexFn().catch(() => null),
+    easeIndex !== undefined
+      ? Promise.resolve(easeIndex)
+      : loadEaseFn().catch(() => null)
+  ]);
 
   if (!index) {
     return {
@@ -107,7 +118,9 @@ async function computeOnMainThread({
   }
 
   const excludeSet = new Set(excludeNumericIds);
-  const collabSimMap = buildCollabSimMapFromIndex(weightedRatings, index);
+  const baseCollabSimMap = buildCollabSimMapFromIndex(weightedRatings, index);
+  const easeSimMap = resolvedEaseIndex ? buildEaseSimMapFromIndex(weightedRatings, resolvedEaseIndex) : null;
+  const collabSimMap = blendEaseAndCollabSimMaps(easeSimMap, baseCollabSimMap, resolvedEaseIndex);
   const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, index);
   const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
   const collabUserVec = computeUserEmbedding(weightedRatings, index);

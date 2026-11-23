@@ -200,6 +200,7 @@ test("getMovieRecommendations falls back to local calibrated ranker (never OMDb)
       {
         aiClient: mockAi,
         candidates: mockCandidates,
+        targetCount: 10,
         embeddingIndex: null
       }
     );
@@ -246,7 +247,7 @@ test("reRankCandidatesWithGemini attaches modelInfo even when executeCascade ret
       [{ id: 2, tmdbId: 2, title: "Seed 2", userRating: 8, tmdbGenreIds: [18] }],
       [],
       null,
-      { aiClient: nullAi, candidates: mockCandidates, embeddingIndex: null }
+      { aiClient: nullAi, candidates: mockCandidates, targetCount: 10, embeddingIndex: null }
     );
     assert.equal(res.recommendations.length, 10);
     assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
@@ -342,7 +343,7 @@ test("getMovieRecommendations completes via local ranker when VITE_GEMINI_KEY is
       [{ id: 10, tmdbId: 10, title: "Watched", userRating: 9, tmdbGenreIds: [18] }],
       [],
       null,
-      { candidates, embeddingIndex: null }
+      { candidates, targetCount: 10, embeddingIndex: null }
     );
     assert.equal(res.recommendations.length, 10);
     assert.equal(res.modelInfo?.pipeline, "ranker-fallback");
@@ -512,11 +513,11 @@ test("executeCascade enforces spendTracker.canUseArgon() and calls markArgonUnav
   resetSessionWorkingModels();
 });
 
-test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, and excludeIds refresh", async () => {
-  assert.equal(DEFAULT_RECOMMENDATION_COUNT, 10);
-  assert.equal(MIN_VALID_CACHE_COUNT, 7);
+test("Task 3: 20-pick cache floor 14, moodFilters hash, prompt/backfill to 20, and excludeIds refresh", async () => {
+  assert.equal(DEFAULT_RECOMMENDATION_COUNT, 20);
+  assert.equal(MIN_VALID_CACHE_COUNT, 14);
 
-  // 1. Smart cache rejects caches that shrink below 7 valid items
+  // 1. Smart cache rejects caches that shrink below 14 valid items
   const prevStorage = globalThis.localStorage;
   const mem = new Map();
   globalThis.localStorage = {
@@ -525,13 +526,20 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
   };
 
   try {
-    const recs10 = Array.from({ length: 10 }, (_, i) => ({ tmdbId: 900 + i, title: `Pick ${i}`, matchScore: 88 }));
-    setSmartCache("test_hash_10", { recommendations: recs10 });
-    assert.equal(getSmartCache("test_hash_10", [{ tmdbId: 900 }, { tmdbId: 901 }], [])?.recommendations.length, 8);
+    const recs20 = Array.from({ length: 20 }, (_, i) => ({ tmdbId: 900 + i, title: `Pick ${i}`, matchScore: 88 }));
+    setSmartCache("test_hash_20", { recommendations: recs20 });
     assert.equal(
-      getSmartCache("test_hash_10", [{ tmdbId: 900 }, { tmdbId: 901 }, { tmdbId: 902 }, { tmdbId: 903 }], []),
+      getSmartCache("test_hash_20", [{ tmdbId: 900 }, { tmdbId: 901 }, { tmdbId: 902 }], [])?.recommendations.length,
+      17
+    );
+    assert.equal(
+      getSmartCache(
+        "test_hash_20",
+        Array.from({ length: 7 }, (_, i) => ({ tmdbId: 900 + i })),
+        []
+      ),
       null,
-      "cache must invalidate when fewer than 7 valid recommendations remain"
+      "cache must invalidate when fewer than 14 valid recommendations remain"
     );
   } finally {
     if (prevStorage === undefined) delete globalThis.localStorage;
@@ -548,8 +556,8 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
   assert.notEqual(hComfort, hLegacy);
   assert.notEqual(hComfort, hThriller);
 
-  // 3. Prompt demands 10 items + mood directive & merge backfills partial Gemini picks up to 10 without duplicates
-  const ranked15 = Array.from({ length: 15 }, (_, i) => ({
+  // 3. Prompt demands 20 items + mood directive & merge backfills partial Gemini picks up to 20 without duplicates
+  const ranked25 = Array.from({ length: 25 }, (_, i) => ({
     id: 800 + i,
     tmdbId: 800 + i,
     title: `Ranked Film ${i}`,
@@ -562,17 +570,17 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
     overview: `Warm overview ${i}`
   }));
 
-  const prompt = buildGeminiReRankPrompt(prof, "comfort-watch", ranked15, {
+  const prompt = buildGeminiReRankPrompt(prof, "comfort-watch", ranked25, {
     moodFilters: { query: "light comedy", withGenres: ["Comedy"], withoutKeywords: ["gore"], maxYear: 2022 }
   });
-  assert.match(prompt, /select 10 distinct/i);
-  assert.match(prompt, /Array of 10 items/i);
+  assert.match(prompt, /select 20 distinct/i);
+  assert.match(prompt, /Array of 20 items/i);
   assert.match(prompt, /Comfort Watch|rewatchability|Mood Directive/i);
   assert.match(prompt, /gore/i);
 
   const partialGemini = {
     tasteProfile: { favoriteGenres: ["Comedy"], preferredEra: "Mixed", ratingStyle: "Warm" },
-    recommendations: ranked15.slice(0, 6).map((c) => ({
+    recommendations: ranked25.slice(0, 6).map((c) => ({
       tmdbId: c.tmdbId,
       title: c.title,
       year: c.year,
@@ -580,9 +588,9 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
       reason: `Critics' pick for ${c.title}.`
     }))
   };
-  const backfilled = mergeGeminiExplanationsWithRanker(partialGemini, ranked15, prof, {});
-  assert.equal(backfilled.recommendations.length, 10);
-  assert.equal(new Set(backfilled.recommendations.map((r) => r.tmdbId)).size, 10);
+  const backfilled = mergeGeminiExplanationsWithRanker(partialGemini, ranked25, prof, {});
+  assert.equal(backfilled.recommendations.length, 20);
+  assert.equal(new Set(backfilled.recommendations.map((r) => r.tmdbId)).size, 20);
 
   // 4. getMovieRecommendations excludes seen IDs and shortlists up to 30 to Gemini, falling back smoothly if exhausted
   const prevGKey = process.env.VITE_GEMINI_KEY;
@@ -636,14 +644,14 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
       }
     );
 
-    assert.equal(promptCandidateCount, 30, "shortlist to Gemini must pass up to 30 candidates");
-    assert.equal(refreshed.recommendations.length, 10);
+    assert.equal(promptCandidateCount, 30, "shortlist to Gemini must pass all 30 remaining candidates");
+    assert.equal(refreshed.recommendations.length, 20);
     assert.ok(
       !refreshed.recommendations.some((r) => seenFirst5.includes(r.tmdbId)),
       "excluded IDs must not reappear when 30 unseen candidates remain"
     );
 
-    // Exhaustion safety: excluding 33 of 35 candidates still returns 10 picks instead of collapsing
+    // Exhaustion safety: excluding 33 of 35 candidates still returns 20 picks instead of collapsing
     delete process.env.VITE_GEMINI_KEY;
     const nearExhausted = await getMovieRecommendations(
       [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [35] }],
@@ -656,7 +664,7 @@ test("Task 3: 10-pick cache floor 7, moodFilters hash, prompt/backfill to 10, an
         embeddingIndex: null
       }
     );
-    assert.equal(nearExhausted.recommendations.length, 10);
+    assert.equal(nearExhausted.recommendations.length, 20);
 
     // Exhaustion guard deduplication must also work cleanly for string/non-numeric candidate IDs
     const stringPool = Array.from({ length: 12 }, (_, i) => ({
@@ -1225,17 +1233,20 @@ test("applyDetailsToCandidate and mergeBackfilledMovieMetadata preserve cast, wr
     assert.equal(backfilled.tagline, details.tagline);
 });
 
-test("getMovieRecommendations shortlists 39 diversified candidates to Gemini when pool >= 55", async () => {
+test("getMovieRecommendations shortlists 100 diversified candidates to Gemini when pool >= 115", async () => {
     const prevGKey = process.env.VITE_GEMINI_KEY;
     process.env.VITE_GEMINI_KEY = "TEST_KEY";
     resetSessionWorkingModels();
     resetModelInfoForTests();
 
     let promptCandidateCount = 0;
+    let promptLength = 0;
     const mockAi = {
         models: {
             generateContent: async ({ contents }) => {
-                const match = String(contents).match(/PRE-RANKED CANDIDATE MOVIES \(Top (\d+)\)/);
+                const text = String(contents);
+                promptLength = text.length;
+                const match = text.match(/PRE-RANKED CANDIDATE MOVIES \(Top (\d+)\)/);
                 if (match) promptCandidateCount = Number(match[1]);
                 return {
                     text: JSON.stringify({
@@ -1249,8 +1260,8 @@ test("getMovieRecommendations shortlists 39 diversified candidates to Gemini whe
     };
 
     try {
-        const pool55 = [
-            ...Array.from({ length: 30 }, (_, i) => ({
+        const pool115 = [
+            ...Array.from({ length: 80 }, (_, i) => ({
                 id: 5000 + i,
                 tmdbId: 5000 + i,
                 title: `Warm Core ${i}`,
@@ -1262,9 +1273,9 @@ test("getMovieRecommendations shortlists 39 diversified candidates to Gemini whe
                 genre_ids: [35, 10751],
                 vote_average: 7.8,
                 vote_count: 2000,
-                collabSim: 0.7 - i * 0.01
+                collabSim: 0.9 - i * 0.008
             })),
-            ...Array.from({ length: 8 }, (_, i) => ({
+            ...Array.from({ length: 16 }, (_, i) => ({
                 id: 5100 + i,
                 tmdbId: 5100 + i,
                 title: `Fresh Cozy ${i}`,
@@ -1278,7 +1289,7 @@ test("getMovieRecommendations shortlists 39 diversified candidates to Gemini whe
                 vote_count: 300,
                 collabSim: 0
             })),
-            ...Array.from({ length: 17 }, (_, i) => ({
+            ...Array.from({ length: 19 }, (_, i) => ({
                 id: 5200 + i,
                 tmdbId: 5200 + i,
                 title: `Classic Warm ${i}`,
@@ -1298,11 +1309,12 @@ test("getMovieRecommendations shortlists 39 diversified candidates to Gemini whe
             [{ id: 1, tmdbId: 1, title: "Seed Comedy", userRating: 9, tmdbGenreIds: [35] }],
             [],
             null,
-            { mood: "comfort-watch", candidates: pool55, embeddingIndex: null, aiClient: mockAi }
+            { mood: "comfort-watch", candidates: pool115, embeddingIndex: null, aiClient: mockAi }
         );
 
-        assert.equal(promptCandidateCount, 39, "Expected Gemini shortlist widened to 39 diversified candidates");
-        assert.equal(res.recommendations.length, 10);
+        assert.equal(promptCandidateCount, 100, "Expected Gemini shortlist widened to 100 diversified candidates");
+        assert.ok(promptLength > 0 && promptLength <= 34000, `Expected 100-candidate prompt <= 34000 chars, got ${promptLength}`);
+        assert.equal(res.recommendations.length, 20);
     } finally {
         if (prevGKey === undefined) delete process.env.VITE_GEMINI_KEY;
         else process.env.VITE_GEMINI_KEY = prevGKey;

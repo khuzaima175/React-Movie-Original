@@ -197,7 +197,7 @@ export function buildOracleLoadingSteps({ watchedCount = 0, queuedModel = null, 
     step4 = `Curating final picks via ${queuedModel ? formatModelDisplayName(queuedModel) : "Local Ranker"}...`;
   } else {
     step4 = queuedModel
-      ? "Curating your final 10 picks..."
+      ? "Curating your final 20 picks..."
       : "Ranking your final picks on-device...";
   }
 
@@ -535,4 +535,70 @@ export function rankWatchlistForTonight({
     })
     .sort((a, b) => (b.matchPct || 0) - (a.matchPct || 0))
     .slice(0, limit);
+}
+
+
+function extractFirstCleanSentence(raw = "", maxLen = 175) {
+  const text = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!text || text === "N/A" || text.length < 20) return "";
+  const match = text.match(/^(.{25,}?[.!?])(?:\s|$)/);
+  if (match && match[1].length <= maxLen) {
+    return match[1].trim();
+  }
+  if (text.length <= maxLen) return text;
+  const clipped = text.slice(0, maxLen).replace(/\s+\S*$/, "").trim();
+  return clipped ? `${clipped.replace(/[,;:\-]+$/, "")}…` : "";
+}
+
+/**
+ * Builds a grounded, detailed explanation for an Oracle pick combining Gemini's editorial
+ * reasoning with a verified TMDB premise line when the reason is short or using local fallback.
+ */
+export function buildDetailedOracleExplanation(rec = null, anchors = []) {
+  if (!rec || typeof rec !== "object") {
+    return { whyText: "", premiseNote: "" };
+  }
+  const cleanReason = sanitizeOracleReason(rec.reason || "");
+  const isGenericReason =
+    !cleanReason ||
+    /^Selected by (?:the CinemaVault calibrated taste ranker|your calibrated taste profile|your local taste ranker)/i.test(cleanReason) ||
+    /^Pairs closely with your top-rated films\.?$/i.test(cleanReason);
+
+  const rawPlot = String(rec.overview || rec.plot || "").trim();
+  const isDistinctPlot =
+    rawPlot &&
+    rawPlot !== "N/A" &&
+    rawPlot.toLowerCase() !== String(rec.reason || "").trim().toLowerCase() &&
+    rawPlot.toLowerCase() !== cleanReason.toLowerCase();
+  const premiseSentence = isDistinctPlot ? extractFirstCleanSentence(rawPlot, 180) : "";
+
+  if (!isGenericReason) {
+    const sentenceCount = (cleanReason.match(/[.!?](?:\s|$)/g) || []).length;
+    const alreadyDetailed = sentenceCount >= 2 || cleanReason.length >= 155;
+    return {
+      whyText: cleanReason,
+      premiseNote: alreadyDetailed ? "" : premiseSentence
+    };
+  }
+
+  const director = String(rec.director || "").trim();
+  const hasDirector = director && director !== "Unknown" && director !== "N/A";
+  const genre = String(rec.genre || "").trim();
+  const anchorNames = (Array.isArray(anchors) ? anchors : [])
+    .slice(0, 2)
+    .map((a) => a?.title)
+    .filter(Boolean);
+
+  const craftPart = hasDirector
+    ? `Directed by ${director}${genre ? ` (${genre})` : ""}`
+    : (genre ? `High-affinity ${genre} pick` : "High-affinity pick");
+  const bridgePart =
+    anchorNames.length > 0
+      ? `, calibrated to the pacing and emotional stakes you rated highest in ${anchorNames.join(" and ")}.`
+      : ", calibrated closely to your top-rated taste patterns.";
+
+  return {
+    whyText: `${craftPart}${bridgePart}`,
+    premiseNote: premiseSentence
+  };
 }

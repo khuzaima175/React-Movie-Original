@@ -3,8 +3,8 @@
  * normalization shared across retrieval, ranking, Gemini curation, and UI.
  */
 
-export const DEFAULT_RECOMMENDATION_COUNT = 10;
-export const MIN_VALID_CACHE_COUNT = 7;
+export const DEFAULT_RECOMMENDATION_COUNT = 20;
+export const MIN_VALID_CACHE_COUNT = 14;
 
 export const GENRE_NAME_TO_ID = {
   action: 28,

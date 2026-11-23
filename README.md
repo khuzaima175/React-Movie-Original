@@ -8,14 +8,14 @@ A local-first film tracker and recommender. It combines an on-device taste model
 
 [![React 18](https://img.shields.io/badge/React-18.3-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Vite 5](https://img.shields.io/badge/Vite-5.4-646cff?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Local ML CVEM v1](https://img.shields.io/badge/Local_ML-CVEM_v1_25k_f16-e2b13c?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md)
+[![Local ML EASE^R + CVEM v1](https://img.shields.io/badge/Local_ML-EASE^R_14k_+_CVEM_25k-e2b13c?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-Resilient_Cascade-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-12-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
-[![Tests](https://img.shields.io/badge/Tests-node--test-46d369?style=for-the-badge)](#contributing-and-tests)
+[![Tests](https://img.shields.io/badge/Tests-455_passing-46d369?style=for-the-badge)](#contributing-and-tests)
 
-[Features](#features) · [Screenshots](#screenshots) · [Why CinemaVault](#why-cinemavault) · [How it works](#how-it-works) · [Quick start](#quick-start) · [Known limitations](#known-limitations)
+[Features](#features) · [Screenshots](#screenshots) · [Why CinemaVault](#why-cinemavault) · [How it works](#how-it-works) · [Model Refinement Log](./MODEL_REFINEMENT_LOG.md) · [Quick start](#quick-start) · [Known limitations](#known-limitations)
 
 </div>
 
@@ -39,8 +39,8 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 
 | Area | What it does |
 | :--- | :--- |
-| Local taste model | 25,000-film collaborative embedding index (3,300,016 bytes, float16), per-user rating normalization, recency decay, persona mixtures, and a 64×64 ridge fold-in. Runs in the browser. |
-| Recommendations | Five retrieval buckets, a calibrated logistic ranker, and 10 picks from a 39-candidate shortlist. Verified TMDB titles only. |
+| Local taste model | **Exact Full-Rank Sparse EASE^R** (`14,000` films × `64` neighbors, `3.47 MB` `CVEA v1`, `< 1 ms` scoring) blended **`60/40`** with the `25,000`-film `64`-D SVD index (`CVEM v1`, `3.15 MB`), per-user z-scoring, tiered recency decay, persona mixtures, and `64×64` ridge fold-in (`+47.6%` `NDCG@10` / `+41.9%` `NDCG@20` on 300 unseen users — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)). Runs 100% in the browser. |
+| Recommendations | Five retrieval buckets (including top-50 aligned collaborative neighbors), a calibrated logistic ranker, and **20 curated picks** (rendered in a `#1` Spotlight hero + 2-column editorial card grid with grounded 2-sentence pitches) from a **100-candidate stratified shortlist**. Verified TMDB titles only. |
 | Vibes | Six preset moods plus free-text "Match Vibe" queries such as "like Drive but quieter." |
 | Gemini cascade & BYOK | Dual Flash-Lite cascade (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`, up to 1,000 free requests/day) with error-specific cooldowns, optional browser-local personal Gemini key (`cv_user_gemini_key`), and deterministic on-device ranker fallback when shared quota is at capacity. |
 | Editions (Public / Personal) | Clean Public Edition by default; toggle Personal/Debug UI with `?debug=1` (`?debug=0` to clear) or build with `VITE_APP_EDITION=personal`. |
@@ -85,10 +85,10 @@ Recommendations come from local math first. Gemini does not generate titles.
    - **Bucket C (auteur network):** acclaimed films from your most-watched directors, cinematographers, composers, and writers.
    - **Bucket A (semantic discovery):** TMDB discover results filtered by loved genres, watchlist genres, mood, and regional streaming.
    - **Bucket D (recent releases):** films from the last 18 months with reasonable acclaim, capped at 12.
-   - **Bucket E (embedding neighbors):** up to 30 unseen nearest neighbors from the local index, or 15 when an explicit mood is active.
-3. **Ranking.** A 12-feature logistic ranker scores the pool. Under "Any Vibe," collaborative similarity is normalized against the whole catalog, and metadata is damped while collaborative signal is weak. Under an explicit mood, the ranker shifts weight toward genre fit and hard-gates candidates against the mood's rules. Display scores fall between 50 and 99 and preserve rank order.
-4. **Curation.** The shortlist of 39 candidates (25 top-ranked, 8 releases from 2024–2026, 6 outliers) goes to Gemini with a prompt capped at 20,000 characters. Gemini picks 10 and may propose up to two extra titles. Each extra title must pass TMDB verification, the vault and watchlist exclusions, the streaming filter, and the mood gate before it appears.
-5. **Fallback & Optional Personal Key.** If shared quota is at capacity or every model fails, the top 10 on-device ranker results appear with a calm notice and an optional **"Use your own Gemini key"** trigger. Keys saved there stay strictly in your browser's `localStorage` (`cv_user_gemini_key`) and call Google AI directly without touching CinemaVault servers or Supabase.
+   - **Bucket E (collaborative neighbors):** up to **50** unseen nearest neighbors from the hybrid EASE^R + SVD index (out of top 100 aligned), or 20 when an explicit mood is active.
+3. **Ranking.** A 12-feature logistic ranker scores the pool using the **`60%` EASE^R / `40%` SVD** collaborative score (`easeService.js` + `embeddingService.js`). Under "Any Vibe," collaborative similarity is normalized against the whole catalog, and metadata is damped while collaborative signal is strong. Under an explicit mood, the ranker shifts weight toward genre fit and hard-gates candidates against the mood's rules. Display scores fall between 50 and 99 and preserve rank order.
+4. **Curation (`100 → 20`).** The stratified shortlist of **100 candidates** (`72` top-ranked core, `14` releases from 2024–2026, `14` diverse outliers) goes to Gemini with an adaptive prompt budget up to `34,000` characters. Gemini picks **20** films with grounded 2-sentence editorial pitches and may propose up to `2` extra wildcard titles (`4` when a custom free-text vibe query is active). Each wildcard must pass TMDB verification, vault/watchlist exclusions, streaming filters, and mood gates before appearing.
+5. **Fallback & Optional Personal Key.** If shared quota is at capacity or every model fails, the top **20** on-device ranker results appear with grounded TMDB premise explanations, a calm notice, and an optional **"Use your own Gemini key"** trigger. Keys saved there stay strictly in your browser's `localStorage` (`cv_user_gemini_key`) and call Google AI directly without touching CinemaVault servers or Supabase.
 
 Each pick includes "Because you rated" links to films in your vault. The Refresh button rotates through unseen candidates without repeats.
 
@@ -208,11 +208,11 @@ On a first visit with fewer than three rated films, a 30-film deck opens. Visito
 
 ```mermaid
 flowchart LR
-    A["Your vault\n(ratings, notes, CSV/JSON imports)"] --> B["On-device taste model\n• Relative weight cutoff\n• Persona mixture + ridge fold-in\n• Dislike repulsion"]
-    B --> C["Candidate retrieval\n• B keyword successors\n• C auteur network\n• A discover + mood\n• D recent releases\n• E embedding neighbors"]
-    C --> D["Logistic ranker\n• Catalog-normalized collaborative score\n• Mood gate\n• Verified streaming"]
-    D --> E["Gemini cascade\n• 39-candidate shortlist → 10 picks\n• Verified wildcards\n• Ranker fallback"]
-    E --> F["Cache (24h)\nRefresh rotation"]
+    A["Your vault\n(ratings, notes, CSV/JSON imports)"] --> B["On-device taste model\n• Exact Sparse EASE^R (14k×64, <1ms)\n• 64-D SVD Personas + Ridge (60/40 blend)\n• Dislike repulsion & relative cutoff"]
+    B --> C["Candidate retrieval\n• B keyword successors\n• C auteur network\n• A discover + mood\n• D recent releases\n• E top-50 EASE^R+SVD neighbors"]
+    C --> D["Logistic ranker\n• Catalog-normalized EASE^R+SVD score\n• Mood gate\n• Verified streaming"]
+    D --> E["Gemini cascade\n• 100-candidate shortlist → 20 picks\n• 2–4 verified wildcards\n• Ranker fallback"]
+    E --> F["Cache (24h, ≥14 valid)\nRefresh rotation"]
 ```
 
 **Taste model.** Ratings are normalized per user and modulated by a rating-tiered recency floor so recent obsessions surface first while 10/10 masterpieces and rewatched favorites stay strong anchors for years (and the embedding cutoff scales against the vault's strongest signal, so long-running vaults keep their taste profile). Liked films form up to four personas, and disliked films push nearby candidates down.
@@ -223,11 +223,11 @@ flowchart LR
 
 **Recent-release reserve.** Under "Any Vibe," two shortlist slots are reserved for recent releases that pass a quality floor. Their score ignores the novelty bonus so popular acclaimed films can compete.
 
-**Cache.** Results are cached for 24 hours under a key built from loved genres, watchlist genres, providers, region, mood, custom filters, and a hash of your vault ratings, notes, and taste rules. Logging or editing a rating invalidates the cache. A cached set is used only if it still has at least seven valid picks.
+**Cache.** Results are cached for 24 hours under a key built from loved genres, watchlist genres, providers, region, mood, custom filters, and a hash of your vault ratings, notes, and taste rules. Logging or editing a rating invalidates the cache. A cached set is used only if it still has at least **14** valid picks (`MIN_VALID_CACHE_COUNT = 14`).
 
 **Refresh.** Refresh cycles through TMDB pages 1–5 and excludes up to 120 recently shown IDs. If that leaves too few candidates, the list is filled from the rest of the ranked pool.
 
-**Gemini cascade.** Models are tried in order (dual Flash-Lite `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` first in Public mode; full cascade in Personal mode). Errors are classified:
+**Gemini cascade.** Models are tried in order (dual Flash-Lite `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → `gemini-3.8-flash` first in Public mode; `gemini-4-hydrogen` → `gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-3.5-flash-lite` in Personal/BYOK mode). Errors are classified:
 
 | Error class | Trigger | Cooldown |
 | :--- | :--- | :--- |
@@ -237,7 +237,7 @@ flowchart LR
 | Auth | 401, 403, 404 | 30 minutes |
 | Proxy rate limit | Proxy returned 429 | No model cooldown; the cascade stops |
 
-Hydrogen uses a 35-second timeout; interactive Flash models use a 15-second timeout, and the Explore "Movies You'll Like" batch curation pass uses a 25-second timeout with minimal thinking. The whole cascade is capped at 45 seconds, and a working model is remembered for 30 minutes.
+Hydrogen uses a **60-second** timeout (total cascade capped at **90 seconds** when Hydrogen is active, **45 seconds** otherwise); interactive Flash models use a 15-second timeout, and the Explore "Movies You'll Like" batch curation pass uses a 25-second timeout with minimal thinking. A working model is remembered for 30 minutes.
 
 ### When something fails
 
@@ -245,9 +245,10 @@ The app is designed to degrade rather than stop. Each missing dependency has a d
 
 | Missing piece | What happens |
 | :--- | :--- |
-| Gemini (no key, quota, or every model fails) | The top 10 on-device ranker results appear with a calm notice and optional BYOK prompt. |
+| Gemini (no key, quota, or every model fails) | The top **20** on-device ranker results appear with grounded premise explanations, a calm notice, and an optional BYOK prompt. |
+| EASE^R graph missing (`item_ease_k64.cvea`) | Transparently falls back to `100%` `CVEM v1` 64-D SVD collaborative scoring (`embeddingService.js`). |
 | TMDB unavailable, or fewer than 6 candidates harvested | The app switches to the OMDb-based pipeline, which checks Gemini picks against OMDb. |
-| Embedding file missing (`item_embeddings_f16.bin`) | Collaborative scoring is off. Ranking relies on the structured fallback (genres, keywords, cast, crew, and overview), and recent releases carry more weight through Bucket D. |
+| Embedding file missing (`item_embeddings_f16.bin`) | Collaborative scoring falls back to EASE^R (if present) or structured metadata (genres, keywords, cast, crew, and overview), with recent releases carried through Bucket D. |
 | Supabase not configured | Sync is disabled. The app runs fully as a guest. |
 | Proxy rate limit hit | The cascade stops for that request and the proxy's `Retry-After` time is respected. |
 

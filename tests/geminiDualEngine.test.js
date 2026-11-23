@@ -30,6 +30,9 @@ import {
     generateProfileHash,
     mergeGeminiExplanationsWithRanker,
     verifyAndScoreWildcardPicks,
+    MAX_WILDCARD_PICKS,
+    CUSTOM_VIBE_MAX_WILDCARD_PICKS,
+    resolveMaxWildcardPicks,
     getMovieRecommendations
 } from "../src/services/geminiService.js";
 import { rankCandidatePool, DEFAULT_RANKER_WEIGHTS } from "../src/services/rankerService.js";
@@ -37,11 +40,11 @@ import { rankCandidatePool, DEFAULT_RANKER_WEIGHTS } from "../src/services/ranke
 test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to 3.8/3.6/3.5/3-curation, MINIMAL to 3-flash fast, and budget:0 to 2.5", () => {
     assert.deepEqual(CURATION_MODEL_CASCADE, [
         "gemini-4-hydrogen",
-        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3-flash-preview",
         "gemini-2.5-flash",
-        "gemini-3.8-flash"
+        "gemini-3.5-flash-lite"
     ]);
     assert.deepEqual(FAST_INTERACTIVE_CASCADE, [
         "gemini-3.5-flash-lite",
@@ -66,11 +69,11 @@ test("getModelThinkingConfig assigns HIGH/MEDIUM to hydrogen (never LOW), LOW to
     assert.deepEqual(getModelThinkingConfig("gemini-2.5-flash"), { thinkingBudget: 0 });
 });
 
-test("executeCascade falls back from 429 on hydrogen to 3.5-flash-lite, skips degraded models on subsequent failure, and sanitizes config", async () => {
+test("executeCascade falls back from 429 on hydrogen to 3.8-flash, skips degraded models on subsequent failure, and sanitizes config", async () => {
     resetSessionWorkingModels();
     const attempts = [];
     const seenConfigs = [];
-    let failFlashLiteOnNextCall = false;
+    let fail38OnNextCall = false;
 
     const mockAi = {
         models: {
@@ -85,7 +88,7 @@ test("executeCascade falls back from 429 on hydrogen to 3.5-flash-lite, skips de
                 ) {
                     throw new Error(`429 RESOURCE_EXHAUSTED on ${model}`);
                 }
-                if (model === "gemini-3.5-flash-lite" && failFlashLiteOnNextCall) {
+                if (model === "gemini-3.8-flash" && fail38OnNextCall) {
                     throw new Error("503 transient failure");
                 }
                 return { text: JSON.stringify({ ok: true }), usageMetadata: { totalTokenCount: 42 } };
@@ -106,8 +109,8 @@ test("executeCascade falls back from 429 on hydrogen to 3.5-flash-lite, skips de
     }, { cascadeType: "curation", timeoutMs: 1000 });
 
     assert.ok(res);
-    assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.5-flash-lite"]);
-    assert.equal(getSessionCurationModel(), "gemini-3.5-flash-lite");
+    assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.8-flash"]);
+    assert.equal(getSessionCurationModel(), "gemini-3.8-flash");
 
     // Verify API config rules on hydrogen attempt
     const hydrogenCfg = seenConfigs[0].config;
@@ -124,24 +127,24 @@ test("executeCascade falls back from 429 on hydrogen to 3.5-flash-lite, skips de
         contents: "test prompt 2"
     }, { cascadeType: "curation", timeoutMs: 1000 });
     assert.ok(res2);
-    assert.deepEqual(attempts, ["gemini-3.5-flash-lite"]);
+    assert.deepEqual(attempts, ["gemini-3.8-flash"]);
 
-    // Call 3: when activeModel (3.5-flash-lite) fails later, degraded hydrogen must NOT be retried;
-    // must try 2.5-flash (marked degraded) then succeed on 3.8-flash, and subsequent calls skip degraded models too
+    // Call 3: when activeModel (3.8-flash) fails later, degraded hydrogen must NOT be retried;
+    // must try remaining models and succeed on last-resort 3.5-flash-lite
     attempts.length = 0;
-    failFlashLiteOnNextCall = true;
+    fail38OnNextCall = true;
     const res3 = await executeCascade(mockAi, CURATION_MODEL_CASCADE, {
         contents: "test prompt 3"
     }, { cascadeType: "curation", timeoutMs: 1000 });
     assert.ok(res3);
     assert.deepEqual(attempts, [
-        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3-flash-preview",
         "gemini-2.5-flash",
-        "gemini-3.8-flash"
+        "gemini-3.5-flash-lite"
     ]);
-    assert.equal(getSessionCurationModel(), "gemini-3.8-flash");
+    assert.equal(getSessionCurationModel(), "gemini-3.5-flash-lite");
 });
 
 test("executeCascade aborts hanging model via AbortSignal within timeoutMs and falls back", async () => {
@@ -371,17 +374,17 @@ test("executeCascade localStorage working model persists across reloads, expires
             }
         };
 
-        // Call 1: hydrogen daily-429s -> 3.5-flash-lite succeeds and is persisted under cinemavault_working_model_curation_v1
+        // Call 1: hydrogen daily-429s -> 3.8-flash succeeds and is persisted under cinemavault_working_model_curation_v1
         const r1 = await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "init" }, {
             cascadeType: "curation",
             now: () => fakeNow
         });
         assert.ok(r1);
-        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.5-flash-lite"]);
+        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.8-flash"]);
         const storedRaw = memStorage.getItem(getWorkingModelStorageKey("curation"));
         assert.ok(storedRaw);
         const stored = JSON.parse(storedRaw);
-        assert.equal(stored.model, "gemini-3.5-flash-lite");
+        assert.equal(stored.model, "gemini-3.8-flash");
         assert.equal(stored.savedAt, fakeNow);
         assert.ok(stored.primaryBlockedUntilMs > fakeNow + 20 * 60 * 1000, "daily-exhausted primary block must survive 20m reload");
 
@@ -391,7 +394,7 @@ test("executeCascade localStorage working model persists across reloads, expires
         fakeNow += 20 * 60 * 1000;
         assert.equal(
             getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow, storage: memStorage }),
-            "gemini-3.5-flash-lite",
+            "gemini-3.8-flash",
             "getPreferredCascadeModel must match executeCascade across reload while primary is blocked"
         );
         attempts.length = 0;
@@ -400,7 +403,7 @@ test("executeCascade localStorage working model persists across reloads, expires
             now: () => fakeNow
         });
         assert.ok(r2);
-        assert.deepEqual(attempts, ["gemini-3.5-flash-lite"], "valid persisted model must be tried first after reload");
+        assert.deepEqual(attempts, ["gemini-3.8-flash"], "valid persisted model must be tried first after reload");
 
         // Fast cascade has its own independent key
         attempts.length = 0;
@@ -413,7 +416,7 @@ test("executeCascade localStorage working model persists across reloads, expires
 
         // If persisted curation model is currently in cooldown after reload, skip it and fall back to default order
         resetSessionWorkingModels();
-        modelCooldowns.set("gemini-3.5-flash-lite", { untilMs: fakeNow + 60_000, reason: "quota" });
+        modelCooldowns.set("gemini-3.8-flash", { untilMs: fakeNow + 60_000, reason: "quota" });
         attempts.length = 0;
         await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "cooldown overrides persisted" }, {
             cascadeType: "curation",
@@ -424,7 +427,7 @@ test("executeCascade localStorage working model persists across reloads, expires
         // Simulate page reload past 30 * 60 * 1000 ms TTL: persisted model is expired and ignored
         memStorage.setItem(
             getWorkingModelStorageKey("curation"),
-            JSON.stringify({ model: "gemini-3.5-flash-lite", savedAt: fakeNow })
+            JSON.stringify({ model: "gemini-3.8-flash", savedAt: fakeNow })
         );
         resetSessionWorkingModels();
         fakeNow += WORKING_MODEL_TTL_MS;
@@ -491,13 +494,13 @@ test("executeCascade records transient cooldown on abort-timeout with injected f
         untilMs: fakeNow + TRANSIENT_COOLDOWN_MS,
         reason: "transient"
     });
-    assert.equal(getSessionCurationModel(), "gemini-3.5-flash-lite");
+    assert.equal(getSessionCurationModel(), "gemini-3.8-flash");
     resetSessionWorkingModels();
 });
 
-test("getDefaultAttemptTimeoutMs uses 35000ms margin for gemini-4-hydrogen and 15000ms across Flash models for 30->10 JSON output", () => {
-    assert.equal(HYDROGEN_TIMEOUT_MS, 35000);
-    assert.equal(getDefaultAttemptTimeoutMs("gemini-4-hydrogen"), 35000);
+test("getDefaultAttemptTimeoutMs uses 60000ms margin for gemini-4-hydrogen and 15000ms across Flash models for 30->10 JSON output", () => {
+    assert.equal(HYDROGEN_TIMEOUT_MS, 60000);
+    assert.equal(getDefaultAttemptTimeoutMs("gemini-4-hydrogen"), 60000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3-flash-preview"), 15000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.6-flash"), 15000);
     assert.equal(getDefaultAttemptTimeoutMs("gemini-3.8-flash"), 15000);
@@ -591,7 +594,7 @@ test("getPreferredCascadeModel & resolveResultModelInfo skip cooled-down models 
         assert.equal(getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow }), "gemini-4-hydrogen");
 
         modelCooldowns.set("gemini-4-hydrogen", { untilMs: fakeNow + QUOTA_COOLDOWN_MS, reason: "quota" });
-        assert.equal(getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow }), "gemini-3.5-flash-lite");
+        assert.equal(getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow }), "gemini-3.8-flash");
 
         const fallbackInfo = resolveResultModelInfo({ recommendations: [] }, "curation");
         assert.equal(fallbackInfo.model, null);
@@ -635,25 +638,25 @@ test("executeCascade recovers back to primary model (gemini-4-hydrogen) after tr
     };
 
     try {
-        // Call 1: hydrogen fails transiently -> 3.5-flash-lite wins and sets transient 30s cooldown + persisted block
+        // Call 1: hydrogen fails transiently -> 3.8-flash wins and sets transient 30s cooldown + persisted block
         await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c1" }, {
             cascadeType: "curation",
             now: () => fakeNow
         });
-        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.5-flash-lite"]);
+        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.8-flash"]);
 
         // Call 2 (+10s, inside 30s cooldown): uses session working fallback directly
         attempts.length = 0;
         fakeNow += 10_000;
         assert.equal(
             getPreferredCascadeModel(CURATION_MODEL_CASCADE, "curation", { now: () => fakeNow, storage: memStorage }),
-            "gemini-3.5-flash-lite"
+            "gemini-3.8-flash"
         );
         await executeCascade(mockAi, CURATION_MODEL_CASCADE, { contents: "c2" }, {
             cascadeType: "curation",
             now: () => fakeNow
         });
-        assert.deepEqual(attempts, ["gemini-3.5-flash-lite"]);
+        assert.deepEqual(attempts, ["gemini-3.8-flash"]);
 
         // Call 3 (+31s total, cooldown expired): retries primary gemini-4-hydrogen and promotes it back
         attempts.length = 0;
@@ -677,7 +680,7 @@ test("executeCascade recovers back to primary model (gemini-4-hydrogen) after tr
             cascadeType: "curation",
             now: () => fakeNow
         });
-        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.5-flash-lite"]);
+        assert.deepEqual(attempts, ["gemini-4-hydrogen", "gemini-3.8-flash"]);
 
         resetSessionWorkingModels();
         fakeNow += 10_000;
@@ -686,7 +689,7 @@ test("executeCascade recovers back to primary model (gemini-4-hydrogen) after tr
             cascadeType: "curation",
             now: () => fakeNow
         });
-        assert.deepEqual(attempts, ["gemini-3.5-flash-lite"]);
+        assert.deepEqual(attempts, ["gemini-3.8-flash"]);
 
         resetSessionWorkingModels();
         fakeNow += TRANSIENT_COOLDOWN_MS;
@@ -1054,7 +1057,7 @@ test("executeCascade enforces maxCascadeDurationMs budget clamp without cooldown
       models: {
         generateContent: async () => {
           partialBudgetCalls += 1;
-          fakeNow += 42_500; // leaves 2500ms on default 45000ms budget
+          fakeNow += 87_500; // leaves 2500ms on default 90000ms Hydrogen cascade budget
           const err = new Error("Service Unavailable");
           err.status = 503;
           throw err;
@@ -1566,6 +1569,7 @@ test("wildcardPicks schema uses valid Type enums, preserves reason/anchorIds, av
 
         const fullRes = await getMovieRecommendations(watched, [], null, {
             candidates: shortlistPool,
+            targetCount: 10,
             embeddingIndex: null,
             collabSimMap,
             userProviders: [8],
@@ -1694,6 +1698,7 @@ test("verifyAndScoreWildcardPicks rejects watched mixed-IDs, TV series, provider
             mood: "comfort-watch",
             userProviders: [8],
             candidates: shortlistPool,
+            targetCount: 10,
             embeddingIndex: null,
             aiClient: mockAi,
             wildcardFinder: async () => { throw new Error("429 Too Many Requests"); }
@@ -1872,7 +1877,7 @@ test("mergeGeminiExplanationsWithRanker and offline fallback enforce soft max-1-
             [{ id: 1, tmdbId: 1, title: "Seed", userRating: 9, tmdbGenreIds: [28] }],
             [],
             null,
-            { candidates: fallbackCandidates, embeddingIndex: null }
+            { candidates: fallbackCandidates, targetCount: 10, embeddingIndex: null }
         );
         assert.equal(offline.recommendations.length, 10);
         assert.equal(
@@ -2145,6 +2150,7 @@ test("getMovieRecommendations invokes onStage3Ready with instant local ranker to
         {
             aiClient: mockAi,
             candidates,
+            targetCount: 10,
             enrichCandidates: false,
             injectEmbeddingNeighbors: false,
             embeddingIndex: null,
@@ -2268,4 +2274,65 @@ test("dual Flash-Lite cascades include gemini-3.1-flash-lite after 3.5-flash-lit
     assert.equal(gem.formatModelDisplayName("gemini-3.1-flash-lite"), "Gemini 3.1 Flash-Lite");
     assert.deepEqual(gem.getModelThinkingConfig("gemini-3.1-flash-lite", "fast"), { thinkingLevel: "MINIMAL" });
     assert.deepEqual(gem.getModelThinkingConfig("gemini-3.1-flash-lite", "curation"), { thinkingLevel: "LOW" });
+});
+
+
+test("resolveMaxWildcardPicks expands wildcard budget from 2 to 4 on free-text custom vibes across prompt and merge", () => {
+    assert.equal(MAX_WILDCARD_PICKS, 2);
+    assert.equal(CUSTOM_VIBE_MAX_WILDCARD_PICKS, 4);
+    assert.equal(resolveMaxWildcardPicks(null), 2);
+    assert.equal(resolveMaxWildcardPicks({ moodId: "dark-thriller" }), 2);
+    assert.equal(resolveMaxWildcardPicks({ query: "quiet melancholic late-night detective mystery" }), 4);
+
+    const profile = { lovedGenreNames: ["Mystery", "Thriller"] };
+    const candidates = Array.from({ length: 10 }, (_, idx) => ({
+        id: 900 + idx,
+        tmdbId: 900 + idx,
+        title: `Candidate ${idx + 1}`,
+        year: "2005",
+        genre: "Mystery",
+        matchScore: 80 - idx
+    }));
+
+    const standardPrompt = buildGeminiReRankPrompt(profile, "any", candidates, { watched: [] });
+    assert.match(standardPrompt, /Array of 0 to 2 theatrical feature films/);
+
+    const customPrompt = buildGeminiReRankPrompt(profile, "any", candidates, {
+        watched: [],
+        moodFilters: { query: "quiet melancholic late-night detective mystery, pre-2010" }
+    });
+    assert.match(customPrompt, /Array of 0 to 4 theatrical feature films/);
+
+    const fourWildcards = Array.from({ length: 4 }, (_, idx) => ({
+        id: 1000 + idx,
+        tmdbId: 1000 + idx,
+        title: `Wildcard ${idx + 1}`,
+        year: "2001",
+        genre: "Mystery",
+        matchScore: 95 - idx,
+        sourceBucket: "Gemini Wildcard",
+        reason: `Custom vibe match ${idx + 1}`
+    }));
+    const rawRecs = candidates.map((c) => ({ tmdbId: c.tmdbId, title: c.title, year: c.year, reason: "Pool pick" }));
+
+    const mergedDefault = mergeGeminiExplanationsWithRanker({ recommendations: rawRecs }, candidates, profile, {
+        targetCount: 10,
+        verifiedWildcards: fourWildcards
+    });
+    assert.equal(
+        mergedDefault.recommendations.filter((r) => r.sourceBucket === "Gemini Wildcard").length,
+        2,
+        "Standard mood caps verified wildcards at 2"
+    );
+
+    const mergedCustom = mergeGeminiExplanationsWithRanker({ recommendations: rawRecs }, candidates, profile, {
+        targetCount: 10,
+        verifiedWildcards: fourWildcards,
+        maxWildcards: resolveMaxWildcardPicks({ query: "quiet melancholic late-night detective mystery" })
+    });
+    assert.equal(
+        mergedCustom.recommendations.filter((r) => r.sourceBucket === "Gemini Wildcard").length,
+        4,
+        "Custom free-text vibe allows up to 4 verified wildcards"
+    );
 });

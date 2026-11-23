@@ -27,6 +27,12 @@ yarn-error.log*
 # local-only evaluation data (MovieLens-derived, not redistributable)
 .data/
 __pycache__/
+scripts/experiments/results/ml32m_holdout/manual_*/
+scripts/experiments/results/ml32m_holdout/*checkpoint*.json
+scripts/experiments/results/ml32m_holdout/neon_challenge_*
+scripts/experiments/results/ml32m_holdout/top80_compact_*.json
+scripts/experiments/results/dual_track/*round1*.json
+scripts/experiments/results/dual_track/blind_ballot_round1.md
 
 .worktrees/
 .agents/

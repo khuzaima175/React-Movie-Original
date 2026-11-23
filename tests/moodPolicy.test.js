@@ -14,9 +14,9 @@ import {
 } from "../src/services/moodPolicy.js";
 import { expandProviderIds, matchesWatchProviders } from "../src/services/tmdbService.js";
 
-test("constants and MOOD_OPTIONS define 10-pick defaults and distinct mood constraints", () => {
-  assert.equal(DEFAULT_RECOMMENDATION_COUNT, 10);
-  assert.equal(MIN_VALID_CACHE_COUNT, 7);
+test("constants and MOOD_OPTIONS define 20-pick defaults and distinct mood constraints", () => {
+  assert.equal(DEFAULT_RECOMMENDATION_COUNT, 20);
+  assert.equal(MIN_VALID_CACHE_COUNT, 14);
   assert.deepEqual(MOOD_OPTIONS.map((m) => m.id), [
     "any",
     "mind-bending",

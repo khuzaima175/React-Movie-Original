@@ -440,8 +440,8 @@ test("derivePersonalizedRankerWeights ignores already_seen actions and legacy Al
   assert.deepEqual(derived, DEFAULT_RANKER_WEIGHTS, "already_seen must never supply negative training examples");
 });
 
-test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 cold 2024-2026 + 6 diverse outliers) while rankCandidatePool stays pure math", () => {
-  const coreNolan = Array.from({ length: 30 }, (_, i) => ({
+test("buildDiversifiedGeminiShortlist returns 100 stratified picks (72 core + 14 cold 2024-2026 + 14 diverse outliers) while rankCandidatePool stays pure math", () => {
+  const coreNolan = Array.from({ length: 78 }, (_, i) => ({
     id: i + 1,
     tmdbId: i + 1,
     title: `Core SciFi ${i + 1}`,
@@ -453,12 +453,12 @@ test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 c
     genre_ids: [878],
     vote_average: 8.3,
     vote_count: 4500,
-    collabSim: 0.9 - i * 0.01
+    collabSim: 0.95 - i * 0.008
   }));
 
-  const coldRecent = Array.from({ length: 8 }, (_, i) => ({
-    id: 31 + i,
-    tmdbId: 31 + i,
+  const coldRecent = Array.from({ length: 14 }, (_, i) => ({
+    id: 101 + i,
+    tmdbId: 101 + i,
     title: `Fresh Cold Gem ${i + 1}`,
     year: String(2024 + (i % 3)),
     release_date: `${2024 + (i % 3)}-05-01`,
@@ -473,8 +473,8 @@ test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 c
 
   const coldJunk = [
     {
-      id: 39,
-      tmdbId: 39,
+      id: 169,
+      tmdbId: 169,
       title: "Low Rated Cold Trash",
       year: "2025",
       release_date: "2025-03-01",
@@ -487,8 +487,8 @@ test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 c
       collabSim: 0
     },
     {
-      id: 40,
-      tmdbId: 40,
+      id: 170,
+      tmdbId: 170,
       title: "Tiny Vote Cold Outlier",
       year: "2025",
       release_date: "2025-04-01",
@@ -502,11 +502,11 @@ test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 c
     }
   ];
 
-  const diverseGenres = [16, 35, 10749, 36, 10402, 14, 37, 99, 80, 12];
-  const diverseYears = ["1954", "1962", "1974", "1988", "1994", "2001", "1946", "1979", "1999", "2005"];
-  const diverseOutliers = Array.from({ length: 10 }, (_, i) => ({
-    id: 41 + i,
-    tmdbId: 41 + i,
+  const diverseGenres = [16, 35, 10749, 36, 10402, 14, 37, 99, 80, 12, 10752, 27, 53, 9648, 10751, 28, 18, 80];
+  const diverseYears = ["1954", "1962", "1974", "1988", "1994", "2001", "1946", "1979", "1999", "2005", "1968", "1983", "1957", "1971", "1985", "1991", "1965", "1977"];
+  const diverseOutliers = Array.from({ length: 18 }, (_, i) => ({
+    id: 171 + i,
+    tmdbId: 171 + i,
     title: `Diverse Classic ${i + 1}`,
     year: diverseYears[i],
     release_date: `${diverseYears[i]}-08-15`,
@@ -516,7 +516,7 @@ test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 c
     genre_ids: [diverseGenres[i]],
     vote_average: 8.1,
     vote_count: 2000,
-    collabSim: 0.15 - i * 0.005
+    collabSim: 0.15 - i * 0.004
   }));
 
   const pool = [...coreNolan, ...coldRecent, ...coldJunk, ...diverseOutliers];
@@ -529,20 +529,20 @@ test("buildDiversifiedGeminiShortlist returns 39 stratified picks (25 core + 8 c
   };
 
   const shortlist = buildDiversifiedGeminiShortlist(pool, context, DEFAULT_RANKER_WEIGHTS);
-  assert.equal(shortlist.length, 39, "Default shortlist returns 39 diversified candidates");
+  assert.equal(shortlist.length, 100, "Default shortlist returns 100 diversified candidates");
 
   const ids = new Set(shortlist.map((c) => c.tmdbId));
-  for (let id = 1; id <= 25; id++) {
-    assert.ok(ids.has(id), `Expected core #${id} in first 25 slots`);
+  for (let id = 1; id <= 72; id++) {
+    assert.ok(ids.has(id), `Expected core #${id} in first 72 slots`);
   }
-  for (let id = 31; id <= 38; id++) {
+  for (let id = 101; id <= 114; id++) {
     assert.ok(ids.has(id), `Expected quality cold 2024-2026 #${id} in shortlist`);
   }
-  assert.equal(ids.has(39), false, "Must reject 4.5★ cold junk");
-  assert.equal(ids.has(40), false, "Must reject <40-vote cold item");
+  assert.equal(ids.has(169), false, "Must reject 4.5★ cold junk");
+  assert.equal(ids.has(170), false, "Must reject <40-vote cold item");
 
-  const outlierCount = shortlist.filter((c) => c.tmdbId >= 41 && c.tmdbId <= 50).length;
-  assert.equal(outlierCount, 6, "Expected 6 diverse director/genre/decade outliers");
+  const outlierCount = shortlist.filter((c) => c.tmdbId >= 171 && c.tmdbId <= 188).length;
+  assert.equal(outlierCount, 14, "Expected 14 diverse director/genre/decade outliers");
 
   const pureMathTop30 = rankCandidatePool(pool, context, DEFAULT_RANKER_WEIGHTS, 30);
   assert.deepEqual(
@@ -625,7 +625,7 @@ test("buildDiversifiedGeminiShortlist fires onDiagnostics at most once and never
   );
 
   assert.equal(diagCalls, 1, "onDiagnostics must fire at most once (fullRanked must not double-fire)");
-  assert.equal(lastDiag?.targetCount, 25, "Diagnostic targetCount reflects core pass, not pool.length");
+  assert.equal(lastDiag?.targetCount, 72, "Diagnostic targetCount reflects core pass, not pool.length");
   assert.ok(!shortlist.some((c) => c.tmdbId === 301), "Must never re-introduce comfort-watch gate-rejected Horror film");
   assert.ok(!shortlist.some((c) => c.tmdbId === 302), "Must respect userProviders filtering cleanly");
   assert.ok(shortlist.some((c) => c.tmdbId === 303), "Includes valid cold comfort-watch film on matching provider");

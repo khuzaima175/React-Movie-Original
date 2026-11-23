@@ -35,7 +35,8 @@ import {
   summarizeOraclePreferences,
   ORACLE_TONIGHT_PRESETS,
   splitOracleSpotlightAndGrid,
-  rankWatchlistForTonight
+  rankWatchlistForTonight,
+  buildDetailedOracleExplanation
 } from "../services/oracleViewHelpers";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
 import { isSameMovie } from "../services/movieIdentity";
@@ -1300,7 +1301,7 @@ export default function MovieRecommendations({
             />
           )}
 
-          {/* Editorial Curated List (Picks #2–#10) */}
+          {/* Refined 2-Column Editorial Grid (Picks #2–#20) */}
           <ul className="recommendation-list-editorial">
             {gridPicks.map((rec, rawIndex) => {
               const index = rawIndex + 1;
@@ -1311,99 +1312,114 @@ export default function MovieRecommendations({
               const imdbVal = rec.imdbRating && rec.imdbRating !== "N/A"
                 ? parseFloat(rec.imdbRating).toFixed(1)
                 : null;
+              const directorLabel =
+                rec.director && rec.director !== "Unknown" && rec.director !== "N/A"
+                  ? `Dir. ${rec.director}`
+                  : null;
               const anchors = resolveRecommendationAnchors(rec, watched, 3);
+              const { whyText, premiseNote } = buildDetailedOracleExplanation(rec, anchors);
+              const availableList = [
+                ...(Array.isArray(rec.streamProviders) ? rec.streamProviders : []),
+                ...(Array.isArray(rec.freeProviders) ? rec.freeProviders : [])
+              ];
+              const matchPct =
+                hasMeaningfulScoreSpread && normalizeMatchScore(rec.matchScore) !== null
+                  ? normalizeMatchScore(rec.matchScore)
+                  : null;
 
               return (
                 <motion.li
                   key={rec.id || rec.tmdbId || index}
                   className="recommendation-row"
-                  initial={{ opacity: 0, y: 18 }}
+                  initial={{ opacity: 0, y: 16 }}
                   whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, amount: 0.1 }}
+                  viewport={{ once: true, amount: 0.08 }}
                   transition={{
-                    duration: 0.42,
-                    delay: Math.min((index % 5) * 0.045, 0.18),
+                    duration: 0.38,
+                    delay: Math.min((rawIndex % 2) * 0.055, 0.14),
                     ease: [0.22, 1, 0.36, 1]
                   }}
                 >
-                  <div className="rec-rank-num" aria-hidden="true">
-                    {rankLabel}
-                  </div>
-
-                  <div
-                    className="rec-poster-wrapper"
-                    onClick={() => navigateToRec(rec)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Inspect ${rec.title}`}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        navigateToRec(rec);
-                      }
-                    }}
-                  >
-                    <PosterImage
-                      src={rec.poster}
-                      title={rec.title}
-                      className="rec-poster-img"
-                    />
-                    {(rec.trailerKey || rec.title) && (
-                      <a
-                        href={
-                          rec.trailerKey
-                            ? `https://www.youtube.com/watch?v=${rec.trailerKey}`
-                            : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${rec.title} ${rec.year || ""} official trailer`)}`
+                  <div className="rec-card-top">
+                    <div
+                      className="rec-poster-wrapper"
+                      onClick={() => navigateToRec(rec)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Inspect ${rec.title}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          navigateToRec(rec);
                         }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rec-trailer-btn"
-                        onClick={(e) => e.stopPropagation()}
-                        title="Watch Official Trailer"
-                        aria-label={`Watch trailer for ${rec.title}`}
-                      >
-                        <Play size={12} fill="currentColor" aria-hidden="true" />
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="rec-content">
-                    <div className="rec-header">
-                      <button
-                        type="button"
-                        className="rec-title-btn"
-                        onClick={() => navigateToRec(rec)}
-                      >
-                        <h3 className="rec-movie-title display-title">{rec.title}</h3>
-                      </button>
-
-                      {hasMeaningfulScoreSpread && normalizeMatchScore(rec.matchScore) !== null && (
-                        <span className="rec-score-muted" title="Estimated affinity score">
-                          {normalizeMatchScore(rec.matchScore)}% match
-                        </span>
+                      }}
+                    >
+                      <span className="rec-rank-num" aria-hidden="true">
+                        {rankLabel}
+                      </span>
+                      <PosterImage
+                        src={rec.poster}
+                        title={rec.title}
+                        className="rec-poster-img"
+                      />
+                      {(rec.trailerKey || rec.title) && (
+                        <a
+                          href={
+                            rec.trailerKey
+                              ? `https://www.youtube.com/watch?v=${rec.trailerKey}`
+                              : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${rec.title} ${rec.year || ""} official trailer`)}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rec-trailer-btn"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Watch Official Trailer"
+                          aria-label={`Watch trailer for ${rec.title}`}
+                        >
+                          <Play size={12} fill="currentColor" aria-hidden="true" />
+                        </a>
                       )}
                     </div>
 
-                    <MetaLine
-                      items={[rec.year, rec.genre]}
-                      rating={imdbVal ? `${imdbVal} IMDb` : null}
-                      ratingTone="neutral"
-                    />
+                    <div className="rec-card-meta-col">
+                      <div className="rec-header">
+                        <button
+                          type="button"
+                          className="rec-title-btn"
+                          onClick={() => navigateToRec(rec)}
+                        >
+                          <h3 className="rec-movie-title display-title">{rec.title}</h3>
+                        </button>
 
-                    {(() => {
-                      const cleanRowReason = sanitizeOracleReason(rec.reason);
-                      const isGenericRowReason =
-                        !cleanRowReason ||
-                        /^Selected by the CinemaVault calibrated taste ranker\.?$/i.test(cleanRowReason);
-                      const rowReasonText =
-                        isGenericRowReason && anchors.length > 0
-                          ? `Strong match${rec.genre ? ` in ${rec.genre}` : ""} — shares DNA with ${anchors
-                              .slice(0, 2)
-                              .map((a) => a.title)
-                              .join(" & ")}.`
-                          : cleanRowReason;
-                      return <p className="rec-reason-prose">{rowReasonText}</p>;
-                    })()}
+                        {matchPct !== null && (
+                          <span className="rec-score-muted" title="Estimated affinity score">
+                            {matchPct}% match
+                          </span>
+                        )}
+                      </div>
+
+                      <MetaLine
+                        items={[rec.year, rec.genre, directorLabel].filter(Boolean)}
+                        rating={imdbVal ? `${imdbVal} IMDb` : null}
+                        ratingTone="neutral"
+                      />
+
+                      {availableList.length > 0 && (
+                        <span className="rec-stream-inline">
+                          On {availableList.slice(0, 3).map((p) => p.name).join(", ")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rec-content">
+                    {(whyText || premiseNote) && (
+                      <div className="rec-why-block">
+                        <span className="rec-why-label">Why this pick</span>
+                        {whyText && <p className="rec-reason-prose">{whyText}</p>}
+                        {premiseNote && <p className="rec-premise-prose">{premiseNote}</p>}
+                      </div>
+                    )}
 
                     {anchors.length > 0 && (
                       <div className="rec-anchors-strip">
@@ -1420,7 +1436,7 @@ export default function MovieRecommendations({
                               <span className="rec-anchor-thumb">
                                 <PosterImage src={anchor.poster} title={anchor.title} alt="" />
                               </span>
-                              <span>{anchor.title}</span>
+                              <span className="rec-anchor-title">{anchor.title}</span>
                               {anchor.userRating > 0 && (
                                 <span className="rec-anchor-rating">
                                   <Star size={11} fill="currentColor" aria-hidden="true" />
@@ -1432,19 +1448,6 @@ export default function MovieRecommendations({
                         </div>
                       </div>
                     )}
-
-                    {(() => {
-                      const availableList = [
-                        ...(Array.isArray(rec.streamProviders) ? rec.streamProviders : []),
-                        ...(Array.isArray(rec.freeProviders) ? rec.freeProviders : [])
-                      ];
-                      if (availableList.length === 0) return null;
-                      return (
-                        <span className="rec-stream-inline">
-                          Available on {availableList.slice(0, 3).map((p) => p.name).join(", ")}
-                        </span>
-                      );
-                    })()}
 
                     <div className="rec-actions">
                       <Button

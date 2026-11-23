@@ -45,6 +45,11 @@ import {
     retrieveAlignedEmbeddingNeighbors
 } from "./embeddingService.js";
 import {
+    loadDefaultEaseIndex,
+    buildEaseSimMapFromIndex,
+    blendEaseAndCollabSimMaps
+} from "./easeService.js";
+import {
     loadDefaultContentIndex,
     buildContentSimMap
 } from "./contentSimService.js";
@@ -57,20 +62,20 @@ import { isDebugUiEnabled } from "./debugFlags.js";
 
 export const CURATION_MODEL_CASCADE = [
     "gemini-4-hydrogen",
-    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3-flash-preview",
     "gemini-2.5-flash",
-    "gemini-3.8-flash"
+    "gemini-3.5-flash-lite"
 ];
 
 export const PUBLIC_CURATION_CASCADE = [
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
+    "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3-flash-preview",
     "gemini-2.5-flash",
-    "gemini-3.8-flash",
     "gemini-4-hydrogen"
 ];
 
@@ -159,7 +164,7 @@ export const QUOTA_COOLDOWN_MS = 120_000;
 export const DAILY_QUOTA_COOLDOWN_MS = 600_000;
 export const TRANSIENT_COOLDOWN_MS = 30_000;
 export const FATAL_COOLDOWN_MS = 1_800_000;
-export const HYDROGEN_TIMEOUT_MS = 35000;
+export const HYDROGEN_TIMEOUT_MS = 60000;
 
 export function getDefaultAttemptTimeoutMs(model = "") {
     const lowerModel = String(model || "").toLowerCase();
@@ -533,6 +538,10 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
     }
 
     const rawMaxCascadeDurationMs = options.maxCascadeDurationMs;
+    const defaultMaxCascadeDurationMs =
+        Array.isArray(cascade) && cascade.some((m) => String(m || "").toLowerCase().includes("gemini-4-hydrogen"))
+            ? 90_000
+            : 45_000;
     const maxCascadeDurationMs =
         rawMaxCascadeDurationMs === Infinity
             ? Infinity
@@ -541,7 +550,7 @@ export async function executeCascade(ai, cascade, requestParams, options = {}) {
                 Number.isFinite(Number(rawMaxCascadeDurationMs)) &&
                 Number(rawMaxCascadeDurationMs) >= 0
               ? Number(rawMaxCascadeDurationMs)
-              : 45_000;
+              : defaultMaxCascadeDurationMs;
     const cascadeDeadlineMs = startNowMs + maxCascadeDurationMs;
 
     const storage = resolveLocalStorage(options);
@@ -1616,6 +1625,7 @@ export function buildGeminiReRankPrompt(profile, mood, topCandidates = [], conte
     const targetCount = Math.max(1, Number(context.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
     const { effectiveMood, preset, explicitMood, vibeConstraints } = buildMoodPromptSummary(mood, context.moodFilters);
     const parsedMoodFilters = normalizeMoodFilters(context.moodFilters);
+    const wildcardLimit = resolveMaxWildcardPicks(parsedMoodFilters);
 
     // 1. Top Anchor Films (up to 10 primary anchors, plus up to 15 additional non-series favorites for ranks 11..25)
     const allFavorites = selectMoodStratifiedAnchors(
@@ -1804,9 +1814,11 @@ Perform a diversity pass over these top candidates and select ${targetCount} dis
 - Curate openly: Every listed candidate already cleared availability and safety filters. Judge picks across the full list equally on tone, pacing, directorial voice, plots, user notes, and diversity.
 - Keep directors varied (max 2 picks per director unless deeply core).${explicitMood ? `\n- CRITICAL MOOD RULE: Every pick MUST genuinely fit the "${preset.label}" mood and any custom vibe constraints above — prioritize true mood matches over off-tone vault staples.` : ""}
 - Franchise rule: Prefer max 1 film per franchise/collection, and never recommend a numbered sequel/Part 2+ unless an earlier installment in that franchise appears in the user's Vault.
-Write a bespoke 1-sentence upright editorial reason explaining how each pick fits their requested vibe and favorite anchors, user notes, directors, themes, or pacing (never generic plot summary).
+Write a bespoke, grounded 2-sentence editorial explanation (30–55 words) for each pick:
+- Sentence 1: Briefly capture what the film actually delivers (premise, directorial craft, tone, or pacing — grounded strictly in the candidate's real metadata and plot, never inventing plot details).
+- Sentence 2: Explain specifically why it fits this viewer's requested vibe and favorite anchors, user notes, directors, or themes.
 CRITICAL STYLE RULES FOR "reason" AND OUTPUT:
-- Write clean, human cinema prose (1 sentence, plain statement).
+- Write vivid, natural cinema prose (2 crisp sentences, plain statement — never vague filler like "great acting and story").
 - NEVER include internal system labels, scoring jargon, badges, percentages, or model names in the text (forbid phrases like "Taste-Twin Match", "Core Theme Match", "Genre Bullseye", "% Match", or "Gemini").
 - Include "anchorTitles": 1 to 3 exact titles copied verbatim from USER'S FAVORITE ANCHOR FILMS that this pick pairs best with.
 Output strict JSON with:
@@ -1816,20 +1828,22 @@ Output strict JSON with:
    - title (string)
    - year (string)
    - anchorTitles (array of 1-3 exact titles from user's favorite anchor films)
-   - reason (string: crisp 1-sentence editorial connection free of internal jargon)
-3. wildcardPicks (optional): Array of 0 to 2 theatrical feature films NOT already in PRE-RANKED CANDIDATE MOVIES, watched, or watchlist that fit even better (verified automatically via TMDB, vault exclusions, streaming providers, and active mood gates before inclusion), each with:
+   - reason (string: grounded 2-sentence editorial pitch — what the film delivers + why it fits their taste, free of internal jargon)
+3. wildcardPicks (optional): Array of 0 to ${wildcardLimit} theatrical feature films NOT already in PRE-RANKED CANDIDATE MOVIES, watched, or watchlist that fit even better${parsedMoodFilters?.query ? " (especially encouraged for nuanced custom vibe queries when the candidate pool is missing true atmospheric matches)" : ""} (verified automatically via TMDB, vault exclusions, streaming providers, and active mood gates before inclusion), each with:
    - title (string)
    - year (string)
    - anchorTitles (array of 1-3 exact titles from user's favorite anchor films)
-   - reason (string: crisp 1-sentence editorial connection free of internal jargon)
+   - reason (string: grounded 2-sentence editorial pitch — what the film delivers + why it fits their taste, free of internal jargon)
 `;
     };
 
-    const PROMPT_CHAR_BUDGET = 19200;
-    const PROMPT_CHAR_LIMIT = 20000;
+    const extraCandidates = Math.max(0, topCandidates.length - 45);
+    const PROMPT_CHAR_LIMIT = Math.min(34000, 20000 + extraCandidates * 240);
+    const PROMPT_CHAR_BUDGET = PROMPT_CHAR_LIMIT - 800;
+    const PROMPT_CHAR_TIGHT = PROMPT_CHAR_LIMIT - 400;
     let limits = {
-        plotLimit: 250,
-        taglineLimit: 70,
+        plotLimit: topCandidates.length > 65 ? 160 : 250,
+        taglineLimit: topCandidates.length > 65 ? 0 : 70,
         extFavLimit: broaderFavoriteLines.length,
         seriesLimit: lovedSeriesItems.length,
         notesLimit: extraNoteItems.length,
@@ -1843,25 +1857,25 @@ Output strict JSON with:
     if (prompt.length > PROMPT_CHAR_BUDGET) {
         const excess = prompt.length - (PROMPT_CHAR_BUDGET - 400);
         const perCandidate = Math.max(1, topCandidates.length);
-        const tightenedPlot = Math.max(80, 250 - Math.ceil(excess / perCandidate) - 10);
+        const tightenedPlot = Math.max(80, limits.plotLimit - Math.ceil(excess / perCandidate) - 10);
         limits = { ...limits, plotLimit: tightenedPlot };
         prompt = renderPrompt(limits);
     }
-    if (prompt.length > 19600) {
+    if (prompt.length > PROMPT_CHAR_TIGHT) {
         limits = { ...limits, plotLimit: 60 };
         prompt = renderPrompt(limits);
     }
-    if (prompt.length > 19600 && extraNoteItems.length > 0) {
+    if (prompt.length > PROMPT_CHAR_TIGHT && extraNoteItems.length > 0) {
         limits = { ...limits, noteLen: 100 };
         prompt = renderPrompt(limits);
     }
-    if (prompt.length > 19600 && limits.notesLimit > 0) {
+    if (prompt.length > PROMPT_CHAR_TIGHT && limits.notesLimit > 0) {
         let lo = 0;
         let hi = limits.notesLimit;
         while (lo < hi) {
             const mid = Math.ceil((lo + hi) / 2);
             const probe = renderPrompt({ ...limits, notesLimit: mid });
-            if (probe.length <= 19600) lo = mid;
+            if (probe.length <= PROMPT_CHAR_TIGHT) lo = mid;
             else hi = mid - 1;
         }
         limits = { ...limits, notesLimit: lo };
@@ -1997,6 +2011,16 @@ function selectWithSoftVarietyCaps(
 }
 
 export const MAX_WILDCARD_PICKS = 2;
+export const CUSTOM_VIBE_MAX_WILDCARD_PICKS = 4;
+
+/**
+ * Resolves the active outside wildcard budget: 2 by default (protecting math-grounded retrieval),
+ * expanding to 4 when an explicit free-text custom vibe query is active.
+ */
+export function resolveMaxWildcardPicks(moodFilters = null) {
+    const normalized = normalizeMoodFilters(moodFilters);
+    return normalized?.query ? CUSTOM_VIBE_MAX_WILDCARD_PICKS : MAX_WILDCARD_PICKS;
+}
 
 function sanitizeGeminiReasonText(raw) {
     if (!raw || typeof raw !== "string") return "";
@@ -2298,8 +2322,9 @@ export function mergeGeminiExplanationsWithRanker(
     const geminiPoolItems = [];
     const backfillPoolItems = [];
 
+    const effectiveMaxWildcards = Math.max(0, Number(context?.maxWildcards ?? MAX_WILDCARD_PICKS));
     const verifiedWildcards = Array.isArray(context?.verifiedWildcards)
-        ? context.verifiedWildcards.slice(0, MAX_WILDCARD_PICKS)
+        ? context.verifiedWildcards.slice(0, effectiveMaxWildcards)
         : [];
     for (const wc of verifiedWildcards) {
         if (!wc) continue;
@@ -2451,7 +2476,7 @@ function buildRankerFallbackResponse(
  */
 async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options = {}) {
     const targetCount = Math.max(1, Number(options.targetCount) || DEFAULT_RECOMMENDATION_COUNT);
-    const shortlistLimit = Math.max(targetCount, options.topK || (ai ? 39 : 30));
+    const shortlistLimit = Math.max(targetCount, options.topK || (ai ? 100 : 40));
     const moodFilters = normalizeMoodFilters(options.moodFilters);
     const explicitMood = isExplicitMoodActive(mood, moodFilters);
     const reserveConfig =
@@ -2681,6 +2706,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         if (!Array.isArray(result?.recommendations) || result.recommendations.length === 0) {
             throw new Error("Gemini re-rank returned empty or missing recommendations array");
         }
+        const wildcardLimit = resolveMaxWildcardPicks(moodFilters);
         const verifiedWildcards = Array.isArray(result?.wildcardPicks) && result.wildcardPicks.length > 0
             ? await verifyAndScoreWildcardPicks(
                 result.wildcardPicks,
@@ -2707,6 +2733,7 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
                     rankerOptions: options.rankerOptions
                 },
                 {
+                    maxWildcards: wildcardLimit,
                     wildcardFinder: options.wildcardFinder,
                     detailFetcher: options.detailFetcher,
                     fetchFn: options.fetchFn,
@@ -2722,7 +2749,8 @@ async function reRankCandidatesWithGemini(ai, profile, mood, candidates, options
         const merged = mergeGeminiExplanationsWithRanker(result, topCandidates, profile, {
             watched: options.watched,
             targetCount,
-            verifiedWildcards
+            verifiedWildcards,
+            maxWildcards: wildcardLimit
         });
         if (!Array.isArray(merged?.recommendations) || merged.recommendations.length === 0) {
             throw new Error("Merged recommendations empty");
@@ -2921,10 +2949,13 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 });
 
             if (candidates && candidates.length >= 6) {
-                const [embeddingIndex, contentIndex, dnaIndex] = await Promise.all([
+                const [embeddingIndex, easeIndex, contentIndex, dnaIndex] = await Promise.all([
                     options.embeddingIndex !== undefined
                         ? Promise.resolve(options.embeddingIndex)
                         : loadDefaultEmbeddingIndex(),
+                    options.easeIndex !== undefined
+                        ? Promise.resolve(options.easeIndex)
+                        : loadDefaultEaseIndex(),
                     options.contentIndex !== undefined
                         ? Promise.resolve(options.contentIndex)
                         : loadDefaultContentIndex(),
@@ -2934,7 +2965,11 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 ]);
                 const collabSimMap =
                     options.collabSimMap ||
-                    buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex);
+                    blendEaseAndCollabSimMaps(
+                        easeIndex ? buildEaseSimMapFromIndex(profile.weightedRatings, easeIndex) : null,
+                        buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex),
+                        easeIndex
+                    );
                 const repulsionMap =
                     options.repulsionMap ||
                     buildRepulsionMapFromIndex(profile.weightedRatings, embeddingIndex);
@@ -2954,7 +2989,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                         profile.weightedRatings,
                         embeddingIndex,
                         excludeIds,
-                        { collabSimMap, repulsionMap, catalogMax, repulsionWeight, topK: 80 }
+                        { collabSimMap, repulsionMap, catalogMax, repulsionWeight, topK: 100 }
                     );
                     const injected = await fetchEmbeddingCandidates(
                         neighbors,
@@ -2966,7 +3001,7 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                             userProviders,
                             mood,
                             moodFilters: options.moodFilters,
-                            maxNeighbors: isExplicitMoodActive(mood, options.moodFilters) ? 15 : 30
+                            maxNeighbors: isExplicitMoodActive(mood, options.moodFilters) ? 20 : 50
                         }
                     );
                     if (injected.length > 0) {

@@ -42,7 +42,7 @@
       ]
     },
     {
-      "source": "/models/(.*)\\.bin",
+      "source": "/models/(.*)\\.(bin|cvea)",
       "headers": [
         {
           "key": "Content-Type",

@@ -15,7 +15,8 @@ import {
   summarizeOraclePreferences,
   ORACLE_TONIGHT_PRESETS,
   splitOracleSpotlightAndGrid,
-  rankWatchlistForTonight
+  rankWatchlistForTonight,
+  buildDetailedOracleExplanation
 } from "../src/services/oracleViewHelpers.js";
 
 test("formatStreamingSummary returns default summary with no custom filter for GLOBAL and empty providers", () => {
@@ -129,7 +130,7 @@ test("formatRecBadgeSummary default mode without a model labels On-Device Engine
 test("buildOracleLoadingSteps switches final step copy by debug mode and queued model", () => {
   const publicAiSteps = buildOracleLoadingSteps({ watchedCount: 12, queuedModel: "gemini-3.5-flash-lite" });
   assert.equal(publicAiSteps.length, 4);
-  assert.equal(publicAiSteps[3], "Curating your final 10 picks...");
+  assert.equal(publicAiSteps[3], "Curating your final 20 picks...");
 
   const offlineSteps = buildOracleLoadingSteps({ watchedCount: 2, queuedModel: null });
   assert.equal(offlineSteps[3], "Ranking your final picks on-device...");
@@ -380,4 +381,37 @@ test("rankWatchlistForTonight ranks unseen watchlist items by on-device taste ma
 test("formatActiveVibeNote gracefully falls back to MOOD_OPTIONS when moodOptions arg is non-array", () => {
   const note = formatActiveVibeNote({ moodId: "dark-thriller", withGenres: ["Thriller"] }, "not-an-array");
   assert.match(note, /Dark Thriller/);
+});
+
+
+test("buildDetailedOracleExplanation preserves rich 2-sentence Gemini prose and grounds short or fallback reasons in TMDB plot", () => {
+  const rich = buildDetailedOracleExplanation({
+    reason: "Denis Villeneuve builds a haunting, rain-slicked investigation with patient visual rigor. It channels the moral tension and deliberate pacing you rated highest in Prisoners and Zodiac.",
+    plot: "A detective searches for a missing witness across a bleak coastal town."
+  });
+  assert.match(rich.whyText, /Denis Villeneuve/);
+  assert.equal(rich.premiseNote, "", "Already-detailed 2-sentence Gemini pitch does not duplicate plot");
+
+  const shortLegacy = buildDetailedOracleExplanation({
+    reason: "Fits your sci-fi puzzle favorites.",
+    plot: "An astronaut stranded on a lunar station uncovers a shocking secret about his mission. Later events unfold."
+  });
+  assert.equal(shortLegacy.whyText, "Fits your sci-fi puzzle favorites.");
+  assert.equal(shortLegacy.premiseNote, "An astronaut stranded on a lunar station uncovers a shocking secret about his mission.");
+
+  const genericFallback = buildDetailedOracleExplanation(
+    {
+      director: "Kiyoshi Kurosawa",
+      genre: "Mystery, Thriller",
+      reason: "Selected by the CinemaVault calibrated taste ranker.",
+      plot: "A Tokyo detective investigates a wave of inexplicable crimes committed by ordinary people."
+    },
+    [{ title: "Zodiac" }, { title: "Memories of Murder" }]
+  );
+  assert.match(genericFallback.whyText, /Kiyoshi Kurosawa/);
+  assert.match(genericFallback.whyText, /Zodiac and Memories of Murder/);
+  assert.equal(
+    genericFallback.premiseNote,
+    "A Tokyo detective investigates a wave of inexplicable crimes committed by ordinary people."
+  );
 });
