@@ -210,13 +210,15 @@ async function main() {
     const scB = scoreRecs(mergedB, u, cohort.top200PopSet);
     const scC = scoreRecs(mergedC, u, cohort.top200PopSet);
     ckpt.users[key] = { mathTop20, controlA: scA, treatmentB: scB, treatmentC: scC };
+    fs.mkdirSync(path.dirname(ckptPath), { recursive: true });
     fs.writeFileSync(ckptPath, JSON.stringify(ckpt, null, 2));
     console.log(`Math=${mathTop20.hits20}(${mathTop20.ndcg20.toFixed(3)}) | A=${scA.hits20}(${scA.ndcg20.toFixed(3)}) | B=${scB.hits20}(${scB.ndcg20.toFixed(3)}) | C=${scC.hits20}(${scC.ndcg20.toFixed(3)})`);
   }
 
   const rows = selected.map((u) => ckpt.users[String(u.uid)]).filter(Boolean);
   const summarize = (k) => {
-    const m = (f) => rows.reduce((a, r) => a + r[k][f], 0) / rows.length;
+    const denom = Math.max(1, rows.length);
+    const m = (f) => rows.reduce((a, r) => a + r[k][f], 0) / denom;
     return {
       ndcg10: Number(m("ndcg10").toFixed(4)),
       ndcg20: Number(m("ndcg20").toFixed(4)),

@@ -237,8 +237,7 @@ export function evaluatePipeline(
     ndcg10[i] = computeNDCGAtK(ids, u.holdoutRelevance, 10);
     ndcg20[i] = computeNDCGAtK(ids, u.holdoutRelevance, 20);
 
-    const scoreMap = new Map();
-    for (const r of ranked) scoreMap.set(Number(r.tmdbId), r.rankerProbability);
+    // Collaborative within-user AUC (measures raw collabSimMap discrimination over held-out ratings)
     const a8 = computeWithinUserAuc(collabSimMap, u.holdoutRelevance, 8, 7);
     if (a8 !== null) auc8.push(a8);
 

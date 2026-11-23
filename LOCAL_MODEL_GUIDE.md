@@ -9,11 +9,11 @@ If you want to understand **what our local ML models actually are**, **what work
 
 ## 1. The Short Version: What Is "Our Local Model"?
 
-Your recommendation engine does **85–90% of the intelligence locally on the user's device (`$0.00` API cost, a few milliseconds)** before Google Gemini ever sees a candidate movie. It consists of **four** working parts on disk + in JavaScript:
+Your recommendation engine does **85–90% of the intelligence locally on the user's device (`$0.00` API cost, a few milliseconds)** before Google Gemini ever sees a candidate movie. It consists of **five** working parts on disk + in JavaScript:
 
-1. **The Exact Full-Rank Sparse EASE^R Graph ([public/models/item_ease_k64.cvea](./public/models/item_ease_k64.cvea)) — NEW in `v6.0`!**
-   - **What it is:** A **`3.47 MB`** (`3,640,016` bytes) full-rank closed-form **EASE^R** item-item regression graph (`14,000 × 14,000` Cholesky solve on MovieLens 32M with `λ = 800`, light `γ = 0.12` popularity damping, pruned to top-64 outgoing neighbors per movie) saved in our compact **`CVEA v1`** binary format.
-   - **Why it crushed 64-D SVD alone:** Low-rank 64-D SVD blurs sharp film-to-film relationships (franchises, cult companions, auteur lineages). Storing each film's exact top-64 full-rank EASE^R neighbors scores any vault in **`< 1 ms`** (`O(|watched| × 64)`) and, when blended **`60% EASE^R / 40% SVD`** (`easeService.js`), lifted **300-user leakage-clean `NDCG@10` by `+47.6%*`**, **`NDCG@20` by `+41.9%*`**, **`HR@20` from `61.7% → 74.7%`**, and **Long-Tail Hits@20 by `+7.1%`**!
+1. **The Exact Full-Rank Sparse EASE^R Graph ([public/models/item_ease_k64.cvea](./public/models/item_ease_k64.cvea)) — Shipped in `v6.0`!**
+   - **What it is:** A **`3.47 MB`** (`3,640,016` bytes) full-rank closed-form **EASE^R** item-item regression graph (`14,000 × 14,000` Cholesky solve on MovieLens 32M with `λ = 800`, light `γ = 0.12` popularity damping baked pre-pruning, pruned to top-64 outgoing neighbors per movie) saved in our compact **`CVEA v1`** binary format.
+   - **Why it crushed 64-D SVD alone:** Low-rank 64-D SVD blurs sharp film-to-film relationships (franchises, cult companions, auteur lineages). Storing each film's exact top-64 full-rank EASE^R neighbors scores any vault in **`< 1 ms`** (`O(|watched| × 64)`) and, when blended **`60% EASE^R / 40% SVD`** (`easeService.js`), lifted **300-user leakage-clean `NDCG@10` by `+49.7%*`**, **`NDCG@20` by `+46.3%*`**, **`HR@20` from `61.7% → 74.0%`**, and **Long-Tail Hits@20 by `+9.7%`**!
    - **Byte-by-Byte Layout (`CVEA v1`):**
      - Bytes `0..3`: ASCII magic header `"CVEA"`
      - Bytes `4..7`: `uint32` version (`1`, little-endian)
@@ -39,8 +39,12 @@ Your recommendation engine does **85–90% of the intelligence locally on the us
    - Passes them through a temperature-scaled logistic sigmoid $\sigma((b + w^\top x + \text{moodAdjustment}) / \tau)$ (`\tau = 1.45`) and locks each film's order-preserving **50–99% Display Match Score** plus up to 3 deterministic **Match Reason Badges**.
    - **Zero LLM Score Hallucination (`100 → 20`):** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **`20`** (`DEFAULT_RECOMMENDATION_COUNT = 20`) out of up to **`100`** stratified pre-ranked candidates (`72` top core + `14` cold `2024–2026` + `14` diverse outliers via `buildDiversifiedGeminiShortlist`, plus `0–2` or `0–4` optional TMDB-verified `wildcardPicks`), pair each pick with `1–3` vault `anchorTitles`, and write grounded 2-sentence editorial pitches free of scoring jargon (backfilling cleanly from the top ranker picks if Gemini returns fewer than `20`).
 
-4. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)) & Trainers ([scripts/experiments/train_sparse_ease.py](./scripts/experiments/train_sparse_ease.py), [scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
-   - `public/models/ranker_weights.json` stays synchronized in exact `deepEqual` parity with `DEFAULT_RANKER_WEIGHTS`. `train_sparse_ease.py` trains `item_ease_k64.cvea` locally in ~56 seconds on CPU from MovieLens 32M (`--production --max-items 14000 --k 64 --lam 800 --pop-gamma 0.12`).
+4. **Neural Semantic Cold-Start Embeddings ([public/models/content_embeddings_f16.bin](./public/models/content_embeddings_f16.bin)) — NEW in `v6.1`!**
+   - **What it is:** A **`2.76 MB`** (`2,890,956` bytes) `CVEM v1` `float16` binary encoding **`11,119` movies × `128-D`** (`sentence-transformers/all-MiniLM-L6-v2` PCA, `79.6%` variance retained) from pure `title + tagline + overview` text — including **`1,499` `2024–2026` theatrical releases** outside MovieLens 32M's training window.
+   - **Strict `coldOnly: true` Isolation:** Loaded lazily by `loadDefaultContentIndex` (`contentSimService.js`) and gated strictly to cold/unindexed films (`hasCollaborativeCoverage === false`) so warm EASE^R+SVD picks experience zero dilution while cold-start `Holdout-150` `NDCG@10` jumps **`+26.7%*`** (`+22.1%*` `NDCG@20`).
+
+5. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)) & Trainers ([scripts/experiments/train_sparse_ease.py](./scripts/experiments/train_sparse_ease.py), [scripts/experiments/build_local_content_embeddings.py](./scripts/experiments/build_local_content_embeddings.py), [scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
+   - `public/models/ranker_weights.json` stays synchronized in exact `deepEqual` parity with `DEFAULT_RANKER_WEIGHTS`. `train_sparse_ease.py` trains `item_ease_k64.cvea` locally in ~56 seconds on CPU from MovieLens 32M (`--production --max-items 14000 --k 64 --lam 800 --pop-gamma 0.12`), and `build_local_content_embeddings.py` refreshes `content_embeddings_f16.bin` locally in ~30 seconds.
 
 ---
 
@@ -52,7 +56,9 @@ An early question we checked carefully: *"Did the quick `ml-latest-small` test f
 
 | File Path | Exact Size | Origin | Items / Dim | Status in App |
 | :--- | :---: | :--- | :---: | :--- |
-| [public/models/item_embeddings_f16.bin](./public/models/item_embeddings_f16.bin) | `3,300,016 B` (`3.15 MB`) | **Your Google Colab training run** on MovieLens 32M | `25,000` × `64` | **ACTIVE IN APP** |
+| [public/models/item_ease_k64.cvea](./public/models/item_ease_k64.cvea) | `3,640,016 B` (`3.47 MB`) | Local exact Cholesky EASE^R (`λ=800`, `γ=0.12`) on MovieLens 32M | `14,000` × `64` (`CVEA v1`) | **ACTIVE IN APP** |
+| [public/models/item_embeddings_f16.bin](./public/models/item_embeddings_f16.bin) | `3,300,016 B` (`3.15 MB`) | **Your Google Colab training run** on MovieLens 32M | `25,000` × `64` (`CVEM v1`) | **ACTIVE IN APP** |
+| [public/models/content_embeddings_f16.bin](./public/models/content_embeddings_f16.bin) | `2,890,956 B` (`2.76 MB`) | Local `all-MiniLM-L6-v2` PCA (`1,499` `2024–2026` + `9,620` catalog) | `11,119` × `128` (`CVEM v1`) | **ACTIVE IN APP (`coldOnly`)** |
 | `.data/small_ref.bin` | `1,275,268 B` (`1.22 MB`) | Local quick test on `ml-latest-small` (`100k` ratings) | `9,734` × `64` | Archived in `.data/` (never loaded by app) |
 | `.data/item_embeddings_clean_f16.bin` | `3,300,016 B` (`3.15 MB`) | Clean 32M retrain stripping all benchmark test holdout rows | `25,000` × `64` | Benchmark-only leakage verification in `.data/` |
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Builds 64-D float16 CVEM v1 semantic content embeddings locally using SentenceTransformers
-(`all-MiniLM-L6-v2`, 384-D -> PCA 64-D L2-normalized) from pure movie text (title + tagline + overview).
+Builds 128-D (or custom --dims) float16 CVEM v1 semantic content embeddings locally using SentenceTransformers
+(`all-MiniLM-L6-v2`, 384-D -> PCA L2-normalized) from pure movie text (title + tagline + overview).
 Zero MovieLens / rating leakage!
 """
 import os
@@ -13,7 +13,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sentence_transformers import SentenceTransformer
 
-ROOT = "g:/Important Projects/movie-ratings"
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 
 def build_doc(item):
@@ -41,9 +41,9 @@ def export_cvem(out_path, ids, vecs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=str, default=".data/tmdb_enriched.json")
-    parser.add_argument("--out", type=str, default=".data/v6_lab/content_64_f16.bin")
+    parser.add_argument("--out", type=str, default="public/models/content_embeddings_f16.bin")
     parser.add_argument("--model", type=str, default="sentence-transformers/all-MiniLM-L6-v2")
-    parser.add_argument("--dims", type=int, default=64)
+    parser.add_argument("--dims", type=int, default=128)
     args = parser.parse_args()
 
     t0 = time.time()
@@ -75,11 +75,12 @@ def main():
 
     out_path = args.out if os.path.isabs(args.out) else os.path.join(ROOT, args.out)
     export_cvem(out_path, ids, embs_red)
-    # Also export 128-D version for comparison!
-    if args.dims == 64 and embs.shape[1] >= 128:
+    # Optional paired 128-D comparison export only when output filename explicitly uses "_64_"
+    if args.dims == 64 and embs.shape[1] >= 128 and "_64_" in os.path.basename(out_path):
         pca128 = PCA(n_components=128, random_state=42)
         embs_128 = pca128.fit_transform(embs)
-        export_cvem(out_path.replace("_64_", "_128_"), ids, embs_128)
+        alt_path = os.path.join(os.path.dirname(out_path), os.path.basename(out_path).replace("_64_", "_128_"))
+        export_cvem(alt_path, ids, embs_128)
     print(f"Done in {time.time() - t0:.1f}s!")
 
 
