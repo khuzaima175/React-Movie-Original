@@ -13,7 +13,7 @@ A local-first film tracker and recommender. It combines an on-device taste model
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-12-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
-[![Tests](https://img.shields.io/badge/Tests-455_passing-46d369?style=for-the-badge)](#contributing-and-tests)
+[![Tests](https://img.shields.io/badge/Tests-457_passing-46d369?style=for-the-badge)](#contributing-and-tests)
 
 [Features](#features) · [Screenshots](#screenshots) · [Why CinemaVault](#why-cinemavault) · [How it works](#how-it-works) · [Model Refinement Log](./MODEL_REFINEMENT_LOG.md) · [Quick start](#quick-start) · [Known limitations](#known-limitations)
 
@@ -39,7 +39,7 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 
 | Area | What it does |
 | :--- | :--- |
-| Local taste model | **Exact Full-Rank Sparse EASE^R** (`14,000` films × `64` neighbors, `3.47 MB` `CVEA v1`, `< 1 ms` scoring) blended **`60/40`** with the `25,000`-film `64`-D SVD index (`CVEM v1`, `3.15 MB`), per-user z-scoring, tiered recency decay, persona mixtures, and `64×64` ridge fold-in (`+47.6%` `NDCG@10` / `+41.9%` `NDCG@20` on 300 unseen users — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)). Runs 100% in the browser. |
+| Local taste model | **Exact Full-Rank Sparse EASE^R** (`14,000` films × `64` neighbors, `3.47 MB` `CVEA v1`, `< 1 ms` scoring) blended **`60/40`** with the `25,000`-film `64`-D SVD index (`CVEM v1`, `3.15 MB`), plus **`11,119 × 128-D` Neural Semantic Content Embeddings** (`content_embeddings_f16.bin`, `2.76 MB`, `coldOnly: true`, covering `1,499` `2024–2026` theatrical releases at **`+26.7%*` cold-start `NDCG@10`**), per-user z-scoring, tiered recency decay, persona mixtures, and `64×64` ridge fold-in (`+49.7%*` warm `NDCG@10` / `+46.3%*` `NDCG@20` on 300 unseen users — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)). Runs 100% in the browser. |
 | Recommendations | Five retrieval buckets (including top-50 aligned collaborative neighbors), a calibrated logistic ranker, and **20 curated picks** (rendered in a `#1` Spotlight hero + 2-column editorial card grid with grounded 2-sentence pitches) from a **100-candidate stratified shortlist**. Verified TMDB titles only. |
 | Vibes | Six preset moods plus free-text "Match Vibe" queries such as "like Drive but quieter." |
 | Gemini cascade & BYOK | Dual Flash-Lite cascade (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`, up to 1,000 free requests/day) with error-specific cooldowns, optional browser-local personal Gemini key (`cv_user_gemini_key`), and deterministic on-device ranker fallback when shared quota is at capacity. |

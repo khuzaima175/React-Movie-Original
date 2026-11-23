@@ -2,7 +2,7 @@
 
 > **Living Research Log:** Every offline math experiment, LLM curation benchmark, architectural test, mistake caught, and verified gain is recorded here so we can iteratively refine CinemaVault's recommendation accuracy with zero guesswork and zero data leakage.
 
-**Current Production Engine:** `v6.0` (**Exact Full-Rank Sparse EASE^R `14k×64` + SVD-64 `60/40` Hybrid** → **100-Candidate Stratified Shortlist** → **20 Curated Picks**)  
+**Current Production Engine:** `v6.1` (**Exact Full-Rank Sparse EASE^R `14k×64` + SVD-64 `60/40` Hybrid** + **128-D Neural Semantic Cold-Start Embeddings `11.1k` incl. `1,499` `2024–2026` releases** → **100-Candidate Stratified Shortlist** → **20 Curated Picks**)  
 **Primary Benchmark Standard:** `300` completely unseen MovieLens 32M users (`.data/fresh_300_users.json`), chronological temporal holdout (last `10` ratings `>= 8/10`), evaluated against the `9,733`-film TMDB-enriched catalog with **all `625` evaluation users stripped from training** (`Dev-150` tuning split + untouched `Holdout-150` verification split + `1,000`-resample paired bootstrap `95%` CI).
 
 ---
@@ -12,7 +12,8 @@
 | Version / Milestone | Date | Core Engine | `HR@1` (#1 Pick) | `NDCG@10` | `NDCG@20` | `HR@20` (≥1 Hit) | Avg Hits `@20` | Long-Tail Hits `@20` *(excl. top-200 pop)* | Shortlist Coverage (`HR@K` / Hits) |
 | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **v5.6 Baseline** | 2026-11-20 | `SVD-64` (`CVEM v1`, 3.15 MB) + 12-feat Logistic Ranker · `39 → 10` | `12.3%` | `0.0789` | `0.1039` | `61.7%` | `1.247` | `0.887` | `HR@60: 86.0%` (`2.63`) |
-| **v6.0 (Current)** | 2026-11-23 | **Exact Full-Rank Sparse EASE^R (`14k×64`, `λ=800`, `γ=0.12`) + `SVD-64` (`60/40`)** · **`100 → 20`** | **`17.0%–18.0%`** *(+38%–46%)* | **`0.1164`** *(**+47.6%\***)* | **`0.1475`** *(**+41.9%\***)* | **`74.7%`** *(+13.0 pts)* | **`1.653`** *(+32.6%)* | **`0.950`** *(**+7.1%**)* | **`HR@100: 96.7%` (`4.11` hits)** |
+| **v6.0 (Baked `γ=0.12`)** | 2026-11-23 | **Exact Full-Rank Sparse EASE^R (`14k×64`, `λ=800`, `γ=0.12` baked pre-pruning) + `SVD-64` (`60/40`)** · **`100 → 20`** | **`17.7%`** *(+44%)* | **`0.1181`** *(**+49.7%\***)* | **`0.1520`** *(**+46.3%\***)* | **`74.0%`** *(+12.3 pts)* | **`1.713`** *(+37.4%)* | **`0.973`** *(**+9.7%**)* | **`HR@100: 96.7%` (`4.16` hits)** |
+| **v6.1 (Current — Cold-Start Upgrade)** | 2026-11-24 | `v6.0` Warm Engine + **`11,119 × 128-D` Neural Semantic Embeddings (`all-MiniLM-L6-v2` PCA, `2.76 MB`, `coldOnly: true`)** for `2024–2026` & unindexed films | **Warm: `17.7%`** | **Warm: `0.1181`** · **Cold Holdout: `0.0589` (+26.7%\*)** | **Warm: `0.1520`** · **Cold Holdout: `0.0716` (+22.1%\*)** | **Warm: `74.0%`** · **Cold Holdout: `46.7%` (+6.7 pts)** | **Warm: `1.713`** · **Cold Holdout: `0.693`** | **Warm: `0.973`** *(zero warm dilution)* | **Warm `HR@100: 96.7%` (`4.16`)** · **Cold `HR@100: 81.3%` (+6.0 pts)** |
 
 *\* = Statistically significant (`p < 0.05` via 1,000-resample paired bootstrap 95% CI) on BOTH `Dev-150` AND untouched `Holdout-150`.*
 
@@ -117,11 +118,90 @@
 
 ---
 
-## Next Refinement Backlog (v6.1+ Ideas to Test Next)
+## Detailed Experiment Chronicle — v6.1 Hard-Gated Refinement Sprint (2026-11-24)
 
-1. **Math-Anchored Gemini Curation (`v6.1` candidate):** Protect the top ~6–8 highest-confidence EASE^R+SVD picks from LLM "IMDb Top-50 prestige override" unless they clash with dislikes/mood/taste rules, while letting Gemini freely curate the remaining 12–14 discovery slots + wildcards.
-2. **EASE^R Scaling & Negative Edges (`v6.1` candidate):** Benchmark `K = 64` vs `K = 96` neighbors, `14,000` vs `18,000` items, and storing `store_neg = 8` strongest negative EASE^R weights per film for sharper dislike avoidance.
-3. **Re-Calibrating `DEFAULT_RANKER_WEIGHTS` for EASE^R + SVD (`v6.1` candidate):** Current logistic weights (`collabSim: 6.4`, `bayesianRatingNorm: 1.8`, `metadataDampingFactor: 0.35`) were tuned for old `SVD-64`. Re-optimizing them on `Dev-150` + verifying on `Holdout-150` with the new EASE^R+SVD signal could unlock another `+5–15%`.
-4. **Adaptive `easeWeight` by Vault Size & Recency:** Test whether small vaults (`< 20` ratings) benefit more from `SVD-64` generalization while rich vaults (`50+` ratings) benefit from `70%` EASE^R, plus recency-weighted EASE^R scoring.
-5. **Post-2023 Cold-Start (`2024–2026` Releases):** Evaluate real semantic text embeddings (`content_embeddings_f16.bin`) and `dnaSim` specifically on post-2023 films outside MovieLens 32M's training window.
-6. **Universal Taste Match Upgrade (`tasteMatchService.js`):** Extend `item_ease_k64.cvea` blending to `predictMovieMatch` on Movie Detail pages and Search pills so every `"For You"` Match `%` matches Oracle & Explore's `v6.0` EASE^R+SVD accuracy.
+Every hypothesis below was tuned strictly on `Dev-150` (`users[0..149]`) and gated against the **4-Part Hard Ship Gate** on untouched `Holdout-150` (`users[150..299]`): (1) paired bootstrap 95% CI `ciLower > 0` on `NDCG@10` or `NDCG@20` with zero significant regression on the other, (2) `Tail@20 >= -1.0%` & no popularity cheat, (3) `Cov >= 92%` of baseline, (4) `< 25 ms/user` and `>= +2.0%` Holdout `NDCG@20` per `+2 MB` binary cost. **Zero unverified or overfitted code was shipped.**
+
+### Locked Clean `v6.0` Reference Baseline ([scripts/experiments/v6_gate_eval.mjs](./scripts/experiments/v6_gate_eval.mjs))
+Retraining the exact leakage-clean `v6.0` production replica (`14,000 × 64`, `λ=800`, `γ=0.12` baked pre-pruning, 625 eval users stripped) locked an even stronger baseline than the earlier post-hoc `γ` estimate:
+- **`DEV-150`:** `HR@1=20.0%` | `NDCG@10=0.1142` | `NDCG@20=0.1500` | `Hits@20=1.747` | `Tail@20=0.927` | `HR@20=76.7%` | `HR@100=97.3% (4.13)` | `Cov=899` | `AvgV=10,831` | `1.89 ms`
+- **`HOLDOUT-150`:** `HR@1=15.3%` | `NDCG@10=0.1220` | `NDCG@20=0.1540` | `Hits@20=1.680` | `Tail@20=1.020` | `HR@20=71.3%` | `HR@100=96.0% (4.19)` | `Cov=910` | `AvgV=9,934` | `1.92 ms`
+- **`ALL-300`:** `HR@1=17.7%` | `NDCG@10=0.1181` | `NDCG@20=0.1520` | `Hits@20=1.713` | `Tail@20=0.973` | `HR@20=74.0%` | `HR@100=96.7% (4.16)` | `Cov=1,134` | `AvgV=10,383` | `2.05 ms`
+
+---
+
+### Experiment 7 (SHIPPED IN v6.1 — MASSIVE COLD-START BREAKTHROUGH): 128-D Neural Semantic Content Embeddings + `coldOnly` Guard Fix
+- **Scripts & Files:** [scripts/experiments/build_local_content_embeddings.py](./scripts/experiments/build_local_content_embeddings.py), [public/models/content_embeddings_f16.bin](./public/models/content_embeddings_f16.bin), [src/services/contentSimService.js](./src/services/contentSimService.js), [tests/contentSimService.test.js](./tests/contentSimService.test.js)
+- **Hypothesis:** MovieLens 32M ends in late 2023, leaving `2024–2026` releases with `collabSim = 0` relying on lexical TF-IDF / structured keyword overlap. Encoding `title + tagline + overview` with local `sentence-transformers/all-MiniLM-L6-v2` (zero interaction leakage) and projecting via PCA into `128-D` L2-normalized `CVEM v1` (`float16`) should dramatically improve cold-start ranking.
+- **100% Cold-Start Simulation Results (`collabSim = 0` on all candidates):**
+
+| Split & Cold-Start Scorer | Binary Size | `NDCG@10` | `NDCG@20` | `Hits@20` | `HR@20` | `HR@100` | Gate Verdict |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`DEV-150` · Lexical TF-IDF Fallback** | `0 MB` | `0.0592` | `0.0722` | — | `42.7%` | `75.3%` | Baseline |
+| **`DEV-150` · MiniLM-128D (`CVEM v1`)** | `2.39 MB` | **`0.0678` (+14.5%\*)** | **`0.0819` (+13.4%\*)** | — | **`50.0%`** | **`78.0%`** | **Dev Winner** |
+| **`HOLDOUT-150` · Lexical TF-IDF Fallback** | `0 MB` | `0.0465` | `0.0586` | `0.613` | `40.0%` | `75.3%` | Baseline |
+| **`HOLDOUT-150` · MiniLM-64D (`CVEM v1`)** | `1.21 MB` | `0.0567` (+22.0%\*) | `0.0682` (+16.2%) | — | — | — | Pass |
+| **`HOLDOUT-150` · MiniLM-128D (`CVEM v1`)** | `2.39 MB` | **`0.0589` (+26.7%\*)** | **`0.0716` (+22.1%\*)** | **`0.693`** | **`46.7%`** | **`81.3%`** | **PASS (`+22.1%*` >> `+2.4%` req)** |
+
+- **Critical Production Bug Caught via TDD:** Writing [tests/contentSimService.test.js](./tests/contentSimService.test.js) caught that `buildContentSimMap` previously enforced `options.coldOnly === true` ONLY on the structured TF-IDF fallback, NOT on the `contentIndex` branch — which would have injected semantic noise onto warm EASE^R+SVD films! Fixed in `src/services/contentSimService.js` so `coldOnly: true` strictly skips warm films (`hasCollaborativeCoverage`), guaranteeing `0.000` warm-item dilution.
+- **Production Binary Built:** Fetched `1,499` `2024–2026` TMDB theatrical films (`vote_count >= 40`) merged with `9,620` historical films → `public/models/content_embeddings_f16.bin` (`11,119 × 128-D`, `79.6%` PCA variance retained, `2.76 MB`).
+
+---
+
+### Experiment 8 (CLEAN REJECT — `GATE: FAIL`): Multi-Scale EASE^R (`λ=250/1500`), Negative Edges (`store_neg`), & `K=96`
+- **Sweep:** 9 leakage-clean `.cvea` binaries tested on `Dev-150` and gated on untouched `Holdout-150` (multi-scale `α ∈ {0.35, 0.50, 0.65}`, signed negative edges `store_neg ∈ {6, 8, 12}`, and `K=96` `5.18 MB`).
+- **Holdout-150 Results (all FAIL):**
+  - `ms_a50_k64_n6` (`store_neg=6`): `NDCG@10 = 0.1159` (**`-5.0%*`**), `NDCG@20 = 0.1505` (`-2.3%`) — **FAIL**
+  - `ms_a50_k64_n12` (`store_neg=12`): `NDCG@10 = 0.1144` (**`-6.2%*`**), `NDCG@20 = 0.1476` (**`-4.2%*`**) — **FAIL**
+  - `ms_a50_k64_n0` (multi-scale, no neg): `NDCG@10 = 0.1214` (`-0.5%`), `NDCG@20 = 0.1520` (`-1.3%`) — **FAIL**
+  - `K=96` (`ms_a50_k96_n0`, `s800_k96_n0`): `-0.8%` to `-1.2%` even on `Dev-150` — **FAIL**
+- **Key Lesson:** Negative EASE^R off-diagonal weights act as inverse popularity suppressors that aggressively penalize valid future favorites; single-scale `λ=800`, `K=64`, `store_neg=0` is already at the sweet spot with zero extra binary bloat.
+
+---
+
+### Experiment 9 (CLEAN REJECT — `GATE: FAIL`): Adaptive Vault-Size `easeWeight`, Rating Power Curve & Recency Weighting
+- **Sweep:** Constant `easeWeight ∈ {0.55, 0.65, 0.70}`, 3 adaptive vault-size curves (`adapt_35_70_p25`, `adapt_40_72_p30`, `adapt_45_75_p40`), `sharp_rating`, `recency`, and `mild_neg5`.
+- **Results:** All 3 adaptive curves lost `-0.9%` to `-1.3%` `NDCG@20` on `Dev-150`. Top 2 Dev candidates failed untouched `Holdout-150`: `mild_neg5` (`+0.32%` non-sig), `sharp_rating` (`-1.49%` non-sig). Constant `easeWeight = 0.60` stayed untouched in `src/services/easeService.js`.
+
+---
+
+### Experiment 10 (CLEAN REJECT — `GATE: FAIL`): Logistic Ranker Weight Re-Calibration on EASE^R+SVD ([scripts/experiments/tune_ranker_v6.mjs](./scripts/experiments/tune_ranker_v6.mjs))
+- **Hypothesis:** `DEFAULT_RANKER_WEIGHTS` (`collabSim: 6.4`, `bayesianRatingNorm: 1.8`, `metadataDampingFactor: 0.35`) were tuned on old `SVD-64`; coordinate ascent on `Dev-150` over 9 weights might squeeze extra gain out of EASE^R+SVD.
+- **Classic Overfit Caught by Hard Gate:**
+  - `DEV-150`: climbed `NDCG@10` `0.1142 → 0.1197` (`+4.8%*`), `NDCG@20` `0.1500 → 0.1538` (`+2.5%`), `Tail@20` `0.927 → 0.973` (`+5.0%`) at `collabSim=8.8, bayesianRatingNorm=1.2, genreOverlap=0.2, _metadataDampingFactor=0.4`.
+  - **Untouched `HOLDOUT-150`:** `NDCG@10` `0.1220 → 0.1242` (`+1.8%`, `sig=false`), **`NDCG@20` `0.1540 → 0.1540` (`+0.0%` flat!)**, `Hits@20` `1.680 → 1.673` (`-0.4%`) → **`GATE: FAIL`**.
+- **Disposition:** Kept `DEFAULT_RANKER_WEIGHTS` and `public/models/ranker_weights.json` untouched.
+
+---
+
+### Experiment 11 (CLEAN REJECT — `GATE: FAIL`): Math-Anchored Gemini Curation Prompt Tags vs. Post-Hoc Top-K Protection ([scripts/experiments/eval_math_anchor_llm.mjs](./scripts/experiments/eval_math_anchor_llm.mjs))
+- **Cohort:** `17` unseen `Holdout-150` users (`9` on `gemini-2.5-flash` + `8` on `gemini-3-flash-preview`, saved in `.data/v6_lab/math_anchor_llm_ckpt.json`).
+- **Results (17-User Paired Holdout):**
+
+| Strategy | `NDCG@10` | `NDCG@20` | `Hits@20` | `Tail@20` | `HR@20` | Verdict |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Pure Math Top-20 (`0` AI)** | `0.0595` | `0.0777` | `1.059` | `0.706` | `52.9%` | Math Reference |
+| **Control A (Current Unbiased Open-100)** | `0.0449` | `0.0683` | `0.824` | `0.706` | `47.1%` | Production Baseline |
+| **Treatment B (Prompt `[Strong Vault Signal]` tags)** | `0.0395` | `0.0561` | `0.765` | — | — | **HURT (`-17.9%`)** |
+| **Treatment C (Prompt tags + Protect Top-4)** | `0.0493` | `0.0704` | — | `0.647` | — | **FAIL (`-8.4%` Tail, non-sig)** |
+| **Post-Hoc Control A + ProtectTop-2 (no prompt tags)** | `0.0545` (+21.4%) | `0.0778` (+13.9%) | `0.882` | `0.706` (0 loss) | `52.9%` | **Promising, non-sig at `n=17` `[-0.0155, +0.0450]`** |
+
+- **Key Lesson:** Adding confidence tags inside the LLM prompt **actively hurts** curation (`0.0683 → 0.0561`). Post-hoc `ProtectTop-2` (keeping the unbiased prompt intact and softly protecting only top-2 math picks) matched Pure Math's `NDCG@20` (`0.0778`) with zero `Tail@20` loss, but needs a larger `n >= 50` run to establish statistical significance before shipping.
+
+---
+
+### Experiment 12 (CLEAN REJECT — `GATE: FAIL`): Wiring Sparse EASE^R into Universal Taste Match (`predictMovieMatch`)
+- **Hypothesis:** Blending `item_ease_k64.cvea` into `tasteMatchService.js` (`MovieDetails` & `SearchModal`) might improve single-film Match `%` predictions.
+- **Direct 300-User `predictMovieMatch` Benchmark (`Holdout-150`):**
+  - **Dense `SVD-64` Baseline:** `withinAUC = 0.6818` | `vsCatalogAUC = 0.8621` | `vsPoolAUC = 0.6953`
+  - **Naive `60/40` `EASE^R + SVD`:** `withinAUC = 0.6738` (`-0.0079`) | `vsPoolAUC = 0.6701` (**`-0.0252*` REGRESSION**)
+  - **Additive `EASE^R` (`α ∈ {0.25, 0.50, 1.00}`):** `withinAUC` flat/negative (`+0.0010` non-sig to `-0.0043`) | `vsCatalogAUC` **significantly regressed across every `α`** (`-0.0028*` to `-0.0154*`).
+- **Architectural Insight:** Top-K retrieval (`Oracle` & `Explore For You`) thrives on sparse top-64 EASE^R precision at the very top of the catalog (`+49.7%*` `NDCG@10`), whereas arbitrary point-lookup scoring (`MovieDetails` & `SearchModal`) thrives on dense `64-D SVD` (`0.8621` `vsCatalogAUC`) because dense vectors score all `25,000` catalog films smoothly without sparse zero-compression. Kept `tasteMatchService.js` purely on dense `SVD-64`.
+
+---
+
+## Next Refinement Backlog (v6.2+ Highest-Leverage Unexplored Ideas)
+
+1. **Larger `n = 50+` Validation of Post-Hoc `ProtectTop-2` (Zero Prompt Tags):** Re-test `Control A + ProtectTop-2` once Gemini API quota resets; it showed `+21.4%` `NDCG@10` / `+13.9%` `NDCG@20` with zero `Tail@20` loss on `n = 17` and requires only ~8 lines in `mergeGeminiExplanationsWithRanker` if statistically confirmed.
+2. **Higher-Capacity Neural Content Encoder (`BGE-large` / `gemini-embedding-001`) + Cast/Director/Keyword Text Enrichment:** Expanding `content_embeddings_f16.bin` text inputs beyond `title + tagline + overview` (to include TMDB genres, director, top cast, and keywords) and refreshing quarterly for `2026+` releases.
+3. **Recency-Aware Implicit Sequence / Session Model (SASRec / Recency-Biased EASE):** True sequential modeling over chronologically ordered MovieLens 32M sequences rather than static bag-of-items co-occurrence.

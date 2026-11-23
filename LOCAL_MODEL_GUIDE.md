@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 23, 2026 (`v6.0`)  
-**Status:** Production-ready · Verified by **455 / 455** offline service & API unit tests (`npm test`) and production Vite build (`npm run build`).
+**Last Updated:** November 24, 2026 (`v6.1`)  
+**Status:** Production-ready · Verified by **457 / 457** offline service & API unit tests (`npm test`) and production Vite build (`npm run build`).
 
 If you want to understand **what our local ML models actually are**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English. For the full living benchmark table and ongoing accuracy experiments, see **[MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)**.
 
@@ -122,7 +122,7 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
 | :--- | :---: | :--- |
 | `bias` | **`-1.1`** | Base threshold before positive or negative features shift probability |
 | `collabSim` | **`+6.4`** | 64-D collaborative similarity (`0.75 * mixture(beta=20) + 0.25 * ridge(lambda=20)` normalized via pool-independent `catalog-max` `[0, 1]`; scaled `* 0.35` under explicit mood) |
-| `contentSim` | **`+1.4`** | Cosine similarity from optional `/models/content_embeddings_f16.bin` plot vectors, or cold-gated structured + overview TF-IDF fallback when unindexed |
+| `contentSim` | **`+1.4`** | Cold-gated (`coldOnly: true`) cosine similarity from `/models/content_embeddings_f16.bin` (`11,119 × 128-D` `all-MiniLM-L6-v2` PCA vectors incl. `1,499` `2024–2026` releases, `+26.7%*` cold-start `NDCG@10`), or structured + overview TF-IDF fallback when unindexed |
 | `genreOverlap` | **`+0.6`** | Fraction of top loved genres matched *(smoothstep-damped `[0, 0.02]` → `0.35x` under Any Vibe; `1.0x` under explicit mood)* |
 | `keywordOverlap` | **`+0.45`** | Continuous affinity-weighted overlap with top 15 IDF-damped, net-positive `keywordAffinities` (`0.6` proxy for Bucket B if keywords unpopulated) |
 | `crewMatch` | **`+0.7`** | Continuous `[0, 1]` Bayesian-shrunk `crewAffinities[crewPersonId]` (or binary fallback + `0.5` Bucket C proxy) |
