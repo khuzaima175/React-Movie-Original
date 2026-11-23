@@ -55,21 +55,50 @@ async function saveJsonCache(cachePath, cacheObj) {
   await writeFile(cachePath, JSON.stringify(cacheObj), "utf8");
 }
 
-async function embedBatch(ai, model, texts, outputDimensionality) {
-  const res = await ai.models.embedContent({
-    model,
-    contents: texts,
-    config: {
-      outputDimensionality,
-      taskType: "SEMANTIC_SIMILARITY"
-    }
-  });
-
-  if (Array.isArray(res?.embeddings) && res.embeddings.length === texts.length) {
-    return res.embeddings.map(e => e?.values || []);
+async function loadDotEnvFiles() {
+  for (const rel of [".env", ".env.local"]) {
+    try {
+      const text = await readFile(rel, "utf8");
+      for (const line of text.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t || t.startsWith("#")) continue;
+        const eq = t.indexOf("=");
+        if (eq <= 0) continue;
+        const k = t.slice(0, eq).trim();
+        const v = t.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+        if (!process.env[k]) process.env[k] = v;
+      }
+    } catch { /* ignore */ }
   }
-  if (texts.length === 1 && Array.isArray(res?.embedding?.values)) {
-    return [res.embedding.values];
+}
+
+async function embedBatch(ai, model, texts, outputDimensionality) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const res = await ai.models.embedContent({
+        model,
+        contents: texts,
+        config: {
+          outputDimensionality,
+          taskType: "SEMANTIC_SIMILARITY"
+        }
+      });
+
+      if (Array.isArray(res?.embeddings) && res.embeddings.length === texts.length) {
+        return res.embeddings.map(e => e?.values || []);
+      }
+      if (texts.length === 1 && Array.isArray(res?.embedding?.values)) {
+        return [res.embedding.values];
+      }
+      break;
+    } catch (err) {
+      const msg = String(err?.message || err);
+      if (attempt < 4 && /429|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|timeout/i.test(msg)) {
+        await new Promise((r) => setTimeout(r, 3000 * Math.pow(2, attempt)));
+        continue;
+      }
+      throw err;
+    }
   }
 
   // Per-item fallback if SDK response shape does not batch-align cleanly
@@ -87,6 +116,7 @@ async function embedBatch(ai, model, texts, outputDimensionality) {
 }
 
 async function main() {
+  await loadDotEnvFiles();
   const args = parseArgs(process.argv);
   if (!args.input) {
     console.error("Usage: node scripts/build_content_embeddings.mjs --input <catalog.json> [--out public/models/content_embeddings_f16.bin] [--min-year 2024]");
@@ -100,7 +130,12 @@ async function main() {
   }
 
   const rawCatalog = JSON.parse(await readFile(args.input, "utf8"));
-  const catalog = (Array.isArray(rawCatalog) ? rawCatalog : rawCatalog.items || [])
+  const rawList = Array.isArray(rawCatalog)
+    ? rawCatalog
+    : Array.isArray(rawCatalog.items)
+      ? rawCatalog.items
+      : Object.values(rawCatalog.items || {});
+  const catalog = rawList
     .map(item => ({
       tmdbId: Number(item?.tmdbId ?? item?.id ?? 0),
       yearNum: Number(String(item?.year || item?.release_date || "").slice(0, 4)) || 0,
@@ -114,6 +149,7 @@ async function main() {
   const pending = catalog.filter(item => !Array.isArray(cache[String(item.tmdbId)]) || cache[String(item.tmdbId)].length !== args.dims);
   console.log(`Catalog items: ${catalog.length}, cached: ${catalog.length - pending.length}, pending: ${pending.length}`);
 
+  let batchIdx = 0;
   for (let i = 0; i < pending.length; i += args.batchSize) {
     const batch = pending.slice(i, i + args.batchSize);
     const vectors = await embedBatch(ai, args.model, batch.map(b => b.text), args.dims);
@@ -126,8 +162,12 @@ async function main() {
       cache[String(batch[j].tmdbId)] = Array.from(arr, x => Number(x.toFixed(6)));
     }
 
-    await saveJsonCache(args.cache, cache);
+    batchIdx++;
+    if (batchIdx % 5 === 0 || i + args.batchSize >= pending.length) {
+      await saveJsonCache(args.cache, cache);
+    }
     console.log(`Embedded ${Math.min(i + batch.length, pending.length)}/${pending.length}`);
+    await new Promise((r) => setTimeout(r, 700));
   }
 
   const entries = [];

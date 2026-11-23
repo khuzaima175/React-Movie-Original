@@ -204,7 +204,15 @@ export function buildContentSimMap(
         }
       }
 
+      const enforceColdOnlyOnIndex = options.coldOnly === true;
+      const collabSimMapForIndex = options.collabSimMap instanceof Map ? options.collabSimMap : null;
+      const collabIndexForIndex = options.collabIndex || null;
+
       for (let i = 0; i < count; i++) {
+        const id = ids[i];
+        if (enforceColdOnlyOnIndex && hasCollaborativeCoverage(id, collabSimMapForIndex, collabIndexForIndex)) {
+          continue;
+        }
         const base = i * dim;
         let dot = 0;
         let normSq = 0;
@@ -214,7 +222,7 @@ export function buildContentSimMap(
           normSq += val * val;
         }
         if (normSq > 1e-12) {
-          map.set(ids[i], dot / Math.sqrt(normSq));
+          map.set(id, dot / Math.sqrt(normSq));
         }
       }
     }
