@@ -359,7 +359,7 @@ function parseCli(argv) {
   return opts;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const opts = parseCli(process.argv.slice(2));
   const cohort = await loadCleanCohort(opts.svd, 300);
   const easeLoaded = opts.ease === "none" ? null : loadEaseIndexFromPath(opts.ease);
