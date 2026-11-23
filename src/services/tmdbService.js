@@ -6,14 +6,14 @@
  *   - Bucket C: Auteur & Creative Crew (Single Top Auteur Crew Member with_crew)
  *   - Cold-Start Bypass: Safe routing for accounts with < 3 ratings
  * - Mathematical Taste Vector:
- *   - Continuous Rating Multiplier: W_base = (Rating - 5) / 5
- *   - Exponential Recency Decay: W_final = W_base * e^(-0.005 * Delta_days)
- *   - Temporal Anchor Selection: Highest W_final film selected as anchor
+ *   - Per-user z-scored rating weights (`computeZScoredWeights` in `scoringUtils.js`)
+ *   - Rating-Tiered Exponential Recency Decay: `w_i = z_i * (floor_i + (1 - floor_i) * e^(-0.002 * Delta_days))`
+ *   - Temporal Anchor Selection: Highest `finalWeight` `>= 9★` film selected as anchor
  * - Watch Provider ID Mapping (Netflix, Prime, Disney+, Max, Apple, Hulu, Tubi, Pluto, Freevee)
  * - Schema Bridge Metadata Persistence (castIds, tmdbKeywords, tmdbGenreIds, streamProviders)
  */
 
-import { computeZScoredWeights, computeUserRatingStats } from "./scoringUtils.js";
+import { computeZScoredWeights, computeUserRatingStats, resolveDecayFloor, computeTimeDecay } from "./scoringUtils.js";
 import {
   getMoodPreset,
   normalizeMoodFilters,
@@ -286,6 +286,9 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
   const zScoredList = computeZScoredWeights(rated, {
     lambda: DECAY_RATE,
     dualClock: options.dualClock ?? false,
+    decayMode: options.decayMode,
+    decayFloor: options.decayFloor,
+    tierFloors: options.tierFloors,
     now: options.now ?? Date.now(),
     bulkPriorDays: options.bulkPriorDays ?? 180
   });
@@ -308,7 +311,11 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
 
     // 2. Surgical Negative Trope Extraction (from low rated or <= 5★ negative z-score films; never 6-10★)
     if ((rating <= 4 || (rating <= 5 && zScore < -0.4)) && filmKeywords.length > 0) {
-      const negativeDecay = Math.exp(-(DECAY_RATE / 2) * daysSince);
+      const negFloor = resolveDecayFloor(movie, rating, options);
+      const negativeDecay = computeTimeDecay(daysSince, {
+        lambda: DECAY_RATE / 2,
+        floor: negFloor
+      });
       const negMagnitude = Math.max(1, Math.abs(zScore)) * negativeDecay;
       filmKeywords.forEach(kId => {
         hatedKeywordCounts[kId] = (hatedKeywordCounts[kId] || 0) + negMagnitude;

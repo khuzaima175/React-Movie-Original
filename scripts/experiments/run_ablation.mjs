@@ -16,7 +16,7 @@ const {
   aggregateWarmColdBreakdowns,
   verifyColdFallbackPath
 } = await imp("scripts/experiments/mask_eval_utils.mjs");
-export { loadDatasets, loadEmb, pairedBootstrapCI, formatCI };
+export { loadDatasets, loadEmb, pairedBootstrapCI, formatCI, evalCohort, evalBenchmarks, printCohortComparison };
 
 function parseArgs(argv) {
   const args = {};
@@ -273,7 +273,8 @@ async function evalCohort(users, catalog, emb, minPos = 8, options = {}) {
       includeRankedDetails: true,
       embeddingOptions: options.embeddingOptions || {},
       contentOptions: options.contentOptions || {},
-      rankerOptions: options.rankerOptions || {}
+      rankerOptions: options.rankerOptions || {},
+      profileOptions: options.profileOptions || {}
     });
     if (res.status === "ok") {
       ndcg[u.uid] = res.metrics.ndcgAt10;
@@ -398,7 +399,8 @@ async function evalBenchmarks(bench, emb, options = {}) {
           includeRankedDetails: true,
           embeddingOptions: options.embeddingOptions || {},
           contentOptions: options.contentOptions || {},
-          rankerOptions: options.rankerOptions || {}
+          rankerOptions: options.rankerOptions || {},
+          profileOptions: options.profileOptions || {}
         });
         foldResults.push(fRes);
         foldPreps.push(prep);

@@ -38,7 +38,7 @@ Rather than prompting an LLM to invent movie lists from scratch, CinemaVault sep
 2. [Why Pure LLM Recommenders Fall Short](#2-why-pure-llm-recommenders-fall-short)
 3. [Mathematical Taste Vector & Local Model Formulation](#3-mathematical-taste-vector--local-model-formulation)
    - [3.1 Per-User Z-Scored Rating Normalization ($z_i$)](#31-per-user-z-scored-rating-normalization-z_i)
-   - [3.2 Bulk-Import-Safe Exponential Recency Time-Decay ($w_i$)](#32-bulk-import-safe-exponential-recency-time-decay-w_i)
+   - [3.2 Bulk-Import-Safe Rating-Tiered Recency Time-Decay ($w_i$)](#32-bulk-import-safe-rating-tiered-recency-time-decay-w_i)
    - [3.3 Float16 Embeddings (`CVEM` v1), Relative Weight Cutoff, Personas & Repulsion](#33-float16-embeddings-cvem-v1-relative-weight-cutoff-personas--repulsion)
    - [3.4 Temporally-Weighted Anchor Film Selection](#34-temporally-weighted-anchor-film-selection)
    - [3.5 Granular Negative Trope Extraction (`without_keywords`) & Ranker Softening](#35-granular-negative-trope-extraction-without_keywords--ranker-softening)
@@ -99,7 +99,7 @@ flowchart TD
     end
 
     subgraph Phase2 ["2. Mathematical Taste DNA & On-Device CVEM v1 Engine"]
-        V --> Z["Per-User Z-Scores z_i + Decay e^(-0.002 * days)\n(180d Bulk Prior, Future Timestamp Clamp)"]
+        V --> Z["Per-User Z-Scores z_i + Rating-Tiered Floor Decay\n(floor + (1-floor)*e^(-0.002*days), 180d Bulk Prior, Future Clamp)"]
         Z --> REL["Relative Weight Cutoff: |w| > 1e-6 * max(|w|)"]
         REL --> KM["Persona Mixture (beta=20) + 64-D Ridge Fold-In (lambda=20) + Repulsion"]
         Z --> ANCHOR["Sorted Top Weighted Anchor (Rating >= 9) -> Bucket B"]
@@ -140,7 +140,7 @@ flowchart TD
 3. **The TMDB `/recommendations` Endpoint Trap**: TMDB's native `/movie/{id}/recommendations` endpoint is a single-seed heuristic based on generic user list co-occurrence. For whole-vault Oracle discovery, CinemaVault combines deep keyword graph discovery (`with_keywords`) sorted by critical acclaim (`vote_average.desc`, `vote_count.gte=500`) with 64-D collaborative persona vectors (while using a norm-safe `CVEM v1` + TMDB `/recommendations` hybrid for single-film *"Movies Like This"* strips on `MovieDetails`).
 4. **The Broad Genre Blacklist Trap**: Banning an entire genre like "Action" because a user hated a superhero movie blocks masterpieces like *Seven Samurai* or *Heat*. CinemaVault instead extracts sorted micro-keywords (*"superhero"*, *"slapstick"*, *"parody"*) from disliked films (`<= 4★` or `zScore < -0.4`), applies surgical `without_keywords` filters, softens keyword penalty weights to `-0.5`, and applies localized collaborative repulsion around disliked neighborhoods.
 5. **The Temporal & Cold-Start Blindspots**:
-   - **Temporal Drift & Decade Decay**: A favorite movie rated 10/10 four years ago shouldn't outweigh recent obsessions ($\lambda = 0.002$ half-life decay), *yet* users whose entire logs span 1999–2005 must not have all weights dropped to zero by a fixed `1e-6` threshold (solved by vault-relative cutoff `1e-6 * maxAbsWeight`).
+   - **Temporal Drift & Decade Decay**: Pure zero-floor exponential decay ($\lambda = 0.002$) shrinks 5-year-old 10/10 masterpieces to $2.6\%$ weight below casual recent 8/10s. CinemaVault solves this with a **rating-tiered asymptotic floor** (`DEFAULT_DECAY_TIER_FLOORS`: `0.45` for `>= 9.5★` or `rewatchCount >= 2` with `>= 8★`, `0.30` for `9★`, `0.20` for `8★`, `0.25` for `<= 4★`, and `0.10` for mid-tier films) so recent obsessions surface first while all-time favorites stay permanent anchors — *and* users whose entire logs span 1999–2005 remain protected by the vault-relative cutoff (`1e-6 * maxAbsWeight`).
    - **Historical Embedding Cutoff**: Collaborative matrices trained on MovieLens 32M cut off around late 2023, giving every 2024–2026 movie `collabSim = 0`. Without **Bucket D**, **Cold-Gated Structured Fallback** (`enableStructuredFallback: true, coldOnly: true`), **Reserve Slot Selection**, and the **8-slot cold `2024–2026` shortlist slice**, high-scoring classics push every new release out of the Top 39 shortlist (or Top 30 deterministic fallback).
    - **Free-Tier Quota Fragility**: Relying on a single unguarded Gemini model (such as `gemini-4-argon` with `0` free-tier limit or hanging `gemini-3.8-flash` calls) causes hard UI failures. Our H1 error-classified cascade with `35s` timeouts, cooldown backoff, and deterministic math fallback keeps discovery working offline or under quota exhaustion.
 
@@ -158,22 +158,28 @@ $$\mu = \frac{1}{N}\sum_{i=1}^{N} r_i, \quad \sigma_{\text{eff}} = \max\left(\sq
 - **Zero-Variance Guard:** If all rated films have identical scores ($\sigma_{\text{raw}} = 0$), $z_i$ defaults safely to $+0.5$ (when $r_i \ge 7$), $-0.5$ (when $r_i \le 4$), or $0.0$ without division by zero.
 - **Cold-Start Fallback ($N < 3$):** Uses centered linear scaling $z_i = (r_i - 5.5) / 2.0$.
 
-### 3.2 Bulk-Import-Safe Exponential Recency Time-Decay ($w_i$)
-Every film's z-score is modulated by exponential time-decay (`src/services/scoringUtils.js`):
+### 3.2 Bulk-Import-Safe Rating-Tiered Recency Time-Decay ($w_i$)
+Every film's z-score is modulated by a bulk-import-safe exponential time-decay with a rating-tiered asymptotic floor (`computeTimeDecay` & `resolveDecayFloor` in `src/services/scoringUtils.js`):
 
-$$w_i = z_i \cdot e^{-\lambda \cdot \Delta_i}, \quad \lambda = 0.002 \text{ days}^{-1}$$
+$$d_i(f_i, \Delta_i) = f_i + (1 - f_i) \cdot e^{-\lambda \cdot \Delta_i}, \qquad w_i = z_i \cdot d_i(f_i, \Delta_i), \qquad \lambda = 0.002 \text{ days}^{-1}$$
 
 Where:
 - $\Delta_i = \max\left(0, \frac{t_{\text{now}} - t_i}{86,400,000}\right)$ (elapsed time in days, clamped to $\ge 0$ so clock skew never yields decay $> 1.0$).
-- $\lambda = 0.002$ ($\text{Half-life} = \frac{\ln(2)}{0.002} \approx 346.5\text{ days} \approx 11.5\text{ months}$).
+- $\lambda = 0.002$ ($\text{Half-life} = \frac{\ln(2)}{0.002} \approx 346.5\text{ days} \approx 11.5\text{ months}$ for the decaying $(1 - f_i)$ component).
+- **Rating-Tiered Floor $f_i$ (`DEFAULT_DECAY_TIER_FLOORS`):**
+  - **Masterpiece / Rewatch Anchor (`0.45`):** `rating >= 9.5★` or (`watchMeta.rewatchCount >= 2` and `rating >= 8★`). At 5 years ($\Delta = 1,825$ d), $d_i \approx 0.464$ — a 5-year-old 10/10 retains ~46% weight and continues to outweigh a casual recent 8/10 while trailing recent 9–10/10 obsessions.
+  - **Exceptional (`0.30`):** `rating >= 9★`.
+  - **Great (`0.20`):** `rating >= 8★`.
+  - **Strong Dislike (`0.25`):** `rating <= 4★` (persistent dealbreakers do not vanish over time).
+  - **Mid-Tier / Casual (`0.10`):** `4.5★ .. 7.5★` (fades smoothly to 10%).
+  - *(Explicit overrides `decayMode: "legacy"` for $f_i = 0$, `decayMode: "uniform"` with `decayFloor`, and `dualClock: true` remain supported for ablation parity.)*
 - **Bulk-Import & Undated Prior ($\Delta_{\text{prior}} = 180\text{ days}$):** Films imported in bulk (`isBulkImported: true`, including clustered Letterboxd `Date` dumps detected by `csvImport.js`) or logged without `dateWatched` are assigned $\Delta_i = 180$ days instead of `Date.now()` ($\Delta_i = 0$), preventing undated backlog imports from overpowering genuinely recent watches.
 
 #### Recency Decay Table ($\lambda = 0.002$):
-- **Day 0 (Today)**: $e^{0} = 1.000$ (100% of z-score weight)
-- **Day 60 (2 Months)**: $e^{-0.12} \approx 0.887$ (88.7% of z-score weight)
-- **Day 180 (6 Months / Bulk Prior)**: $e^{-0.36} \approx 0.698$ (69.8% of z-score weight)
-- **Day 346 (~Half-Life / 11.5 Months)**: $e^{-0.693} \approx 0.500$ (50.0% of z-score weight)
-- **Day 730 (2 Years)**: $e^{-1.46} \approx 0.232$ (23.2% of z-score weight)
+- **Day 0 (Today)**: $1.000$ across all tiers (100% of z-score weight)
+- **Day 180 (6 Months / Bulk Prior)**: `0.834` (10★ masterpiece) · `0.789` (9★) · `0.758` (8★) · `0.728` (mid-tier)
+- **Day 346 (~Half-Life / 11.5 Months)**: `0.725` (10★ masterpiece) · `0.650` (9★) · `0.600` (8★) · `0.550` (mid-tier)
+- **Day 1,825 (5 Years)**: `0.464` (10★ masterpiece) · `0.318` (9★) · `0.221` (8★) · `0.123` (mid-tier) · `0.270` (`<= 4★` dislike)
 
 ### 3.3 Float16 Embeddings (`CVEM` v1), Relative Weight Cutoff, Personas & Repulsion
 CinemaVault ships a zero-dependency IEEE-754 half-precision (`float16`) binary codec (`src/services/embeddingService.js`) backed by an offline MovieLens 32M Truncated SVD trainer (`scripts/colab_train_embeddings.py`, `25,000` items × `64` dimensions, shrinkage `0.5`).
@@ -216,9 +222,9 @@ $$\text{AnchorMovie} = \arg\max_{m \in \text{Rated}, \text{Rating}(m) \ge 9} w_i
 If the anchor movie only has an `imdbID` (e.g., logged before TMDB schema enrichment), `findTmdbByImdbId` resolves its canonical `tmdbId` on the fly. If no film is rated $\ge 9$, `anchorTmdbId` resolves to `null` and Bucket B's candidate slots are dynamically reallocated to Bucket A.
 
 ### 3.5 Granular Negative Trope Extraction (`without_keywords`) & Ranker Softening
-Instead of excluding broad genres, the profiler iterates over movies with $\text{Rating} \le 4$ or $z_i < -0.4$ and accumulates z-magnitude time-decayed trope penalties at half the decay rate ($\lambda_{\text{neg}} = \frac{\lambda}{2} = 0.001$, reflecting that dislikes decay more slowly than passing interests) (`src/services/tmdbService.js`):
+Instead of excluding broad genres, the profiler iterates over movies with $\text{Rating} \le 4$ or $z_i < -0.4$ and accumulates z-magnitude time-decayed trope penalties at half the decay rate ($\lambda_{\text{neg}} = \frac{\lambda}{2} = 0.001$) with the film's resolved decay floor $f_i$ (`0.25` for $\le 4\star$ dislikes) (`src/services/tmdbService.js`):
 
-$$\text{HatedKeywords}[k] = \sum_{m \in \text{Rated},\; r_m \le 4 \text{ or } z_m < -0.4,\; k \in m.\text{tmdbKeywords}} \max(1, |z_m|) \cdot e^{-\frac{\lambda}{2} \cdot \Delta t_m}$$
+$$\text{HatedKeywords}[k] = \sum_{m \in \text{Rated},\; r_m \le 4 \text{ or } z_m < -0.4,\; k \in m.\text{tmdbKeywords}} \max(1, |z_m|) \cdot \left(f_m + (1 - f_m) \cdot e^{-\frac{\lambda}{2} \cdot \Delta t_m}\right)$$
 
 Keywords are **sorted descending by accumulated penalty** (fixing an earlier insertion-order bug in `236e0f8`), and the top 5 keyword IDs are passed to TMDB using pipe OR syntax (`without_keywords=9715|10402`), excluding candidates containing *either* hated trope without banning entire genres. In `DEFAULT_RANKER_WEIGHTS`, `negativeKeywordPenalty` was tuned from `-2.0` to **`-0.5`** (`332c21c`) because common tags like *"independent film"* frequently appear across both loved and disliked watches.
 
@@ -293,6 +299,7 @@ Evaluated via `evaluateRankerRolling` (`src/services/evalHarness.js`) and paired
 | **6. Relative Cutoff Parity & Rescue** | `328` user top-20 parity + 4 benchmark vaults | `0 / 328` mismatches on normal vaults; rescued `ml-user-263` (`0 -> 4` personas, `0 -> 25,000` scored films) & `ml-user-409` (`0 -> 2` personas, `0 -> 25,000` scored films) |
 | **7. Phase 2 Ablations & v5.0 Offline Tuning (`run_ablation.mjs`, `clean2`)** | `328` primary + `fresh_300` validation cohorts + `4` benchmark vaults (`>= 8★` & `>= 9★`, cold `null` embeddings) | **Exp 1 (Polarity+IDF Keywords):** `328` `>=8★` `NDCG 0.0824` (`>=9★ 0.0974`), Bench `>=8★ NDCG 0.1786`; **Exp 2 (Shrunk Cast/Crew):** `328 >=9★ NDCG 0.1023 (+0.0074 *)`, `P@10 0.0822 (+0.0066 *)`, Bench `>=9★ NDCG 0.2058`; **Exp 3 (Cold Structured Fallback):** Zero regression on `clean2`, `328 null >=9★ NDCG 0.0485 (+0.0136 *)`, `Rec@20 0.0536 (+0.0187 *)`; **Exp 4 (Tuned `DEFAULT_RANKER_WEIGHTS` + `0.35x` Damping):** `328 >=8★ NDCG 0.0849 / Rec@20 0.1241 (+0.0070 *) / Neg@20 0.0024 (-0.0009 *)`, `328 >=9★ NDCG 0.1053 (+0.0104 *) / Rec@20 0.1369 (+0.0095 *) / P@10 0.0875 (+0.0118 *)`, **`fresh_300 >=8★ Rec@20 0.1270 (+0.0107 *)`**, **`fresh_300 >=9★ NDCG 0.1156 (+0.0114 *) / Rec@20 0.1505 (+0.0151 *)`**, **`328 null >=8★ NDCG 0.0415 (+0.0175 *) / Rec@20 0.0576 (+0.0296 *)`**, **`328 null >=9★ NDCG 0.0681 (+0.0331 *) / Rec@20 0.0785 (+0.0436 *)`**, Bench `>=8★ NDCG 0.1611 / Rec@20 0.2542` & `>=9★ Rec@20 0.3833` |
 | **8. Prompt 2 Final Ablation: `catalog-max` + Smooth `[0, 0.02]` Damping + `0.75 * Mixture(beta=20) + 0.25 * Ridge(lambda=20)` (`eval_final.json`, `clean2`)** | `328` primary + `fresh_300` secondary validation cohort + `4` benchmark vaults (`withinUserAuc` + ranking IR vs `post_fixes`) | **`328 >= 8★` (`n=328`):** `NDCG@10 = 0.0909 (+0.0061 *)`, `Rec@20 = 0.1256`, `P@10 = 0.0805`, `Neg@20 = 0.0018`, **`AUC(>=9v<=7) = 0.7335 (+0.0285 *)`**, **`AUC(>=8v<=7) = 0.6994 (+0.0240 *)`**; **`328 >= 9★` (`n=304`):** **`NDCG@10 = 0.1145 (+0.0095 *)`**, **`Rec@20 = 0.1448 (+0.0082 *)`**, **`P@10 = 0.0947 (+0.0076 *)`**, **`AUC(>=9v<=7) = 0.7458 (+0.0301 *)`**; **`fresh_300 >= 8★` (`n=300`):** **`Neg@20 = 0.0032 (-0.0018 *)`**, **`AUC(>=9v<=7) = 0.7218 (+0.0338 *)`**, **`AUC(>=8v<=7) = 0.6788 (+0.0256 *)`**; **`fresh_300 >= 9★` (`n=284`):** **`NDCG@10 = 0.1227 (+0.0067 *)`**, **`Rec@20 = 0.1581`**, **`P@10 = 0.0986 (+0.0077 *)`**, **`AUC(>=9v<=7) = 0.7407 (+0.0302 *)`**; **4 Bench:** `>= 8★ NDCG 0.1776 (+0.0160)` (`ml-user-409 AUC9v7 = 0.9583`), `>= 9★ NDCG 0.2258 (+0.0345)`, `AUC9v7 = 0.6817 (+0.0938)`. *(Step 4 `eraMatch` skipped: near-zero separation `0.0005` vs `-0.0018`.)* |
+| **9. Rating-Tiered Decay Floor (`DEFAULT_DECAY_TIER_FLOORS`: `0.45 / 0.30 / 0.20 / 0.25 / 0.10`, `eval_tiered_mild_*.json`, `clean2`)** | `328` primary + `fresh_300` validation cohorts + `4` benchmark vaults (`ablate_decay_floor.mjs` + `eval_tiered_candidate.mjs` vs zero-floor `legacy`) | Replaced zero-floor decay (which shrank 5-year-old 10★ favorites to `2.6%`) after 8-variant ablation showed heavier floors (`0.65–0.85`) hurt session holdouts while `0.45 / 0.30 / 0.20 / 0.25 / 0.10` lifts within-user preference AUC across cohorts: **`328 >= 8★`:** `NDCG@10 = 0.0900`, `Rec@20 = 0.1244`, `Neg@20 = 0.0017`; **`328 >= 9★`:** `Rec@20 = 0.1458 (+0.0010)`, `AUC(>=9v<=7) = 0.7475 (+0.0017)`, `AUC(>=8v<=7) = 0.6988 (+0.0017)`; **`fresh_300 >= 8★`:** `Neg@20 = 0.0032`, `AUC(>=9v<=7) = 0.7234 (+0.0016)`, `AUC(>=8v<=7) = 0.6809 (+0.0021)`; **`fresh_300 >= 9★`:** `AUC(>=9v<=7) = 0.7411 (+0.0004)`; **4 Bench:** `>= 8★ Rec@20 = 0.2500`, **`AUC(>=9v<=7) = 0.7428 (+0.0163)`**, **`AUC(>=8v<=7) = 0.6573 (+0.0151)`**; `>= 9★ NDCG = 0.2144`, `AUC(>=9v<=7) = 0.6877 (+0.0060)`. |
 
 > **Evaluation Scope & Statistical Caveats:**
 > - **Stage-3 Ranker vs. Stage-4 LLM Scope:** The offline IR metrics above (`NDCG@10`, `Recall@20`, `P@10`, `NegHit@20`, `withinUserAuc`) benchmark the **deterministic Stage 3 ranker** (`rankCandidatePool` / `pipeline: "ranker-fallback"`). When Gemini is active (`pipeline: "gemini"`), it selects 10 diverse titles from the ranker's 39-pick stratified shortlist. Post-selection conversion quality is tracked online via `recSource` telemetry (`computeRecommendationHitRate` in `vaultStats.js`).
@@ -774,8 +781,8 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     anchorCutoff = 9,
     personShrinkageK = 2
   } = options;
-  // 1. computeZScoredWeights(watched, { lambda: decayRate, bulkPriorDays: options.bulkPriorDays ?? 180 })
-  //    produces { movie, rating, zScore, daysSince, timeDecay, weight }
+  // 1. computeZScoredWeights(watched, { lambda: decayRate, decayMode: "tiered", bulkPriorDays: options.bulkPriorDays ?? 180 })
+  //    produces { movie, rating, zScore, daysSince, timeDecay, weight } using DEFAULT_DECAY_TIER_FLOORS
   // 2. positiveWeight = Math.max(0, weight) accumulates genreScores (top 4 lovedGenreIds -> normalized genreAffinities),
   //    plus legacy >=8★ topCastIds (2) & topCrewMemberId/topCrewIds for Bucket A/C compatibility
   // 3. Keywords suppress GENERIC_META_KEYWORD_IDS (818, 9663, 179430, 179431, 187056), apply IDF 1/log2(2+df),

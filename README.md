@@ -79,7 +79,7 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 
 Recommendations come from local math first. Gemini does not generate titles.
 
-1. **Taste model.** Ratings are z-scored against each user's own distribution and decayed over time (about an 11.5-month half-life). Undated and bulk-imported entries get a 180-day prior. Positive taste is clustered into one to four personas, blended with a ridge fold-in vector, and disliked films push nearby candidates down.
+1. **Taste model.** Ratings are z-scored against each user's own distribution and modulated by a rating-tiered recency decay (about an 11.5-month half-life with asymptotic floors — `0.45` for 10/10 masterpieces or rewatched favorites, `0.30` for 9/10, `0.20` for 8/10, `0.25` for `<= 4/10` dislikes, and `0.10` for mid-tier watches — so all-time favorites never vanish). Undated and bulk-imported entries get a 180-day prior. Positive taste is clustered into one to four personas, blended with a ridge fold-in vector, and disliked films push nearby candidates down.
 2. **Candidate retrieval.** Five buckets run:
    - **Bucket B (keyword successors):** films sharing micro-keywords with your highest-rated anchor (rated 9 or higher).
    - **Bucket C (auteur network):** acclaimed films from your most-watched directors, cinematographers, composers, and writers.
@@ -215,7 +215,7 @@ flowchart LR
     E --> F["Cache (24h)\nRefresh rotation"]
 ```
 
-**Taste model.** Ratings are normalized per user and decayed by age, and the embedding cutoff is scaled against the vault's strongest signal, so long-running vaults keep their taste profile. Liked films form up to four personas, and disliked films push nearby candidates down.
+**Taste model.** Ratings are normalized per user and modulated by a rating-tiered recency floor so recent obsessions surface first while 10/10 masterpieces and rewatched favorites stay strong anchors for years (and the embedding cutoff scales against the vault's strongest signal, so long-running vaults keep their taste profile). Liked films form up to four personas, and disliked films push nearby candidates down.
 
 **Negative signals.** Keywords from films rated 4 or below become `without_keywords` filters (the top five, in pipe-OR form). These filters replace whole-genre bans. The ranker also applies a mild keyword penalty and embedding repulsion around disliked films.
 

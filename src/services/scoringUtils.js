@@ -24,6 +24,74 @@ export function computeUserRatingStats(watched = []) {
   };
 }
 
+export const DEFAULT_DECAY_TIER_FLOORS = Object.freeze({
+  masterpiece: 0.45, // >= 9.5★ or (rewatchCount >= 2 && rating >= 8)
+  exceptional: 0.30, // >= 9★
+  great: 0.20,       // >= 8★
+  disliked: 0.25,    // <= 4★
+  neutral: 0.10      // 4.5★ .. 7.5★
+});
+
+/**
+ * Resolves the asymptotic recency decay floor in [0, 1] for a rated film.
+ * Tiered mode (default) preserves all-time masterpieces, rewatches, and strong
+ * dislikes while allowing casual mid-tier watches to fade over time.
+ * Legacy mode returns 0 (pure exponential decay to zero).
+ * Uniform mode returns the configured `decayFloor`.
+ */
+export function resolveDecayFloor(movie = {}, rating = 0, options = {}) {
+  const mode = options.decayMode ?? "tiered";
+  if (mode === "legacy" || options.dualClock) return 0;
+
+  if (mode === "uniform") {
+    const f = Number(options.decayFloor ?? 0);
+    return Number.isFinite(f) ? Math.max(0, Math.min(1, f)) : 0;
+  }
+
+  if (mode === "tiered") {
+    const tiers = { ...DEFAULT_DECAY_TIER_FLOORS, ...(options.tierFloors || {}) };
+    const r = Number(rating);
+    const rewatchCount = Number(movie?.watchMeta?.rewatchCount ?? movie?.rewatchCount ?? 0);
+    let rawFloor = tiers.neutral;
+    if ((Number.isFinite(r) && r >= 9.5) || (Number.isFinite(rewatchCount) && rewatchCount >= 2 && Number.isFinite(r) && r >= 8)) {
+      rawFloor = tiers.masterpiece;
+    } else if (Number.isFinite(r) && r >= 9) {
+      rawFloor = tiers.exceptional;
+    } else if (Number.isFinite(r) && r >= 8) {
+      rawFloor = tiers.great;
+    } else if (Number.isFinite(r) && r <= 4) {
+      rawFloor = tiers.disliked;
+    }
+    const f = Number(rawFloor);
+    return Number.isFinite(f) ? Math.max(0, Math.min(1, f)) : 0;
+  }
+
+  return 0;
+}
+
+/**
+ * Computes recency time-decay in (0, 1], smoothly interpolating from 1.0 at day 0
+ * toward `floor` as daysSince increases: floor + (1 - floor) * exp(-lambda * daysSince).
+ */
+export function computeTimeDecay(daysSince, options = {}) {
+  const {
+    lambda = 0.002,
+    dualClock = false,
+    lambdaSlow = 0.0008,
+    lambdaFast = 0.07,
+    slowShare = 0.70,
+    floor = 0
+  } = options;
+
+  if (dualClock) {
+    return slowShare * Math.exp(-lambdaSlow * daysSince) + (1 - slowShare) * Math.exp(-lambdaFast * daysSince);
+  }
+
+  const clampedFloor = Math.max(0, Math.min(1, Number(floor) || 0));
+  const expDecay = Math.exp(-lambda * daysSince);
+  return clampedFloor + (1 - clampedFloor) * expDecay;
+}
+
 /**
  * Computes per-user z-scored rating weights with bulk-import-safe exponential time decay.
  */
@@ -69,9 +137,15 @@ export function computeZScoredWeights(watched = [], options = {}) {
       }
     }
 
-    const timeDecay = dualClock
-      ? slowShare * Math.exp(-lambdaSlow * daysSince) + (1 - slowShare) * Math.exp(-lambdaFast * daysSince)
-      : Math.exp(-lambda * daysSince);
+    const floor = resolveDecayFloor(movie, rating, options);
+    const timeDecay = computeTimeDecay(daysSince, {
+      lambda,
+      dualClock,
+      lambdaSlow,
+      lambdaFast,
+      slowShare,
+      floor
+    });
     const weight = zScore * timeDecay;
 
     return {

@@ -65,9 +65,10 @@ To make sure our evaluation numbers weren't artificially inflated by the Colab m
 ```text
 Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
    │
-   ├─► 1. scoringUtils.js (Per-User Z-Scores + Bulk-Safe Recency Decay)
+   ├─► 1. scoringUtils.js (Per-User Z-Scores + Bulk-Safe Rating-Tiered Recency Decay)
    │      • Normalizes harsh vs generous raters: z_i = (rating - mean) / max(std, 0.5)
-   │      • Exponential decay: w_i = z_i * e^(-0.002 * daysSince) (~346.5-day half-life)
+   │      • Rating-tiered floor decay: w_i = z_i * (floor_i + (1 - floor_i) * e^(-0.002 * daysSince))
+   │      • Floors: 0.45 (10★ or rewatchCount >= 2 & >= 8★), 0.30 (9★), 0.20 (8★), 0.25 (<= 4★), 0.10 (mid-tier)
    │      • Undated logs or clustered CSV backlog imports get bulkPriorDays = 180 (not day 0!)
    │      • Future dates clamped at >= 0 days so decay never exceeds 1.0
    │
@@ -245,6 +246,7 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
 | **21** | **Horizontal carousel wheel scrolling hijacked vertical page scrolling, and Discover rows leaked unreleased future titles or failed transiently on cold load** | Global wheel listener intercepted vertical scroll whenever cursor crossed a row; Discover TMDB queries lacked an upper release-date ceiling and ran unbounded parallel requests without retry | Switched to opt-in smooth wheel engagement (`"Scroll row"` pill / border click / `Shift + Wheel` with `pointerleave` + outside-click + `Esc` release) via `useHorizontalWheelScroll.js` & `scrollHelpers.js`; added `primary_release_date.lte: todayIso` (`releaseGuardVersion: 2`), `3`-lane concurrency cap, & single retry in `dashboardService.js` | [useHorizontalWheelScroll.js](./src/hooks/useHorizontalWheelScroll.js), [scrollHelpers.js](./src/services/scrollHelpers.js), [dashboardService.js](./src/services/dashboardService.js) |
 | **22** | **Prefixed `cinemavault_home_feeds_v2::*` cache entries escaped `localStorage` quota eviction, and demo sample vault data risked leaking into Supabase** | Exact-key purge order missed dynamic `cinemavault_home_feeds_v2::` suffixes; sample rows needed explicit exclusion from cloud vault & `user_explore_picks` upserts | Extracted `storageEviction.js` (`STORAGE_PURGE_ORDER` with prefix sweep for `cinemavault_home_feeds_v2::`) and excluded `isSample` / `hasSampleData` sessions from Supabase sync & cloud For You cache | [storageEviction.js](./src/services/storageEviction.js), [exploreForYouCache.js](./src/services/exploreForYouCache.js), [vaultSyncService.js](./src/services/vaultSyncService.js) |
 | **23** | **Rating Studio hover preview leaked into save state & Explore lacked direct title/franchise search** | Ephemeral hover state needed strict separation from committed bar selection (`selectedScore`) and calibration card layout height varied dynamically | Upgraded `StarRatingStage` to an ascending 10-bar cinema fader with explicit click-to-lock (`Select Rating (1–10)` → `Save X/10 to Vault`), fixed 2-col calibration strip, progressive review disclosure, and added `?q=` Explore title search + `SearchModal` bridge | [StarRatingStage.jsx](./src/components/StarRatingStage.jsx), [MovieDetails.jsx](./src/components/MovieDetails.jsx), [exploreService.js](./src/services/exploreService.js), [SearchModal.jsx](./src/components/SearchModal.jsx) |
+| **24** | **Pure exponential decay (`e^(-0.002 * d)`) erased 5-year-old 10/10 masterpieces (`2.6%` weight) below recent casual 8/10 watches** | Zero-floor decay treated watch date as expiration of taste regardless of rating tier or rewatches, while negative tropes decayed slower (`λ/2`) than loved classics | Replaced zero-floor decay with smooth rating-tiered asymptotic floors (`DEFAULT_DECAY_TIER_FLOORS`: `0.45` masterpiece/rewatch, `0.30` 9★, `0.20` 8★, `0.25` `<=4★` dislike, `0.10` mid-tier) in `computeTimeDecay` / `resolveDecayFloor` and applied matching floors to negative trope extraction | [scoringUtils.js](./src/services/scoringUtils.js), [tmdbService.js](./src/services/tmdbService.js) |
 
 ---
 
