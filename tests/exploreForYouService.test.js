@@ -12,6 +12,7 @@ import {
   filterForYouCatalog,
   generateExploreForYouPool
 } from "../src/services/exploreForYouService.js";
+import { encodeEmbeddingBinary, parseEmbeddingBinary } from "../src/services/embeddingService.js";
 
 function makeCandidates(count = 120) {
   return Array.from({ length: count }, (_, i) => ({
@@ -439,4 +440,70 @@ test("filterForYouCatalog filters personalized pool by query across title, genre
   ];
   const matched = filterForYouCatalog(pool, { query: "jurassic" });
   assert.deepEqual(matched.map((m) => m.tmdbId), [329, 135397]);
+});
+
+test("generateExploreForYouPool Wave 2 injects Bucket E-Cold semantic neighbors when contentIndex is loaded", async () => {
+  const embeddingIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] }
+  ]));
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] }, // warm (must be skipped by Bucket E-Cold)
+    { tmdbId: 303, vector: [0.96, 0.28, 0, 0] }  // cold 2025 semantic hit
+  ]));
+  const watched = [
+    { tmdbId: 1, title: "Seed 1", year: "2020", userRating: 10, tmdbGenreIds: [878] },
+    { tmdbId: 2, title: "Seed 2", year: "2021", userRating: 9, tmdbGenreIds: [878] },
+    { tmdbId: 3, title: "Seed 3", year: "2022", userRating: 8, tmdbGenreIds: [878] }
+  ];
+
+  const fetchEmbCalls = [];
+  const res = await generateExploreForYouPool({
+    watched,
+    watchlist: [],
+    embeddingIndex,
+    contentIndex,
+    aiClient: null,
+    targetCount: 15,
+    fetchCandidatePoolFn: async (_profile, _mood, _w, _wl, opts) => {
+      const start = opts?.page === 2 ? 600 : 500;
+      return Array.from({ length: 8 }, (_, i) => ({
+        id: start + i,
+        tmdbId: start + i,
+        title: `Base ${start + i}`,
+        year: "2021",
+        release_date: "2021-05-01",
+        poster: `https://image.tmdb.org/t/p/w500/${start + i}.jpg`,
+        genre: "Comedy",
+        tmdbGenreIds: [35],
+        vote_average: 7.1,
+        vote_count: 250
+      }));
+    },
+    fetchEmbeddingFn: async (neighbors, _w, _wl, _existing, opts) => {
+      fetchEmbCalls.push({ neighbors, opts });
+      return neighbors.map((n) => ({
+        id: n.tmdbId,
+        tmdbId: n.tmdbId,
+        title: `Emb ${n.tmdbId}`,
+        year: opts?.sourceBucket?.includes("Cold") ? "2025" : "2019",
+        release_date: opts?.sourceBucket?.includes("Cold") ? "2025-05-01" : "2019-05-01",
+        poster: `https://image.tmdb.org/t/p/w500/${n.tmdbId}.jpg`,
+        genre: "Sci-Fi",
+        tmdbGenreIds: [878],
+        vote_average: 7.8,
+        vote_count: 400,
+        collabSim: n.collabSim ?? 0,
+        sourceBucket: opts?.sourceBucket || "Bucket E (Embedding)"
+      }));
+    },
+    enrichPoolFn: async (pool) => pool
+  });
+
+  const coldCall = fetchEmbCalls.find((c) => c.opts?.sourceBucket === "Bucket E-Cold (Semantic)");
+  assert.ok(coldCall, "Wave 2 must invoke fetchEmbeddingFn with sourceBucket 'Bucket E-Cold (Semantic)'");
+  assert.deepEqual(coldCall.neighbors.map((n) => n.tmdbId), [303], "Bucket E-Cold must skip warm collabIndex ID 200");
+  assert.equal(coldCall.opts.maxNeighbors, 12);
+  assert.ok(res.items.some((m) => m.tmdbId === 303), "Cold neighbor 303 must appear in final Explore For You items");
 });

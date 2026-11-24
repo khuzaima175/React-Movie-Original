@@ -14,7 +14,8 @@ import { derivePersonalizedRankerWeights } from "./onlineLearningService.js";
 import { computeExploreEmbeddingSignals } from "./embeddingWorkerClient.js";
 import {
   loadDefaultContentIndex,
-  buildContentSimMap
+  buildContentSimMap,
+  retrieveColdContentNeighbors
 } from "./contentSimService.js";
 import {
   loadDefaultDnaIndex,
@@ -748,12 +749,30 @@ export async function generateExploreForYouPool({
       return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    // WAVE 2 (background): Expand to full ~250 films via TMDB page 2 + remaining 180 CVEM neighbors
+    // WAVE 2 (background): Expand to full ~250 films via TMDB page 2 + remaining 180 CVEM neighbors + Bucket E-Cold
     const wave2Aligned = aligned.slice(60, 240);
     const wave1SeenIds = wave1Raw
       .map((c) => c?.tmdbId ?? c?.id)
       .filter((id) => id !== undefined && id !== null);
-    const [wave2Base, wave2Emb] = await Promise.all([
+    const wave1SeenNumeric = wave1Raw
+      .map((c) => Number(c?.tmdbId ?? c?.id ?? 0))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const coldExcludeSet = new Set([
+      ...numericExcludeSet,
+      ...wave1SeenNumeric,
+      ...wave2Aligned.map((n) => Number(n?.tmdbId ?? 0)).filter((id) => Number.isFinite(id) && id > 0)
+    ]);
+    const wave2ColdNeighbors = contentIndex
+      ? retrieveColdContentNeighbors(profile.weightedRatings, contentIndex, coldExcludeSet, {
+          collabIndex: embeddingIndex,
+          collabSimMap,
+          repulsionMap,
+          repulsionWeight,
+          topK: 15
+        })
+      : [];
+
+    const [wave2Base, wave2Emb, wave2Cold] = await Promise.all([
       fetchCandidatePoolFn(profile, "any", watched, watchlist, {
         poolSize: 160,
         page: 2,
@@ -769,6 +788,19 @@ export async function generateExploreForYouPool({
             userProviders: userWatchProviders,
             maxNeighbors: 120,
             maxScan: 180,
+            tasteRules,
+            signal
+          }).catch(() => [])
+        : Promise.resolve([]),
+      wave2ColdNeighbors.length > 0
+        ? fetchEmbeddingFn(wave2ColdNeighbors, watched, watchlist, wave1Raw, {
+            userRegion: resolvedRegion,
+            userProviders: userWatchProviders,
+            mood: "any",
+            tasteRules,
+            maxNeighbors: 12,
+            maxScan: 15,
+            sourceBucket: "Bucket E-Cold (Semantic)",
             signal
           }).catch(() => [])
         : Promise.resolve([])
@@ -778,7 +810,7 @@ export async function generateExploreForYouPool({
       return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    const mergedWave2Raw = dedupeAndFilterRaw([...wave1Raw, ...wave2Emb, ...wave2Base]);
+    const mergedWave2Raw = dedupeAndFilterRaw([...wave1Raw, ...wave2Emb, ...wave2Cold, ...wave2Base]);
     // Pre-rank so deep metadata enrichment runs ONLY on the top EXPLORE_FOR_YOU_ENRICH_LIMIT (120) films
     const preRankedRaw = rankCandidatePool(
       mergedWave2Raw,

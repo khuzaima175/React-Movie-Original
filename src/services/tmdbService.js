@@ -33,7 +33,7 @@ import {
   normalizeYearKey,
   extractTmdbNumericId
 } from "./movieIdentity.js";
-import { compileActiveTasteRules } from "./tasteRulesService.js";
+import { compileActiveTasteRules, candidateMatchesAvoidRule } from "./tasteRulesService.js";
 
 export const getTmdbKey = () => resolveTmdbKey();
 export const getOmdbKey = () => resolveOmdbKey();
@@ -1880,6 +1880,10 @@ export async function fetchEmbeddingCandidates(
   const moodFilters = options.moodFilters || null;
   const explicitMood = isExplicitMoodActive(mood, moodFilters);
   const hasProviderFilter = Array.isArray(userProviders) && userProviders.length > 0;
+  const sourceBucket = options.sourceBucket || "Bucket E (Embedding)";
+  const avoidRules = Array.isArray(options.tasteRules) && options.tasteRules.length > 0
+    ? compileActiveTasteRules(options.tasteRules).avoidRules
+    : [];
   const customFetcher = typeof options.detailFetcher === "function" ? options.detailFetcher : null;
 
   const seenIds = new Set([
@@ -1894,7 +1898,11 @@ export async function fetchEmbeddingCandidates(
     const id = Number(n?.tmdbId ?? n?.id ?? 0);
     if (!id || seenIds.has(id)) continue;
     seenIds.add(id);
-    unseen.push({ tmdbId: id, collabSim: Number(n?.collabSim ?? 0) });
+    unseen.push({
+      tmdbId: id,
+      collabSim: Number(n?.collabSim ?? 0),
+      contentSim: n?.contentSim !== undefined ? Number(n.contentSim) : undefined
+    });
     if (unseen.length >= maxScan) break;
   }
 
@@ -1945,10 +1953,14 @@ export async function fetchEmbeddingCandidates(
           hydrated: true,
           features: { hydrated: true },
           collabSim: item.collabSim,
-          sourceBucket: "Bucket E (Embedding)",
+          ...(Number.isFinite(item.contentSim) ? { contentSim: item.contentSim } : {}),
+          sourceBucket,
           providerMatchedByQuery: hasProviderFilter ? matchesWatchProviders(details, userProviders) : false
         };
         if (explicitMood && !matchesMoodCandidateGate(candidate, mood, moodFilters)) {
+          continue;
+        }
+        if (avoidRules.length > 0 && candidateMatchesAvoidRule(candidate, avoidRules).matched) {
           continue;
         }
         if (hasProviderFilter && !matchesWatchProviders(candidate, userProviders)) {

@@ -51,7 +51,8 @@ import {
 } from "./easeService.js";
 import {
     loadDefaultContentIndex,
-    buildContentSimMap
+    buildContentSimMap,
+    retrieveColdContentNeighbors
 } from "./contentSimService.js";
 import {
     loadDefaultDnaIndex,
@@ -2975,6 +2976,10 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                     buildRepulsionMapFromIndex(profile.weightedRatings, embeddingIndex);
 
                 let mergedCandidates = candidates;
+                const explicitMoodActive = isExplicitMoodActive(mood, options.moodFilters);
+                const repulsionWeight =
+                    Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim;
+
                 if (embeddingIndex && options.injectEmbeddingNeighbors !== false) {
                     const excludeIds = new Set([
                         ...(watchedMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
@@ -2983,8 +2988,6 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                         ...candidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0))
                     ]);
                     const catalogMax = getCollabCatalogMax(collabSimMap);
-                    const repulsionWeight =
-                        Math.abs(DEFAULT_RANKER_WEIGHTS.repulsion) / DEFAULT_RANKER_WEIGHTS.collabSim;
                     const neighbors = retrieveAlignedEmbeddingNeighbors(
                         profile.weightedRatings,
                         embeddingIndex,
@@ -3001,11 +3004,70 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                             userProviders,
                             mood,
                             moodFilters: options.moodFilters,
-                            maxNeighbors: isExplicitMoodActive(mood, options.moodFilters) ? 20 : 50
+                            tasteRules: options.tasteRules,
+                            maxNeighbors: explicitMoodActive ? 20 : 50
                         }
                     );
                     if (injected.length > 0) {
                         mergedCandidates = [...candidates, ...injected];
+                    }
+                }
+
+                const canHydrateColdNeighbors =
+                    typeof options.detailFetcher === "function" ||
+                    typeof options.fetchFn === "function" ||
+                    hasTmdbBackend(options);
+                if (
+                    contentIndex &&
+                    canHydrateColdNeighbors &&
+                    options.injectEmbeddingNeighbors !== false &&
+                    options.injectColdNeighbors !== false
+                ) {
+                    const coldExcludeIds = new Set([
+                        ...(watchedMovies || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
+                        ...(watchlist || []).map(m => Number(m?.tmdbId ?? m?.id ?? 0)),
+                        ...(Array.isArray(options.excludeIds) ? options.excludeIds.map(id => Number(id || 0)) : []),
+                        ...mergedCandidates.map(c => Number(c?.tmdbId ?? c?.id ?? 0))
+                    ]);
+                    const coldNeighbors = retrieveColdContentNeighbors(
+                        profile.weightedRatings,
+                        contentIndex,
+                        coldExcludeIds,
+                        {
+                            collabIndex: embeddingIndex,
+                            collabSimMap,
+                            repulsionMap,
+                            repulsionWeight,
+                            topK: 15
+                        }
+                    );
+                    if (coldNeighbors.length > 0) {
+                        const coldInjected = await fetchEmbeddingCandidates(
+                            coldNeighbors,
+                            watchedMovies,
+                            watchlist,
+                            mergedCandidates,
+                            {
+                                userRegion,
+                                userProviders,
+                                mood,
+                                moodFilters: options.moodFilters,
+                                tasteRules: options.tasteRules,
+                                maxNeighbors: explicitMoodActive ? 6 : 12,
+                                maxScan: 15,
+                                sourceBucket: "Bucket E-Cold (Semantic)",
+                                detailFetcher: options.detailFetcher,
+                                fetchFn: options.fetchFn,
+                                apiKey: options.apiKey,
+                                forceProxy: options.forceProxy,
+                                cacheStore: options.cacheStore,
+                                indexedDB: options.indexedDB,
+                                signal: options.signal
+                            }
+                        );
+                        if (coldInjected.length > 0) {
+                            mergedCandidates = [...mergedCandidates, ...coldInjected];
+                        }
                     }
                 }
 
