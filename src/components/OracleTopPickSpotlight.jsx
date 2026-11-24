@@ -56,35 +56,37 @@ export default function OracleTopPickSpotlight({
         </Link>
 
         <div className="oracle-spotlight-content">
-          <div className="oracle-spotlight-kicker-row">
-            <span className="oracle-spotlight-kicker">
-              <Sparkles size={13} aria-hidden="true" />
-              #1 Top Pick Tonight
-            </span>
-            {hasMatch && (
-              <span className="oracle-spotlight-match tabular-num">
-                {Math.round(matchScore)}% Match
-                {estRating != null ? ` · Est. ${estRating}/10` : ""}
+          <div className="oracle-spotlight-header">
+            <div className="oracle-spotlight-kicker-row">
+              <span className="oracle-spotlight-kicker">
+                <Sparkles size={13} aria-hidden="true" />
+                #1 Top Pick Tonight
               </span>
-            )}
-          </div>
+              {hasMatch && (
+                <span className="oracle-spotlight-match tabular-num">
+                  {Math.round(matchScore)}% Match
+                  {estRating != null ? ` · Est. ${estRating}/10` : ""}
+                </span>
+              )}
+            </div>
 
-          <h2 className="oracle-spotlight-title">
-            <Link to={`/movie/${detailId}`} className="oracle-spotlight-title-link">
-              {pick.title}
-            </Link>
-          </h2>
+            <h2 className="oracle-spotlight-title">
+              <Link to={`/movie/${detailId}`} className="oracle-spotlight-title-link">
+                {pick.title}
+              </Link>
+            </h2>
 
-          <div className="oracle-spotlight-meta">
-            {pick.year && <span>{pick.year}</span>}
-            {pick.genre && <span>{pick.genre}</span>}
-            {directorName && <span>Dir. {directorName}</span>}
-            {pick.imdbRating && pick.imdbRating !== "N/A" && (
-              <span className="oracle-spotlight-imdb tabular-num">
-                <Star size={12} fill="currentColor" aria-hidden="true" />
-                {pick.imdbRating}
-              </span>
-            )}
+            <div className="oracle-spotlight-meta">
+              {pick.year && <span>{pick.year}</span>}
+              {pick.genre && <span>{pick.genre}</span>}
+              {directorName && <span>Dir. {directorName}</span>}
+              {pick.imdbRating && pick.imdbRating !== "N/A" && (
+                <span className="oracle-spotlight-imdb tabular-num">
+                  <Star size={12} fill="currentColor" aria-hidden="true" />
+                  {pick.imdbRating}
+                </span>
+              )}
+            </div>
           </div>
 
           {(whyText || premiseNote) && (

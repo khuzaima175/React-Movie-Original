@@ -1,10 +1,39 @@
 import { useCallback, useEffect, useState } from "react";
 
+const sharedObserverPool = new Map();
+
+function getSharedRevealObserver(rootMargin, threshold) {
+  const key = `${rootMargin}|${threshold}`;
+  let entry = sharedObserverPool.get(key);
+  if (entry) return entry;
+
+  const callbacks = new WeakMap();
+  const observer = new window.IntersectionObserver(
+    (entries) => {
+      for (const item of entries) {
+        if (
+          item.isIntersecting ||
+          item.boundingClientRect.top <= (window.innerHeight || 900) + 120
+        ) {
+          const cb = callbacks.get(item.target);
+          callbacks.delete(item.target);
+          observer.unobserve(item.target);
+          cb?.();
+        }
+      }
+    },
+    { rootMargin, threshold }
+  );
+
+  entry = { observer, callbacks };
+  sharedObserverPool.set(key, entry);
+  return entry;
+}
+
 /**
- * Callback-ref IntersectionObserver scroll-reveal hook.
- * Attaches dynamically even when elements mount asynchronously after data loads,
- * and includes a passive scroll-position fallback so tall or zoomed-out blocks
- * never remain hidden at opacity 0.
+ * Shared-IntersectionObserver scroll-reveal hook.
+ * Reuses one observer per (rootMargin, threshold) across all mounted cards so
+ * grids with 100+ posters never allocate per-card observers or scroll listeners.
  */
 export function useScrollReveal({
   rootMargin = "160px 0px 80px 0px",
@@ -28,56 +57,31 @@ export function useScrollReveal({
   }, []);
 
   useEffect(() => {
-    if (disabled || isVisible || !node) return;
+    if (disabled || isVisible || !node) return undefined;
 
     if (typeof window === "undefined") {
       setIsVisible(true);
-      return;
+      return undefined;
     }
 
-    const isNearViewport = () => {
-      const rect = node.getBoundingClientRect();
-      return rect.top <= (window.innerHeight || 900) + 120;
-    };
-
-    if (isNearViewport()) {
+    const rect = node.getBoundingClientRect();
+    if (rect.top <= (window.innerHeight || 900) + 120) {
       setIsVisible(true);
-      return;
+      return undefined;
     }
 
     if (typeof window.IntersectionObserver !== "function") {
       setIsVisible(true);
-      return;
+      return undefined;
     }
 
-    const observer = new window.IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting || entry.boundingClientRect.top <= (window.innerHeight || 900) + 120) {
-            setIsVisible(true);
-            observer.disconnect();
-            window.removeEventListener("scroll", onScrollFallback);
-            break;
-          }
-        }
-      },
-      { rootMargin, threshold }
-    );
-
-    const onScrollFallback = () => {
-      if (isNearViewport()) {
-        setIsVisible(true);
-        observer.disconnect();
-        window.removeEventListener("scroll", onScrollFallback);
-      }
-    };
-
+    const { observer, callbacks } = getSharedRevealObserver(rootMargin, threshold);
+    callbacks.set(node, () => setIsVisible(true));
     observer.observe(node);
-    window.addEventListener("scroll", onScrollFallback, { passive: true });
 
     return () => {
-      observer.disconnect();
-      window.removeEventListener("scroll", onScrollFallback);
+      callbacks.delete(node);
+      observer.unobserve(node);
     };
   }, [disabled, isVisible, node, rootMargin, threshold]);
 

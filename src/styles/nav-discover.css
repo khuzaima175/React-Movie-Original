@@ -228,16 +228,13 @@
   }
 
   .nav-container {
-    grid-template-columns: auto 1fr auto;
-    gap: 1.4rem;
+    grid-template-columns: 1fr auto;
+    gap: 1rem;
   }
 
-  .nav-links-desktop {
+  .nav-links-desktop,
+  .nav-search-slot {
     display: none;
-  }
-
-  .stream-search-btn {
-    max-width: none;
   }
 
   .mobile-stream-bar {
@@ -456,8 +453,13 @@
   font-family: var(--font-ui);
   font-size: 1.4rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.hero-btn-prefix-desktop {
+  display: inline;
 }
 
 .btn-hero-primary:hover {
@@ -489,6 +491,7 @@
   font-family: var(--font-ui);
   font-size: 1.4rem;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease;
 }
@@ -837,6 +840,38 @@
   cursor: pointer;
 }
 
+.unified-movie-card.cv-card-reveal {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 0.34s var(--ease-out) var(--reveal-delay, 0ms),
+    transform 0.34s var(--ease-out) var(--reveal-delay, 0ms);
+}
+
+.unified-movie-card.cv-card-reveal.is-revealed {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .unified-movie-card:hover {
+    transform: translate3d(0, -3px, 0);
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .unified-card-overlay {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .unified-movie-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 24rem;
+  }
+}
+
 .unified-card-poster {
   position: relative;
   aspect-ratio: 2 / 3;
@@ -1164,12 +1199,20 @@
 
   .hero-actions {
     width: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .hero-btn-prefix-desktop {
+    display: none;
   }
 
   .btn-hero-primary,
   .btn-hero-secondary {
-    flex: 1 1 13rem;
+    flex: 1 1 0;
     min-height: 4.4rem;
+    padding: 0 1.3rem;
+    font-size: 1.35rem;
+    white-space: nowrap;
   }
 
   .hero-controls {
@@ -2101,9 +2144,15 @@
   will-change: opacity;
 }
 
+@media (max-width: 768px) {
+  .animated-bg::after {
+    display: none;
+  }
+}
+
 @media (max-width: 700px) {
   .hero-glow {
-    filter: blur(40px) saturate(1.4);
+    display: none;
   }
 }
 

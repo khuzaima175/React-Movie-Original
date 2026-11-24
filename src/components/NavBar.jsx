@@ -24,11 +24,14 @@ import {
   getAccountNavState
 } from "../services/navHelpers";
 
-function NavTab({ to, end = false, children }) {
+function NavTab({ to, end = false, onPrefetch, children }) {
   return (
     <NavLink
       to={to}
       end={end}
+      onMouseEnter={onPrefetch}
+      onPointerDown={onPrefetch}
+      onFocus={onPrefetch}
       className={({ isActive }) => `stream-nav-link ${isActive ? "active" : ""}`}
     >
       {({ isActive }) => (
@@ -47,11 +50,13 @@ function NavTab({ to, end = false, children }) {
   );
 }
 
-function MobileTab({ to, end = false, icon: Icon, label }) {
+function MobileTab({ to, end = false, icon: Icon, label, onPrefetch }) {
   return (
     <NavLink
       to={to}
       end={end}
+      onTouchStart={onPrefetch}
+      onPointerDown={onPrefetch}
       className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
     >
       {({ isActive }) => (
@@ -88,6 +93,7 @@ export default function NavBar({
   onOpenBackup,
   onOpenTasteDeck,
   onOpenCloudSync,
+  onPrefetchRoute,
   cloudUser = null,
   hasCloudConfig = false,
   cloudSyncStatus = "idle"
@@ -124,9 +130,15 @@ export default function NavBar({
               <NavTab to="/" end>
                 Discover
               </NavTab>
-              <NavTab to="/explore">Explore</NavTab>
-              <NavTab to="/vault">Vault</NavTab>
-              <NavTab to="/ai">Oracle</NavTab>
+              <NavTab to="/explore" onPrefetch={() => onPrefetchRoute?.("/explore")}>
+                Explore
+              </NavTab>
+              <NavTab to="/vault" onPrefetch={() => onPrefetchRoute?.("/vault")}>
+                Vault
+              </NavTab>
+              <NavTab to="/ai" onPrefetch={() => onPrefetchRoute?.("/ai")}>
+                Oracle
+              </NavTab>
             </nav>
           </div>
 
@@ -233,9 +245,24 @@ export default function NavBar({
 
       <nav className="mobile-stream-bar" role="navigation" aria-label="Mobile Navigation">
         <MobileTab to="/" end icon={Film} label="Discover" />
-        <MobileTab to="/explore" icon={SlidersHorizontal} label="Explore" />
-        <MobileTab to="/vault" icon={Bookmark} label="Vault" />
-        <MobileTab to="/ai" icon={Compass} label="Oracle" />
+        <MobileTab
+          to="/explore"
+          icon={SlidersHorizontal}
+          label="Explore"
+          onPrefetch={() => onPrefetchRoute?.("/explore")}
+        />
+        <MobileTab
+          to="/vault"
+          icon={Bookmark}
+          label="Vault"
+          onPrefetch={() => onPrefetchRoute?.("/vault")}
+        />
+        <MobileTab
+          to="/ai"
+          icon={Compass}
+          label="Oracle"
+          onPrefetch={() => onPrefetchRoute?.("/ai")}
+        />
 
         <button
           type="button"

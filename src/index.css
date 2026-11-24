@@ -68,6 +68,32 @@
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
+
+  button,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.cv-route-stage {
+  animation: cvRouteEnter 140ms var(--ease-out) both;
+}
+
+@keyframes cvRouteEnter {
+  from {
+    opacity: 0.01;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-route-stage {
+    animation: none;
+  }
 }
 
 /* ── Scroll-Down Editorial Reveal Animations (Netflix-Style Cascade) ──────── */
@@ -3809,6 +3835,11 @@
   background: #242528;
 }
 
+.search-esc-icon-mobile,
+.search-sub-mobile {
+  display: none;
+}
+
 .search-esc-btn {
   padding: 0.45rem 0.9rem;
   font-size: 1.1rem;
@@ -4421,22 +4452,89 @@
 }
 
 @media (max-width: 768px) {
+  .search-modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .search-spotlight-card,
+  .search-theater-card {
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: none;
+  }
+
+  .search-input-header {
+    padding: 1.2rem 1.4rem;
+    padding-top: calc(1.2rem + env(safe-area-inset-top, 0px));
+    gap: 0.9rem;
+  }
+
+  .search-theater-input {
+    font-size: 1.5rem;
+  }
+
+  .search-esc-label-desktop {
+    display: none;
+  }
+
+  .search-esc-icon-mobile {
+    display: block;
+  }
+
+  .search-esc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.4rem;
+    height: 3.4rem;
+    padding: 0;
+    border-radius: 0.8rem;
+    flex-shrink: 0;
+  }
+
+  .search-filter-bar {
+    padding: 0.9rem 1.4rem;
+  }
+
+  .search-sub-desktop {
+    display: none;
+  }
+
+  .search-sub-mobile {
+    display: inline;
+  }
+
+  .search-theater-empty {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    padding: 1.6rem 1.4rem calc(2.4rem + env(safe-area-inset-bottom, 0px));
+  }
+
   .search-trending-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .search-theater-body {
     grid-template-columns: minmax(0, 1fr);
-    min-height: min(26rem, 44vh);
-    max-height: min(60vh, calc(100vh - 22rem));
+    flex: 1;
+    min-height: 0;
+    max-height: none;
   }
 
   .search-results-pane {
-    max-height: min(60vh, calc(100vh - 22rem));
+    max-height: none;
+    height: 100%;
     border-right: none;
+    padding: 1rem 1.2rem calc(2.4rem + env(safe-area-inset-bottom, 0px));
   }
 
-  .search-preview-pane {
+  .search-preview-pane,
+  .search-hint-footer {
     display: none;
   }
 }
@@ -5653,7 +5751,7 @@
   }
 
   .netflix-modal-poster-wrap {
-    max-width: 20rem;
+    max-width: 14.5rem;
   }
 
   .luxury-rating-deck,
@@ -6315,6 +6413,17 @@
   min-width: 0;
 }
 
+.taste-deck-stage-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  min-width: 0;
+}
+
+.taste-deck-caption-mobile {
+  display: none;
+}
+
 .taste-deck-movie-title {
   margin: 0;
   font-size: clamp(2.4rem, 3.2vw, 3.3rem);
@@ -6669,30 +6778,172 @@
 
 @media (max-width: 768px) {
   .taste-deck-backdrop {
-    padding: 0.8rem;
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .taste-deck-shell {
+    min-height: 100dvh;
+    border-radius: 0;
+    border: none;
   }
 
   .taste-deck-header {
-    padding: 1.4rem 1.6rem;
+    position: relative;
+    padding: 1.2rem 1.4rem;
+    padding-top: calc(1.2rem + env(safe-area-inset-top, 0px));
+    gap: 0.9rem;
   }
 
-  .taste-deck-flash-body,
+  .taste-deck-brand {
+    padding-right: 8.5rem;
+    gap: 0.25rem;
+  }
+
+  .taste-deck-title-row {
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .taste-deck-title {
+    font-size: 1.9rem;
+  }
+
+  .taste-deck-counter {
+    font-size: 1.15rem;
+  }
+
+  .taste-deck-subtitle,
+  .taste-deck-kbd-hint,
+  .taste-deck-caption-desktop,
+  .taste-deck-prev-label {
+    display: none;
+  }
+
+  .taste-deck-caption-mobile {
+    display: inline;
+  }
+
+  .taste-deck-skip-btn {
+    position: absolute;
+    top: calc(1.1rem + env(safe-area-inset-top, 0px));
+    right: 1.2rem;
+    height: 3.2rem;
+    padding: 0 1rem;
+    font-size: 1.2rem;
+  }
+
+  .taste-deck-header-controls {
+    width: 100%;
+    gap: 0.65rem;
+  }
+
+  .taste-deck-mode-tabs {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .taste-deck-mode-btn {
+    justify-content: center;
+    padding: 0.55rem 0.8rem;
+    font-size: 1.2rem;
+  }
+
+  .taste-deck-import-btn {
+    height: 3.3rem;
+    padding: 0 1rem;
+    font-size: 1.2rem;
+  }
+
+  .taste-deck-flash-body {
+    padding: 1.2rem 1.4rem calc(1.6rem + env(safe-area-inset-bottom, 0px));
+    gap: 1.2rem;
+    flex: 1;
+  }
+
   .taste-deck-grid-body {
-    padding: 1.6rem;
+    padding: 1.4rem;
+    max-height: none;
+    flex: 1;
   }
 
   .taste-deck-card-stage {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.8rem;
+    display: grid;
+    grid-template-columns: 9.4rem minmax(0, 1fr);
+    gap: 1.2rem 1.3rem;
+    align-items: start;
   }
 
   .taste-deck-stage-poster {
-    max-width: 17rem;
-    margin: 0 auto;
+    grid-column: 1;
+    grid-row: 1;
+    width: 9.4rem;
+    max-width: none;
+    margin: 0;
+  }
+
+  .taste-deck-stage-info {
+    display: contents;
+  }
+
+  .taste-deck-stage-meta {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 0.45rem;
+  }
+
+  .taste-deck-stage-meta .cv-meta-line {
+    font-size: 1.15rem;
+    gap: 0.45rem;
+  }
+
+  .taste-deck-movie-title {
+    font-size: 2rem;
+    line-height: 1.12;
+  }
+
+  .taste-deck-director {
+    font-size: 1.2rem;
+  }
+
+  .taste-deck-plot {
+    font-size: 1.28rem;
+    line-height: 1.45;
+    -webkit-line-clamp: 3;
+  }
+
+  .taste-deck-rating-panel {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding: 1.2rem 1.3rem;
+    gap: 0.85rem;
   }
 
   .taste-deck-score-row {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .taste-deck-score-btn {
+    height: 4.3rem;
+    font-size: 1.55rem;
+  }
+
+  .taste-deck-actions {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    gap: 0.7rem;
+    width: 100%;
+  }
+
+  .taste-deck-nav-btn {
+    justify-content: center;
+    height: 4.1rem;
+    padding: 0 1.1rem;
+    font-size: 1.28rem;
   }
 
   .taste-deck-nav-btn.skip {
@@ -6708,6 +6959,10 @@
 /* ============================================================
    CINEMAVAULT — EDITORIAL RATING STUDIO & FILM CHAT CTA
    ============================================================ */
+
+.movie-hero-desktop-only {
+  display: inline;
+}
 
 .movie-hero-nav-actions {
   display: inline-flex;
@@ -6729,6 +6984,101 @@
 .btn-hero-discuss:hover {
   border-color: rgba(255, 255, 255, 0.34);
   background: rgba(20, 22, 27, 0.78);
+}
+
+@media (max-width: 680px) {
+  .movie-hero-desktop-only {
+    display: none;
+  }
+
+  .movie-backdrop-hero {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 28rem;
+    height: auto;
+    padding: 1.4rem;
+  }
+
+  .hero-chip {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.74);
+  }
+
+  .movie-backdrop-gradient-bottom {
+    height: 75%;
+    background: linear-gradient(
+      0deg,
+      #141416 0%,
+      rgba(20, 20, 22, 0.92) 48%,
+      rgba(20, 20, 22, 0.45) 78%,
+      transparent 100%
+    );
+  }
+
+  .movie-hero-nav-bar {
+    display: contents;
+  }
+
+  .btn-modal-back {
+    order: 1;
+    align-self: flex-start;
+    position: relative;
+    z-index: 10;
+    margin-bottom: 6.5rem;
+    padding: 0.7rem 1.25rem;
+    font-size: 1.25rem;
+  }
+
+  .movie-hero-title-group {
+    order: 2;
+    position: relative;
+    bottom: auto;
+    left: auto;
+    right: auto;
+    margin-top: auto;
+    z-index: 10;
+  }
+
+  .movie-hero-nav-actions {
+    order: 3;
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    margin-top: 1.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.75rem;
+  }
+
+  .btn-hero-trailer-play {
+    order: 1;
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 0.85rem 1.2rem;
+    font-size: 1.25rem;
+    white-space: nowrap;
+  }
+
+  .btn-hero-discuss {
+    order: 2;
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 0.85rem 1.2rem;
+    font-size: 1.25rem;
+    white-space: nowrap;
+  }
+
+  .btn-hero-compare {
+    order: 3;
+    flex: 0 1 auto;
+    justify-content: center;
+    padding: 0.85rem 1.15rem;
+    font-size: 1.25rem;
+    white-space: nowrap;
+  }
 }
 
 .vault-saved-meta-pills {

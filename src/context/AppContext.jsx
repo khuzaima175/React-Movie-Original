@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeFeedbackEvent, recordRatedMovieConversion } from "../services/feedbackService.js";
 import { resolveMovieRecSource } from "../services/vaultStats.js";
 import {
@@ -73,6 +73,7 @@ import {
 export { STORAGE_PURGE_ORDER };
 
 const AppContext = createContext(null);
+const CompareContext = createContext(null);
 const DELETED_VAULT_KEYS_STORAGE = "cinemavault_deleted_keys_v1";
 const LAST_SYNCED_AT_STORAGE = "cinemavault_last_synced_at_v1";
 const LOCAL_PREFS_UPDATED_AT_STORAGE = "cinemavault_prefs_updated_at_v1";
@@ -1965,6 +1966,19 @@ export function AppProvider({ children }) {
     [commitCustomListsUpdate]
   );
 
+  const customLists = useMemo(
+    () => getActiveCustomLists(customListsRaw),
+    [customListsRaw]
+  );
+
+  const compareContextValue = useMemo(
+    () => ({
+      compareItems: compareItems || [],
+      toggleCompare
+    }),
+    [compareItems, toggleCompare]
+  );
+
   return (
     <AppContext.Provider
       value={{
@@ -1972,7 +1986,7 @@ export function AppProvider({ children }) {
         setWatched,
         watchlist: watchlist || [],
         setWatchlist,
-        customLists: getActiveCustomLists(customListsRaw),
+        customLists,
         customListsRaw: customListsRaw || [],
         createCustomListAction,
         renameCustomListAction,
@@ -2054,9 +2068,15 @@ export function AppProvider({ children }) {
         dismissBackgroundJobNotice
       }}
     >
-      {children}
+      <CompareContext.Provider value={compareContextValue}>
+        {children}
+      </CompareContext.Provider>
     </AppContext.Provider>
   );
+}
+
+export function useCompareState() {
+  return useContext(CompareContext);
 }
 
 export function useOptionalApp() {

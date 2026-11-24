@@ -753,7 +753,9 @@ export default function MovieDetails({
                   aria-label={`Discuss ${movie.title} with AI Film Companion`}
                 >
                   <MessageSquare size={15} aria-hidden="true" />
-                  <span>Discuss This Film</span>
+                  <span>
+                    Discuss<span className="movie-hero-desktop-only"> This Film</span>
+                  </span>
                 </button>
 
                 {(movie.trailerKey || movie.title) && (
@@ -769,7 +771,9 @@ export default function MovieDetails({
                     aria-label={`Watch official trailer for ${movie.title} on YouTube (opens in new tab)`}
                   >
                     <Play size={16} fill="currentColor" aria-hidden="true" />
-                    <span>Watch Trailer</span>
+                    <span>
+                      <span className="movie-hero-desktop-only">Watch </span>Trailer
+                    </span>
                     <ExternalLink size={14} aria-hidden="true" />
                   </a>
                 )}

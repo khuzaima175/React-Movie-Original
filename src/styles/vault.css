@@ -665,8 +665,16 @@
   }
 
   .studio-hero-tier {
-    padding: 1.6rem;
-    gap: 1.6rem;
+    padding: 1.4rem;
+    gap: 1.35rem;
+  }
+
+  .studio-hero-left {
+    gap: 1.35rem;
+  }
+
+  .vault-spacious-title {
+    font-size: 2.6rem;
   }
 
   .vault-stats-strip {
@@ -691,12 +699,35 @@
     min-width: 0;
   }
 
+  .vault-mini-hist-track {
+    height: 3.4rem;
+  }
+
   .vault-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.8rem 1.1rem;
   }
 
+  .studio-controls-cluster {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem;
+    padding-bottom: 0.6rem;
+  }
+
   .spacious-search-box {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .spacious-filter-select-wrap {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .spacious-filter-select-wrap .cv-select-root,
+  .spacious-filter-select-wrap .cv-select-trigger {
     width: 100%;
   }
 

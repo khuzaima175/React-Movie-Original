@@ -4,38 +4,67 @@ import { AppProvider, useApp } from "./context/AppContext";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AnimatedBackground from "./components/AnimatedBackground";
 import NavBar from "./components/NavBar";
-import SearchModal from "./components/SearchModal";
-import RandomPicker from "./components/RandomPicker";
-import BackupManagerModal from "./components/BackupManagerModal";
-import QuickRateModal from "./components/QuickRateModal";
-import TasteDeckModal from "./components/TasteDeckModal";
-import CloudSyncModal from "./components/CloudSyncModal";
 import CompareDock from "./components/CompareDock";
-import CompareModal from "./components/CompareModal";
 import BackgroundJobBanner from "./components/BackgroundJobBanner";
 import RouteFallback from "./components/RouteFallback";
 import DashboardPage from "./pages/DashboardPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
-const ExplorePage = lazy(() => import("./pages/ExplorePage"));
-const ComparePage = lazy(() => import("./pages/ComparePage"));
-const MoviePage = lazy(() => import("./pages/MoviePage"));
-const PersonPage = lazy(() => import("./pages/PersonPage"));
-const VaultPage = lazy(() => import("./pages/VaultPage"));
-const AIPage = lazy(() => import("./pages/AIPage"));
-const AuthPage = lazy(() => import("./pages/AuthPage"));
-const AccountPage = lazy(() => import("./pages/AccountPage"));
-const PublicProfilePage = lazy(() => import("./pages/PublicProfilePage"));
-const PublicListPage = lazy(() => import("./pages/PublicListPage"));
-const WatchTogetherPage = lazy(() => import("./pages/WatchTogetherPage"));
+const SearchModal = lazy(() => import("./components/SearchModal"));
+const RandomPicker = lazy(() => import("./components/RandomPicker"));
+const BackupManagerModal = lazy(() => import("./components/BackupManagerModal"));
+const QuickRateModal = lazy(() => import("./components/QuickRateModal"));
+const TasteDeckModal = lazy(() => import("./components/TasteDeckModal"));
+const CloudSyncModal = lazy(() => import("./components/CloudSyncModal"));
+const CompareModal = lazy(() => import("./components/CompareModal"));
+
+const loadExplorePage = () => import("./pages/ExplorePage");
+const loadComparePage = () => import("./pages/ComparePage");
+const loadMoviePage = () => import("./pages/MoviePage");
+const loadPersonPage = () => import("./pages/PersonPage");
+const loadVaultPage = () => import("./pages/VaultPage");
+const loadAIPage = () => import("./pages/AIPage");
+const loadAuthPage = () => import("./pages/AuthPage");
+const loadAccountPage = () => import("./pages/AccountPage");
+const loadPublicProfilePage = () => import("./pages/PublicProfilePage");
+const loadPublicListPage = () => import("./pages/PublicListPage");
+const loadWatchTogetherPage = () => import("./pages/WatchTogetherPage");
+
+const ExplorePage = lazy(loadExplorePage);
+const ComparePage = lazy(loadComparePage);
+const MoviePage = lazy(loadMoviePage);
+const PersonPage = lazy(loadPersonPage);
+const VaultPage = lazy(loadVaultPage);
+const AIPage = lazy(loadAIPage);
+const AuthPage = lazy(loadAuthPage);
+const AccountPage = lazy(loadAccountPage);
+const PublicProfilePage = lazy(loadPublicProfilePage);
+const PublicListPage = lazy(loadPublicListPage);
+const WatchTogetherPage = lazy(loadWatchTogetherPage);
+
+const PREFETCH_BY_PATH = {
+  "/explore": loadExplorePage,
+  "/vault": loadVaultPage,
+  "/ai": loadAIPage,
+  "/compare": loadComparePage,
+  "/together": loadWatchTogetherPage
+};
+
+function prefetchRoute(path) {
+  const cleanPath = String(path || "").split("?")[0];
+  const loader = PREFETCH_BY_PATH[cleanPath];
+  if (loader) {
+    loader().catch(() => {});
+  }
+}
+
 import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
 } from "./services/tasteDeckService";
 import { buildExploreRoute } from "./services/exploreService";
 import { syncDebugFlagFromSearch } from "./services/debugFlags";
-import { motion, AnimatePresence, MotionConfig, useScroll, useSpring } from "framer-motion";
-import { pageTransition } from "./motion";
+import { motion, MotionConfig, useScroll, useSpring } from "framer-motion";
 
 /** Thin reading-progress line pinned above the navbar. */
 function ScrollProgress() {
@@ -62,7 +91,8 @@ function AppContent() {
     cloudUser,
     cloudSyncStatus,
     isPasswordRecovery,
-    isVaultHydrated = true
+    isVaultHydrated = true,
+    isCompareOpen = false
   } = useApp();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRandomPickerOpen, setIsRandomPickerOpen] = useState(false);
@@ -75,6 +105,25 @@ function AppContent() {
   const didCheckOnboardingRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    scrollToTop();
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const warmTabs = () => {
+      loadExplorePage().catch(() => {});
+      loadVaultPage().catch(() => {});
+      loadAIPage().catch(() => {});
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(warmTabs, { timeout: 2000 });
+      return () => window.cancelIdleCallback?.(idleId);
+    }
+    const timerId = window.setTimeout(warmTabs, 1200);
+    return () => window.clearTimeout(timerId);
+  }, []);
 
   useEffect(() => {
     syncDebugFlagFromSearch({ search: location.search });
@@ -164,74 +213,83 @@ function AppContent() {
         onOpenBackup={() => handleOpenBackup("export")}
         onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")}
         onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+        onPrefetchRoute={prefetchRoute}
         cloudUser={cloudUser}
         hasCloudConfig={hasCloudConfig}
         cloudSyncStatus={cloudSyncStatus}
       />
 
-      <SearchModal
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        onSelectMovie={handleSelectMovie}
-        onQuickRate={(movie) => setQuickRateTarget(movie)}
-        onExploreQuery={handleExploreQuery}
-      />
+      <Suspense fallback={null}>
+        {isSearchOpen && (
+          <SearchModal
+            isOpen={isSearchOpen}
+            onClose={() => setIsSearchOpen(false)}
+            onSelectMovie={handleSelectMovie}
+            onQuickRate={(movie) => setQuickRateTarget(movie)}
+            onExploreQuery={handleExploreQuery}
+          />
+        )}
 
-      <RandomPicker
-        isOpen={isRandomPickerOpen}
-        onClose={() => setIsRandomPickerOpen(false)}
-        onSelectMovie={handleSelectMovie}
-      />
+        {isRandomPickerOpen && (
+          <RandomPicker
+            isOpen={isRandomPickerOpen}
+            onClose={() => setIsRandomPickerOpen(false)}
+            onSelectMovie={handleSelectMovie}
+          />
+        )}
 
-      <BackupManagerModal
-        isOpen={isBackupOpen}
-        initialTab={backupInitialTab}
-        onClose={() => setIsBackupOpen(false)}
-      />
+        {isBackupOpen && (
+          <BackupManagerModal
+            isOpen={isBackupOpen}
+            initialTab={backupInitialTab}
+            onClose={() => setIsBackupOpen(false)}
+          />
+        )}
 
-      <QuickRateModal
-        movie={quickRateTarget}
-        watched={watched}
-        watchlist={watchlist}
-        onClose={() => setQuickRateTarget(null)}
-        onSaveWatched={addWatched}
-        onAddToWatchlist={addToWatchlist}
-      />
+        {quickRateTarget && (
+          <QuickRateModal
+            movie={quickRateTarget}
+            watched={watched}
+            watchlist={watchlist}
+            onClose={() => setQuickRateTarget(null)}
+            onSaveWatched={addWatched}
+            onAddToWatchlist={addToWatchlist}
+          />
+        )}
 
-      <TasteDeckModal
-        isOpen={isTasteDeckOpen}
-        initialMode={tasteDeckInitialMode}
-        onClose={() => setIsTasteDeckOpen(false)}
-        onDismissForever={() => {
-          try {
-            localStorage.setItem(TASTE_ONBOARDING_DISMISSED_KEY, "true");
-          } catch {
-            // ignore storage errors
-          }
-        }}
-        onOpenImport={() => handleOpenBackup("import")}
-      />
+        {isTasteDeckOpen && (
+          <TasteDeckModal
+            isOpen={isTasteDeckOpen}
+            initialMode={tasteDeckInitialMode}
+            onClose={() => setIsTasteDeckOpen(false)}
+            onDismissForever={() => {
+              try {
+                localStorage.setItem(TASTE_ONBOARDING_DISMISSED_KEY, "true");
+              } catch {
+                // ignore storage errors
+              }
+            }}
+            onOpenImport={() => handleOpenBackup("import")}
+          />
+        )}
 
-      <CloudSyncModal
-        isOpen={isCloudSyncOpen}
-        onClose={() => setIsCloudSyncOpen(false)}
-      />
+        {isCloudSyncOpen && (
+          <CloudSyncModal
+            isOpen={isCloudSyncOpen}
+            onClose={() => setIsCloudSyncOpen(false)}
+          />
+        )}
+
+        {isCompareOpen && <CompareModal onQuickRate={(m) => setQuickRateTarget(m)} />}
+      </Suspense>
 
       <CompareDock />
-      <CompareModal onQuickRate={(m) => setQuickRateTarget(m)} />
       <BackgroundJobBanner />
 
       <main className="flex-1 w-full">
-        <AnimatePresence mode="wait" onExitComplete={scrollToTop}>
-          <motion.div
-            key={location.pathname}
-            variants={pageTransition}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-          >
-        <Suspense fallback={<RouteFallback />}>
-        <Routes location={location}>
+        <div key={location.pathname} className="cv-route-stage">
+          <Suspense fallback={<RouteFallback />}>
+            <Routes location={location}>
           <Route
             path="/"
             element={
@@ -280,10 +338,9 @@ function AppContent() {
           <Route path="/together" element={<WatchTogetherPage />} />
           <Route path="/together/:code" element={<WatchTogetherPage />} />
           <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-        </Suspense>
-          </motion.div>
-        </AnimatePresence>
+            </Routes>
+          </Suspense>
+        </div>
       </main>
 
       {/* Slim Editorial Footer */}

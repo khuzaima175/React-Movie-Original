@@ -771,6 +771,11 @@
 }
 
 @media (max-width: 900px) {
+  .explore-page {
+    padding-top: 1.6rem;
+    padding-bottom: 8.8rem;
+  }
+
   .explore-layout {
     grid-template-columns: 1fr;
   }
@@ -779,13 +784,48 @@
     display: none;
   }
 
+  .explore-main {
+    gap: 1.4rem;
+  }
+
+  .explore-header {
+    gap: 1.1rem;
+  }
+
+  .explore-title {
+    font-size: 2.35rem;
+  }
+
+  .explore-header-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.8rem;
+  }
+
   .explore-mobile-filter-trigger {
     display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  .explore-sort-control {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .explore-sort-control .cv-select-root,
+  .explore-sort-control .cv-select-trigger {
+    width: 100%;
   }
 
   .explore-grid {
     grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
     gap: 1.6rem 1.2rem;
+  }
+
+  .explore-card-wrap {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 26rem;
   }
 }
 
@@ -894,9 +934,8 @@
   z-index: 6;
   padding: 0.25rem 0.65rem;
   border-radius: var(--r-sm);
-  background: rgba(13, 14, 17, 0.88);
+  background: rgba(13, 14, 17, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(8px);
   color: var(--text-1);
   font-size: 1.08rem;
   font-weight: 600;
@@ -904,19 +943,19 @@
 }
 
 .explore-match-badge.tier-high {
-  background: rgba(12, 30, 20, 0.88);
+  background: rgba(12, 30, 20, 0.92);
   border-color: rgba(70, 211, 105, 0.42);
   color: #86efac;
 }
 
 .explore-match-badge.tier-mid {
-  background: rgba(28, 22, 12, 0.88);
+  background: rgba(28, 22, 12, 0.92);
   border-color: rgba(229, 184, 105, 0.4);
   color: #fde68a;
 }
 
 .explore-match-badge.tier-base {
-  background: rgba(16, 18, 22, 0.86);
+  background: rgba(16, 18, 22, 0.92);
   border-color: rgba(255, 255, 255, 0.18);
   color: var(--text-2);
 }
@@ -1058,6 +1097,23 @@
 }
 
 @media (max-width: 900px) {
+  .explore-mode-toolbar {
+    gap: 0.9rem;
+    padding-bottom: 1rem;
+  }
+
+  .explore-mode-switch {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .explore-mode-btn {
+    justify-content: center;
+    width: 100%;
+    padding: 0 0.8rem;
+  }
+
   .explore-mode-toolbar-right {
     width: 100%;
     justify-content: flex-start;
@@ -1067,5 +1123,17 @@
     width: 100%;
     min-width: 0;
     flex: 1 1 100%;
+  }
+
+  .explore-for-you-tools {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+
+  .explore-tool-btn {
+    justify-content: center;
+    width: 100%;
   }
 }

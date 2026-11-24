@@ -19,6 +19,7 @@ function formatDialReadout(val, left, right) {
 export default function TasteTunerBar({
   value = DEFAULT_TUNER_STATE,
   onChange,
+  onOpen,
   dominantGenreNames = [],
   defaultOpen = false
 }) {
@@ -43,6 +44,7 @@ export default function TasteTunerBar({
   };
 
   const handleToggleAntiBubble = () => {
+    onOpen?.();
     onChange?.({
       ...DEFAULT_TUNER_STATE,
       ...value,
@@ -60,7 +62,13 @@ export default function TasteTunerBar({
         <button
           type="button"
           className="taste-tuner-toggle"
-          onClick={() => setIsOpen((prev) => !prev)}
+          onClick={() =>
+            setIsOpen((prev) => {
+              const next = !prev;
+              if (next) onOpen?.();
+              return next;
+            })
+          }
           aria-expanded={isOpen}
         >
           <SlidersHorizontal size={14} aria-hidden="true" />

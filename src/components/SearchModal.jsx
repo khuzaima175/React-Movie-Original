@@ -261,7 +261,7 @@ export default function SearchModal({
             className="search-theater-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search films by title, director, or IMDb ID..."
+            placeholder="Search films, directors, or IMDb ID..."
             aria-label="Search films by title, director, or IMDb ID"
           />
           {query && (
@@ -283,7 +283,8 @@ export default function SearchModal({
             onClick={onClose}
             aria-label="Close search"
           >
-            ESC
+            <span className="search-esc-label-desktop">ESC</span>
+            <X size={18} className="search-esc-icon-mobile" aria-hidden="true" />
           </button>
         </div>
 
@@ -330,7 +331,10 @@ export default function SearchModal({
           <div className="search-theater-empty">
             <div className="search-section-header">
               <span className="search-section-label">Popular Right Now</span>
-              <span className="search-section-sub">Click a poster to open or hover to rate</span>
+              <span className="search-section-sub">
+                <span className="search-sub-desktop">Click a poster to open or hover to rate</span>
+                <span className="search-sub-mobile">Tap a poster to open</span>
+              </span>
             </div>
 
             <div className="search-trending-grid">

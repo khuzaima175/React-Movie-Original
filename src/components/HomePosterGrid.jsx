@@ -33,6 +33,17 @@ export default function HomePosterGrid({
     [effectiveRows, selectedGenre, visibleCount]
   );
 
+  const watchedKeySet = useMemo(() => {
+    const keys = new Set();
+    for (const w of watched || []) {
+      if (!w) continue;
+      if (w.imdbID) keys.add(String(w.imdbID));
+      if (w.id) keys.add(String(w.id));
+      if (w.tmdbId) keys.add(`tmdb:${w.tmdbId}`);
+    }
+    return keys;
+  }, [watched]);
+
   if (totalCount === 0 && availableGenres.length <= 1) {
     return null;
   }
@@ -75,9 +86,9 @@ export default function HomePosterGrid({
       <div className="home-poster-mosaic-grid">
         {items.map((movie, idx) => {
           const id = movie.imdbID || movie.id || `tmdb_${movie.tmdbId}`;
-          const isWatched = (watched || []).some(
-            (w) => w && (w.imdbID === id || w.id === id || (movie.tmdbId && w.tmdbId === movie.tmdbId))
-          );
+          const isWatched =
+            (id && watchedKeySet.has(String(id))) ||
+            (movie.tmdbId && watchedKeySet.has(`tmdb:${movie.tmdbId}`));
 
           return (
             <MovieCard

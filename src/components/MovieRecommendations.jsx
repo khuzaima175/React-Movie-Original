@@ -67,6 +67,7 @@ import {
   applyTunerToPool,
   extractDominantUserGenres,
   formatDominantGenreNames,
+  isTunerNeutral,
   loadTunerAxes
 } from "../services/tunerService";
 import { Button, MetaLine, Select } from "./ui";
@@ -206,6 +207,7 @@ export default function MovieRecommendations({
   const [isDraftingRules, setIsDraftingRules] = useState(false);
   const [tunerState, setTunerState] = useState(DEFAULT_TUNER_STATE);
   const [tunerResources, setTunerResources] = useState({ contentIndex: null, tunerAxes: null });
+  const [tunerResourcesNeeded, setTunerResourcesNeeded] = useState(false);
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
   const activeRequestRef = useRef(0);
@@ -643,6 +645,8 @@ export default function MovieRecommendations({
 
   useEffect(() => {
     if (!recommendations || recommendations.length === 0) return undefined;
+    if (!tunerResourcesNeeded && isTunerNeutral(tunerState)) return undefined;
+    if (tunerResources.contentIndex && tunerResources.tunerAxes) return undefined;
     let active = true;
     Promise.all([
       loadDefaultContentIndex().catch(() => null),
@@ -653,7 +657,7 @@ export default function MovieRecommendations({
     return () => {
       active = false;
     };
-  }, [recommendations]);
+  }, [recommendations, tunerResourcesNeeded, tunerState, tunerResources.contentIndex, tunerResources.tunerAxes]);
 
   const dominantGenreIds = useMemo(
     () => extractDominantUserGenres(watched, 2),
@@ -680,6 +684,7 @@ export default function MovieRecommendations({
     });
 
     const matchOrdered = [...filtered].sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
+    if (isTunerNeutral(tunerState)) return matchOrdered;
     return applyTunerToPool(matchOrdered, tunerState, {
       watched,
       dominantGenreIds,
@@ -1330,6 +1335,7 @@ export default function MovieRecommendations({
           <TasteTunerBar
             value={tunerState}
             onChange={setTunerState}
+            onOpen={() => setTunerResourcesNeeded(true)}
             dominantGenreNames={dominantGenreNames}
           />
 
@@ -1450,11 +1456,14 @@ export default function MovieRecommendations({
                         )}
                       </div>
 
-                      <MetaLine
-                        items={[rec.year, rec.genre, directorLabel].filter(Boolean)}
-                        rating={imdbVal ? `${imdbVal} IMDb` : null}
-                        ratingTone="neutral"
-                      />
+                      <MetaLine items={[rec.year, rec.genre].filter(Boolean)} />
+                      {(directorLabel || imdbVal) && (
+                        <MetaLine
+                          items={[directorLabel].filter(Boolean)}
+                          rating={imdbVal ? `${imdbVal} IMDb` : null}
+                          ratingTone="neutral"
+                        />
+                      )}
 
                       {availableList.length > 0 && (
                         <span className="rec-stream-inline">

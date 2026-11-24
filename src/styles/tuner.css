@@ -144,6 +144,29 @@
   }
 }
 
+@media (max-width: 640px) {
+  .taste-tuner-shell {
+    margin-bottom: 1.2rem;
+    padding: 0.9rem 1.1rem;
+  }
+
+  .taste-tuner-header {
+    flex-wrap: nowrap;
+    gap: 0.6rem;
+  }
+
+  .taste-tuner-toggle {
+    font-size: 1.22rem;
+    gap: 0.5rem;
+  }
+
+  .taste-bubble-btn {
+    padding: 0.45rem 0.85rem;
+    font-size: 1.15rem;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 520px) {
   .taste-tuner-grid {
     grid-template-columns: 1fr;

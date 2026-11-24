@@ -118,6 +118,14 @@ function HeroCarousel({
     : onAddToWatchlist
       ? (isWatchlisted ? "In Watchlist" : "Add to Watchlist")
       : "Add to Vault";
+  const primaryDisplayLabel =
+    primaryLabel === "Add to Watchlist" ? (
+      <>
+        <span className="hero-btn-prefix-desktop">Add to </span>Watchlist
+      </>
+    ) : (
+      primaryLabel
+    );
 
   const hasBackdrop = Boolean(slide.backdrop && !/unsplash\.com/i.test(slide.backdrop));
 
@@ -236,11 +244,11 @@ function HeroCarousel({
                   >
                     {primaryAdded ? (
                       <>
-                        <Check size={17} aria-hidden="true" /> {primaryLabel}
+                        <Check size={17} aria-hidden="true" /> {primaryDisplayLabel}
                       </>
                     ) : (
                       <>
-                        <Plus size={17} aria-hidden="true" /> {primaryLabel}
+                        <Plus size={17} aria-hidden="true" /> {primaryDisplayLabel}
                       </>
                     )}
                   </button>

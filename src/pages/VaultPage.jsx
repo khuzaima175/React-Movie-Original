@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useApp } from "../context/AppContext";
@@ -48,6 +48,10 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [quickAddMovie, setQuickAddMovie] = useState(null);
   const [toast, setToast] = useState(null);
+  const getInitialGridBatch = () =>
+    typeof window !== "undefined" && window.innerWidth <= 900 ? 36 : 60;
+  const [visibleGridCount, setVisibleGridCount] = useState(getInitialGridBatch);
+  const loadMoreSentinelRef = useRef(null);
 
   // Sync tab if URL param changes
   useEffect(() => {
@@ -133,6 +137,34 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
 
     return sorted;
   }, [currentList, searchQuery, selectedGenre, sortBy, activeTab, selectedRating]);
+
+  useEffect(() => {
+    setVisibleGridCount(getInitialGridBatch());
+  }, [activeTab, searchQuery, selectedGenre, selectedRating, sortBy]);
+
+  const visibleGridItems = useMemo(
+    () => (viewMode === "grid" ? filtered.slice(0, visibleGridCount) : filtered),
+    [filtered, viewMode, visibleGridCount]
+  );
+
+  const hasMoreGridItems = viewMode === "grid" && visibleGridCount < filtered.length;
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!hasMoreGridItems || !sentinel || typeof window.IntersectionObserver !== "function") {
+      return undefined;
+    }
+    const observer = new window.IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleGridCount((c) => c + 36);
+        }
+      },
+      { rootMargin: "420px 0px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreGridItems, visibleGridItems.length]);
 
   function handleSelectMovie(id) {
     navigate(`/movie/${id}`);
@@ -285,34 +317,49 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
             {viewMode === "grid" ? (
               <motion.div
                 key="vault-grid"
-                className="vault-grid"
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.18 }}
               >
-                {filtered.map((movie, idx) => {
-                  const id = movie.imdbID || movie.id;
-                  const isSelected = selectedIds.includes(id);
+                <div className="vault-grid">
+                  {visibleGridItems.map((movie, idx) => {
+                    const id = movie.imdbID || movie.id;
+                    const isSelected = selectedIds.includes(id);
 
-                  return (
-                    <MovieCard
-                      key={id}
-                      movie={movie}
-                      animateOnScroll={true}
-                      revealIndex={idx}
-                      onSelectMovie={handleSelectMovie}
-                      onDeleteMovie={handleDeleteSingle}
-                      onQuickAdd={activeTab === "watchlist" ? setQuickAddMovie : null}
-                      onAddWatched={activeTab === "watchlist" ? addWatched : null}
-                      isWatched={activeTab === "watched"}
-                      isManageMode={isManageMode}
-                      isSelected={isSelected}
-                      onToggleSelect={handleToggleSelect}
-                      showCaption={true}
-                    />
-                  );
-                })}
+                    return (
+                      <MovieCard
+                        key={id}
+                        movie={movie}
+                        animateOnScroll={true}
+                        revealIndex={idx}
+                        onSelectMovie={handleSelectMovie}
+                        onDeleteMovie={handleDeleteSingle}
+                        onQuickAdd={activeTab === "watchlist" ? setQuickAddMovie : null}
+                        onAddWatched={activeTab === "watchlist" ? addWatched : null}
+                        isWatched={activeTab === "watched"}
+                        isManageMode={isManageMode}
+                        isSelected={isSelected}
+                        onToggleSelect={handleToggleSelect}
+                        showCaption={true}
+                      />
+                    );
+                  })}
+                </div>
+                {hasMoreGridItems && (
+                  <div
+                    ref={loadMoreSentinelRef}
+                    className="flex justify-center pt-6"
+                  >
+                    <button
+                      type="button"
+                      className="btn-clear-filters-cta"
+                      onClick={() => setVisibleGridCount((c) => c + 36)}
+                    >
+                      Show more ({filtered.length - visibleGridCount} remaining)
+                    </button>
+                  </div>
+                )}
               </motion.div>
             ) : (
               <motion.div

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -27,6 +27,7 @@ import {
   applyTunerToPool,
   extractDominantUserGenres,
   formatDominantGenreNames,
+  isTunerNeutral,
   loadTunerAxes
 } from "../services/tunerService";
 import {
@@ -220,9 +221,13 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const [forYouError, setForYouError] = useState("");
   const [forYouRefreshNonce, setForYouRefreshNonce] = useState(0);
   const [shuffleSeed, setShuffleSeed] = useState(() => Math.floor(Date.now() % 100000));
-  const [visibleForYouCount, setVisibleForYouCount] = useState(48);
+  const [visibleForYouCount, setVisibleForYouCount] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth <= 900 ? 24 : 48
+  );
   const [tunerState, setTunerState] = useState(DEFAULT_TUNER_STATE);
   const [tunerResources, setTunerResources] = useState({ contentIndex: null, tunerAxes: null });
+  const [tunerResourcesNeeded, setTunerResourcesNeeded] = useState(false);
+  const [forYouCheckedHash, setForYouCheckedHash] = useState(null);
   const forYouSeqRef = useRef(0);
   const handledRefreshNonceRef = useRef(0);
 
@@ -380,9 +385,14 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   function handleSwitchMode(nextMode) {
     if (nextMode === filters.mode) return;
     const modeDefaults = getExploreModeDefaults(nextMode, Boolean(filtersRef.current.query));
-    updateFilters({
-      mode: nextMode,
-      ...modeDefaults
+    if (typeof window !== "undefined" && window.scrollY > 0 && window.scrollY < 260) {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+    startTransition(() => {
+      updateFilters({
+        mode: nextMode,
+        ...modeDefaults
+      });
     });
   }
 
@@ -658,6 +668,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     async function loadOrStartBackgroundForYou() {
       setForYouError("");
       if (!forceRefresh && forYouState.profileHash === forYouProfileHash && forYouState.items.length > 0) {
+        setForYouCheckedHash(forYouProfileHash);
         setIsForYouLoading(false);
         return;
       }
@@ -670,6 +681,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           fromCache: forYouLivePool.fromCache || "fresh",
           generatedAt: forYouLivePool.generatedAt
         });
+        setForYouCheckedHash(forYouProfileHash);
         setIsForYouLoading(false);
         return;
       }
@@ -691,6 +703,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               fromCache: cached.from,
               generatedAt: cached.generatedAt
             });
+            setForYouCheckedHash(forYouProfileHash);
             setIsForYouLoading(false);
             setIsForYouEnhancing(false);
             setForYouStageNote("");
@@ -715,6 +728,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                 fromCache: "indexeddb-stale",
                 generatedAt: staleFallback.generatedAt
               });
+              setForYouCheckedHash(forYouProfileHash);
               setIsForYouLoading(false);
               setIsForYouEnhancing(true);
               setForYouStageNote("Updating matches in background — feel free to browse…");
@@ -724,10 +738,12 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
         if (cancelled || forYouSeqRef.current !== seq) return;
         handledRefreshNonceRef.current = forYouRefreshNonce;
+        setForYouCheckedHash(forYouProfileHash);
         // Launches in AppContext so navigating away does NOT abort curation!
         startForYouBackgroundJob?.({ profileHash: forYouProfileHash, forceRefresh });
       } catch {
         if (!cancelled && forYouSeqRef.current === seq) {
+          setForYouCheckedHash(forYouProfileHash);
           setForYouError("Could not build personalized Explore picks right now. Try refreshing.");
           setIsForYouLoading(false);
         }
@@ -814,7 +830,8 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   }, [keywordQuery]);
 
   useEffect(() => {
-    if (!isForYouMode) return undefined;
+    if (!isForYouMode || (!tunerResourcesNeeded && isTunerNeutral(tunerState))) return undefined;
+    if (tunerResources.contentIndex && tunerResources.tunerAxes) return undefined;
     let active = true;
     Promise.all([
       loadDefaultContentIndex().catch(() => null),
@@ -825,7 +842,14 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     return () => {
       active = false;
     };
-  }, [isForYouMode]);
+  }, [isForYouMode, tunerResourcesNeeded, tunerState, tunerResources.contentIndex, tunerResources.tunerAxes]);
+
+  const effectiveForYouItems =
+    forYouState.profileHash === forYouProfileHash && forYouState.items.length > 0
+      ? forYouState.items
+      : forYouLivePool?.profileHash === forYouProfileHash && forYouLivePool.items.length > 0
+        ? forYouLivePool.items
+        : forYouState.items;
 
   const dominantGenreIds = useMemo(
     () => extractDominantUserGenres(watched, 2),
@@ -837,8 +861,8 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   );
 
   const forYouShuffledPool = useMemo(
-    () => (isForYouMode ? weightedShuffleForYou(forYouState.items, shuffleSeed) : []),
-    [isForYouMode, forYouState.items, shuffleSeed]
+    () => (isForYouMode ? weightedShuffleForYou(effectiveForYouItems, shuffleSeed) : []),
+    [isForYouMode, effectiveForYouItems, shuffleSeed]
   );
 
   const forYouFilteredResults = useMemo(
@@ -846,18 +870,16 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     [isForYouMode, forYouShuffledPool, filters, watched, watchlist]
   );
 
-  const forYouTunedResults = useMemo(
-    () =>
-      isForYouMode
-        ? applyTunerToPool(forYouFilteredResults, tunerState, {
-            watched,
-            dominantGenreIds,
-            contentIndex: tunerResources.contentIndex,
-            tunerAxes: tunerResources.tunerAxes
-          })
-        : [],
-    [isForYouMode, forYouFilteredResults, tunerState, watched, dominantGenreIds, tunerResources]
-  );
+  const forYouTunedResults = useMemo(() => {
+    if (!isForYouMode) return [];
+    if (isTunerNeutral(tunerState)) return forYouFilteredResults;
+    return applyTunerToPool(forYouFilteredResults, tunerState, {
+      watched,
+      dominantGenreIds,
+      contentIndex: tunerResources.contentIndex,
+      tunerAxes: tunerResources.tunerAxes
+    });
+  }, [isForYouMode, forYouFilteredResults, tunerState, watched, dominantGenreIds, tunerResources]);
 
   const filteredResults = useMemo(() => {
     if (!isForYouMode && hasSearchQuery) {
@@ -885,20 +907,27 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
 
   // Reset visible slice cleanly whenever filters or shuffle order change
   useEffect(() => {
-    setVisibleForYouCount(48);
+    setVisibleForYouCount(typeof window !== "undefined" && window.innerWidth <= 900 ? 24 : 48);
   }, [filterSignature, shuffleSeed, isForYouMode, tunerState]);
 
   const needsForYouCalibration = isForYouMode && watched.length < EXPLORE_FOR_YOU_MIN_RATED;
+  const isForYouPending =
+    isForYouMode &&
+    !needsForYouCalibration &&
+    !forYouError &&
+    effectiveForYouItems.length === 0 &&
+    (isForYouLoading || forYouCheckedHash !== forYouProfileHash);
   const viewState = isForYouMode
     ? {
-        hasFreshData: !isForYouLoading && forYouState.items.length > 0,
+        hasFreshData: !isForYouLoading && effectiveForYouItems.length > 0,
         visibleItems: needsForYouCalibration ? [] : forYouTunedResults.slice(0, visibleForYouCount),
         displayTotalResults: needsForYouCalibration ? 0 : forYouTunedResults.length,
         displayTotalPages: 1,
         hiddenWatchedCount: 0,
         shouldAutoAdvance: false,
-        showSkeleton: !needsForYouCalibration && !forYouError && isForYouLoading && forYouTunedResults.length === 0,
-        showEmptyState: !needsForYouCalibration && !forYouError && !isForYouLoading && forYouTunedResults.length === 0,
+        showSkeleton: isForYouPending,
+        showEmptyState:
+          !needsForYouCalibration && !forYouError && !isForYouPending && forYouTunedResults.length === 0,
         showGrid: !needsForYouCalibration && forYouTunedResults.length > 0
       }
     : catalogViewState;
@@ -1664,12 +1693,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
               </form>
 
               {isForYouMode && !needsForYouCalibration && (
-                <motion.div
-                  className="explore-for-you-tools"
-                  initial={{ opacity: 0, x: 6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                >
+                <div className="explore-for-you-tools">
                   <button
                     type="button"
                     className="explore-tool-btn"
@@ -1679,7 +1703,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                       }
                       setShuffleSeed((s) => s + 17 + Math.floor(Math.random() * 97));
                     }}
-                    disabled={isForYouLoading || forYouState.items.length === 0}
+                    disabled={isForYouLoading || effectiveForYouItems.length === 0}
                     title="Reshuffle viewing order while keeping top matches weighted early"
                   >
                     <Shuffle size={13} aria-hidden="true" />
@@ -1699,7 +1723,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                     />
                     <span>Refresh</span>
                   </button>
-                </motion.div>
+                </div>
               )}
             </div>
           </div>
@@ -1757,10 +1781,11 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
           )}
 
           {/* Live Taste Tuner (Movies You'll Like mode) */}
-          {isForYouMode && !needsForYouCalibration && forYouState.items.length > 0 && (
+          {isForYouMode && !needsForYouCalibration && effectiveForYouItems.length > 0 && (
             <TasteTunerBar
               value={tunerState}
               onChange={setTunerState}
+              onOpen={() => setTunerResourcesNeeded(true)}
               dominantGenreNames={dominantGenreNames}
             />
           )}

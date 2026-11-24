@@ -154,3 +154,13 @@
 .notif-popover-foot a:hover {
   color: #fff;
 }
+
+@media (max-width: 640px) {
+  .notif-popover {
+    position: fixed;
+    top: calc(var(--nav-h, 5.6rem) + 0.6rem);
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+  }
+}

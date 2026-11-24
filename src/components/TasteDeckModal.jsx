@@ -248,7 +248,9 @@ export default function TasteDeckModal({
                 onClick={() => setMode("flashcards")}
               >
                 <Layers size={14} aria-hidden="true" />
-                <span>Flashcard Deck (Fast 30)</span>
+                <span>
+                  Flashcard Deck<span className="taste-deck-kbd-hint"> (Fast 30)</span>
+                </span>
               </button>
               <button
                 type="button"
@@ -258,7 +260,9 @@ export default function TasteDeckModal({
                 onClick={() => setMode("grid")}
               >
                 <Grid size={14} aria-hidden="true" />
-                <span>20+ Film Wall</span>
+                <span>
+                  <span className="taste-deck-kbd-hint">20+ </span>Film Wall
+                </span>
               </button>
             </div>
 
@@ -286,7 +290,9 @@ export default function TasteDeckModal({
                 }}
               >
                 <Upload size={14} aria-hidden="true" />
-                <span>Import Ratings (CSV / JSON)</span>
+                <span>
+                  Import<span className="taste-deck-kbd-hint"> Ratings (CSV / JSON)</span>
+                </span>
               </button>
             )}
 
@@ -295,7 +301,9 @@ export default function TasteDeckModal({
               className="taste-deck-skip-btn"
               onClick={handleDismissAll}
             >
-              <span>Done / Skip</span>
+              <span>
+                Done<span className="taste-deck-kbd-hint"> / Skip</span>
+              </span>
               <X size={15} aria-hidden="true" />
             </button>
           </div>
@@ -336,24 +344,27 @@ export default function TasteDeckModal({
                   </div>
 
                   <div className="taste-deck-stage-info">
-                    <MetaLine
-                      items={[currentCard.primaryGenre, currentCard.year, currentCard.runtime]}
-                      rating={currentCard.imdbRating}
-                      ratingTone="neutral"
-                    />
+                    <div className="taste-deck-stage-meta">
+                      <MetaLine
+                        items={[currentCard.primaryGenre, currentCard.year, currentCard.runtime]}
+                        rating={currentCard.imdbRating}
+                        ratingTone="neutral"
+                      />
 
-                    <h3 className="taste-deck-movie-title display-title">{currentCard.title}</h3>
-                    {currentCard.director && (
-                      <p className="taste-deck-director">Directed by {currentCard.director}</p>
-                    )}
-                    {currentCard.plot && (
-                      <p className="taste-deck-plot">{currentCard.plot}</p>
-                    )}
+                      <h3 className="taste-deck-movie-title display-title">{currentCard.title}</h3>
+                      {currentCard.director && (
+                        <p className="taste-deck-director">Directed by {currentCard.director}</p>
+                      )}
+                      {currentCard.plot && (
+                        <p className="taste-deck-plot">{currentCard.plot}</p>
+                      )}
+                    </div>
 
                     {/* 1-Click 1-10 Rating Bar */}
                     <div className="taste-deck-rating-panel">
                       <div className="taste-deck-rating-caption">
-                        <span>Click 1–10 or press keys 1–9, 0 (=10)</span>
+                        <span className="taste-deck-caption-desktop">Click 1–10 or press keys 1–9, 0 (=10)</span>
+                        <span className="taste-deck-caption-mobile">Tap a score</span>
                         <span
                           className="taste-deck-tier-label"
                           style={{ color: activeTier.color }}
@@ -390,9 +401,10 @@ export default function TasteDeckModal({
                         className="taste-deck-nav-btn"
                         onClick={handlePrevCard}
                         disabled={cardIndex === 0}
+                        aria-label="Previous film"
                       >
                         <ArrowLeft size={15} aria-hidden="true" />
-                        <span>Previous</span>
+                        <span className="taste-deck-prev-label">Previous</span>
                       </button>
 
                       <button
@@ -402,9 +414,15 @@ export default function TasteDeckModal({
                       >
                         <Bookmark size={15} aria-hidden="true" />
                         <span>
-                          {sessionWatchlistIds[currentCard.imdbID || currentCard.id] || currentCard.inWatchlist
-                            ? "Watchlisted (Next)"
-                            : "Watchlist (W)"}
+                          {sessionWatchlistIds[currentCard.imdbID || currentCard.id] || currentCard.inWatchlist ? (
+                            <>
+                              Watchlisted<span className="taste-deck-kbd-hint"> (Next)</span>
+                            </>
+                          ) : (
+                            <>
+                              Watchlist<span className="taste-deck-kbd-hint"> (W)</span>
+                            </>
+                          )}
                         </span>
                       </button>
 
@@ -413,7 +431,9 @@ export default function TasteDeckModal({
                         className="taste-deck-nav-btn skip"
                         onClick={handleSkipCard}
                       >
-                        <span>Skip / Haven&apos;t Seen (S)</span>
+                        <span>
+                          Skip<span className="taste-deck-kbd-hint"> / Haven&apos;t Seen (S)</span>
+                        </span>
                         <SkipForward size={15} aria-hidden="true" />
                       </button>
                     </div>

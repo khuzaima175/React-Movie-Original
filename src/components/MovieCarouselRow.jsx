@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeftRight, ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
@@ -120,6 +120,17 @@ export default function MovieCarouselRow({
     [revealRef, wheelScopeRef]
   );
 
+  const watchedKeySet = useMemo(() => {
+    const keys = new Set();
+    for (const w of watched || []) {
+      if (!w) continue;
+      if (w.imdbID) keys.add(String(w.imdbID));
+      if (w.id) keys.add(String(w.id));
+      if (w.tmdbId) keys.add(`tmdb:${w.tmdbId}`);
+    }
+    return keys;
+  }, [watched]);
+
   if (!movies || !Array.isArray(movies) || movies.length === 0) return null;
 
   return (
@@ -195,9 +206,9 @@ export default function MovieCarouselRow({
           {movies.map((movie, idx) => {
             if (!movie) return null;
             const id = movie.imdbID || movie.id;
-            const isWatched = (watched || []).some(
-              (w) => w && (w.imdbID === id || w.id === id || (movie.tmdbId && w.tmdbId === movie.tmdbId))
-            );
+            const isWatched =
+              (id && watchedKeySet.has(String(id))) ||
+              (movie.tmdbId && watchedKeySet.has(`tmdb:${movie.tmdbId}`));
 
             return (
               <MovieCard

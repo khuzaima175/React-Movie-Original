@@ -1,13 +1,12 @@
-import { useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { memo, useRef } from "react";
 import { Star, Plus, Check, Info, Trash2, CheckSquare, Square, GitCompareArrows } from "lucide-react";
 import PosterImage from "./PosterImage";
-import { useOptionalApp } from "../context/AppContext";
+import { useCompareState } from "../context/AppContext";
 import { buildQuickAddWatchedMovie } from "../services/csvImport";
 import { isSameMovie } from "../services/movieIdentity";
 import { useScrollReveal } from "../hooks/useScrollReveal";
 
-export default function MovieCard({
+const MovieCard = memo(function MovieCard({
   movie,
   onSelectMovie,
   onQuickAdd,
@@ -26,22 +25,22 @@ export default function MovieCard({
   rank = null,
   className = ""
 }) {
-  const appCtx = useOptionalApp();
+  const compareCtx = useCompareState();
   const posterRef = useRef(null);
   const tiltFrameRef = useRef(0);
   const [revealRef, isRevealed] = useScrollReveal({
-    rootMargin: "120px 0px 40px 0px",
+    rootMargin: "160px 0px 80px 0px",
     threshold: 0,
     disabled: !animateOnScroll || !movie
   });
 
   if (!movie) return null;
 
-  const resolvedToggleCompare = onToggleCompare || appCtx?.toggleCompare || null;
+  const resolvedToggleCompare = onToggleCompare || compareCtx?.toggleCompare || null;
   const resolvedIsInCompare =
     typeof isInCompare === "boolean"
       ? isInCompare
-      : Boolean(appCtx?.compareItems?.some((item) => isSameMovie(item, movie)));
+      : Boolean(compareCtx?.compareItems?.some((item) => isSameMovie(item, movie)));
 
   const id = movie.imdbID || movie.id;
   const title = movie.Title || movie.title || "Movie";
@@ -105,24 +104,15 @@ export default function MovieCard({
     el.style.removeProperty("--gy");
   }
 
+  const revealDelayMs = animateOnScroll ? Math.min((revealIndex % 7) * 28, 170) : 0;
+
   return (
-    <motion.div
+    <div
       ref={animateOnScroll ? revealRef : undefined}
-      initial={animateOnScroll ? { opacity: 0, y: 20 } : { opacity: 1, y: 0 }}
-      animate={{
-        opacity: !animateOnScroll || isRevealed ? 1 : 0,
-        y: !animateOnScroll || isRevealed ? 0 : 20
-      }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={{
-        duration: 0.42,
-        delay: animateOnScroll ? Math.min((revealIndex % 7) * 0.032, 0.2) : 0,
-        ease: [0.22, 1, 0.36, 1]
-      }}
-      whileHover={{ y: -3, transition: { duration: 0.16 } }}
-      className={`unified-movie-card ${isManageMode ? "manage-mode" : ""} ${
-        isSelected ? "selected" : ""
-      } ${className}`}
+      style={animateOnScroll ? { "--reveal-delay": `${revealDelayMs}ms` } : undefined}
+      className={`unified-movie-card ${
+        animateOnScroll ? `cv-card-reveal ${isRevealed ? "is-revealed" : ""}` : ""
+      } ${isManageMode ? "manage-mode" : ""} ${isSelected ? "selected" : ""} ${className}`}
       onClick={handleCardClick}
       tabIndex={0}
       role="group"
@@ -190,18 +180,9 @@ export default function MovieCard({
                   title={isWatched ? "In Vault" : "Rate or Save"}
                   aria-label={isWatched ? `${title} is in Vault` : `Rate or save ${title}`}
                 >
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.span
-                      key={isWatched ? "added" : "idle"}
-                      className="card-action-icon"
-                      initial={{ scale: 0.3, rotate: -90, opacity: 0 }}
-                      animate={{ scale: 1, rotate: 0, opacity: 1 }}
-                      exit={{ scale: 0.3, rotate: 90, opacity: 0 }}
-                      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                    >
-                      {isWatched ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
-                    </motion.span>
-                  </AnimatePresence>
+                  <span className="card-action-icon">
+                    {isWatched ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+                  </span>
                 </button>
               )}
 
@@ -271,6 +252,8 @@ export default function MovieCard({
           </div>
         </div>
       )}
-    </motion.div>
+    </div>
   );
-}
+});
+
+export default MovieCard;

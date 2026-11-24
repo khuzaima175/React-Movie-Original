@@ -1,10 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import { Film } from "lucide-react";
 
 // In-memory cache of successfully loaded poster URLs in this session
 const loadedImagesCache = new Set();
 
-export default function PosterImage({ src, alt, title = "Movie", className = "", style = {} }) {
+function PosterImage({
+  src,
+  alt,
+  title = "Movie",
+  className = "",
+  style = {},
+  eager = false
+}) {
   const isInvalidSrc = !src || src === "N/A" || src.includes("placeholder.com");
   const isAlreadyLoaded = Boolean(src && loadedImagesCache.has(src));
 
@@ -27,7 +34,7 @@ export default function PosterImage({ src, alt, title = "Movie", className = "",
 
   function handleSuccess() {
     if (src) loadedImagesCache.add(src);
-    setIsLoading(false);
+    setIsLoading((prev) => (prev ? false : prev));
   }
 
   function handleError() {
@@ -43,10 +50,8 @@ export default function PosterImage({ src, alt, title = "Movie", className = "",
 
   // Check if cached image completed immediately
   useEffect(() => {
-    if (imgRef.current && imgRef.current.complete) {
-      if (imgRef.current.naturalWidth > 0) {
-        handleSuccess();
-      }
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      handleSuccess();
     }
   }, [src, retryCount]);
 
@@ -80,15 +85,12 @@ export default function PosterImage({ src, alt, title = "Movie", className = "",
     <div className={`poster-img-container ${isLoading ? "is-loading" : ""} ${className}`} style={style}>
       {isLoading && <div className="poster-skeleton-shimmer" aria-hidden="true" />}
       <img
-        ref={(node) => {
-          imgRef.current = node;
-          if (node && node.complete && node.naturalWidth > 0) {
-            handleSuccess();
-          }
-        }}
+        ref={imgRef}
         key={retryCount}
         src={finalSrc}
         alt={alt || `${title} poster`}
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
         referrerPolicy="no-referrer"
         onLoad={handleSuccess}
         onError={handleError}
@@ -97,3 +99,5 @@ export default function PosterImage({ src, alt, title = "Movie", className = "",
     </div>
   );
 }
+
+export default memo(PosterImage);
