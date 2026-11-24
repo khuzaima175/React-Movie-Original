@@ -2933,9 +2933,18 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
     const userRegion = options.userRegion || "US";
     const userProviders = options.userProviders || [];
 
+    const embeddingIndexPromise = hasTmdb
+        ? (options.embeddingIndex !== undefined
+            ? Promise.resolve(options.embeddingIndex)
+            : loadDefaultEmbeddingIndex().catch(() => null))
+        : Promise.resolve(null);
+
     // 1. Synthesize statistical taste profile with mathematical weighting
     onProgress?.("Analyzing your ratings and preferences...");
-    const profile = await extractTasteProfile(watchedMovies, watchlist);
+    const [profile, preloadedEmbeddingIndex] = await Promise.all([
+        extractTasteProfile(watchedMovies, watchlist),
+        embeddingIndexPromise
+    ]);
 
     // 2. Primary Engine: Dynamic Waterfall TMDB Retrieval + Gemini Re-Ranking
     if (hasTmdb) {
@@ -2945,15 +2954,14 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 ? options.candidates
                 : await fetchCandidatePool(profile, mood, watchedMovies, watchlist, {
                     ...options,
+                    embeddingIndex: preloadedEmbeddingIndex,
                     userRegion,
                     userProviders
                 });
 
             if (candidates && candidates.length >= 6) {
                 const [embeddingIndex, easeIndex, contentIndex, dnaIndex] = await Promise.all([
-                    options.embeddingIndex !== undefined
-                        ? Promise.resolve(options.embeddingIndex)
-                        : loadDefaultEmbeddingIndex(),
+                    Promise.resolve(preloadedEmbeddingIndex),
                     options.easeIndex !== undefined
                         ? Promise.resolve(options.easeIndex)
                         : loadDefaultEaseIndex(),

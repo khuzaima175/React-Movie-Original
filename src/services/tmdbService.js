@@ -34,6 +34,7 @@ import {
   extractTmdbNumericId
 } from "./movieIdentity.js";
 import { compileActiveTasteRules, candidateMatchesAvoidRule } from "./tasteRulesService.js";
+import { computePersonaDetails, l2NormalizeInPlace } from "./embeddingService.js";
 
 export const getTmdbKey = () => resolveTmdbKey();
 export const getOmdbKey = () => resolveOmdbKey();
@@ -662,16 +663,179 @@ export function buildBucketAParams(profile = {}, mood = "any", options = {}, api
     params.set("with_cast", profile.topCastIds.join("|"));
   }
 
-  const providerFilter = buildProviderFilter(userProviders, { expandAliases: true });
-  if (providerFilter) {
-    params.set("with_watch_providers", providerFilter);
-    params.set("with_watch_monetization_types", "flatrate|free|ads");
-    params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
-  } else if (userRegion && userRegion !== "GLOBAL") {
-    params.set("watch_region", userRegion);
-  }
+  applyProviderAndRegionParams(params, userRegion, userProviders);
 
   return params;
+}
+
+/**
+ * Extracts primary TMDB genre ID from a weighted rating entry or its inner movie object.
+ */
+function extractPrimaryGenreId(entry) {
+  const movie = entry?.movie || entry;
+  const genreList =
+    Array.isArray(movie?.tmdbGenreIds) && movie.tmdbGenreIds.length > 0
+      ? movie.tmdbGenreIds
+      : Array.isArray(movie?.genre_ids) && movie.genre_ids.length > 0
+        ? movie.genre_ids
+        : Array.isArray(entry?.tmdbGenreIds) && entry.tmdbGenreIds.length > 0
+          ? entry.tmdbGenreIds
+          : null;
+  if (genreList) {
+    const first = Number(genreList[0]);
+    if (Number.isFinite(first) && first > 0) return first;
+  }
+  const mapped = mapOmdbToTmdbGenreIds(movie?.genre || movie?.Genre || entry?.genre || entry?.Genre || "");
+  return mapped.length > 0 ? mapped[0] : null;
+}
+
+/**
+ * Selects up to `maxAnchors` representative films from distinct Spherical K-Means personas
+ * (highest-weight >= 8★ medoid per persona), falling back to top distinct-genre >= 9★
+ * anchors when `embeddingIndex` is null or yields < 1 persona.
+ */
+export function selectPersonaAnchorIds(weightedRatings = [], embeddingIndex = null, maxAnchors = 3) {
+  const limit = Math.max(0, Math.floor(Number(maxAnchors) || 0));
+  if (!Array.isArray(weightedRatings) || weightedRatings.length === 0 || limit === 0) {
+    return [];
+  }
+
+  const positiveEntries = [];
+  for (const entry of weightedRatings) {
+    const tmdbId = extractTmdbNumericId(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id);
+    const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+    if (!tmdbId || !Number.isFinite(weight) || weight <= 0) continue;
+    positiveEntries.push({
+      tmdbId,
+      weight,
+      rating,
+      primaryGenre: extractPrimaryGenreId(entry)
+    });
+  }
+  if (positiveEntries.length === 0) return [];
+
+  if (embeddingIndex && embeddingIndex.dim && embeddingIndex.vectors && embeddingIndex.idToIndex) {
+    const { dim, vectors, idToIndex } = embeddingIndex;
+    let indexedPositiveCount = 0;
+    for (const item of positiveEntries) {
+      if (idToIndex.has(item.tmdbId)) indexedPositiveCount++;
+    }
+    const personaOptions =
+      indexedPositiveCount < 12 || limit > 4
+        ? { k: Math.max(1, limit) }
+        : undefined;
+    const { centroids = [], masses = [] } = computePersonaDetails(weightedRatings, embeddingIndex, personaOptions) || {};
+    if (Array.isArray(centroids) && centroids.length >= 1) {
+      const bestByPersona = new Array(centroids.length).fill(null);
+      const unit = new Float32Array(dim);
+
+      for (const item of positiveEntries) {
+        if (!Number.isFinite(item.rating) || item.rating < 8) continue;
+        const idx = idToIndex.get(item.tmdbId);
+        if (idx === undefined) continue;
+
+        const base = idx * dim;
+        for (let d = 0; d < dim; d++) unit[d] = vectors[base + d];
+        const norm = l2NormalizeInPlace(unit, 0, dim);
+        if (norm <= 1e-12) continue;
+
+        let bestK = 0;
+        let bestSim = -Infinity;
+        for (let k = 0; k < centroids.length; k++) {
+          const c = centroids[k];
+          let dot = 0;
+          for (let d = 0; d < dim; d++) dot += c[d] * unit[d];
+          if (dot > bestSim) {
+            bestSim = dot;
+            bestK = k;
+          }
+        }
+
+        const current = bestByPersona[bestK];
+        const isBetter =
+          !current ||
+          item.weight > current.weight ||
+          (item.weight === current.weight &&
+            (bestSim > current.sim || (bestSim === current.sim && item.tmdbId < current.tmdbId)));
+        if (isBetter) {
+          bestByPersona[bestK] = {
+            tmdbId: item.tmdbId,
+            weight: item.weight,
+            sim: bestSim,
+            mass: Number(masses[bestK]) > 0 ? Number(masses[bestK]) : 1 / centroids.length
+          };
+        }
+      }
+
+      const personaPicked = bestByPersona
+        .filter(Boolean)
+        .sort((a, b) => b.mass - a.mass || b.weight - a.weight || a.tmdbId - b.tmdbId)
+        .slice(0, limit)
+        .map(({ tmdbId, mass }) => ({ tmdbId, mass }));
+      if (personaPicked.length > 0) {
+        return personaPicked;
+      }
+    }
+  }
+
+  // Fallback when embeddingIndex is null or yields < 1 persona: top distinct-genre >= 9★ films
+  const eliteSorted = positiveEntries
+    .filter((item) => Number.isFinite(item.rating) && item.rating >= 9)
+    .sort((a, b) => b.weight - a.weight || a.tmdbId - b.tmdbId);
+
+  const picked = [];
+  const seenIds = new Set();
+  const seenGenres = new Set();
+  for (const item of eliteSorted) {
+    if (seenIds.has(item.tmdbId)) continue;
+    if (item.primaryGenre !== null && seenGenres.has(item.primaryGenre)) continue;
+    seenIds.add(item.tmdbId);
+    if (item.primaryGenre !== null) seenGenres.add(item.primaryGenre);
+    picked.push(item);
+    if (picked.length >= limit) break;
+  }
+
+  if (picked.length === 0) return [];
+  const totalWeight = picked.reduce((sum, item) => sum + item.weight, 0);
+  return picked.map((item) => ({
+    tmdbId: item.tmdbId,
+    mass: totalWeight > 0 ? item.weight / totalWeight : 1 / picked.length
+  }));
+}
+
+/**
+ * Round-robin interleaves TMDB discover result lists while deduplicating and applying collision guards.
+ */
+function interleaveTmdbStreams(
+  streams = [],
+  collisionSets = {},
+  targetCount = 8,
+  sourceBucket = "TMDB",
+  hasProviderFilter = false
+) {
+  const candidates = [];
+  const seenIds = new Set();
+  const cursors = new Array(streams.length).fill(0);
+
+  while (candidates.length < targetCount) {
+    let progressed = false;
+    for (let s = 0; s < streams.length; s++) {
+      const list = streams[s];
+      while (cursors[s] < list.length) {
+        const m = list[cursors[s]++];
+        if (shouldSkipTmdbCandidate(m, collisionSets) || seenIds.has(m.id)) continue;
+        seenIds.add(m.id);
+        candidates.push(normalizeTmdbItem(m, sourceBucket, hasProviderFilter));
+        progressed = true;
+        break;
+      }
+      if (candidates.length >= targetCount) break;
+    }
+    if (!progressed) break;
+  }
+
+  return candidates;
 }
 
 /**
@@ -745,120 +909,196 @@ export async function fetchBucketA(profile, mood = "any", options = {}, collisio
 }
 
 /**
- * BUCKET B: Keyword Spiritual Successor (Safe Keyword Match without Genre Blacklisting)
+ * BUCKET B: Keyword Spiritual Successor (Distributes <= 4 TMDB pages across up to 3 persona anchors)
  */
-export async function fetchBucketB(anchorTmdbId, options = {}, collisionSets = {}, targetCount = 8) {
-  if (!hasTmdbBackend(options) || !anchorTmdbId) return [];
+export async function fetchBucketB(anchorIdsOrSingle, options = {}, collisionSets = {}, targetCount = 8) {
+  if (!hasTmdbBackend(options) || !anchorIdsOrSingle || targetCount <= 0) return [];
+
+  const rawAnchors = Array.isArray(anchorIdsOrSingle) ? anchorIdsOrSingle : [anchorIdsOrSingle];
+  const anchors = [];
+  const seenAnchorIds = new Set();
+  for (const item of rawAnchors) {
+    const rawId = item && typeof item === "object" ? (item.tmdbId ?? item.id) : item;
+    const tmdbId = extractTmdbNumericId(rawId);
+    if (!tmdbId || seenAnchorIds.has(tmdbId)) continue;
+    seenAnchorIds.add(tmdbId);
+    const mass = item && typeof item === "object" && Number.isFinite(Number(item.mass)) ? Number(item.mass) : null;
+    anchors.push({ tmdbId, mass });
+    if (anchors.length >= 3) break;
+  }
+  if (anchors.length === 0) return [];
+
+  if (anchors.some((a) => a.mass !== null)) {
+    anchors.sort((a, b) => (b.mass ?? 0) - (a.mass ?? 0));
+  }
 
   const key = resolveEffectiveTmdbKey(options);
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
   const { userRegion = "US", userProviders = [] } = options;
 
-  const { keywords } = await fetchMovieKeywordsAndCrew(anchorTmdbId, options);
-  if (!keywords || keywords.length === 0) return [];
+  const kwResults = await Promise.all(anchors.map((a) => fetchMovieKeywordsAndCrew(a.tmdbId, options)));
+  const activeAnchors = anchors
+    .map((a, idx) => ({
+      ...a,
+      keywords: (kwResults[idx]?.keywords || []).slice(0, 3)
+    }))
+    .filter((a) => a.keywords.length > 0);
+  if (activeAnchors.length === 0) return [];
 
-  const params = new URLSearchParams({
+  const baseParams = new URLSearchParams({
     api_key: key,
-    with_keywords: keywords.slice(0, 3).join("|"),
     sort_by: "vote_average.desc",
     "vote_count.gte": "500",
     "vote_average.gte": "7.0",
     include_adult: "false"
   });
+  const hasProviderFilter = applyProviderAndRegionParams(baseParams, userRegion, userProviders);
+  const baseObj = Object.fromEntries(baseParams);
 
-  const providerFilter = buildProviderFilter(userProviders, { expandAliases: true });
-  if (providerFilter) {
-    params.set("with_watch_providers", providerFilter);
-    params.set("with_watch_monetization_types", "flatrate|free|ads");
-    params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
-  } else if (userRegion && userRegion !== "GLOBAL") {
-    params.set("watch_region", userRegion);
-  }
+  const MAX_TOTAL_PAGES = 4;
+  let pagesUsed = 0;
+  const streams = activeAnchors.map(() => []);
+  const nextPage = activeAnchors.map(() => 1);
+  const exhausted = activeAnchors.map(() => false);
 
-  const candidates = [];
-  let page = 1;
-
-  while (candidates.length < targetCount && page <= 4) {
-    try {
-      const data = await fetchTmdbJson(
-        "/3/discover/movie",
-        { ...Object.fromEntries(params), page: String(page) },
-        { apiKey: key, fetchFn, forceProxy: options.forceProxy }
-      );
-      if (!data?.results || data.results.length === 0) break;
-
-      for (const m of data.results) {
-        if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
-        if (candidates.some(c => c.id === m.id)) continue;
-
-        candidates.push(normalizeTmdbItem(m, "Bucket B: Spiritual Successor", Boolean(providerFilter)));
-        if (candidates.length >= targetCount) break;
+  const countUniqueValid = () => {
+    const uniq = new Set();
+    for (const list of streams) {
+      for (const m of list) {
+        if (!shouldSkipTmdbCandidate(m, collisionSets)) uniq.add(m.id);
       }
-      page++;
-    } catch (err) {
-      break;
+    }
+    return uniq.size;
+  };
+
+  while (pagesUsed < MAX_TOTAL_PAGES && countUniqueValid() < targetCount) {
+    const roundIndices = [];
+    for (let i = 0; i < activeAnchors.length && pagesUsed + roundIndices.length < MAX_TOTAL_PAGES; i++) {
+      if (!exhausted[i]) roundIndices.push(i);
+    }
+    if (roundIndices.length === 0) break;
+
+    pagesUsed += roundIndices.length;
+    const responses = await Promise.all(
+      roundIndices.map(async (i) => {
+        try {
+          const data = await fetchTmdbJson(
+            "/3/discover/movie",
+            {
+              ...baseObj,
+              with_keywords: activeAnchors[i].keywords.join("|"),
+              page: String(nextPage[i])
+            },
+            { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+          );
+          return { i, results: Array.isArray(data?.results) ? data.results : null };
+        } catch (_) {
+          return { i, results: null };
+        }
+      })
+    );
+
+    for (const { i, results } of responses) {
+      nextPage[i]++;
+      if (!results || results.length === 0) {
+        exhausted[i] = true;
+      } else {
+        streams[i].push(...results);
+      }
     }
   }
 
-  return candidates;
+  return interleaveTmdbStreams(
+    streams,
+    collisionSets,
+    targetCount,
+    "Bucket B: Spiritual Successor",
+    hasProviderFilter
+  );
 }
 
 /**
- * BUCKET C: Single Auteur Crew Member Query (with_crew={singleId})
+ * BUCKET C: Multi-Auteur Crew Member Query (up to top 3 topCrewIds in parallel, max 3 TMDB calls)
  */
-export async function fetchBucketC(profile, options = {}, collisionSets = {}, targetCount = 4) {
-  if (!hasTmdbBackend(options)) return [];
+export async function fetchBucketC(profile = {}, options = {}, collisionSets = {}, targetCount = 4) {
+  if (!hasTmdbBackend(options) || !profile || targetCount <= 0) return [];
+
+  const rawCrewIds = Array.isArray(profile.topCrewIds) && profile.topCrewIds.length > 0
+    ? profile.topCrewIds
+    : (profile.topCrewMemberId ? [profile.topCrewMemberId] : []);
+  const crewIds = [];
+  const seenCrew = new Set();
+  for (const raw of rawCrewIds) {
+    const id = extractTmdbNumericId(raw);
+    if (!id || seenCrew.has(id)) continue;
+    seenCrew.add(id);
+    crewIds.push(id);
+    if (crewIds.length >= 3) break;
+  }
+  if (crewIds.length === 0) return [];
 
   const key = resolveEffectiveTmdbKey(options);
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : undefined;
-  const { topCrewMemberId } = profile;
-  if (!topCrewMemberId) return [];
-
   const { userRegion = "US", userProviders = [] } = options;
 
-  const params = new URLSearchParams({
+  const baseParams = new URLSearchParams({
     api_key: key,
-    with_crew: String(topCrewMemberId),
     sort_by: "vote_average.desc",
     "vote_count.gte": "150",
     include_adult: "false"
   });
+  const hasProviderFilter = applyProviderAndRegionParams(baseParams, userRegion, userProviders);
+  const baseObj = Object.fromEntries(baseParams);
 
-  const providerFilter = buildProviderFilter(userProviders, { expandAliases: true });
-  if (providerFilter) {
-    params.set("with_watch_providers", providerFilter);
-    params.set("with_watch_monetization_types", "flatrate|free|ads");
-    params.set("watch_region", (!userRegion || userRegion === "GLOBAL") ? "US" : userRegion);
-  } else if (userRegion && userRegion !== "GLOBAL") {
-    params.set("watch_region", userRegion);
-  }
+  if (crewIds.length === 1) {
+    const candidates = [];
+    let page = 1;
+    while (candidates.length < targetCount && page <= 3) {
+      try {
+        const data = await fetchTmdbJson(
+          "/3/discover/movie",
+          { ...baseObj, with_crew: String(crewIds[0]), page: String(page) },
+          { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+        );
+        if (!data?.results || data.results.length === 0) break;
 
-  const candidates = [];
-  let page = 1;
+        for (const m of data.results) {
+          if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
+          if (candidates.some((c) => c.id === m.id)) continue;
 
-  while (candidates.length < targetCount && page <= 3) {
-    try {
-      const data = await fetchTmdbJson(
-        "/3/discover/movie",
-        { ...Object.fromEntries(params), page: String(page) },
-        { apiKey: key, fetchFn, forceProxy: options.forceProxy }
-      );
-      if (!data?.results || data.results.length === 0) break;
-
-      for (const m of data.results) {
-        if (shouldSkipTmdbCandidate(m, collisionSets)) continue;
-        if (candidates.some(c => c.id === m.id)) continue;
-
-        candidates.push(normalizeTmdbItem(m, "Bucket C: Auteur Crew", Boolean(providerFilter)));
-        if (candidates.length >= targetCount) break;
+          candidates.push(normalizeTmdbItem(m, "Bucket C: Auteur Crew", hasProviderFilter));
+          if (candidates.length >= targetCount) break;
+        }
+        page++;
+      } catch (err) {
+        break;
       }
-      page++;
-    } catch (err) {
-      break;
     }
+    return candidates;
   }
 
-  return candidates;
+  const streams = await Promise.all(
+    crewIds.map(async (crewId) => {
+      try {
+        const data = await fetchTmdbJson(
+          "/3/discover/movie",
+          { ...baseObj, with_crew: String(crewId), page: "1" },
+          { apiKey: key, fetchFn, forceProxy: options.forceProxy }
+        );
+        return Array.isArray(data?.results) ? data.results : [];
+      } catch (_) {
+        return [];
+      }
+    })
+  );
+
+  return interleaveTmdbStreams(
+    streams,
+    collisionSets,
+    targetCount,
+    "Bucket C: Auteur Crew",
+    hasProviderFilter
+  );
 }
 
 /**
@@ -878,7 +1118,7 @@ export function getRecentReleaseDateFloor(months = 18, now = Date.now()) {
  * Attaches watch provider and region query parameters onto a TMDB discover URLSearchParams.
  */
 function applyProviderAndRegionParams(params, userRegion = "US", userProviders = []) {
-  const providerFilter = buildProviderFilter(userProviders);
+  const providerFilter = buildProviderFilter(userProviders, { expandAliases: true });
   if (providerFilter) {
     params.set("with_watch_providers", providerFilter);
     params.set("with_watch_monetization_types", "flatrate|free|ads");
@@ -1018,10 +1258,21 @@ export async function fetchCandidatePool(profile, mood = "any", watchedMovies = 
     ? Math.min(8, Math.max(2, Math.floor(targetPoolSize * 0.12)))
     : Math.min(20, Math.max(4, Math.floor(targetPoolSize * 0.2)));
 
+  const personaAnchors = Array.isArray(profile?.weightedRatings) && profile.weightedRatings.length > 0
+    ? selectPersonaAnchorIds(profile.weightedRatings, options.embeddingIndex ?? null)
+    : [];
+  const bucketBAnchors = personaAnchors.length > 0
+    ? personaAnchors
+    : (profile?.anchorTmdbId ? [profile.anchorTmdbId] : []);
+  const hasCrewAnchors = Boolean(
+    profile?.topCrewMemberId ||
+    (Array.isArray(profile?.topCrewIds) && profile.topCrewIds.length > 0)
+  );
+
   // 1. Concurrently fetch specific Keyword and Auteur/Cast buckets
   const [bucketB, bucketC] = await Promise.all([
-    profile.anchorTmdbId ? fetchBucketB(profile.anchorTmdbId, options, collisionSets, bucketBTarget) : Promise.resolve([]),
-    profile.topCrewMemberId ? fetchBucketC(profile, options, collisionSets, bucketCTarget) : Promise.resolve([])
+    bucketBAnchors.length > 0 ? fetchBucketB(bucketBAnchors, options, collisionSets, bucketBTarget) : Promise.resolve([]),
+    hasCrewAnchors ? fetchBucketC(profile, options, collisionSets, bucketCTarget) : Promise.resolve([])
   ]);
 
   // 2. Merge and deduplicate specific pool (applying mood gate when explicit mood is active)
