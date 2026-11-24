@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 24, 2026 (`v6.1`)  
-**Status:** Production-ready · Verified by **457 / 457** offline service & API unit tests (`npm test`) and production Vite build (`npm run build`).
+**Last Updated:** November 24, 2026 (`v6.2`)  
+**Status:** Production-ready · Verified by **479 / 479** offline service & API unit tests (`npm test`) and production Vite build (`npm run build`).
 
 If you want to understand **what our local ML models actually are**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English. For the full living benchmark table and ongoing accuracy experiments, see **[MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)**.
 
@@ -39,9 +39,9 @@ Your recommendation engine does **85–90% of the intelligence locally on the us
    - Passes them through a temperature-scaled logistic sigmoid $\sigma((b + w^\top x + \text{moodAdjustment}) / \tau)$ (`\tau = 1.45`) and locks each film's order-preserving **50–99% Display Match Score** plus up to 3 deterministic **Match Reason Badges**.
    - **Zero LLM Score Hallucination (`100 → 20`):** Gemini **never** invents or overrides these match percentages — `mergeGeminiExplanationsWithRanker` locks the mathematical `matchScore` and `matchReasons`, asking Gemini only to select the best diverse **`20`** (`DEFAULT_RECOMMENDATION_COUNT = 20`) out of up to **`100`** stratified pre-ranked candidates (`72` top core + `14` cold `2024–2026` + `14` diverse outliers via `buildDiversifiedGeminiShortlist`, plus `0–2` or `0–4` optional TMDB-verified `wildcardPicks`), pair each pick with `1–3` vault `anchorTitles`, and write grounded 2-sentence editorial pitches free of scoring jargon (backfilling cleanly from the top ranker picks if Gemini returns fewer than `20`).
 
-4. **Neural Semantic Cold-Start Embeddings ([public/models/content_embeddings_f16.bin](./public/models/content_embeddings_f16.bin)) — NEW in `v6.1`!**
+4. **Neural Semantic Cold-Start Embeddings ([public/models/content_embeddings_f16.bin](./public/models/content_embeddings_f16.bin)) — Shipped in `v6.1`, Isolated in `v6.2`!**
    - **What it is:** A **`2.76 MB`** (`2,890,956` bytes) `CVEM v1` `float16` binary encoding **`11,119` movies × `128-D`** (`sentence-transformers/all-MiniLM-L6-v2` PCA, `79.6%` variance retained) from pure `title + tagline + overview` text — including **`1,499` `2024–2026` theatrical releases** outside MovieLens 32M's training window.
-   - **Strict `coldOnly: true` Isolation:** Loaded lazily by `loadDefaultContentIndex` (`contentSimService.js`) and gated strictly to cold/unindexed films (`hasCollaborativeCoverage === false`) so warm EASE^R+SVD picks experience zero dilution while cold-start `Holdout-150` `NDCG@10` jumps **`+26.7%*`** (`+22.1%*` `NDCG@20`).
+   - **Strict `coldOnly: true` Isolation & `Bucket E-Cold (Semantic)`:** Loaded lazily by `loadDefaultContentIndex` (`contentSimService.js`) and gated strictly to cold/unindexed films (`hasCollaborativeCoverage === false`, with `minPositiveRating = 7` centroid guard so harsh `<= 5★` films never pollute semantic centroids), raising cold-start `Holdout-150` `NDCG@10` **`+26.7%*`** (`+22.1%*` `NDCG@20`) with zero warm dilution. In `v6.2`, `retrieveColdContentNeighbors` also powers **`"Bucket E-Cold (Semantic)"`** retrieval in both Oracle and Explore For You Wave 2, strictly skipping warm indexed items via `collabIdSet` (returned from `embeddingWorker.js`), `collabIndex`, and `collabSimMap`.
 
 5. **Offline Weight Snapshot ([public/models/ranker_weights.json](./public/models/ranker_weights.json)) & Trainers ([scripts/experiments/train_sparse_ease.py](./scripts/experiments/train_sparse_ease.py), [scripts/experiments/build_local_content_embeddings.py](./scripts/experiments/build_local_content_embeddings.py), [scripts/colab_train_embeddings.py](./scripts/colab_train_embeddings.py))**
    - `public/models/ranker_weights.json` stays synchronized in exact `deepEqual` parity with `DEFAULT_RANKER_WEIGHTS`. `train_sparse_ease.py` trains `item_ease_k64.cvea` locally in ~56 seconds on CPU from MovieLens 32M (`--production --max-items 14000 --k 64 --lam 800 --pop-gamma 0.12`), and `build_local_content_embeddings.py` refreshes `content_embeddings_f16.bin` locally in ~30 seconds.
@@ -89,37 +89,41 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
    │      • Undated logs or clustered CSV backlog imports get bulkPriorDays = 180 (not day 0!)
    │      • Future dates clamped at >= 0 days so decay never exceeds 1.0
    │
-   ├─► 2. embeddingService.js (Relative Cutoff + Persona Mixture + Ridge Fold-In + Repulsion)
+   ├─► 2. embeddingService.js + easeService.js (EASE^R + Watchlist Intent + Persona Mixture + Ridge Fold-In + Repulsion)
    │      • Keeps every item with |w| > 1e-6 * maxAbsWeight (relative to your vault!)
+   │      • Exact Sparse EASE^R (`item_ease_k64.cvea`, 14k×64, <1ms) scores Vault ratings + up to 15 most-recent unwatched Watchlist items (`watchlistWeight = 0.25`) and blends 60/40 with 25k SVD (`blendEaseAndCollabSimMaps`)
    │      • Clusters loved films into 1–4 mass-weighted Spherical K-Means personas (computePersonaDetails)
    │        and aggregates via log-sum-exp mixture (beta = 20) + top-3 loved similarity blend
    │      • Solves an on-device 64×64 L2-regularized Ridge Fold-In vector (computeUserRidgeEmbedding,
    │        lambda = 20, ridgeMinItems = 10, scale-invariant normW) across ALL rated films (blended 0.75 / 0.25)
    │      • Builds repulsionMap around films rated <= 5 with negative weights (penalty above cos > 0.35)
    │      • Extracts catalog-wide positive max via getCollabCatalogMax (minCatalogSize = 50)
+   │      • Note: `extractTasteProfile` maps Craft Breakdown (`direction`/`visuals` -> crew, `acting` -> cast around 3.0) and boosts `>= 8★` rewatches (`>= 2`) or IMAX/physical formats by `1.15×`
    │
-   ├─► 3. tmdbService.js + moodPolicy.js + Bucket E (5-Bucket Verified Candidate Pool)
-   │      • Bucket B: Anchor Keywords (top-weighted 9★+ film micro-keywords via '|'; scaled 20%/12 in Mood)
-   │      • Bucket C: Auteur Crew (top director/DP/composer/writer filmography; scaled 12%/8 in Mood)
+   ├─► 3. tmdbService.js + moodPolicy.js + Bucket E & E-Cold (6-Channel Verified Candidate Pool)
+   │      • Bucket B: Multi-Persona Anchor Keywords (up to 3 K-Means >=8★ medoids via `selectPersonaAnchorIds` or >=9★ distinct-genre fallback, <= 4 TMDB pages interleaved; scaled 20%/12 in Mood)
+   │      • Bucket C: Multi-Auteur Crew Network (parallel query across top 3 `topCrewIds`, max 3 calls; scaled 12%/8 in Mood)
    │      • Bucket A: Semantic Discover (loved genres + watchlist intent + cast [dropped in Mood] + moodPolicy + without_keywords + expanded PROVIDER_FAMILY_MAP streaming)
-   │      • Bucket D: Recent-Release Lane (last 18 months, popularity.desc, avg >= 7.0, votes >= 150, max 12; skipped in hidden-gem/legacy era)
-   │      • Bucket E: Unseen aligned neighbors from your 64-D CVEM personas (up to 30 in Any Vibe; 15 Mood-Gated in Mood)
+   │      • Bucket D: Recent-Release Lane (last 18 months, popularity.desc, avg >= 7.0, votes >= 150, max 12; unified `applyProviderAndRegionParams` alias expansion; skipped in hidden-gem/legacy era)
+   │      • Bucket E: Unseen aligned neighbors from your 64-D EASE^R+SVD index (up to 50 in Any Vibe; 20 Mood-Gated in Mood out of top 100 aligned)
+   │      • Bucket E-Cold (Semantic): Up to 12 unseen unindexed 2024–2026 neighbors (6 in Mood) from 128-D MiniLM (`retrieveColdContentNeighbors`), strictly excluding `collabIndex` / `collabIdSet` (Web Worker) / `collabSimMap`
    │      • Full-pool batch hydration (`enrichCandidatePoolMetadata` via `/api/tmdb-batch` + 30-day IndexedDB cache) fills missing keywords/cast/crew/providers across merged Buckets A–D
    │
-   ├─► 4. rankerService.js (Calibrated Logistic Scorer + Mood Gates + Strict Providers)
+   ├─► 4. rankerService.js + onlineLearningService.js (Calibrated Logistic Scorer + Mood Gates + Strict Providers)
    │      • Strict provider filter (`matchesWatchProviders`) prioritizes verified streaming candidates first
    │      • Pool-independent `catalog-max` scaling (`collabNormalization: "catalog-max"`): divides positive
    │        collabSim by max(catalogMax, 0.05) when catalog size >= 50 (with `poolMax` fallback for small synthetic maps)
    │      • Any Vibe: Smoothstep `[0, 0.02]` ramp -> `0.35x` Metadata Damping + 2 recent-release reserve slots (`computeReserveQualityScore`)
    │      • Explicit Mood / Match Vibe: `collabSim * 0.35`, `1.0x` metadata, `computeMoodScoreAdjustment`, & strict `matchesMoodCandidateGate` (emitting `moodShortfall` UI alert when sparse)
-   │      • Builds 39-pick stratified shortlist (`buildDiversifiedGeminiShortlist`: 25 core + 8 cold 2024–2026 + 6 diverse outliers) while locking deterministic 50–99% matchScore + up to 3 matchReasons badges internally
+   │      • Online learning (`derivePersonalizedRankerWeights`) skips `already_seen` and pacing dismissals (`/too\s*slow|pacing/i`)
+   │      • Builds 100-pick stratified shortlist (`buildDiversifiedGeminiShortlist`: 72 core + 14 cold 2024–2026 + 14 diverse outliers) while locking deterministic 50–99% matchScore + up to 3 matchReasons badges internally
    │
-   └─► 5. geminiService.js + apiTransport.js (H1 Cascade -> 10 Picks + Verified Wildcards + Smart Cache v4)
+   └─► 5. geminiService.js + apiTransport.js (Resilient Cascade -> 20 Picks + Verified Wildcards + Smart Cache v4)
           • Calls `/api/gemini` proxy in production (zero client keys) or direct key in local dev
-          • Sends `userStats`, `topDirectors`, <=10 anchors, <=5 disliked/dismissed (nested `{ movie, weight, zScore }` lookup), <=3 recent (`120`-char notes), `6–7★` `NEAR MISSES`, <=8 `USER'S WATCHLIST`, `ADDITIONAL TOP FAVORITES` (11–25), `LOVED SERIES / ANIME`, deduplicated `ADDITIONAL VIEWER NOTES` (all remaining notes), & 39 unbiased candidates (`Specs`, top 3 `Cast`, top 5 `Themes`, `Tagline` <=70, `Plot` <=250; zero `Match: XX%` or `#1–#15` rank bias, `<= 20,000` chars) to gemini-4-hydrogen (HIGH) -> 3.5-flash-lite -> 3.6-flash -> 3-flash-preview -> 2.5-flash -> 3.8-flash
-          • Uses per-model AbortController timeouts (35s Hydrogen, 15s Flash curation models) & equal-footing `"Curate openly"` selection + optional 0–2 `wildcardPicks` (TMDB/vault/provider/mood verified via `verifyAndScoreWildcardPicks` without 1-item collabSim stretch)
-          • Selects 10 diverse winners (`DEFAULT_RECOMMENDATION_COUNT = 10`, prioritized wildcards + shortlist picks sorted by calibrated `matchScore`) with two-pass soft max-2-per-director cap, deterministic top-up backfill, note-aware profile cache hashing, & session Refresh rotation (`120` IDs, pages `1..5`)
-          • If every cloud model fails or key/proxy is absent, falls back cleanly to Top 10 from ranker!
+          • Sends `userStats`, `topDirectors`, <=10 anchors, <=5 disliked/dismissed (nested `{ movie, weight, zScore }` lookup), <=3 recent (`120`-char notes), `6–7★` `NEAR MISSES`, <=8 `USER'S WATCHLIST`, `ADDITIONAL TOP FAVORITES` (11–25), `LOVED SERIES / ANIME`, deduplicated `ADDITIONAL VIEWER NOTES` (all remaining notes), & 100 unbiased candidates (`Specs`, top 3 `Cast`, top 5 `Themes`, `Tagline` <=70, `Plot` <=250; zero `Match: XX%` or `#1–#15` rank bias, adaptive `20,000–34,000` chars) to `PUBLIC_CURATION_CASCADE` (Dual Flash-Lite first) or Personal `CURATION_MODEL_CASCADE` (`gemini-4-hydrogen` HIGH first)
+          • Uses per-model AbortController timeouts (60s Hydrogen [90s cascade cap], 15s Flash curation models) & equal-footing `"Curate openly"` selection + optional 0–2 `wildcardPicks` (0–4 on custom free-text vibes; TMDB/vault/provider/mood/avoid-rule verified via `verifyAndScoreWildcardPicks` without 1-item collabSim stretch)
+          • Selects 20 diverse winners (`DEFAULT_RECOMMENDATION_COUNT = 20`, prioritized wildcards + shortlist picks sorted by calibrated `matchScore`) with two-pass soft max-2-per-director & max-1-per-collection caps, deterministic top-up backfill, note-aware 8-arg profile cache hashing (`MIN_VALID_CACHE_COUNT = 14` in `cinemavault_smart_cache_v4`), & session Refresh rotation (`120` IDs, pages `1..5`)
+          • If every cloud model fails or key/proxy is absent, falls back cleanly to Top 20 from ranker!
 ```
 
 ### Live Weights Running in `src/services/rankerService.js`
@@ -127,8 +131,8 @@ Your Vault & Watchlist (including hardened CSV / Letterboxd imports)
 | Feature | Live Weight | Plain-English Role |
 | :--- | :---: | :--- |
 | `bias` | **`-1.1`** | Base threshold before positive or negative features shift probability |
-| `collabSim` | **`+6.4`** | 64-D collaborative similarity (`0.75 * mixture(beta=20) + 0.25 * ridge(lambda=20)` normalized via pool-independent `catalog-max` `[0, 1]`; scaled `* 0.35` under explicit mood) |
-| `contentSim` | **`+1.4`** | Cold-gated (`coldOnly: true`) cosine similarity from `/models/content_embeddings_f16.bin` (`11,119 × 128-D` `all-MiniLM-L6-v2` PCA vectors incl. `1,499` `2024–2026` releases, `+26.7%*` cold-start `NDCG@10`), or structured + overview TF-IDF fallback when unindexed |
+| `collabSim` | **`+6.4`** | 64-D collaborative similarity (`0.60 * EASE^R(14k×64, incl. 0.25× Watchlist intent across <=15 recent items) + 0.40 * SVD(0.75 * mixture(beta=20) + 0.25 * ridge(lambda=20))` normalized via pool-independent `catalog-max` `[0, 1]`; scaled `* 0.35` under explicit mood) |
+| `contentSim` | **`+1.4`** | Cold-gated (`coldOnly: true`, `minPositiveRating = 7` guard) cosine similarity from `/models/content_embeddings_f16.bin` (`11,119 × 128-D` `all-MiniLM-L6-v2` PCA vectors incl. `1,499` `2024–2026` releases, `+26.7%*` cold-start `NDCG@10`), also powering `Bucket E-Cold (Semantic)` via `retrieveColdContentNeighbors`, or structured + overview TF-IDF fallback when unindexed |
 | `genreOverlap` | **`+0.6`** | Fraction of top loved genres matched *(smoothstep-damped `[0, 0.02]` → `0.35x` under Any Vibe; `1.0x` under explicit mood)* |
 | `keywordOverlap` | **`+0.45`** | Continuous affinity-weighted overlap with top 15 IDF-damped, net-positive `keywordAffinities` (`0.6` proxy for Bucket B if keywords unpopulated) |
 | `crewMatch` | **`+0.7`** | Continuous `[0, 1]` Bayesian-shrunk `crewAffinities[crewPersonId]` (or binary fallback + `0.5` Bucket C proxy) |
@@ -234,6 +238,13 @@ Tested step-by-step via `scripts/experiments/run_ablation.mjs` on `item_embeddin
   - Added live-verified `"gemini-3.1-flash-lite"` alongside `"gemini-3.5-flash-lite"` across `ALLOWED_GEMINI_MODELS`, `PUBLIC_CURATION_CASCADE`, `FAST_INTERACTIVE_CASCADE`, and `EXPLORE_FOR_YOU_CASCADE` (up to 1,000 free requests/day combined, `MINIMAL` thinking, `25s` batch timeout).
   - Separated clean Public Edition (default) from Personal/Debug Edition (`?debug=1` or `VITE_APP_EDITION=personal`), added optional browser-local personal Gemini keys (`cv_user_gemini_key`), optional Upstash Redis daily caps, and `"Try a sample vault"` onboarding (`sampleVaultService.js`, excluded from Supabase sync).
 
+### Phases v6.0, v6.1 & v6.2: Exact Sparse EASE^R (`14k×64`), Neural Semantic Cold-Start (`11.1k×128`), `Bucket E-Cold` & Behavioral Signals
+- **v6.0 (`public/models/item_ease_k64.cvea`, `3.47 MB`, `100 → 20` Oracle):** Trained closed-form full-rank `14,000 × 14,000` Cholesky EASE^R (`λ = 800`, pre-pruning `γ = 0.12`, top-64 outgoing neighbors, `< 1 ms` scoring) blended `60/40` with `25k` SVD-64 (`easeService.js`), lifting 300-user leakage-clean `NDCG@10 +49.7%*` (`0.0789 → 0.1181`), `NDCG@20 +46.3%*` (`0.1039 → 0.1520`), `HR@20 61.7% → 74.0%`, `Tail@20 +9.7%` (`0.887 → 0.973`), and `HR@100 96.7%` (`4.16` hits); widened Oracle to **`100 → 20`** (`72` core + `14` cold + `14` outliers, `20,000–34,000` adaptive prompt chars, `MIN_VALID_CACHE_COUNT = 14`, `60s` Hydrogen / `90s` cascade ceiling, `CUSTOM_VIBE_MAX_WILDCARD_PICKS = 4`) with `#1` Spotlight + 2-column editorial cards.
+- **v6.1 (`public/models/content_embeddings_f16.bin`, `2.76 MB`, `coldOnly: true`):** Encoded `11,119` films (`9,620` catalog + `1,499` `2024–2026` theatrical releases) with local `all-MiniLM-L6-v2` PCA (`128-D`), lifting 100%-cold `Holdout-150` `NDCG@10 +26.7%*` (`0.0465 → 0.0589`) and `NDCG@20 +22.1%*` (`0.0586 → 0.0716`) while fixing `coldOnly: true` warm-item isolation in `contentSimService.js`.
+- **v6.2 (Pipeline, Retrieval, Score Lock & Behavioral Activation):**
+  - Audited 5 offline ML hypotheses against the untouched `Holdout-150` Hard Ship Gate (`MODEL_REFINEMENT_LOG.md`): bidirectional reverse-edge / z-curve EASE^R, session-kernel / forward-causal EASE^R, support-gated bidirectional EASE^R in Taste Match, 5-fold OOF 64-D Ridge cold projector / mean-centering / spherical K-Means cold scoring, non-linear ranker terms (`popMatch` / `collabShrink` / `crewBoost`), and `n=9/50` quota-blocked LLM over-pitch logit fusion (`GATE: FAIL`) — keeping core ML weights/models at exact `+0.0%` baseline parity (`public/models/ranker_weights.json` unchanged).
+  - **Shipped via strict TDD (`479 / 479` passing):** `minPositiveRating = 7` centroid guard & `"Bucket E-Cold (Semantic)"` retrieval (`retrieveColdContentNeighbors` in `contentSimService.js`, wired into Oracle & Explore Wave 2 with Web Worker `collabIdSet` isolation in `embeddingWorker.js` / `embeddingWorkerClient.js`); multi-persona Bucket `B` (`selectPersonaAnchorIds`, up to 3 anchors), multi-auteur Bucket `C` (`topCrewIds.slice(0, 3)`), Bucket `D` alias expansion (`applyProviderAndRegionParams`), & concurrent index preload (`tmdbService.js`, `geminiService.js`); Wave-3 `Explore For You` math score lock (`exploreForYouService.js`); and Watchlist EASE^R forward-intent (`0.25×`, top-15), Studio Craft Breakdown + `1.15×` rewatch/IMAX boost (`extractTasteProfile`), and `/too\s*slow|pacing/i` dismissal filtering (`onlineLearningService.js`).
+
 ---
 
 ## 5. Every Error / Bug We Hit & How We Resolved It
@@ -276,7 +287,7 @@ Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with all service and API test suites passing (`fail 0`, `skipped 0`), covering:
+- Exits `0` with all `479 / 479` service and API test assertions passing (`fail 0`, `skipped 0`), covering:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/appStorage.test.js`
@@ -287,11 +298,14 @@ npm test
   - `tests/communityService.test.js`
   - `tests/compareService.test.js`
   - `tests/contentSim.test.js`
+  - `tests/contentSimService.test.js`
   - `tests/csvImport.test.js`
   - `tests/dashboardService.test.js`
   - `tests/debugFlags.test.js`
   - `tests/dnaService.test.js`
   - `tests/docsHygiene.test.js`
+  - `tests/dualTrackExperiment.test.js`
+  - `tests/easeService.test.js`
   - `tests/embeddingService.test.js`
   - `tests/embeddingStep3.test.js`
   - `tests/embeddingWorkerClient.test.js`
@@ -340,17 +354,18 @@ npm test
 npm run build
 ```
 **What "healthy" looks like:**
-- Exits `0`, transforms **`2359 modules`**, emits vendor-split JS chunks (`index-*.js` ~420 kB, plus lazy `vendor-supabase`, `vendor-genai`, and `embeddingWorker-*.js`) and route-scoped CSS into `build/assets/...`, and copies `public/models/item_embeddings_f16.bin` into `build/models/item_embeddings_f16.bin`.
+- Exits `0`, transforms **`2360 modules`**, emits vendor-split JS chunks (`index-*.js` ~426 kB, plus lazy `vendor-supabase`, `vendor-genai`, and `embeddingWorker-*.js`) and route-scoped CSS into `build/assets/...`, and copies all model assets into `build/models/` (`item_ease_k64.cvea`, `item_embeddings_f16.bin`, `content_embeddings_f16.bin`, `ranker_weights.json`).
 - When built with server-only API secrets (`GEMINI_API_KEY`, `TMDB_API_KEY`, `OMDB_API_KEY` on Vercel without `VITE_*` client keys), `build/assets/*.js` contains zero API keys (routes go through `/api/gemini`, `/api/tmdb`, `/api/omdb`).
 
 ### Check 3: Inspect the Active `.bin` & `.cvea` Model Headers & Exact Byte Counts
 ```bash
-node -e "import('node:fs').then(fs=>{for(const f of ['public/models/item_embeddings_f16.bin','public/models/item_ease_k64.cvea']){const b=fs.readFileSync(f),d=new DataView(b.buffer,b.byteOffset,b.byteLength);console.log(f,{bytes:b.length,magic:b.slice(0,4).toString(),ver:d.getUint32(4,true),count:d.getUint32(8,true),dimOrK:d.getUint32(12,true)});}})"
+node -e "import('node:fs').then(fs=>{for(const f of ['public/models/item_embeddings_f16.bin','public/models/item_ease_k64.cvea','public/models/content_embeddings_f16.bin']){const b=fs.readFileSync(f),d=new DataView(b.buffer,b.byteOffset,b.byteLength);console.log(f,{bytes:b.length,magic:b.slice(0,4).toString(),ver:d.getUint32(4,true),count:d.getUint32(8,true),dimOrK:d.getUint32(12,true)});}})"
 ```
 **Expected exact output:**
 ```text
-public/models/item_embeddings_f16.bin { bytes: 3300016, magic: 'CVEM', ver: 1, count: 25000, dimOrK: 64 }
-public/models/item_ease_k64.cvea      { bytes: 3640016, magic: 'CVEA', ver: 1, count: 14000, dimOrK: 64 }
+public/models/item_embeddings_f16.bin    { bytes: 3300016, magic: 'CVEM', ver: 1, count: 25000, dimOrK: 64 }
+public/models/item_ease_k64.cvea         { bytes: 3640016, magic: 'CVEA', ver: 1, count: 14000, dimOrK: 64 }
+public/models/content_embeddings_f16.bin { bytes: 2890956, magic: 'CVEM', ver: 1, count: 11119, dimOrK: 128 }
 ```
 
 ### Check 4: Run the Local Evaluation Harness (`scripts/run_eval.mjs`)
@@ -385,13 +400,13 @@ Built-in safety gates in [scripts/colab_train_embeddings.py](./scripts/colab_tra
 ### Check 6: Live In-Browser DevTools Smoke Test (`npm start`)
 1. Run `npm start` (or `vercel dev` if using server-side `.env` without `VITE_*` keys) and open **`http://localhost:3000`** (`vite.config.js` configures `port: 3000`).
 2. Open DevTools → **Network** tab → open **Oracle** (`/ai`):
-   - Confirm `/models/item_embeddings_f16.bin` loads with HTTP `200` (`3,300,016 B`, once per session).
-   - Confirm **`10`** recommendation rows render (`DEFAULT_RECOMMENDATION_COUNT = 10`) with deterministic rankings, `"Because you rated"` anchor chips (`resolveRecommendationAnchors`), clean jargon-free reasons, and `"About these picks"` model attribution.
+   - Confirm `/models/item_embeddings_f16.bin` (`3,300,016 B`), `/models/item_ease_k64.cvea` (`3,640,016 B`), and `/models/content_embeddings_f16.bin` (`2,890,956 B`) load with HTTP `200` (once per session).
+   - Confirm **`20`** recommendation rows render (`DEFAULT_RECOMMENDATION_COUNT = 20`) with deterministic rankings, `"Because you rated"` anchor chips (`resolveRecommendationAnchors`), clean jargon-free reasons, and `"About these picks"` model attribution.
    - Switch **Mood** (e.g., `Comfort Watch` vs `Dark Thriller`) or use **Match Vibe** (`"like Drive but quieter"`) and verify picks adapt cleanly without off-tone classics overriding the mood; click **Refresh** to confirm new picks rotate without immediate repeats (`1..5` page rotation).
 3. Open DevTools → **Application → LocalStorage** and inspect active state keys:
-   - `cinemavault_smart_cache_v4` — 24h LRU recommendation cache (`500KB` cap, `>= 7` valid uncollided picks required, region- & mood-filter-scoped hashes).
+   - `cinemavault_smart_cache_v4` — 24h LRU recommendation cache (`500KB` cap, `>= 14` valid uncollided picks required via `MIN_VALID_CACHE_COUNT = 14`, region- & mood-filter-scoped hashes).
    - `cinemavault_working_model_curation_v1` & `cinemavault_working_model_fast_v1` — persisted healthy Gemini model hints (`30 min` TTL).
-4. **Offline / Quota Fallback Test:** Temporarily clear/invalidate Gemini credentials (or simulate quota) and click Refresh — verify CinemaVault seamlessly serves the **top `10`** mathematical ranker picks (`pipeline: "ranker-fallback"`) and falls back cleanly on free-text queries via `parseFreeTextMoodFallback`.
+4. **Offline / Quota Fallback Test:** Temporarily clear/invalidate Gemini credentials (or simulate quota) and click Refresh — verify CinemaVault seamlessly serves the **top `20`** mathematical ranker picks (`pipeline: "ranker-fallback"`) and falls back cleanly on free-text queries via `parseFreeTextMoodFallback`.
 
 ### Check 7: Optional Supabase Cloud Vault Sync Verification (When Configured)
 1. Ensure `.env.local` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, and verify [supabase/migrations/20261114000000_init_cinemavault_schema.sql](./supabase/migrations/20261114000000_init_cinemavault_schema.sql), [supabase/migrations/20261120000000_explore_for_you_cache.sql](./supabase/migrations/20261120000000_explore_for_you_cache.sql), and [supabase/migrations/20261120120000_profile_prefs_and_for_you_cap.sql](./supabase/migrations/20261120120000_profile_prefs_and_for_you_cap.sql) are applied on your Supabase project (`profiles` with `taste_rules`, `user_vault_items`, and `user_explore_picks` up to 260 items exist with RLS enabled and `anon` revoked).
