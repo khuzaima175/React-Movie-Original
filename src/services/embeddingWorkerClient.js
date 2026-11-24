@@ -106,6 +106,7 @@ function buildCollabIdSet(rawIds, collabSimMap = null) {
 async function computeOnMainThread({
   weightedRatings = [],
   watchlistItems = [],
+  watchlistWeight = undefined,
   excludeNumericIds = [],
   topK = 240,
   repulsionWeight = 0.25,
@@ -139,7 +140,10 @@ async function computeOnMainThread({
   const excludeSet = new Set(excludeNumericIds);
   const baseCollabSimMap = buildCollabSimMapFromIndex(weightedRatings, index);
   const easeSimMap = resolvedEaseIndex
-    ? buildEaseSimMapFromIndex(weightedRatings, resolvedEaseIndex, { watchlistItems })
+    ? buildEaseSimMapFromIndex(weightedRatings, resolvedEaseIndex, {
+        watchlistItems,
+        ...(watchlistWeight !== undefined ? { watchlistWeight } : {})
+      })
     : null;
   const collabSimMap = blendEaseAndCollabSimMaps(easeSimMap, baseCollabSimMap, resolvedEaseIndex);
   const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, index);
@@ -178,6 +182,7 @@ async function computeOnMainThread({
 export async function computeExploreEmbeddingSignals({
   weightedRatings = [],
   watchlistItems = [],
+  watchlistWeight = undefined,
   excludeNumericIds = [],
   topK = 240,
   repulsionWeight = 0.25,
@@ -191,6 +196,7 @@ export async function computeExploreEmbeddingSignals({
     return computeOnMainThread({
       weightedRatings,
       watchlistItems,
+      watchlistWeight,
       excludeNumericIds,
       topK,
       repulsionWeight,
@@ -206,6 +212,7 @@ export async function computeExploreEmbeddingSignals({
     return computeOnMainThread({
       weightedRatings,
       watchlistItems,
+      watchlistWeight,
       excludeNumericIds,
       topK,
       repulsionWeight,
@@ -240,6 +247,8 @@ export async function computeExploreEmbeddingSignals({
           if (item?.updatedAt !== undefined) out.updatedAt = item.updatedAt;
           if (item?.dateAdded !== undefined) out.dateAdded = item.dateAdded;
           if (item?.addedAt !== undefined) out.addedAt = item.addedAt;
+          if (item?.createdAt !== undefined) out.createdAt = item.createdAt;
+          if (item?.ts !== undefined) out.ts = item.ts;
           return out;
         })
         .filter(Boolean)
@@ -255,6 +264,7 @@ export async function computeExploreEmbeddingSignals({
         payload: {
           weightedRatings: compactWeighted,
           ...(compactWatchlist.length > 0 ? { watchlistItems: compactWatchlist } : {}),
+          ...(watchlistWeight !== undefined ? { watchlistWeight } : {}),
           excludeNumericIds: [...excludeNumericIds],
           topK,
           repulsionWeight
@@ -293,10 +303,13 @@ export async function computeExploreEmbeddingSignals({
     return computeOnMainThread({
       weightedRatings,
       watchlistItems,
+      watchlistWeight,
       excludeNumericIds,
       topK,
       repulsionWeight,
-      loadIndexFn
+      easeIndex,
+      loadIndexFn,
+      loadEaseFn
     });
   }
 }
