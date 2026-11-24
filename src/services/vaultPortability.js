@@ -1,6 +1,7 @@
 import { buildWatchedRecordFromImport } from "./csvImport.js";
 import { buildMovieKeys, extractTmdbNumericId, isSameMovie } from "./movieIdentity.js";
 import { normalizeTasteRules } from "./tasteRulesService.js";
+import { getActiveCustomLists, mergeCustomListsByTimestamp, normalizeCustomList } from "./listsService.js";
 
 function indexMovieKeys(keyIndex, movie, idx) {
   for (const k of buildMovieKeys(movie)) {
@@ -90,7 +91,7 @@ function escapeCsvCell(value = "") {
 }
 
 /**
- * Builds CinemaVault schema v2 JSON backup payload with vault lists and user preferences.
+ * Builds CinemaVault schema v3 JSON backup payload with vault lists, custom lists, and user preferences.
  */
 export function buildBackupJsonPayload({
   watched = [],
@@ -98,17 +99,20 @@ export function buildBackupJsonPayload({
   userRegion = "US",
   userWatchProviders = [],
   tasteRules = [],
+  customLists = [],
   now = Date.now()
 } = {}) {
   const normalizedRules = Array.isArray(tasteRules) && tasteRules.length > 0
     ? normalizeTasteRules(tasteRules)
     : [];
+  const activeLists = getActiveCustomLists(customLists);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     app: "CinemaVault",
     exportedAt: new Date(now).toISOString(),
     watched: Array.isArray(watched) ? watched : [],
     watchlist: Array.isArray(watchlist) ? watchlist : [],
+    customLists: activeLists,
     preferences: {
       userRegion,
       userWatchProviders: Array.isArray(userWatchProviders) ? userWatchProviders : [],
@@ -204,9 +208,14 @@ export function parseJsonBackupContent(content = "") {
       };
     }
 
+    const normalizedCustomLists = Array.isArray(parsed.customLists)
+      ? parsed.customLists.map((l) => normalizeCustomList(l)).filter(Boolean)
+      : undefined;
+
     return {
       watched: Array.isArray(parsed.watched) ? parsed.watched : [],
       watchlist: Array.isArray(parsed.watchlist) ? parsed.watchlist : [],
+      ...(normalizedCustomLists !== undefined ? { customLists: normalizedCustomLists } : {}),
       ...(normalizedPreferences && typeof normalizedPreferences === "object"
         ? { preferences: normalizedPreferences }
         : {})
@@ -222,10 +231,20 @@ export function parseJsonBackupContent(content = "") {
 export function summarizeImportDiff({
   existingWatched = [],
   existingWatchlist = [],
+  existingLists = [],
   incomingWatched = [],
   incomingWatchlist = [],
+  incomingLists = undefined,
   mode = "merge_update"
 } = {}) {
+  const hasIncomingLists = Array.isArray(incomingLists);
+  const mergedLists = hasIncomingLists
+    ? mergeCustomListsByTimestamp(existingLists, incomingLists, mode)
+    : (Array.isArray(existingLists) ? existingLists : []);
+  const existingIds = new Set(getActiveCustomLists(existingLists).map((l) => l.id));
+  const newListCount = hasIncomingLists
+    ? getActiveCustomLists(mergedLists).filter((l) => !existingIds.has(l.id)).length
+    : 0;
   if (mode === "replace") {
     const mergedWatched = [];
     const watchedKeyIndex = new Map();
@@ -266,9 +285,11 @@ export function summarizeImportDiff({
       newWatchedCount: mergedWatched.length,
       updatedRatingCount: 0,
       newWatchlistCount: mergedWatchlist.length,
+      newListCount,
       duplicatesSkipped,
       mergedWatched,
-      mergedWatchlist
+      mergedWatchlist,
+      mergedLists
     };
   }
 
@@ -333,9 +354,11 @@ export function summarizeImportDiff({
     newWatchedCount,
     updatedRatingCount,
     newWatchlistCount,
+    newListCount,
     duplicatesSkipped,
     mergedWatched,
-    mergedWatchlist
+    mergedWatchlist,
+    mergedLists
   };
 }
 

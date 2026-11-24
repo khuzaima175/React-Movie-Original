@@ -804,6 +804,7 @@ export async function hydrateCompareMovieSlot(rawIdOrStub, options = {}) {
     castDetails: tmdbData?.castDetails?.length ? tmdbData.castDetails : fallbackActors,
     keywordItems: tmdbData?.keywordItems || [],
     keywordNames: tmdbData?.keywordNames || [],
+    watchProviderLink: tmdbData?.watchProviderLink ?? stub?.watchProviderLink ?? null,
     streamProviders: tmdbData?.streamProviders || [],
     buyRentProviders: tmdbData?.buyRentProviders || [],
     freeProviders: tmdbData?.freeProviders || []

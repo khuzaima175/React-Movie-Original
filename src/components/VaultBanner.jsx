@@ -25,6 +25,8 @@ import { buildRatingHistogramBins } from "../services/vaultStats";
 export default function VaultBanner({
   watched = [],
   watchlist = [],
+  customListsCount = 0,
+  checklistsCount = 0,
   activeTab = "watched",
   onTabChange,
   isManageMode = false,
@@ -440,12 +442,15 @@ export default function VaultBanner({
         <Tabs
           tabs={[
             { id: "watched", label: "Watched", count: watched.length },
-            { id: "watchlist", label: "Watchlist", count: watchlist.length }
+            { id: "watchlist", label: "Watchlist", count: watchlist.length },
+            { id: "lists", label: "Lists", count: customListsCount },
+            { id: "checklists", label: "Checklists", count: checklistsCount }
           ]}
           activeTab={activeTab}
           onChange={onTabChange}
         />
 
+        {(activeTab === "watched" || activeTab === "watchlist") && (
         <div className="studio-controls-cluster">
           <div className="spacious-search-box">
             <Search size={14} className="search-icon-muted" aria-hidden="true" />
@@ -546,6 +551,7 @@ export default function VaultBanner({
             </span>
           )}
         </div>
+        )}
       </div>
     </div>
   );

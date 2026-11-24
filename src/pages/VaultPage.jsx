@@ -4,11 +4,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useApp } from "../context/AppContext";
 import VaultBanner from "../components/VaultBanner";
 import VaultBulkBar from "../components/VaultBulkBar";
+import VaultListsPanel from "../components/VaultListsPanel";
 import SampleVaultBanner from "../components/SampleVaultBanner";
 import MovieCard from "../components/MovieCard";
 import WatchedMoviesList from "../components/WatchedMoviesList";
 import ToastNotification from "../components/ToastNotification";
 import QuickRateModal from "../components/QuickRateModal";
+import { CANON_CHECKLISTS } from "../services/listsService";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
 import { Bookmark, Film, Compass, Search, Upload } from "lucide-react";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -20,6 +22,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const {
     watched = [],
     watchlist = [],
+    customLists = [],
     addWatched,
     deleteWatched,
     deleteWatchlist,
@@ -31,9 +34,11 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   } = useApp();
   const canTrySampleVault = !cloudUser && watched.length < 3;
 
-  const [activeTab, setActiveTab] = useState(
-    searchParams.get("tab") === "watchlist" ? "watchlist" : "watched"
-  );
+  const resolveInitialTab = (raw) =>
+    raw === "watchlist" || raw === "lists" || raw === "checklists" ? raw : "watched";
+
+  const [activeTab, setActiveTab] = useState(() => resolveInitialTab(searchParams.get("tab")));
+  const [selectedListId, setSelectedListId] = useState(() => searchParams.get("list") || null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("input");
   const [selectedGenre, setSelectedGenre] = useState("All");
@@ -46,19 +51,33 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
 
   // Sync tab if URL param changes
   useEffect(() => {
-    if (searchParams.get("tab") === "watchlist") {
-      setActiveTab("watchlist");
-    } else if (searchParams.get("tab") === "watched") {
-      setActiveTab("watched");
+    const paramTab = searchParams.get("tab");
+    if (paramTab) {
+      setActiveTab(resolveInitialTab(paramTab));
     }
-  }, [searchParams]);
+    const listParam = searchParams.get("list");
+    if (listParam !== selectedListId) {
+      setSelectedListId(listParam || null);
+    }
+  }, [searchParams, selectedListId]);
 
   function handleTabChange(newTab) {
     setActiveTab(newTab);
     setSelectedIds([]);
     setSelectedRating(null);
     setIsManageMode(false);
+    setSelectedListId(null);
     setSearchParams({ tab: newTab });
+  }
+
+  function handleSelectListId(listId) {
+    setSelectedListId(listId || null);
+    if (listId) {
+      setActiveTab("lists");
+      setSearchParams({ tab: "lists", list: listId });
+    } else {
+      setSearchParams({ tab: activeTab });
+    }
   }
 
   // Active dataset
@@ -222,6 +241,8 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
       <VaultBanner
         watched={watched}
         watchlist={watchlist}
+        customListsCount={customLists.length}
+        checklistsCount={CANON_CHECKLISTS.length}
         activeTab={activeTab}
         onTabChange={handleTabChange}
         isManageMode={isManageMode}
@@ -253,7 +274,13 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
 
       {/* ── 2. Main Collection Grid / List View ── */}
       <div className="vault-collection-body">
-        {filtered.length > 0 ? (
+        {activeTab === "lists" || activeTab === "checklists" ? (
+          <VaultListsPanel
+            mode={activeTab}
+            selectedListId={selectedListId}
+            onSelectListId={handleSelectListId}
+          />
+        ) : filtered.length > 0 ? (
           <AnimatePresence mode="wait">
             {viewMode === "grid" ? (
               <motion.div

@@ -1,0 +1,151 @@
+.taste-tuner-shell {
+  margin-bottom: 1.8rem;
+  padding: 1.1rem 1.4rem;
+  border-radius: var(--r-md, 1rem);
+  background: var(--surface-1, #141519);
+  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
+  transition: border-color 0.18s ease;
+}
+
+.taste-tuner-shell.has-active {
+  border-color: rgba(229, 9, 20, 0.35);
+}
+
+.taste-tuner-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.taste-tuner-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: transparent;
+  border: none;
+  padding: 0.3rem 0.2rem;
+  color: var(--text-1, #f4f4f2);
+  font-size: 1.3rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.taste-tuner-badge {
+  font-size: 1.1rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(229, 9, 20, 0.16);
+  color: #ff6b73;
+}
+
+.taste-tuner-quick-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.taste-bubble-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2, #b6b6b2);
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.taste-bubble-btn:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--text-1, #f4f4f2);
+}
+
+.taste-bubble-btn.is-active {
+  background: rgba(229, 9, 20, 0.16);
+  border-color: rgba(229, 9, 20, 0.55);
+  color: #fff;
+}
+
+.taste-tuner-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: var(--text-3, #8e8e8a);
+  font-size: 1.15rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.taste-tuner-reset:hover {
+  color: var(--text-1, #f4f4f2);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.taste-tuner-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.4rem;
+  margin-top: 1.2rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
+}
+
+.taste-tuner-dial {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.taste-tuner-dial-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.taste-tuner-dial-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-1, #f4f4f2);
+}
+
+.taste-tuner-dial-readout {
+  font-size: 1.1rem;
+  color: var(--text-3, #8e8e8a);
+}
+
+.taste-tuner-slider {
+  width: 100%;
+  accent-color: #e50914;
+  cursor: pointer;
+}
+
+.taste-tuner-poles {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.05rem;
+  color: var(--text-3, #8e8e8a);
+}
+
+@media (max-width: 900px) {
+  .taste-tuner-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .taste-tuner-grid {
+    grid-template-columns: 1fr;
+  }
+}

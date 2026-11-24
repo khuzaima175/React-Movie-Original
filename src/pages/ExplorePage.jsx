@@ -17,9 +17,18 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import MovieCard from "../components/MovieCard";
+import TasteTunerBar from "../components/TasteTunerBar";
 import { Button, Select } from "../components/ui";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { fetchTmdbJson, hasTmdbBackend } from "../services/apiTransport";
+import { loadDefaultContentIndex } from "../services/contentSimService";
+import {
+  DEFAULT_TUNER_STATE,
+  applyTunerToPool,
+  extractDominantUserGenres,
+  formatDominantGenreNames,
+  loadTunerAxes
+} from "../services/tunerService";
 import {
   POPULAR_WATCH_PROVIDERS,
   PROVIDER_MAP,
@@ -212,6 +221,8 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const [forYouRefreshNonce, setForYouRefreshNonce] = useState(0);
   const [shuffleSeed, setShuffleSeed] = useState(() => Math.floor(Date.now() % 100000));
   const [visibleForYouCount, setVisibleForYouCount] = useState(48);
+  const [tunerState, setTunerState] = useState(DEFAULT_TUNER_STATE);
+  const [tunerResources, setTunerResources] = useState({ contentIndex: null, tunerAxes: null });
   const forYouSeqRef = useRef(0);
   const handledRefreshNonceRef = useRef(0);
 
@@ -802,6 +813,29 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
     };
   }, [keywordQuery]);
 
+  useEffect(() => {
+    if (!isForYouMode) return undefined;
+    let active = true;
+    Promise.all([
+      loadDefaultContentIndex().catch(() => null),
+      loadTunerAxes().catch(() => null)
+    ]).then(([contentIndex, tunerAxes]) => {
+      if (active) setTunerResources({ contentIndex, tunerAxes });
+    });
+    return () => {
+      active = false;
+    };
+  }, [isForYouMode]);
+
+  const dominantGenreIds = useMemo(
+    () => extractDominantUserGenres(watched, 2),
+    [watched]
+  );
+  const dominantGenreNames = useMemo(
+    () => formatDominantGenreNames(dominantGenreIds),
+    [dominantGenreIds]
+  );
+
   const forYouShuffledPool = useMemo(
     () => (isForYouMode ? weightedShuffleForYou(forYouState.items, shuffleSeed) : []),
     [isForYouMode, forYouState.items, shuffleSeed]
@@ -810,6 +844,19 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   const forYouFilteredResults = useMemo(
     () => (isForYouMode ? filterForYouCatalog(forYouShuffledPool, filters, watched, watchlist) : []),
     [isForYouMode, forYouShuffledPool, filters, watched, watchlist]
+  );
+
+  const forYouTunedResults = useMemo(
+    () =>
+      isForYouMode
+        ? applyTunerToPool(forYouFilteredResults, tunerState, {
+            watched,
+            dominantGenreIds,
+            contentIndex: tunerResources.contentIndex,
+            tunerAxes: tunerResources.tunerAxes
+          })
+        : [],
+    [isForYouMode, forYouFilteredResults, tunerState, watched, dominantGenreIds, tunerResources]
   );
 
   const filteredResults = useMemo(() => {
@@ -839,20 +886,20 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
   // Reset visible slice cleanly whenever filters or shuffle order change
   useEffect(() => {
     setVisibleForYouCount(48);
-  }, [filterSignature, shuffleSeed, isForYouMode]);
+  }, [filterSignature, shuffleSeed, isForYouMode, tunerState]);
 
   const needsForYouCalibration = isForYouMode && watched.length < EXPLORE_FOR_YOU_MIN_RATED;
   const viewState = isForYouMode
     ? {
         hasFreshData: !isForYouLoading && forYouState.items.length > 0,
-        visibleItems: needsForYouCalibration ? [] : forYouFilteredResults.slice(0, visibleForYouCount),
-        displayTotalResults: needsForYouCalibration ? 0 : forYouFilteredResults.length,
+        visibleItems: needsForYouCalibration ? [] : forYouTunedResults.slice(0, visibleForYouCount),
+        displayTotalResults: needsForYouCalibration ? 0 : forYouTunedResults.length,
         displayTotalPages: 1,
         hiddenWatchedCount: 0,
         shouldAutoAdvance: false,
-        showSkeleton: !needsForYouCalibration && !forYouError && isForYouLoading && forYouFilteredResults.length === 0,
-        showEmptyState: !needsForYouCalibration && !forYouError && !isForYouLoading && forYouFilteredResults.length === 0,
-        showGrid: !needsForYouCalibration && forYouFilteredResults.length > 0
+        showSkeleton: !needsForYouCalibration && !forYouError && isForYouLoading && forYouTunedResults.length === 0,
+        showEmptyState: !needsForYouCalibration && !forYouError && !isForYouLoading && forYouTunedResults.length === 0,
+        showGrid: !needsForYouCalibration && forYouTunedResults.length > 0
       }
     : catalogViewState;
 
@@ -864,7 +911,7 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
       ? viewState.visibleItems.length
       : viewState.displayTotalResults;
   const remainingForYouCount = isForYouMode
-    ? Math.max(0, forYouFilteredResults.length - visibleForYouCount)
+    ? Math.max(0, forYouTunedResults.length - visibleForYouCount)
     : 0;
   const hasMorePages = isForYouMode
     ? remainingForYouCount > 0
@@ -1707,6 +1754,15 @@ export default function ExplorePage({ onQuickRate, onOpenTasteDeck }) {
                 Retry
               </Button>
             </div>
+          )}
+
+          {/* Live Taste Tuner (Movies You'll Like mode) */}
+          {isForYouMode && !needsForYouCalibration && forYouState.items.length > 0 && (
+            <TasteTunerBar
+              value={tunerState}
+              onChange={setTunerState}
+              dominantGenreNames={dominantGenreNames}
+            />
           )}
 
           {/* For You Empty-Vault Calibration Prompt */}

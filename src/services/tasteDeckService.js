@@ -487,7 +487,9 @@ export function buildTasteDeck({
  */
 export function shouldAutoShowTasteOnboarding({
   watchedCount = 0,
-  dismissedFlag = null
+  dismissedFlag = null,
+  isVaultHydrated = true
 } = {}) {
+  if (!isVaultHydrated) return false;
   return Number(watchedCount) < 3 && dismissedFlag !== "true";
 }

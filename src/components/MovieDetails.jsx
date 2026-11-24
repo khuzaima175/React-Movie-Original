@@ -56,7 +56,9 @@ import {
   buildFilmChatRoute,
   saveFilmFocusCache
 } from "../services/filmChatService";
+import { resolveProviderLaunchUrl } from "../services/watchLinkService";
 import MovieCommunitySection from "./MovieCommunitySection";
+import AddToListPopover from "./AddToListPopover";
 import {
   ArrowLeft,
   ChevronRight,
@@ -908,6 +910,8 @@ export default function MovieDetails({
                         <span>Edit Rating / Review</span>
                       </button>
 
+                      <AddToListPopover movie={movie} />
+
                       <button
                         type="button"
                         className="btn-discuss-film-deck"
@@ -1246,6 +1250,8 @@ export default function MovieDetails({
                         </>
                       )}
 
+                      <AddToListPopover movie={movie} />
+
                       <button
                         type="button"
                         className="btn-discuss-film-deck"
@@ -1390,7 +1396,7 @@ export default function MovieDetails({
                       <span>Where to Stream</span>
                     </div>
                     <span className="stream-region-tag">
-                      Region: {!userRegion || userRegion === "GLOBAL" ? "US (Global Default)" : userRegion}
+                      Region: {!userRegion || userRegion === "GLOBAL" ? "US (Global Default)" : userRegion} · Powered by JustWatch
                     </span>
                   </div>
 
@@ -1399,12 +1405,30 @@ export default function MovieDetails({
                       <div className="stream-group">
                         <span className="stream-group-label">Subscription Stream</span>
                         <div className="stream-logos-row">
-                          {movie.streamProviders.map((p) => (
-                            <div key={p.id} className="stream-provider-pill" title={p.name}>
-                              {p.logo && <img src={p.logo} alt={p.name} className="stream-logo-img" />}
-                              <span className="stream-provider-name">{p.name}</span>
-                            </div>
-                          ))}
+                          {movie.streamProviders.map((p) => {
+                            const launch = resolveProviderLaunchUrl({
+                              providerId: p.id,
+                              providerName: p.name,
+                              title: movie.title || movie.Title,
+                              year: movie.year || movie.Year,
+                              watchProviderLink: movie.watchProviderLink
+                            });
+                            return (
+                              <a
+                                key={p.id}
+                                href={launch.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="stream-provider-pill stream-provider-pill--interactive"
+                                title={launch.label}
+                                aria-label={launch.label}
+                              >
+                                {p.logo && <img src={p.logo} alt={p.name} className="stream-logo-img" />}
+                                <span className="stream-provider-name">{p.name}</span>
+                                <ExternalLink size={12} className="stream-launch-icon" aria-hidden="true" />
+                              </a>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1413,12 +1437,30 @@ export default function MovieDetails({
                       <div className="stream-group">
                         <span className="stream-group-label">Free with Ads</span>
                         <div className="stream-logos-row">
-                          {movie.freeProviders.map((p) => (
-                            <div key={p.id} className="stream-provider-pill stream-free-pill" title={p.name}>
-                              {p.logo && <img src={p.logo} alt={p.name} className="stream-logo-img" />}
-                              <span className="stream-provider-name">{p.name}</span>
-                            </div>
-                          ))}
+                          {movie.freeProviders.map((p) => {
+                            const launch = resolveProviderLaunchUrl({
+                              providerId: p.id,
+                              providerName: p.name,
+                              title: movie.title || movie.Title,
+                              year: movie.year || movie.Year,
+                              watchProviderLink: movie.watchProviderLink
+                            });
+                            return (
+                              <a
+                                key={p.id}
+                                href={launch.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="stream-provider-pill stream-free-pill stream-provider-pill--interactive"
+                                title={launch.label}
+                                aria-label={launch.label}
+                              >
+                                {p.logo && <img src={p.logo} alt={p.name} className="stream-logo-img" />}
+                                <span className="stream-provider-name">{p.name}</span>
+                                <ExternalLink size={12} className="stream-launch-icon" aria-hidden="true" />
+                              </a>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1427,12 +1469,30 @@ export default function MovieDetails({
                       <div className="stream-group">
                         <span className="stream-group-label">Buy or Rent</span>
                         <div className="stream-logos-row">
-                          {movie.buyRentProviders.slice(0, 5).map((p) => (
-                            <div key={p.id} className="stream-provider-pill stream-rent-pill" title={p.name}>
-                              {p.logo && <img src={p.logo} alt={p.name} className="stream-logo-img" />}
-                              <span className="stream-provider-name">{p.name}</span>
-                            </div>
-                          ))}
+                          {movie.buyRentProviders.slice(0, 5).map((p) => {
+                            const launch = resolveProviderLaunchUrl({
+                              providerId: p.id,
+                              providerName: p.name,
+                              title: movie.title || movie.Title,
+                              year: movie.year || movie.Year,
+                              watchProviderLink: movie.watchProviderLink
+                            });
+                            return (
+                              <a
+                                key={p.id}
+                                href={launch.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="stream-provider-pill stream-rent-pill stream-provider-pill--interactive"
+                                title={launch.label}
+                                aria-label={launch.label}
+                              >
+                                {p.logo && <img src={p.logo} alt={p.name} className="stream-logo-img" />}
+                                <span className="stream-provider-name">{p.name}</span>
+                                <ExternalLink size={12} className="stream-launch-icon" aria-hidden="true" />
+                              </a>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

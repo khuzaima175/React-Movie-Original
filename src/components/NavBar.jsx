@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useApp } from "../context/AppContext";
 import {
@@ -12,9 +12,11 @@ import {
   ArrowUpDown,
   MoreHorizontal,
   Cloud,
-  User
+  User,
+  Users
 } from "lucide-react";
 import { Menu } from "./ui/Menu";
+import NotificationBell from "./NotificationBell";
 import {
   getSearchShortcutHint,
   getCloudSyncBadgeLabel,
@@ -91,6 +93,7 @@ export default function NavBar({
   cloudSyncStatus = "idle"
 }) {
   const { watched = [], watchlist = [], cloudProfile = null } = useApp();
+  const navigate = useNavigate();
   const isScrolled = useScrolled();
   const shortcutLabel = getSearchShortcutHint(
     typeof navigator !== "undefined" ? navigator.platform : ""
@@ -156,6 +159,8 @@ export default function NavBar({
               )}
             </NavLink>
 
+            <NotificationBell userId={cloudUser?.id || null} />
+
             {accountNav.visible && (
               <NavLink
                 to={accountNav.to}
@@ -193,6 +198,9 @@ export default function NavBar({
                 </Menu.Trigger>
                 <Menu.Panel align="right">
                   <Menu.Label>Library Tools</Menu.Label>
+                  <Menu.Item icon={Users} onClick={() => navigate("/together")}>
+                    Watch Together
+                  </Menu.Item>
                   {onOpenTasteDeck && (
                     <Menu.Item icon={SlidersHorizontal} onClick={onOpenTasteDeck}>
                       Taste Calibration (30)

@@ -10,7 +10,11 @@ import {
   fetchAllVaultRows,
   pullAndSyncCloudVault,
   mergeProfilePreferences,
-  pullAndSyncProfilePreferences
+  pullAndSyncProfilePreferences,
+  mapLocalListToDbRow,
+  mapDbRowToLocalList,
+  mergeLocalAndCloudLists,
+  pullAndSyncCloudLists
 } from "../src/services/vaultSyncService.js";
 
 test("mapLocalMovieToDbRow and mapDbRowToLocalMovie round-trip ratings, notes, and recommendation metadata losslessly", () => {
@@ -609,4 +613,39 @@ test("mergeProfilePreferences honors intentional local clears (empty providers/r
   assert.deepEqual(cleared.userWatchProviders, []);
   assert.deepEqual(cleared.tasteRules, []);
   assert.equal(cleared.shouldUpsertCloud, true);
+});
+
+
+test("mapLocalListToDbRow, mergeLocalAndCloudLists, and pullAndSyncCloudLists round-trip and degrade gracefully on missing table", async () => {
+  const row = mapLocalListToDbRow(
+    { id: "l1", name: "Noir", isPublic: true, slug: "noir-1234", items: [{ title: "Heat", year: "1995" }] },
+    "u1"
+  );
+  assert.equal(row.is_public, true);
+  assert.equal(row.slug, "noir-1234");
+  const back = mapDbRowToLocalList(row);
+  assert.equal(back.isPublic, true);
+  assert.equal(back.items.length, 1);
+
+  const merged = mergeLocalAndCloudLists({
+    localLists: [{ id: "l1", name: "Local Newer", updatedAt: "2026-11-24T12:00:00.000Z", items: [] }],
+    cloudRows: [{ id: "l1", name: "Cloud Older", updated_at: "2026-11-24T10:00:00.000Z", items: [] }],
+    userId: "u1"
+  });
+  assert.equal(merged.mergedLists[0].name, "Local Newer");
+  assert.equal(merged.toUpsertCloud.length, 1);
+
+  const missingTableClient = {
+    from() {
+      return {
+        select() {
+          return {
+            eq: async () => ({ data: null, error: { code: "PGRST205", message: "Table missing" } })
+          };
+        }
+      };
+    }
+  };
+  const skipped = await pullAndSyncCloudLists(missingTableClient, { userId: "u1", localLists: [] });
+  assert.equal(skipped.skipped, true);
 });

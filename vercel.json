@@ -4,9 +4,19 @@
       "maxDuration": 60
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron-watchlist-alerts",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron-weekly-digest",
+      "schedule": "0 15 * * 5"
+    }
+  ],
   "rewrites": [
     {
-      "source": "/((?!api/|assets/|models/|manifest\\.json|og-image\\.png).*)",
+      "source": "/((?!api/|assets/|models/|icons/|sw\\.js|manifest\\.json|og-image\\.png).*)",
       "destination": "/index.html"
     }
   ],
@@ -42,7 +52,16 @@
       ]
     },
     {
-      "source": "/models/(.*)\\.(bin|cvea)",
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    },
+    {
+      "source": "/models/(.*)\\.(bin|cvea|json)",
       "headers": [
         {
           "key": "Content-Type",

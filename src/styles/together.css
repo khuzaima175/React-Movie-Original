@@ -1,0 +1,453 @@
+.together-page {
+  padding-top: 3.2rem;
+  padding-bottom: 7rem;
+}
+
+.together-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.6rem;
+  margin-bottom: 2.4rem;
+}
+
+.together-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #ff6b73;
+  margin-bottom: 0.5rem;
+}
+
+.together-title {
+  margin: 0 0 0.5rem;
+  font-size: clamp(2.6rem, 3.4vw, 3.8rem);
+  font-weight: 700;
+  color: var(--text-1, #f4f4f2);
+}
+
+.together-sub {
+  color: var(--text-2, #b6b6b2);
+  font-size: 1.4rem;
+  max-width: 60rem;
+}
+
+.together-pair-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.together-pair-input-wrap {
+  flex: 1 1 28rem;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0 1.2rem;
+  background: var(--surface-1, #141519);
+  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.1));
+  border-radius: var(--r-md, 0.9rem);
+  color: var(--text-3, #8e8e8a);
+}
+
+.together-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-1, #f4f4f2);
+  font-size: 1.4rem;
+  padding: 1rem 0;
+}
+
+.together-error-banner {
+  padding: 1.1rem 1.4rem;
+  border-radius: 0.8rem;
+  background: rgba(229, 9, 20, 0.12);
+  border: 1px solid rgba(229, 9, 20, 0.35);
+  color: #ffb4b8;
+  font-size: 1.35rem;
+  margin-bottom: 1.8rem;
+}
+
+.together-empty-card,
+.together-compromise-card,
+.together-join-panel {
+  padding: 3rem 2.2rem;
+  border-radius: var(--r-lg, 1.2rem);
+  background: var(--surface-1, #141519);
+  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
+  text-align: center;
+  color: var(--text-2, #b6b6b2);
+}
+
+.together-empty-card h3,
+.together-compromise-card h3,
+.together-join-panel h2 {
+  margin: 0.8rem 0 0.5rem;
+  color: var(--text-1, #f4f4f2);
+}
+
+.together-results-bar,
+.together-room-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  margin-bottom: 2rem;
+  padding: 1.4rem 1.6rem;
+  border-radius: var(--r-md, 1rem);
+  background: var(--surface-1, #141519);
+  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
+}
+
+.together-room-code {
+  display: inline-block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ff6b73;
+  margin-bottom: 0.25rem;
+}
+
+.together-role-toggle {
+  display: inline-flex;
+  padding: 0.3rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.together-role-toggle button {
+  border: none;
+  background: transparent;
+  color: var(--text-2, #b6b6b2);
+  padding: 0.45rem 1.1rem;
+  border-radius: 999px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.together-role-toggle button.is-active {
+  background: rgba(229, 9, 20, 0.22);
+  color: #fff;
+}
+
+.together-picks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+  gap: 1.8rem;
+}
+
+.together-pick-card {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--r-md, 1rem);
+  overflow: hidden;
+  background: var(--surface-1, #141519);
+  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.together-pick-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.together-pick-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  background: #0d0e11;
+}
+
+.together-pick-joint {
+  position: absolute;
+  top: 0.8rem;
+  left: 0.8rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(11, 11, 12, 0.86);
+  border: 1px solid rgba(229, 9, 20, 0.45);
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.together-pick-info {
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.together-pick-info strong {
+  font-size: 1.35rem;
+  color: var(--text-1, #f4f4f2);
+}
+
+.together-pick-meta,
+.together-pick-split {
+  font-size: 1.15rem;
+  color: var(--text-3, #8e8e8a);
+}
+
+.together-swipe-stage {
+  max-width: 58rem;
+  margin: 0 auto;
+}
+
+.together-swipe-progress {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.25rem;
+  color: var(--text-3, #8e8e8a);
+  margin-bottom: 1rem;
+}
+
+.together-swipe-card,
+.together-match-hero {
+  display: grid;
+  grid-template-columns: 20rem minmax(0, 1fr);
+  gap: 2rem;
+  padding: 1.8rem;
+  border-radius: var(--r-lg, 1.2rem);
+  background: var(--surface-1, #141519);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.together-swipe-poster,
+.together-match-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.8rem;
+  overflow: hidden;
+}
+
+.together-swipe-joint-badge {
+  position: absolute;
+  bottom: 0.8rem;
+  left: 0.8rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(11, 11, 12, 0.88);
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.together-swipe-body,
+.together-match-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.together-dual-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.together-dual-pills span {
+  padding: 0.28rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-2, #b6b6b2);
+}
+
+.together-dual-pills span.is-joint {
+  background: rgba(229, 9, 20, 0.2);
+  color: #fff;
+}
+
+.together-swipe-title {
+  margin: 0;
+  font-size: 2.2rem;
+  color: var(--text-1, #f4f4f2);
+}
+
+.together-swipe-meta,
+.together-match-meta {
+  margin: 0;
+  color: var(--text-3, #8e8e8a);
+  font-size: 1.3rem;
+}
+
+.together-swipe-overview,
+.together-match-overview {
+  margin: 0;
+  color: var(--text-2, #b6b6b2);
+  font-size: 1.35rem;
+  line-height: 1.5;
+}
+
+.together-detail-link {
+  color: #ff6b73;
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.together-swipe-actions,
+.together-match-actions {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.together-vote-btn,
+.together-launch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.4rem;
+  border-radius: 0.8rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.together-vote-btn.is-pass {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--text-1, #f4f4f2);
+}
+
+.together-vote-btn.is-yes,
+.together-launch-btn {
+  background: #e50914;
+  color: #fff;
+}
+
+.together-match-celebration {
+  padding: 2rem;
+  border-radius: var(--r-lg, 1.2rem);
+  background: radial-gradient(circle at top left, rgba(229, 9, 20, 0.14), transparent 55%),
+    var(--surface-1, #141519);
+  border: 1px solid rgba(229, 9, 20, 0.45);
+}
+
+.together-match-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #ff6b73;
+  margin-bottom: 1.2rem;
+}
+
+.together-join-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin: 1.6rem 0;
+}
+
+.together-join-form .together-input {
+  max-width: 22rem;
+  padding: 0.8rem 1.2rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.8rem;
+}
+
+.together-quickpick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 1.2rem;
+  margin-top: 1.4rem;
+}
+
+.together-quickpick-tile {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.8rem;
+  padding: 0.5rem;
+  color: var(--text-2, #b6b6b2);
+  font-size: 1.15rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.together-quickpick-tile.is-selected {
+  border-color: #e50914;
+  color: #fff;
+}
+
+.together-quickpick-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.6rem;
+  overflow: hidden;
+}
+
+.together-quickpick-check {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  background: #e50914;
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+
+.together-compromise-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.4rem;
+  margin-top: 1.6rem;
+  text-align: left;
+}
+
+.together-compromise-tile {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.together-compromise-poster {
+  width: 6.4rem;
+  flex-shrink: 0;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.together-compromise-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 1.2rem;
+}
+
+@media (max-width: 640px) {
+  .together-swipe-card,
+  .together-match-hero {
+    grid-template-columns: 1fr;
+  }
+}

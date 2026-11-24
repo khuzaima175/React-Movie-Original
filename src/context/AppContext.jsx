@@ -31,9 +31,21 @@ import {
 import {
   getCanonicalMovieKey,
   mapLocalMovieToDbRow,
+  mapLocalListToDbRow,
   pullAndSyncCloudVault,
+  pullAndSyncCloudLists,
   pullAndSyncProfilePreferences
 } from "../services/vaultSyncService.js";
+import {
+  CUSTOM_LISTS_STORAGE_KEY,
+  clonePublicListToLocal,
+  createCustomList,
+  deleteCustomList,
+  getActiveCustomLists,
+  renameCustomList,
+  setListVisibility,
+  toggleMovieInList
+} from "../services/listsService.js";
 import {
   signUpWithEmailPassword,
   signInWithEmailPassword,
@@ -52,6 +64,11 @@ import {
 } from "../services/backgroundJobService.js";
 import { isSampleItem, mergeSampleVault } from "../services/sampleVaultService.js";
 import { STORAGE_PURGE_ORDER, safeSetStorageItem } from "../services/storageEviction.js";
+import {
+  loadVaultFromStorage,
+  mergeHydratedVaultSlice,
+  saveVaultSlice
+} from "../services/vaultStorageService.js";
 
 export { STORAGE_PURGE_ORDER };
 
@@ -82,6 +99,15 @@ export function AppProvider({ children }) {
       return saved && saved !== "undefined" ? JSON.parse(saved) : [];
     } catch (e) {
       console.warn("Error parsing watchlist from localStorage:", e);
+      return [];
+    }
+  });
+
+  const [customListsRaw, setCustomListsRaw] = useState(() => {
+    try {
+      const saved = localStorage.getItem(CUSTOM_LISTS_STORAGE_KEY);
+      return saved && saved !== "undefined" ? JSON.parse(saved) : [];
+    } catch {
       return [];
     }
   });
@@ -198,6 +224,7 @@ export function AppProvider({ children }) {
   const [isAuthLoading, setIsAuthLoading] = useState(() => hasSupabaseConfig() && hasStoredSupabaseSession());
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState("idle");
+  const [isVaultHydrated, setIsVaultHydrated] = useState(() => typeof indexedDB === "undefined");
   const [lastSyncedAt, setLastSyncedAt] = useState(() => {
     try {
       return localStorage.getItem(LAST_SYNCED_AT_STORAGE) || null;
@@ -209,6 +236,12 @@ export function AppProvider({ children }) {
 
   const watchedRef = useRef(watched);
   const watchlistRef = useRef(watchlist);
+  const customListsRawRef = useRef(customListsRaw);
+  const isVaultHydratedRef = useRef(isVaultHydrated);
+  const vaultHydrationPromiseRef = useRef(null);
+  const vaultPersistMountedRef = useRef({ watched: false, watchlist: false, customLists: false });
+  const dirtyVaultBeforeHydrationRef = useRef({ watched: false, watchlist: false, customLists: false });
+  const pendingListUpsertsRef = useRef(new Map());
   const compareItemsRef = useRef(compareItems);
   const compareNoticeTimerRef = useRef(null);
   const userRegionRef = useRef(userRegion);
@@ -267,14 +300,93 @@ export function AppProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    const promise = loadVaultFromStorage()
+      .then((res) => {
+        if (!active) return;
+        const nextWatched = mergeHydratedVaultSlice(
+          watchedRef.current,
+          res.watched,
+          dirtyVaultBeforeHydrationRef.current.watched
+        );
+        const nextWatchlist = mergeHydratedVaultSlice(
+          watchlistRef.current,
+          res.watchlist,
+          dirtyVaultBeforeHydrationRef.current.watchlist
+        );
+        const nextCustomLists =
+          dirtyVaultBeforeHydrationRef.current.customLists
+            ? customListsRawRef.current
+            : (Array.isArray(res.customLists) && res.customLists.length > 0
+                ? res.customLists
+                : customListsRawRef.current);
+        watchedRef.current = nextWatched;
+        watchlistRef.current = nextWatchlist;
+        customListsRawRef.current = nextCustomLists;
+        isVaultHydratedRef.current = true;
+        setWatched(nextWatched);
+        setWatchlist(nextWatchlist);
+        setCustomListsRaw(nextCustomLists);
+        setIsVaultHydrated(true);
+        if (dirtyVaultBeforeHydrationRef.current.watched) {
+          saveVaultSlice("watchedMovies", nextWatched);
+        }
+        if (dirtyVaultBeforeHydrationRef.current.watchlist) {
+          saveVaultSlice("watchlist", nextWatchlist);
+        }
+        if (dirtyVaultBeforeHydrationRef.current.customLists) {
+          saveVaultSlice("customLists", nextCustomLists);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        isVaultHydratedRef.current = true;
+        setIsVaultHydrated(true);
+      });
+    vaultHydrationPromiseRef.current = promise;
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     watchedRef.current = watched || [];
-    safeSetItem("watchedMovies", watched || []);
+    if (!vaultPersistMountedRef.current.watched) {
+      vaultPersistMountedRef.current.watched = true;
+      return;
+    }
+    if (!isVaultHydratedRef.current) {
+      dirtyVaultBeforeHydrationRef.current.watched = true;
+      return;
+    }
+    saveVaultSlice("watchedMovies", watched || []);
   }, [watched]);
 
   useEffect(() => {
     watchlistRef.current = watchlist || [];
-    safeSetItem("watchlist", watchlist || []);
+    if (!vaultPersistMountedRef.current.watchlist) {
+      vaultPersistMountedRef.current.watchlist = true;
+      return;
+    }
+    if (!isVaultHydratedRef.current) {
+      dirtyVaultBeforeHydrationRef.current.watchlist = true;
+      return;
+    }
+    saveVaultSlice("watchlist", watchlist || []);
   }, [watchlist]);
+
+  useEffect(() => {
+    customListsRawRef.current = customListsRaw || [];
+    if (!vaultPersistMountedRef.current.customLists) {
+      vaultPersistMountedRef.current.customLists = true;
+      return;
+    }
+    if (!isVaultHydratedRef.current) {
+      dirtyVaultBeforeHydrationRef.current.customLists = true;
+      return;
+    }
+    saveVaultSlice("customLists", customListsRaw || []);
+  }, [customListsRaw]);
 
   useEffect(() => {
     compareItemsRef.current = compareItems || [];
@@ -452,10 +564,12 @@ export function AppProvider({ children }) {
 
     const upsertEntries = Array.from(pendingUpsertsRef.current.entries());
     const deleteKeys = Array.from(pendingDeletesRef.current.values());
-    if (upsertEntries.length === 0 && deleteKeys.length === 0) return;
+    const listUpserts = Array.from(pendingListUpsertsRef.current.values());
+    if (upsertEntries.length === 0 && deleteKeys.length === 0 && listUpserts.length === 0) return;
 
     pendingUpsertsRef.current.clear();
     pendingDeletesRef.current.clear();
+    pendingListUpsertsRef.current.clear();
 
     setCloudSyncStatus("syncing");
     setCloudError(null);
@@ -488,6 +602,16 @@ export function AppProvider({ children }) {
           .eq("user_id", activeUser.id)
           .in("movie_key", deleteKeys);
         if (error) throw error;
+      }
+
+      if (listUpserts.length > 0) {
+        const listRows = listUpserts.map((l) => mapLocalListToDbRow(l, activeUser.id, l.updatedAt || nowIso));
+        const { error: listErr } = await supabase
+          .from("user_lists")
+          .upsert(listRows, { onConflict: "id" });
+        if (listErr && listErr.code !== "42P01" && listErr.code !== "PGRST205") {
+          throw listErr;
+        }
       }
 
       setCloudSyncStatus("synced");
@@ -532,6 +656,12 @@ export function AppProvider({ children }) {
     setCloudError(null);
 
     try {
+      if (vaultHydrationPromiseRef.current) {
+        await vaultHydrationPromiseRef.current.catch(() => {});
+      }
+      if (sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== userObj.id) {
+        return { ok: false };
+      }
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
         syncTimerRef.current = null;
@@ -607,6 +737,19 @@ export function AppProvider({ children }) {
           watchlistRef.current = mergedWatchlist;
           setWatched(mergedWatched);
           setWatchlist(mergedWatchlist);
+        }
+      });
+
+      await pullAndSyncCloudLists(supabase, {
+        userId: userObj.id,
+        localLists: customListsRawRef.current || [],
+        nowIso,
+        onMerged: (mergedLists) => {
+          if (sessionEpochRef.current !== epoch || cloudUserRef.current?.id !== userObj.id) {
+            return;
+          }
+          customListsRawRef.current = mergedLists;
+          setCustomListsRaw(mergedLists);
         }
       });
 
@@ -766,7 +909,7 @@ export function AppProvider({ children }) {
   }, [hasCloudConfig, initAuthSession]);
 
   useEffect(() => {
-    if (backfillStartedRef.current || !hasTmdbBackend()) return undefined;
+    if (!isVaultHydrated || backfillStartedRef.current || !hasTmdbBackend()) return undefined;
     const CHECKED_KEY = "cinemavault_tmdb_backfill_checked_v1";
     const controller = new AbortController();
 
@@ -927,7 +1070,7 @@ export function AppProvider({ children }) {
       clearTimeout(timerId);
       controller.abort();
     };
-  }, [scheduleCloudFlush]);
+  }, [scheduleCloudFlush, isVaultHydrated]);
 
   async function signUpWithPassword({ email, password, displayName = "" } = {}) {
     const supabase = await initAuthSession();
@@ -1103,6 +1246,7 @@ export function AppProvider({ children }) {
   async function applyVaultImportSnapshot({
     mergedWatched = [],
     mergedWatchlist = [],
+    mergedLists = undefined,
     replaceMode = false
   } = {}) {
     const nowIso = new Date().toISOString();
@@ -1143,6 +1287,10 @@ export function AppProvider({ children }) {
     watchlistRef.current = stampedWatchlist;
     setWatched(stampedWatched);
     setWatchlist(stampedWatchlist);
+    if (Array.isArray(mergedLists)) {
+      customListsRawRef.current = mergedLists;
+      setCustomListsRaw(mergedLists);
+    }
 
     const activeUser = cloudUserRef.current;
     const supabase = getSupabaseClient() || (await getSupabaseClientAsync());
@@ -1733,6 +1881,90 @@ export function AppProvider({ children }) {
     setWatchlist(nextWatchlist);
   }, [abortAndResetBackgroundJobs]);
 
+  const commitCustomListsUpdate = useCallback(
+    (nextLists, touchedId = null) => {
+      customListsRawRef.current = nextLists;
+      setCustomListsRaw(nextLists);
+      if (cloudUserRef.current?.id && touchedId) {
+        const target = nextLists.find((l) => l.id === touchedId);
+        if (target) {
+          pendingListUpsertsRef.current.set(target.id, target);
+          scheduleCloudFlush();
+        }
+      }
+      return nextLists;
+    },
+    [scheduleCloudFlush]
+  );
+
+  const createCustomListAction = useCallback(
+    (payload) => {
+      const next = createCustomList(customListsRawRef.current, payload);
+      const created = next[0] || null;
+      commitCustomListsUpdate(next, created?.id || null);
+      return created;
+    },
+    [commitCustomListsUpdate]
+  );
+
+  const renameCustomListAction = useCallback(
+    (listId, payload) => {
+      const next = renameCustomList(customListsRawRef.current, listId, payload);
+      commitCustomListsUpdate(next, listId);
+    },
+    [commitCustomListsUpdate]
+  );
+
+  const deleteCustomListAction = useCallback(
+    (listId) => {
+      const next = deleteCustomList(customListsRawRef.current, listId);
+      commitCustomListsUpdate(next, listId);
+    },
+    [commitCustomListsUpdate]
+  );
+
+  const toggleMovieInListAction = useCallback(
+    (listId, movie) => {
+      const res = toggleMovieInList(customListsRawRef.current, listId, movie);
+      commitCustomListsUpdate(res.lists, listId);
+      return res;
+    },
+    [commitCustomListsUpdate]
+  );
+
+  const setListVisibilityAction = useCallback(
+    (listId, visibility) => {
+      const next = setListVisibility(customListsRawRef.current, listId, visibility);
+      commitCustomListsUpdate(next, listId);
+      return next.find((l) => l.id === listId) || null;
+    },
+    [commitCustomListsUpdate]
+  );
+
+  const cloneChecklistToCustomList = useCallback(
+    (checklist) => {
+      if (!checklist) return null;
+      return createCustomListAction({
+        name: checklist.name,
+        description: checklist.description || "",
+        sourceChecklistId: checklist.id,
+        initialItems: checklist.items || []
+      });
+    },
+    [createCustomListAction]
+  );
+
+  const clonePublicListAction = useCallback(
+    (publicList) => {
+      const res = clonePublicListToLocal(customListsRawRef.current, publicList);
+      if (res.clonedList) {
+        commitCustomListsUpdate(res.lists, res.clonedList.id);
+      }
+      return res.clonedList;
+    },
+    [commitCustomListsUpdate]
+  );
+
   return (
     <AppContext.Provider
       value={{
@@ -1740,6 +1972,16 @@ export function AppProvider({ children }) {
         setWatched,
         watchlist: watchlist || [],
         setWatchlist,
+        customLists: getActiveCustomLists(customListsRaw),
+        customListsRaw: customListsRaw || [],
+        createCustomListAction,
+        renameCustomListAction,
+        deleteCustomListAction,
+        toggleMovieInListAction,
+        setListVisibilityAction,
+        cloneChecklistToCustomList,
+        clonePublicListAction,
+        isVaultHydrated,
         hasSampleData,
         loadSampleVault,
         clearSampleVault,

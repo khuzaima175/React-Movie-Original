@@ -3431,6 +3431,26 @@
   transform: translateY(-1px);
 }
 
+.stream-provider-pill--interactive {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.stream-provider-pill--interactive:focus-visible {
+  outline: 2px solid var(--accent, #e50914);
+  outline-offset: 2px;
+}
+
+.stream-launch-icon {
+  color: rgba(244, 244, 242, 0.55);
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.stream-provider-pill--interactive:hover .stream-launch-icon {
+  color: #f4f4f2;
+  transform: translate(1px, -1px);
+}
+
 .stream-logo-img {
   width: 2.2rem;
   height: 2.2rem;

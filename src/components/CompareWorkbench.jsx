@@ -29,6 +29,7 @@ import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
 import { extractTmdbNumericId, findMatchingMovie, isSameMovie } from "../services/movieIdentity";
 import { searchCatalogMovies } from "../services/searchService";
 import { getCanonicalMovieKey } from "../services/vaultSyncService";
+import { resolveProviderLaunchUrl } from "../services/watchLinkService";
 import PosterImage from "./PosterImage";
 import { Button } from "./ui";
 
@@ -890,13 +891,30 @@ export default function CompareWorkbench({
                     <span className="compare-value-sub">No regional offers listed</span>
                   ) : (
                     <div className="compare-providers-stack">
-                      {bucket.map((p) => (
-                        <span key={`${p.id || p.name}-${p.kind}`} className="compare-provider-badge">
-                          {p.logo && <img src={p.logo} alt="" aria-hidden="true" />}
-                          <span>{p.name}</span>
-                          <small>{p.kind}</small>
-                        </span>
-                      ))}
+                      {bucket.map((p) => {
+                        const launch = resolveProviderLaunchUrl({
+                          providerId: p.id,
+                          providerName: p.name,
+                          title: item.title,
+                          year: item.year,
+                          watchProviderLink: item.watchProviderLink
+                        });
+                        return (
+                          <a
+                            key={`${p.id || p.name}-${p.kind}`}
+                            href={launch.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="compare-provider-badge compare-provider-badge--interactive"
+                            title={launch.label}
+                            aria-label={launch.label}
+                          >
+                            {p.logo && <img src={p.logo} alt="" aria-hidden="true" />}
+                            <span>{p.name}</span>
+                            <small>{p.kind}</small>
+                          </a>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

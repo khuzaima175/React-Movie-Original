@@ -137,6 +137,8 @@ export default function BackupManagerModal({
   const {
     watched = [],
     watchlist = [],
+    customLists = [],
+    customListsRaw = [],
     setWatched,
     setWatchlist,
     applyVaultImportSnapshot,
@@ -173,11 +175,13 @@ export default function BackupManagerModal({
     return summarizeImportDiff({
       existingWatched: watched,
       existingWatchlist: watchlist,
+      existingLists: customListsRaw,
       incomingWatched: pendingImport.incomingWatched,
       incomingWatchlist: pendingImport.incomingWatchlist,
+      incomingLists: pendingImport.incomingLists,
       mode: importMode
     });
-  }, [pendingImport, watched, watchlist, importMode]);
+  }, [pendingImport, watched, watchlist, customListsRaw, importMode]);
 
   function handleExportJson() {
     const payload = buildBackupJsonPayload({
@@ -185,7 +189,8 @@ export default function BackupManagerModal({
       watchlist,
       userRegion,
       userWatchProviders,
-      tasteRules
+      tasteRules,
+      customLists
     });
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json;charset=utf-8"
@@ -194,7 +199,7 @@ export default function BackupManagerModal({
     triggerFileDownload(blob, `cinemavault-backup-${dateStamp}.json`);
     setResultMessage({
       type: "success",
-      text: `Exported ${watched.length} watched films and ${watchlist.length} watchlist items as JSON (Schema v2).`
+      text: `Exported ${watched.length} watched films, ${watchlist.length} watchlist items, and ${customLists.length} custom lists as JSON (Schema v3).`
     });
   }
 
@@ -222,6 +227,7 @@ export default function BackupManagerModal({
       applyVaultImportSnapshot({
         mergedWatched: diffPreview.mergedWatched,
         mergedWatchlist: diffPreview.mergedWatchlist,
+        mergedLists: pendingImport.incomingLists ? diffPreview.mergedLists : undefined,
         replaceMode: importMode === "replace"
       });
     } else {
@@ -274,6 +280,7 @@ export default function BackupManagerModal({
           formatLabel: "JSON Backup",
           incomingWatched: parsed.watched,
           incomingWatchlist: parsed.watchlist,
+          incomingLists: parsed.customLists,
           preferences: parsed.preferences || null,
           droppedCount: 0
         });
@@ -371,9 +378,9 @@ export default function BackupManagerModal({
       icon: FileJson,
       badge: "Lossless",
       isPrimary: true,
-      title: "CinemaVault JSON (v2)",
+      title: "CinemaVault JSON (v3)",
       description:
-        "Lossless backup of all watched ratings, notes, TMDB/IMDb IDs, watchlist, and preferences.",
+        "Lossless backup of all watched ratings, notes, TMDB/IMDb IDs, watchlist, custom lists, and preferences.",
       buttonLabel: "Download JSON",
       buttonVariant: "accent",
       onClick: handleExportJson

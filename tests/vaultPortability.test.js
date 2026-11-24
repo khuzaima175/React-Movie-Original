@@ -15,7 +15,7 @@ test("buildBackupJsonPayload and buildRatingsCsv serialize rated films, TMDB IDs
     { imdbID: "tt0111161", title: "Shawshank", year: "1994", userRating: 0 }
   ];
   const json = buildBackupJsonPayload({ watched, watchlist: [], userRegion: "US", userWatchProviders: [8], now: 1700000000000 });
-  assert.equal(json.schemaVersion, 2);
+  assert.equal(json.schemaVersion, 3);
   assert.equal(json.watched.length, 2);
 
   const fullCsv = buildRatingsCsv({ watched, watchlist: [], format: "cinemavault" });
@@ -115,7 +115,7 @@ test("buildBackupJsonPayload & parseJsonBackupContent round-trip preferences.tas
     now: 1700000000000
   });
 
-  assert.equal(payload.schemaVersion, 2);
+  assert.equal(payload.schemaVersion, 3);
   assert.ok(Array.isArray(payload.preferences.tasteRules));
   assert.equal(payload.preferences.tasteRules.length, 2);
   assert.equal(payload.preferences.tasteRules[0].text, "No bleak misery");
@@ -145,4 +145,42 @@ test("buildBackupJsonPayload & parseJsonBackupContent round-trip preferences.tas
     tasteRules: []
   });
   assert.deepEqual(emptyRulesPayload.preferences.tasteRules, []);
+});
+
+
+test("Schema v3 buildBackupJsonPayload, parseJsonBackupContent, and summarizeImportDiff support customLists without breaking v2 imports", () => {
+  const lists = [
+    {
+      id: "l1",
+      name: "Rainy Noir",
+      description: "Moody detective films",
+      items: [{ imdbID: "tt0114369", title: "Se7en", year: "1995" }],
+      updatedAt: "2026-11-24T10:00:00.000Z",
+      deletedAt: null
+    },
+    {
+      id: "l_deleted",
+      name: "Deleted",
+      items: [],
+      updatedAt: "2026-11-24T10:00:00.000Z",
+      deletedAt: "2026-11-24T11:00:00.000Z"
+    }
+  ];
+
+  const v3Payload = buildBackupJsonPayload({ watched: [], watchlist: [], customLists: lists });
+  assert.equal(v3Payload.schemaVersion, 3);
+  assert.equal(v3Payload.customLists.length, 1);
+
+  const parsedV3 = parseJsonBackupContent(JSON.stringify(v3Payload));
+  assert.equal(parsedV3.customLists.length, 1);
+
+  const diffKeep = summarizeImportDiff({
+    existingLists: [lists[0]],
+    incomingWatched: [],
+    incomingWatchlist: [],
+    incomingLists: undefined,
+    mode: "merge_update"
+  });
+  assert.equal(diffKeep.mergedLists.length, 1);
+  assert.equal(diffKeep.newListCount, 0);
 });

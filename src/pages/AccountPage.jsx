@@ -26,6 +26,7 @@ import {
 } from "../services/communityService";
 import { getCanonicalMovieKey } from "../services/vaultSyncService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { fetchAlertPreferences, updateAlertPreferences } from "../services/notificationsService";
 import { Button } from "../components/ui/Button";
 import "../styles/auth.css";
 import "../styles/community.css";
@@ -85,6 +86,9 @@ export default function AccountPage() {
   const [isLoadingCommunity, setIsLoadingCommunity] = useState(false);
   const [isSavingCommunity, setIsSavingCommunity] = useState(false);
   const [communityMsg, setCommunityMsg] = useState({ type: "", text: "" });
+  const [alertEmailEnabled, setAlertEmailEnabled] = useState(false);
+  const [isSavingAlerts, setIsSavingAlerts] = useState(false);
+  const [alertsMsg, setAlertsMsg] = useState("");
 
   const topRatedCandidates = useMemo(() => {
     const allReal = (Array.isArray(watched) ? watched : [])
@@ -129,6 +133,9 @@ export default function AccountPage() {
       .finally(() => {
         if (active) setIsLoadingCommunity(false);
       });
+    fetchAlertPreferences(cloudUser.id).then((prefs) => {
+      if (active) setAlertEmailEnabled(Boolean(prefs.alertEmailEnabled));
+    });
     return () => {
       active = false;
     };
@@ -563,6 +570,46 @@ export default function AccountPage() {
                     : "Save Privacy Settings"}
               </Button>
             </form>
+          </section>
+
+          <section className="account-card is-full" aria-label="Watchlist streaming alerts">
+            <h2 className="account-card-title">Watchlist Alerts &amp; Weekly Digest</h2>
+            <p className="m-0 text-[1.35rem] text-[#9e9e99] leading-[1.55]">
+              Get an in-app bell alert and an optional Friday email digest whenever a film on your
+              Watchlist becomes available on one of your selected streaming services.
+            </p>
+            <label className="flex items-center gap-[1rem] cursor-pointer text-[1.4rem] text-[#f4f4f2] font-medium mt-[0.8rem]">
+              <input
+                type="checkbox"
+                checked={alertEmailEnabled}
+                disabled={isSavingAlerts}
+                onChange={async (e) => {
+                  const next = e.target.checked;
+                  setAlertEmailEnabled(next);
+                  setIsSavingAlerts(true);
+                  setAlertsMsg("");
+                  const res = await updateAlertPreferences(cloudUser.id, {
+                    alertEmailEnabled: next,
+                    alertFrequency: next ? "weekly" : "off"
+                  });
+                  setIsSavingAlerts(false);
+                  setAlertsMsg(
+                    res.ok
+                      ? next
+                        ? "Weekly Friday email digest enabled."
+                        : "Email digest turned off (in-app alerts remain active)."
+                      : res.error || "Could not update alert preferences."
+                  );
+                }}
+                className="w-[1.8rem] h-[1.8rem] accent-emerald-500 cursor-pointer"
+              />
+              <span>Send me a weekly Friday email when Watchlist titles arrive on streaming</span>
+            </label>
+            {alertsMsg && (
+              <p className="m-0 mt-[0.6rem] text-[1.25rem] text-[#b6b6b2]" role="status">
+                {alertsMsg}
+              </p>
+            )}
           </section>
 
           <section className="account-card is-full" aria-label="Sign out options">

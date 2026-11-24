@@ -1062,6 +1062,18 @@ body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
   font-size: 1.05rem;
 }
 
+.compare-provider-badge--interactive {
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.compare-provider-badge--interactive:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: var(--surface-3, #27272a);
+  transform: translateY(-1px);
+}
+
 /* ── Shared DNA & Creative Overlap Strip ─────────────────────────────────── */
 .compare-dna-panel {
   display: flex;

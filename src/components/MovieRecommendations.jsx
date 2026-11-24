@@ -60,6 +60,15 @@ import QuickRateModal from "./QuickRateModal";
 import GeminiKeyModal from "./GeminiKeyModal";
 import OraclePreferencesPopover from "./OraclePreferencesPopover";
 import OracleTopPickSpotlight from "./OracleTopPickSpotlight";
+import TasteTunerBar from "./TasteTunerBar";
+import { loadDefaultContentIndex } from "../services/contentSimService";
+import {
+  DEFAULT_TUNER_STATE,
+  applyTunerToPool,
+  extractDominantUserGenres,
+  formatDominantGenreNames,
+  loadTunerAxes
+} from "../services/tunerService";
 import { Button, MetaLine, Select } from "./ui";
 import {
   Sparkles,
@@ -195,6 +204,8 @@ export default function MovieRecommendations({
   const [isPrefsOpen, setIsPrefsOpen] = useState(false);
   const [prefsInitialTab, setPrefsInitialTab] = useState("streaming");
   const [isDraftingRules, setIsDraftingRules] = useState(false);
+  const [tunerState, setTunerState] = useState(DEFAULT_TUNER_STATE);
+  const [tunerResources, setTunerResources] = useState({ contentIndex: null, tunerAxes: null });
 
   const [tasteProfileData, setTasteProfileData] = useState(null);
   const activeRequestRef = useRef(0);
@@ -630,8 +641,31 @@ export default function MovieRecommendations({
     }
   };
 
-  const sortedRecommendations = (recommendations || [])
-    .filter((rec) => {
+  useEffect(() => {
+    if (!recommendations || recommendations.length === 0) return undefined;
+    let active = true;
+    Promise.all([
+      loadDefaultContentIndex().catch(() => null),
+      loadTunerAxes().catch(() => null)
+    ]).then(([contentIndex, tunerAxes]) => {
+      if (active) setTunerResources({ contentIndex, tunerAxes });
+    });
+    return () => {
+      active = false;
+    };
+  }, [recommendations]);
+
+  const dominantGenreIds = useMemo(
+    () => extractDominantUserGenres(watched, 2),
+    [watched]
+  );
+  const dominantGenreNames = useMemo(
+    () => formatDominantGenreNames(dominantGenreIds),
+    [dominantGenreIds]
+  );
+
+  const baseRecommendations = useMemo(() => {
+    const filtered = (recommendations || []).filter((rec) => {
       const id = rec.imdbID?.toLowerCase();
       const tmdbId = rec.tmdbId ? String(rec.tmdbId).toLowerCase() : null;
       const compKey = `${(rec.title || "").toLowerCase().trim()}::${String(rec.year || "").match(/\d{4}/)?.[0] || "0000"}`;
@@ -643,13 +677,25 @@ export default function MovieRecommendations({
       );
 
       return !isWatched;
-    })
-    .sort((a, b) => {
-      if (sortBy === "match") return (b.matchScore ?? -1) - (a.matchScore ?? -1);
+    });
+
+    const matchOrdered = [...filtered].sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
+    return applyTunerToPool(matchOrdered, tunerState, {
+      watched,
+      dominantGenreIds,
+      contentIndex: tunerResources.contentIndex,
+      tunerAxes: tunerResources.tunerAxes
+    });
+  }, [recommendations, watched, tunerState, dominantGenreIds, tunerResources]);
+
+  const sortedRecommendations = useMemo(() => {
+    if (sortBy === "match") return baseRecommendations;
+    return [...baseRecommendations].sort((a, b) => {
       if (sortBy === "imdb") return (parseFloat(b.imdbRating) || 0) - (parseFloat(a.imdbRating) || 0);
       if (sortBy === "year") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0);
       return 0;
     });
+  }, [baseRecommendations, sortBy]);
 
   // Only show numeric match scores when they carry information (spread >= 4 pts and > 1 distinct value)
   const scoreValues = sortedRecommendations
@@ -1280,6 +1326,12 @@ export default function MovieRecommendations({
               )}
             </p>
           )}
+
+          <TasteTunerBar
+            value={tunerState}
+            onChange={setTunerState}
+            dominantGenreNames={dominantGenreNames}
+          />
 
           {/* Path 1 Flagship #1 Top Pick Tonight Hero Spotlight */}
           {spotlightPick && (

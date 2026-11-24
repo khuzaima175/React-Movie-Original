@@ -26,6 +26,8 @@ const AIPage = lazy(() => import("./pages/AIPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 const AccountPage = lazy(() => import("./pages/AccountPage"));
 const PublicProfilePage = lazy(() => import("./pages/PublicProfilePage"));
+const PublicListPage = lazy(() => import("./pages/PublicListPage"));
+const WatchTogetherPage = lazy(() => import("./pages/WatchTogetherPage"));
 import {
   shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
@@ -59,7 +61,8 @@ function AppContent() {
     hasCloudConfig,
     cloudUser,
     cloudSyncStatus,
-    isPasswordRecovery
+    isPasswordRecovery,
+    isVaultHydrated = true
   } = useApp();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRandomPickerOpen, setIsRandomPickerOpen] = useState(false);
@@ -84,18 +87,24 @@ function AppContent() {
   }, [isPasswordRecovery, location.pathname, navigate]);
 
   useEffect(() => {
-    if (didCheckOnboardingRef.current) return;
+    if (!isVaultHydrated || didCheckOnboardingRef.current) return;
     didCheckOnboardingRef.current = true;
     try {
       const dismissedFlag = localStorage.getItem(TASTE_ONBOARDING_DISMISSED_KEY);
-      if (shouldAutoShowTasteOnboarding({ watchedCount: watched.length, dismissedFlag })) {
+      if (
+        shouldAutoShowTasteOnboarding({
+          watchedCount: watched.length,
+          dismissedFlag,
+          isVaultHydrated
+        })
+      ) {
         setTasteDeckInitialMode("grid");
         setIsTasteDeckOpen(true);
       }
     } catch {
       // ignore storage availability errors
     }
-  }, [watched.length]);
+  }, [watched.length, isVaultHydrated]);
 
   useEffect(() => {
     function handleGlobalKey(e) {
@@ -267,6 +276,9 @@ function AppContent() {
           <Route path="/signup" element={<AuthPage defaultMode="signup" />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/u/:username" element={<PublicProfilePage />} />
+          <Route path="/list/:slug" element={<PublicListPage />} />
+          <Route path="/together" element={<WatchTogetherPage />} />
+          <Route path="/together/:code" element={<WatchTogetherPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </Suspense>

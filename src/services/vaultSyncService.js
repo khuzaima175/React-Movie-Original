@@ -723,3 +723,113 @@ export async function pullAndSyncProfilePreferences(
 
   return merged;
 }
+
+
+export function mapLocalListToDbRow(list = {}, userId = "", nowIso = new Date().toISOString()) {
+  return {
+    id: String(list.id),
+    user_id: userId,
+    name: String(list.name || "Untitled List").slice(0, 80),
+    description: String(list.description || "").slice(0, 300),
+    source_checklist_id: list.sourceChecklistId || null,
+    items: Array.isArray(list.items) ? list.items : [],
+    is_public: Boolean(list.isPublic) && !list.deletedAt,
+    slug: list.slug || null,
+    created_at: list.createdAt || nowIso,
+    updated_at: list.updatedAt || nowIso,
+    deleted_at: list.deletedAt || null
+  };
+}
+
+export function mapDbRowToLocalList(row = {}) {
+  return {
+    id: String(row.id),
+    name: row.name || "Untitled List",
+    description: row.description || "",
+    sourceChecklistId: row.source_checklist_id || null,
+    items: Array.isArray(row.items) ? row.items : [],
+    isPublic: Boolean(row.is_public),
+    slug: row.slug || null,
+    bookmarkCount: Number(row.bookmark_count || 0),
+    createdAt: row.created_at || row.updated_at || new Date().toISOString(),
+    updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+    deletedAt: row.deleted_at || null
+  };
+}
+
+export function mergeLocalAndCloudLists({
+  localLists = [],
+  cloudRows = [],
+  userId = "",
+  nowIso = new Date().toISOString()
+} = {}) {
+  const localMap = new Map((Array.isArray(localLists) ? localLists : []).filter(Boolean).map((l) => [l.id, l]));
+  const cloudMapped = (Array.isArray(cloudRows) ? cloudRows : []).map(mapDbRowToLocalList);
+  const cloudMap = new Map(cloudMapped.map((l) => [l.id, l]));
+
+  const merged = [];
+  const toUpsertCloud = [];
+  const allIds = new Set([...localMap.keys(), ...cloudMap.keys()]);
+
+  for (const id of allIds) {
+    const loc = localMap.get(id);
+    const cld = cloudMap.get(id);
+    if (loc && !cld) {
+      merged.push(loc);
+      toUpsertCloud.push(mapLocalListToDbRow(loc, userId, nowIso));
+    } else if (!loc && cld) {
+      merged.push(cld);
+    } else if (loc && cld) {
+      const locTs = Date.parse(loc.updatedAt || 0) || 0;
+      const cldTs = Date.parse(cld.updatedAt || 0) || 0;
+      if (locTs > cldTs) {
+        merged.push(loc);
+        toUpsertCloud.push(mapLocalListToDbRow(loc, userId, nowIso));
+      } else {
+        merged.push(cld);
+      }
+    }
+  }
+
+  return { mergedLists: merged, toUpsertCloud };
+}
+
+export async function pullAndSyncCloudLists(
+  client,
+  { userId, localLists = [], nowIso = new Date().toISOString(), onMerged } = {}
+) {
+  if (!client || !userId) return { skipped: true, mergedLists: localLists };
+
+  const { data: cloudRows, error } = await client
+    .from("user_lists")
+    .select("id, user_id, name, description, source_checklist_id, items, is_public, slug, bookmark_count, created_at, updated_at, deleted_at")
+    .eq("user_id", userId);
+
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205") {
+      return { skipped: true, mergedLists: localLists };
+    }
+    throw error instanceof Error ? error : new Error(error?.message || "Failed to load user_lists.");
+  }
+
+  const { mergedLists, toUpsertCloud } = mergeLocalAndCloudLists({
+    localLists,
+    cloudRows: Array.isArray(cloudRows) ? cloudRows : [],
+    userId,
+    nowIso
+  });
+
+  if (toUpsertCloud.length > 0) {
+    const { error: upsertErr } = await client
+      .from("user_lists")
+      .upsert(toUpsertCloud, { onConflict: "id" });
+    if (upsertErr && upsertErr.code !== "42P01" && upsertErr.code !== "PGRST205") {
+      throw upsertErr instanceof Error ? upsertErr : new Error(upsertErr?.message || "Failed to upsert user_lists.");
+    }
+  }
+
+  if (typeof onMerged === "function") {
+    onMerged(mergedLists);
+  }
+  return { skipped: false, mergedLists };
+}

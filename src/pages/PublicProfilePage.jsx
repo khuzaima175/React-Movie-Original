@@ -20,6 +20,7 @@ import {
   pickUnseenFavoritesFromProfile,
   toggleFollowUser
 } from "../services/communityService";
+import { fetchPublicListsByUsername } from "../services/publicListsService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
 import PosterImage from "../components/PosterImage";
 import { Button } from "../components/ui/Button";
@@ -52,13 +53,18 @@ export default function PublicProfilePage() {
   const [viewerVector, setViewerVector] = useState(null);
   const [followBusy, setFollowBusy] = useState(false);
   const [revealedSpoilers, setRevealedSpoilers] = useState(() => new Set());
+  const [publicLists, setPublicLists] = useState([]);
 
   useEffect(() => {
     let active = true;
     setRevealedSpoilers(new Set());
     setState((prev) => ({ ...prev, loading: true, error: "" }));
-    fetchPublicProfileByUsername(cleanHandle, cloudUser?.id || null).then((res) => {
+    Promise.all([
+      fetchPublicProfileByUsername(cleanHandle, cloudUser?.id || null),
+      fetchPublicListsByUsername(cleanHandle).catch(() => [])
+    ]).then(([res, lists]) => {
       if (!active) return;
+      setPublicLists(Array.isArray(lists) ? lists : []);
       setState({
         loading: false,
         status: res.status,
@@ -239,14 +245,23 @@ export default function PublicProfilePage() {
                 Edit Public Profile
               </Button>
             ) : (
-              <Button
-                variant={state.isFollowing ? "secondary" : "accent"}
-                icon={state.isFollowing ? Check : UserPlus}
-                disabled={followBusy}
-                onClick={handleToggleFollow}
-              >
-                {state.isFollowing ? "Following" : "Follow"}
-              </Button>
+              <div className="flex flex-wrap gap-[0.8rem]">
+                <Button
+                  variant={state.isFollowing ? "secondary" : "accent"}
+                  icon={state.isFollowing ? Check : UserPlus}
+                  disabled={followBusy}
+                  onClick={handleToggleFollow}
+                >
+                  {state.isFollowing ? "Following" : "Follow"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  icon={Users}
+                  onClick={() => navigate(`/together?partner=${encodeURIComponent(profile.username)}`)}
+                >
+                  Watch Together
+                </Button>
+              </div>
             )}
           </div>
         </header>
@@ -324,6 +339,38 @@ export default function PublicProfilePage() {
                   </div>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {publicLists.length > 0 && (
+          <section className="public-section" aria-label="Curated lists">
+            <div className="public-section-head">
+              <h2 className="public-section-title">Curated Lists</h2>
+              <span className="public-section-sub tabular-num">
+                {publicLists.length} public collection{publicLists.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="public-unseen-grid">
+              {publicLists.map((list) => (
+                <Link
+                  key={list.id}
+                  to={`/list/${list.slug}`}
+                  className="community-review-card no-underline text-inherit block"
+                >
+                  <strong className="text-[1.45rem] text-[#f4f4f2] block mb-[0.3rem]">
+                    {list.name}
+                  </strong>
+                  {list.description && (
+                    <span className="text-[1.25rem] text-[#b6b6b2] block mb-[0.5rem]">
+                      {list.description}
+                    </span>
+                  )}
+                  <span className="text-[1.15rem] text-[#8e8e8a] tabular-num">
+                    {list.items?.length || 0} films · {list.bookmark_count || 0} bookmarks
+                  </span>
+                </Link>
+              ))}
             </div>
           </section>
         )}

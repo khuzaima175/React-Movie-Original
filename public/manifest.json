@@ -3,15 +3,48 @@
   "short_name": "CinemaVault",
   "description": "Personal film log, on-device taste model, and verified AI-curated movie discovery.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0b0b0c",
   "theme_color": "#0d0e11",
   "icons": [
     {
-      "src": "/og-image.png",
-      "sizes": "1200x630",
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Film Oracle",
+      "short_name": "Oracle",
+      "description": "Get AI + math curated picks for tonight",
+      "url": "/ai"
+    },
+    {
+      "name": "Explore For You",
+      "short_name": "Explore",
+      "description": "Browse personalized and deep-filtered cinema",
+      "url": "/explore"
+    },
+    {
+      "name": "My Watchlist",
+      "short_name": "Watchlist",
+      "description": "Open saved films to watch next",
+      "url": "/vault?tab=watchlist"
     }
   ]
 }

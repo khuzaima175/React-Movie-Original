@@ -1255,6 +1255,9 @@ export function formatTmdbMovieDetails(data, userRegion = "US") {
     name: p.provider_name,
     logo: `https://image.tmdb.org/t/p/original${p.logo_path}`
   }));
+  const watchProviderLink = typeof providerRegion?.link === "string" && providerRegion.link.trim()
+    ? providerRegion.link.trim()
+    : null;
 
   // Extract US / Regional certification rating
   let mpaaRating = null;
@@ -1308,6 +1311,7 @@ export function formatTmdbMovieDetails(data, userRegion = "US") {
     collectionId,
     collectionName,
     mpaaRating,
+    watchProviderLink,
     streamProviders,
     buyRentProviders,
     freeProviders
@@ -1765,6 +1769,7 @@ export function applyDetailsToCandidate(existing, details) {
     tmdbKeywords: Array.isArray(details.tmdbKeywords) ? details.tmdbKeywords : (existing.tmdbKeywords || []),
     keywordNames: Array.isArray(details.keywordNames) ? details.keywordNames : (existing.keywordNames || []),
     tmdbGenreIds: Array.isArray(details.tmdbGenreIds) ? details.tmdbGenreIds : (existing.tmdbGenreIds || existing.genre_ids || []),
+    watchProviderLink: details.watchProviderLink ?? existing.watchProviderLink ?? null,
     streamProviders: Array.isArray(details.streamProviders) ? details.streamProviders : (existing.streamProviders || []),
     freeProviders: Array.isArray(details.freeProviders) ? details.freeProviders : (existing.freeProviders || []),
     providersHydrated: true,
