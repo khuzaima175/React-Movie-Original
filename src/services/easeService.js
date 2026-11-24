@@ -131,24 +131,50 @@ export function parseEaseBinary(buffer) {
   };
 }
 
+const DEFAULT_WATCHLIST_EASE_WEIGHT = 0.25;
+const MAX_WATCHLIST_EASE_ITEMS = 15;
+
+/**
+ * Extracts a numeric epoch timestamp from watchlist metadata for recency ordering, returning 0 when absent.
+ */
+function parseWatchlistTimestamp(item) {
+  const rawTs = item?.updatedAt ?? item?.dateAdded ?? item?.addedAt ?? item?.createdAt ?? item?.ts;
+  if (typeof rawTs === "number" && Number.isFinite(rawTs)) return rawTs;
+  if (typeof rawTs === "string" && rawTs.trim()) {
+    const parsed = Date.parse(rawTs);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
 /**
  * Computes sparse full-rank EASE^R similarity scores across all items in `easeIndex`
  * in O(|watched| * K) time (< 1 ms for typical vaults).
  */
 export function buildEaseSimMapFromIndex(weightedRatings = [], easeIndex = null, options = {}) {
   const map = new Map();
-  if (!easeIndex || !easeIndex.count || !easeIndex.K || !Array.isArray(weightedRatings) || weightedRatings.length === 0) {
+  const safeWatched = Array.isArray(weightedRatings) ? weightedRatings : [];
+  const rawWatchlist = Array.isArray(options?.watchlistItems) ? options.watchlistItems : [];
+  const rawWlWeight = options?.watchlistWeight !== undefined
+    ? Number(options.watchlistWeight)
+    : DEFAULT_WATCHLIST_EASE_WEIGHT;
+  const watchlistWeight = Number.isFinite(rawWlWeight) && rawWlWeight > 0 ? rawWlWeight : 0;
+  const useWatchlist = watchlistWeight > 0 && rawWatchlist.length > 0;
+
+  if (!easeIndex || !easeIndex.count || !easeIndex.K || (safeWatched.length === 0 && !useWatchlist)) {
     return map;
   }
 
   const { count, K, ids, idToIndex, nbrIdx, nbrW } = easeIndex;
-  const negWeight = Number.isFinite(Number(options.negWeight)) ? Number(options.negWeight) : -0.35;
+  const negWeight = Number.isFinite(Number(options?.negWeight)) ? Number(options.negWeight) : -0.35;
   const scores = new Float32Array(count);
+  const seenTmdbIds = useWatchlist ? new Set() : null;
   let touched = 0;
 
-  for (const entry of weightedRatings) {
+  for (const entry of safeWatched) {
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
-    if (!tmdbId) continue;
+    if (!Number.isFinite(tmdbId) || tmdbId <= 0) continue;
+    if (seenTmdbIds) seenTmdbIds.add(tmdbId);
     const idx = idToIndex.get(tmdbId);
     if (idx === undefined) continue;
 
@@ -177,6 +203,39 @@ export function buildEaseSimMapFromIndex(weightedRatings = [], easeIndex = null,
       const target = nbrIdx[base + k];
       if (target < count) {
         scores[target] += x * nbrW[base + k];
+      }
+    }
+  }
+
+  if (useWatchlist) {
+    const candidates = [];
+    for (let i = 0; i < rawWatchlist.length; i++) {
+      const item = rawWatchlist[i];
+      const tmdbId = Number(item?.tmdbId ?? item?.movie?.tmdbId ?? item?.id ?? 0);
+      if (!Number.isFinite(tmdbId) || tmdbId <= 0 || seenTmdbIds.has(tmdbId)) continue;
+      const idx = idToIndex.get(tmdbId);
+      if (idx === undefined) continue;
+      candidates.push({ tmdbId, idx, ts: parseWatchlistTimestamp(item), order: i });
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => (b.ts - a.ts) || (b.order - a.order));
+      const appliedIds = new Set();
+      let appliedCount = 0;
+      for (const cand of candidates) {
+        if (appliedIds.has(cand.tmdbId)) continue;
+        appliedIds.add(cand.tmdbId);
+        appliedCount++;
+        touched++;
+
+        const base = cand.idx * K;
+        for (let k = 0; k < K; k++) {
+          const target = nbrIdx[base + k];
+          if (target < count) {
+            scores[target] += watchlistWeight * nbrW[base + k];
+          }
+        }
+        if (appliedCount >= MAX_WATCHLIST_EASE_ITEMS) break;
       }
     }
   }

@@ -612,6 +612,7 @@ export async function generateExploreForYouPool({
 
   const embSignals = await computeExploreEmbeddingSignals({
     weightedRatings: profile.weightedRatings,
+    watchlistItems: watchlist,
     excludeNumericIds: [...numericExcludeSet],
     topK: 240,
     repulsionWeight,

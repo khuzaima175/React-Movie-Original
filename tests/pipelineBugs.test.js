@@ -1863,4 +1863,94 @@ test("getMovieRecommendations forwards embeddingIndex into fetchCandidatePool fo
     }
 });
 
+test("getMovieRecommendations forwards watchlist into buildEaseSimMapFromIndex so watchlist neighbors gain collabSim boost", async () => {
+    const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+    const prevTmdbKey = process.env.VITE_TMDB_KEY;
+    delete process.env.VITE_GEMINI_KEY;
+    delete process.env.VITE_TMDB_KEY;
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+
+    try {
+        const { encodeEaseBinary, parseEaseBinary } = await import("../src/services/easeService.js");
+        const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+
+        const easeIndex = parseEaseBinary(encodeEaseBinary([
+            { tmdbId: 100, neighbors: [{ index: 2, weight: 0.40 }] },
+            { tmdbId: 200, neighbors: [{ index: 3, weight: 0.50 }] },
+            { tmdbId: 300, neighbors: [{ index: 0, weight: 0.40 }] },
+            { tmdbId: 400, neighbors: [{ index: 1, weight: 0.50 }] },
+            { tmdbId: 500, neighbors: [{ index: 0, weight: 0.01 }] }
+        ], 1));
+        const embeddingIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+            { tmdbId: 100, vector: [1, 0, 0, 0] },
+            { tmdbId: 200, vector: [0, 1, 0, 0] },
+            { tmdbId: 300, vector: [0.9, 0.43, 0, 0] },
+            { tmdbId: 400, vector: [0, 0, 1, 0] },
+            { tmdbId: 500, vector: [0, 0, 1, 0] }
+        ]));
+
+        const makeCand = (id) => ({
+            id,
+            tmdbId: id,
+            title: `Candidate ${id}`,
+            year: "2020",
+            release_date: "2020-05-01",
+            genre: "Comedy",
+            tmdbGenreIds: [35],
+            vote_average: 6.8,
+            vote_count: 800,
+            plot: "Identical metadata candidate.",
+            realData: true
+        });
+        const candidates = [300, 400, 500, 501, 502, 503].map(makeCand);
+        const watched = [{ id: 100, tmdbId: 100, title: "Watched 100", userRating: 10, tmdbGenreIds: [18] }];
+        const watchlist = [{ id: 200, tmdbId: 200, title: "Watchlisted 200" }];
+
+        const resWithoutWl = await getMovieRecommendations(watched, [], null, {
+            candidates,
+            embeddingIndex,
+            easeIndex,
+            contentIndex: null,
+            dnaIndex: null,
+            injectEmbeddingNeighbors: false,
+            injectColdNeighbors: false,
+            enrichCandidates: false,
+            targetCount: 6
+        });
+        const baseline400 = resWithoutWl.recommendations.find((r) => r.tmdbId === 400);
+        assert.equal(baseline400?.features?.collabSim || 0, 0, "Without watchlist, 400 has 0 collabSim");
+
+        const res = await getMovieRecommendations(watched, watchlist, null, {
+            candidates,
+            embeddingIndex,
+            easeIndex,
+            contentIndex: null,
+            dnaIndex: null,
+            injectEmbeddingNeighbors: false,
+            injectColdNeighbors: false,
+            enrichCandidates: false,
+            targetCount: 6
+        });
+
+        const rank400 = res.recommendations.findIndex((r) => r.tmdbId === 400);
+        const rank500 = res.recommendations.findIndex((r) => r.tmdbId === 500);
+        const pick400 = res.recommendations[rank400];
+        const pick500 = res.recommendations[rank500];
+        assert.ok(rank400 !== -1 && rank500 !== -1);
+        assert.ok(
+            (pick400.features?.collabSim || 0) > (pick500.features?.collabSim || 0),
+            "Watchlist neighbor 400 must receive positive EASE signal from watchlisted 200"
+        );
+        assert.ok(rank400 < rank500, "Watchlist neighbor 400 must outrank identical non-neighbor 500");
+    } finally {
+        if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+        else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+        if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+        else process.env.VITE_TMDB_KEY = prevTmdbKey;
+        resetSessionWorkingModels();
+        resetModelInfoForTests();
+    }
+});
+
 

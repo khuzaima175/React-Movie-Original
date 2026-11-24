@@ -12,6 +12,7 @@ import {
   buildWatchedRatingPayload
 } from "../src/services/ratingStudioService.js";
 import { upsertMovieEntry } from "../src/services/movieIdentity.js";
+import { extractTasteProfile } from "../src/services/tmdbService.js";
 
 test("computeVaultCalibration handles empty or unrated vaults cleanly", () => {
   const res = computeVaultCalibration([], 8);
@@ -182,4 +183,84 @@ test("computeStarStageMetrics computes unrated, selected, and hover-override wav
   assert.equal(tier7.tone, "cyan");
   assert.equal(getRatingTier(10).shortLabel, "Masterpiece");
   assert.equal(getRatingTier(0).tone, "unrated");
+});
+
+test("extractTasteProfile honors ratingBreakdown so high direction/visuals on a 5★ film does not penalize the director", async () => {
+  const watched = [
+    { tmdbId: 1, title: "A", userRating: 9, crewPersonId: 50, castIds: [11], tmdbGenreIds: [18] },
+    { tmdbId: 2, title: "B", userRating: 9, crewPersonId: 60, castIds: [12], tmdbGenreIds: [18] },
+    {
+      tmdbId: 3, title: "Gorgeous Bad Script", userRating: 5, crewPersonId: 70, castIds: [13], tmdbGenreIds: [18],
+      ratingBreakdown: { story: 1, direction: 5, acting: 3, visuals: 5 }
+    }
+  ];
+  const profile = await extractTasteProfile(watched, []);
+  assert.ok((profile.crewAffinities[70] || 0) > 0, "5/5 direction & visuals must yield positive crew affinity instead of negative");
+  assert.equal(profile.castAffinities[13] || 0, 0, "3/5 acting must stay neutral (not penalized on a 5★ script)");
+
+  // Compare two directors who each have one 9★ hit and one 5★ miss:
+  // Director 81 had 5/5 direction & visuals on the 5★ film; Director 82 had 1/5 direction & visuals.
+  // Also compare actors 91 (5/5 acting on 5★ miss) vs 92 (1/5 acting on 5★ miss).
+  const mixedWatched = [
+    { tmdbId: 10, title: "Hit 1", userRating: 9, crewPersonId: 81, castIds: [91], tmdbGenreIds: [18], dateWatched: "2026-11-01" },
+    { tmdbId: 11, title: "Hit 2", userRating: 9, crewPersonId: 82, castIds: [92], tmdbGenreIds: [18], dateWatched: "2026-11-01" },
+    {
+      tmdbId: 12, title: "Visual Miss 1", userRating: 5, crewPersonId: 81, castIds: [91], tmdbGenreIds: [18], dateWatched: "2026-11-01",
+      ratingBreakdown: { story: 1, direction: 5, acting: 5, visuals: 5 }
+    },
+    {
+      tmdbId: 13, title: "Sloppy Miss 2", userRating: 5, crewPersonId: 82, castIds: [92], tmdbGenreIds: [18], dateWatched: "2026-11-01",
+      ratingBreakdown: { story: 4, direction: 1, acting: 1, visuals: 1 }
+    }
+  ];
+  const mixedProfile = await extractTasteProfile(mixedWatched, [], { now: Date.parse("2026-11-10T00:00:00Z") });
+  assert.ok(
+    (mixedProfile.crewAffinities[81] || 0) > (mixedProfile.crewAffinities[82] || 0),
+    "High direction/visuals breakdown must elevate crewAffinities over poor craft breakdown"
+  );
+  assert.ok(
+    (mixedProfile.castAffinities[91] || 0) > (mixedProfile.castAffinities[92] || 0),
+    "High acting breakdown must elevate castAffinities over poor acting breakdown"
+  );
+});
+
+test("extractTasteProfile applies 1.15x positive magnitude boost for >=8★ rewatches and IMAX/physical formats without altering plain vaults", async () => {
+  const now = Date.parse("2026-11-10T00:00:00Z");
+  const watched = [
+    {
+      tmdbId: 1, title: "Plain Great", userRating: 8, dateWatched: "2026-11-01",
+      tmdbGenreIds: [35], crewPersonId: 201, castIds: [301], tmdbKeywords: [401]
+    },
+    {
+      tmdbId: 2, title: "IMAX Great", userRating: 8, dateWatched: "2026-11-01",
+      tmdbGenreIds: [878], crewPersonId: 202, castIds: [302], tmdbKeywords: [402],
+      watchMeta: { format: "imax" }
+    },
+    {
+      tmdbId: 3, title: "Physical Great", userRating: 8, dateWatched: "2026-11-01",
+      tmdbGenreIds: [18], crewPersonId: 203, castIds: [303], tmdbKeywords: [403],
+      watchMeta: { format: "physical" }
+    },
+    {
+      tmdbId: 4, title: "Rewatched Great", userRating: 8, dateWatched: "2026-11-01",
+      tmdbGenreIds: [53], crewPersonId: 204, castIds: [304], tmdbKeywords: [404],
+      watchMeta: { rewatchCount: 2 }
+    },
+    {
+      tmdbId: 5, title: "Mediocre IMAX", userRating: 6, dateWatched: "2026-11-01",
+      tmdbGenreIds: [27], crewPersonId: 205, castIds: [305], tmdbKeywords: [405],
+      watchMeta: { format: "imax", rewatchCount: 3 }
+    }
+  ];
+
+  const profile = await extractTasteProfile(watched, [], { now });
+  const ratioImax = profile.genreAffinities[878] / profile.genreAffinities[35];
+  const ratioPhys = profile.genreAffinities[18] / profile.genreAffinities[35];
+  const ratioRewatch = profile.genreAffinities[53] / profile.genreAffinities[35];
+
+  assert.ok(Math.abs(ratioImax - 1.15) < 1e-6, `Expected 1.15x IMAX genre boost, got ${ratioImax}`);
+  assert.ok(Math.abs(ratioPhys - 1.15) < 1e-6, `Expected 1.15x physical genre boost, got ${ratioPhys}`);
+  assert.ok(ratioRewatch >= 1.15 - 1e-6, `Expected >=1.15x rewatch genre boost, got ${ratioRewatch}`);
+  assert.equal(profile.topCrewIds[0] === 201, false, "Boosted 8★ IMAX/physical/rewatched crew must outrank plain 8★ crew");
+  assert.ok((profile.genreAffinities[27] || 0) === 0, "6★ IMAX rewatch must not receive positive boost");
 });

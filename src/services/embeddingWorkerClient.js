@@ -105,6 +105,7 @@ function buildCollabIdSet(rawIds, collabSimMap = null) {
 
 async function computeOnMainThread({
   weightedRatings = [],
+  watchlistItems = [],
   excludeNumericIds = [],
   topK = 240,
   repulsionWeight = 0.25,
@@ -137,7 +138,9 @@ async function computeOnMainThread({
 
   const excludeSet = new Set(excludeNumericIds);
   const baseCollabSimMap = buildCollabSimMapFromIndex(weightedRatings, index);
-  const easeSimMap = resolvedEaseIndex ? buildEaseSimMapFromIndex(weightedRatings, resolvedEaseIndex) : null;
+  const easeSimMap = resolvedEaseIndex
+    ? buildEaseSimMapFromIndex(weightedRatings, resolvedEaseIndex, { watchlistItems })
+    : null;
   const collabSimMap = blendEaseAndCollabSimMaps(easeSimMap, baseCollabSimMap, resolvedEaseIndex);
   const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, index);
   const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
@@ -174,21 +177,27 @@ async function computeOnMainThread({
  */
 export async function computeExploreEmbeddingSignals({
   weightedRatings = [],
+  watchlistItems = [],
   excludeNumericIds = [],
   topK = 240,
   repulsionWeight = 0.25,
   embeddingIndex = undefined,
+  easeIndex = undefined,
   loadIndexFn = loadDefaultEmbeddingIndex,
+  loadEaseFn = loadDefaultEaseIndex,
   createWorkerFn = null
 } = {}) {
   if (embeddingIndex !== undefined) {
     return computeOnMainThread({
       weightedRatings,
+      watchlistItems,
       excludeNumericIds,
       topK,
       repulsionWeight,
       embeddingIndex,
-      loadIndexFn
+      easeIndex,
+      loadIndexFn,
+      loadEaseFn
     });
   }
 
@@ -196,10 +205,13 @@ export async function computeExploreEmbeddingSignals({
   if (!worker) {
     return computeOnMainThread({
       weightedRatings,
+      watchlistItems,
       excludeNumericIds,
       topK,
       repulsionWeight,
-      loadIndexFn
+      easeIndex,
+      loadIndexFn,
+      loadEaseFn
     });
   }
 
@@ -219,6 +231,19 @@ export async function computeExploreEmbeddingSignals({
     out.movie = movie;
     return out;
   });
+  const compactWatchlist = Array.isArray(watchlistItems)
+    ? watchlistItems
+        .map((item) => {
+          const tmdbId = Number(item?.tmdbId ?? item?.movie?.tmdbId ?? item?.id ?? 0);
+          if (!Number.isFinite(tmdbId) || tmdbId <= 0) return null;
+          const out = { tmdbId };
+          if (item?.updatedAt !== undefined) out.updatedAt = item.updatedAt;
+          if (item?.dateAdded !== undefined) out.dateAdded = item.dateAdded;
+          if (item?.addedAt !== undefined) out.addedAt = item.addedAt;
+          return out;
+        })
+        .filter(Boolean)
+    : [];
 
   try {
     const rawResult = await new Promise((resolve, reject) => {
@@ -229,6 +254,7 @@ export async function computeExploreEmbeddingSignals({
         type: "computeExploreSignals",
         payload: {
           weightedRatings: compactWeighted,
+          ...(compactWatchlist.length > 0 ? { watchlistItems: compactWatchlist } : {}),
           excludeNumericIds: [...excludeNumericIds],
           topK,
           repulsionWeight
@@ -266,6 +292,7 @@ export async function computeExploreEmbeddingSignals({
     teardownWorker(err);
     return computeOnMainThread({
       weightedRatings,
+      watchlistItems,
       excludeNumericIds,
       topK,
       repulsionWeight,

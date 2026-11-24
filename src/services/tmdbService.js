@@ -248,6 +248,82 @@ export function mapOmdbToTmdbGenreIds(omdbGenreStr = "") {
 // 187056 (woman director), 9663 (sequel)
 export const GENERIC_META_KEYWORD_IDS = new Set([818, 179430, 179431, 187056, 9663]);
 
+const HIGH_ENGAGEMENT_FORMATS = new Set(["imax", "physical"]);
+const HIGH_ENGAGEMENT_MULTIPLIER = 1.15;
+
+/**
+ * Validates an optional 1..5 craft breakdown sub-rating, treating 0/null/out-of-range as unset.
+ */
+function toFiniteCraftScore(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 1 && num <= 5 ? num : null;
+}
+
+/**
+ * Returns the 1.15x positive taste magnitude boost for >=8★ rewatches and premium theatrical/disc formats.
+ */
+function resolveEngagementMultiplier(movie, rating) {
+  if (!(rating >= 8)) return 1;
+  const rewatchCount = Number(movie?.watchMeta?.rewatchCount ?? movie?.rewatchCount ?? 0);
+  const format = String(movie?.watchMeta?.format ?? "").trim().toLowerCase();
+  if ((Number.isFinite(rewatchCount) && rewatchCount >= 2) || HIGH_ENGAGEMENT_FORMATS.has(format)) {
+    return HIGH_ENGAGEMENT_MULTIPLIER;
+  }
+  return 1;
+}
+
+/**
+ * Maps optional Rating Studio craft sub-ratings (`direction`/`visuals` for crew, `acting` for cast)
+ * onto a signed [-1, +1] * timeDecay signal centered at 3.0 so craft praise survives weak scripts.
+ */
+function resolveCraftPersonSignals(movie, timeDecay, engagementMult = 1) {
+  const breakdown = movie?.ratingBreakdown;
+  if (!breakdown || typeof breakdown !== "object") {
+    return { crewSignal: null, castSignal: null };
+  }
+  const dir = toFiniteCraftScore(breakdown.direction);
+  const vis = toFiniteCraftScore(breakdown.visuals);
+  const act = toFiniteCraftScore(breakdown.acting);
+
+  let crewScore = null;
+  if (dir !== null && vis !== null) crewScore = (dir + vis) / 2;
+  else if (dir !== null) crewScore = dir;
+  else if (vis !== null) crewScore = vis;
+
+  const toSignal = (score) => {
+    if (score === null) return null;
+    const base = ((score - 3) / 2) * timeDecay;
+    return base > 0 ? base * engagementMult : base;
+  };
+
+  return {
+    crewSignal: toSignal(crewScore),
+    castSignal: toSignal(act)
+  };
+}
+
+/**
+ * Accumulates signed person affinity using craft-specific signals when present, falling back to overall weight.
+ */
+function accumulateSignedPersonSignal(netScores, posCounts, personId, signal, weight, rating, scale = 1) {
+  if (signal !== null) {
+    if (signal > 0) {
+      netScores[personId] = (netScores[personId] || 0) + signal * scale;
+      posCounts[personId] = (posCounts[personId] || 0) + 1;
+    } else if (signal < 0) {
+      netScores[personId] = (netScores[personId] || 0) + signal * scale;
+    }
+    return;
+  }
+  if (weight > 0) {
+    netScores[personId] = (netScores[personId] || 0) + weight * scale;
+    posCounts[personId] = (posCounts[personId] || 0) + 1;
+  } else if (weight < 0 && rating < 7) {
+    netScores[personId] = (netScores[personId] || 0) + weight * scale;
+  }
+}
+
 /**
  * Mathematical Weighted Taste Profiler
  * Integrates Z-Scored Rating Weights + Bulk-Import-Aware Time-Decay + Surgical Trope Math
@@ -294,9 +370,17 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     bulkPriorDays: options.bulkPriorDays ?? 180
   });
 
+  const weightedRatings = zScoredList.map((entry) => {
+    const engagementMult = resolveEngagementMultiplier(entry.movie, entry.rating);
+    if (engagementMult === 1 || entry.weight <= 0) return entry;
+    return { ...entry, weight: entry.weight * engagementMult };
+  });
+
   // Calculate continuous weights with z-scores and exponential time decay
-  const weightedRated = zScoredList.map(({ movie, rating, zScore, daysSince, timeDecay, weight }) => {
+  const weightedRated = weightedRatings.map(({ movie, rating, zScore, daysSince, timeDecay, weight }) => {
     const positiveWeight = Math.max(0, weight);
+    const engagementMult = resolveEngagementMultiplier(movie, rating);
+    const { crewSignal, castSignal } = resolveCraftPersonSignals(movie, timeDecay, engagementMult);
     const genreIds = movie.tmdbGenreIds || mapOmdbToTmdbGenreIds(movie.genre || movie.Genre || "");
 
     // 1. Positive Genre Weighting (Direct TMDB IDs or string fallback)
@@ -349,23 +433,13 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
         if (!Number.isFinite(cId) || cId <= 0 || seenCast.has(cId)) return;
         seenCast.add(cId);
         const billingDecay = 1 / (1 + 0.2 * idx);
-        if (weight > 0) {
-          castNetScores[cId] = (castNetScores[cId] || 0) + weight * billingDecay;
-          castPosCounts[cId] = (castPosCounts[cId] || 0) + 1;
-        } else if (weight < 0 && rating < 7) {
-          castNetScores[cId] = (castNetScores[cId] || 0) + weight * billingDecay;
-        }
+        accumulateSignedPersonSignal(castNetScores, castPosCounts, cId, castSignal, weight, rating, billingDecay);
       });
     }
 
     const crewPersonId = Number(movie.crewPersonId || 0);
     if (Number.isFinite(crewPersonId) && crewPersonId > 0) {
-      if (weight > 0) {
-        crewNetScores[crewPersonId] = (crewNetScores[crewPersonId] || 0) + weight;
-        crewPosCounts[crewPersonId] = (crewPosCounts[crewPersonId] || 0) + 1;
-      } else if (weight < 0 && rating < 7) {
-        crewNetScores[crewPersonId] = (crewNetScores[crewPersonId] || 0) + weight;
-      }
+      accumulateSignedPersonSignal(crewNetScores, crewPosCounts, crewPersonId, crewSignal, weight, rating);
     }
 
     return { ...movie, finalWeight: weight, zScore, timeDecay };
@@ -515,7 +589,7 @@ export async function extractTasteProfile(watched = [], watchlist = [], options 
     anchorTmdbId,
     hatedKeywordIds,
     watchlistGenreIds,
-    weightedRatings: zScoredList,
+    weightedRatings,
     userStats,
     totalRated: rated.length
   };

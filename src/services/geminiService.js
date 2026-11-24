@@ -2975,7 +2975,11 @@ export const getMovieRecommendations = async (watchedMovies = [], watchlist = []
                 const collabSimMap =
                     options.collabSimMap ||
                     blendEaseAndCollabSimMaps(
-                        easeIndex ? buildEaseSimMapFromIndex(profile.weightedRatings, easeIndex) : null,
+                        easeIndex
+                            ? buildEaseSimMapFromIndex(profile.weightedRatings, easeIndex, {
+                                watchlistItems: watchlist
+                            })
+                            : null,
                         buildCollabSimMapFromIndex(profile.weightedRatings, embeddingIndex),
                         easeIndex
                     );

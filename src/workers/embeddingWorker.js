@@ -56,13 +56,16 @@ self.onmessage = async (event) => {
     }
 
     const weightedRatings = Array.isArray(payload?.weightedRatings) ? payload.weightedRatings : [];
+    const watchlistItems = Array.isArray(payload?.watchlistItems) ? payload.watchlistItems : [];
     const excludeSet = new Set(Array.isArray(payload?.excludeNumericIds) ? payload.excludeNumericIds : []);
     const topK = Number.isFinite(Number(payload?.topK)) ? Number(payload.topK) : 240;
     const rawRepulsionWeight = Number(payload?.repulsionWeight);
     const repulsionWeight = Number.isFinite(rawRepulsionWeight) ? rawRepulsionWeight : 0.25;
 
     const baseCollabSimMap = buildCollabSimMapFromIndex(weightedRatings, embeddingIndex);
-    const easeSimMap = easeIndex ? buildEaseSimMapFromIndex(weightedRatings, easeIndex) : null;
+    const easeSimMap = easeIndex
+      ? buildEaseSimMapFromIndex(weightedRatings, easeIndex, { watchlistItems })
+      : null;
     const collabSimMap = blendEaseAndCollabSimMaps(easeSimMap, baseCollabSimMap, easeIndex);
     const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, embeddingIndex);
     const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;

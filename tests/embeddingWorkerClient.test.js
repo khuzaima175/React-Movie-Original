@@ -158,3 +158,60 @@ test("computeExploreEmbeddingSignals returns collabIdSet in both main-thread and
     resetEmbeddingWorkerClientForTest();
   }
 });
+
+test("computeExploreEmbeddingSignals forwards watchlistItems to EASE scoring on main thread and in worker payload", async () => {
+  resetEmbeddingWorkerClientForTest();
+  const { encodeEaseBinary, parseEaseBinary } = await import("../src/services/easeService.js");
+  const tinyIndex = makeTinyEmbeddingIndex();
+  const easeIdx = parseEaseBinary(encodeEaseBinary([
+    { tmdbId: 10, neighbors: [{ index: 1, weight: 0.40 }] },
+    { tmdbId: 20, neighbors: [{ index: 0, weight: 0.40 }] },
+    { tmdbId: 30, neighbors: [{ index: 3, weight: 0.50 }] },
+    { tmdbId: 40, neighbors: [{ index: 2, weight: 0.50 }] }
+  ], 1));
+
+  const mainWithWl = await computeExploreEmbeddingSignals({
+    weightedRatings: [{ movie: { tmdbId: 10, userRating: 10 }, weight: 1.5 }],
+    watchlistItems: [{ tmdbId: 30, updatedAt: "2026-11-24T00:00:00Z" }],
+    excludeNumericIds: [10, 30],
+    embeddingIndex: tinyIndex,
+    easeIndex: easeIdx,
+    loadIndexFn: async () => tinyIndex
+  });
+  // Without watchlistItems, 40 has 0 EASE signal; with watchlistItems=[30], 40 gets positive EASE blend
+  const mainWithoutWl = await computeExploreEmbeddingSignals({
+    weightedRatings: [{ movie: { tmdbId: 10, userRating: 10 }, weight: 1.5 }],
+    excludeNumericIds: [10, 30],
+    embeddingIndex: tinyIndex,
+    easeIndex: easeIdx,
+    loadIndexFn: async () => tinyIndex
+  });
+  assert.ok(
+    (mainWithWl.collabSimMap.get(40) || 0) > (mainWithoutWl.collabSimMap.get(40) || 0),
+    "Watchlist forward-intent must lift neighbor 40 in main-thread EASE+SVD blend"
+  );
+
+  // Worker payload includes compact watchlistItems when provided
+  resetEmbeddingWorkerClientForTest();
+  let capturedPayload = null;
+  await computeExploreEmbeddingSignals({
+    weightedRatings: [{ movie: { tmdbId: 10, userRating: 10 }, weight: 1.5 }],
+    watchlistItems: [{ tmdbId: 30, title: "Heavy unused field", updatedAt: "2026-11-24T00:00:00Z" }],
+    excludeNumericIds: [10, 30],
+    createWorkerFn: () => ({
+      onmessage: null,
+      onerror: null,
+      postMessage(msg) {
+        capturedPayload = msg.payload;
+        setTimeout(() => {
+          this.onmessage?.({
+            data: { id: msg.id, ok: true, result: { hasIndex: false } }
+          });
+        }, 0);
+      },
+      terminate() {}
+    })
+  });
+  resetEmbeddingWorkerClientForTest();
+  assert.deepEqual(capturedPayload?.watchlistItems, [{ tmdbId: 30, updatedAt: "2026-11-24T00:00:00Z" }]);
+});

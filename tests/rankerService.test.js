@@ -630,3 +630,71 @@ test("buildDiversifiedGeminiShortlist fires onDiagnostics at most once and never
   assert.ok(!shortlist.some((c) => c.tmdbId === 302), "Must respect userProviders filtering cleanly");
   assert.ok(shortlist.some((c) => c.tmdbId === 303), "Includes valid cold comfort-watch film on matching provider");
 });
+
+test("derivePersonalizedRankerWeights ignores Too slow and pacing dismissals so pacing rejections do not reduce collabSim or genreOverlap", async () => {
+  const { derivePersonalizedRankerWeights } = await import("../src/services/onlineLearningService.js");
+  const { DEFAULT_RANKER_WEIGHTS } = await import("../src/services/rankerService.js");
+
+  const posFeats = {
+    collabSim: 0.55,
+    genreOverlap: 0.50,
+    crewMatch: 1,
+    keywordOverlap: 0.85,
+    bayesianRatingNorm: 0.70,
+    noveltyBonus: 0.30,
+    repulsion: 0,
+    negativeKeywordPenalty: 0
+  };
+  const slowDismissFeats = {
+    collabSim: 0.95,
+    genreOverlap: 0.95,
+    crewMatch: 0,
+    keywordOverlap: 0.20,
+    bayesianRatingNorm: 0.85,
+    noveltyBonus: 0.40,
+    repulsion: 0,
+    negativeKeywordPenalty: 0
+  };
+  const genreDismissFeats = {
+    collabSim: 0.10,
+    genreOverlap: 0.05,
+    crewMatch: 0,
+    keywordOverlap: 0.10,
+    bayesianRatingNorm: 0.65,
+    noveltyBonus: 0.20,
+    repulsion: 0.60,
+    negativeKeywordPenalty: 1
+  };
+
+  // Pure pacing-only dismissals must not activate negative training or lower collabSim / genreOverlap
+  const pacingOnlyLog = [
+    { action: "rated", userRating: 10, features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    { action: "added_watchlist", features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    ...Array.from({ length: 8 }, () => ({ action: "dismissed", reason: "Too slow", features: slowDismissFeats })),
+    ...Array.from({ length: 4 }, () => ({ action: "dismissed", reason: "Deliberate pacing mismatch", features: slowDismissFeats }))
+  ];
+  const derivedPacingOnly = derivePersonalizedRankerWeights(pacingOnlyLog, [], DEFAULT_RANKER_WEIGHTS);
+  assert.deepEqual(derivedPacingOnly, DEFAULT_RANKER_WEIGHTS, "Too slow / pacing dismissals must not trigger negative learning");
+
+  // Mixed log with real "Not my genre" negatives still learns, while ignored "Too slow" events cannot drag down collabSim/genreOverlap
+  const mixedLog = [
+    { action: "rated", userRating: 10, features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    { action: "added_watchlist", features: posFeats },
+    { action: "rated", userRating: 9, features: posFeats },
+    { action: "rated", userRating: 10, features: posFeats },
+    ...Array.from({ length: 12 }, () => ({ action: "dismissed", reason: "Too slow", features: slowDismissFeats })),
+    ...Array.from({ length: 5 }, () => ({ action: "dismissed", reason: "Not my genre", features: genreDismissFeats }))
+  ];
+  const derivedMixed = derivePersonalizedRankerWeights(mixedLog, [], DEFAULT_RANKER_WEIGHTS);
+  assert.ok(
+    derivedMixed.collabSim >= DEFAULT_RANKER_WEIGHTS.collabSim,
+    `Too slow dismissals must not reduce collabSim (${derivedMixed.collabSim} < ${DEFAULT_RANKER_WEIGHTS.collabSim})`
+  );
+  assert.ok(
+    derivedMixed.genreOverlap >= DEFAULT_RANKER_WEIGHTS.genreOverlap,
+    `Too slow dismissals must not reduce genreOverlap (${derivedMixed.genreOverlap} < ${DEFAULT_RANKER_WEIGHTS.genreOverlap})`
+  );
+});
