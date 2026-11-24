@@ -2,7 +2,7 @@
 
 > **Living Research Log:** Every offline math experiment, LLM curation benchmark, architectural test, mistake caught, and verified gain is recorded here so we can iteratively refine CinemaVault's recommendation accuracy with zero guesswork and zero data leakage.
 
-**Current Production Engine:** `v6.1` (**Exact Full-Rank Sparse EASE^R `14k×64` + SVD-64 `60/40` Hybrid** + **128-D Neural Semantic Cold-Start Embeddings `11.1k` incl. `1,499` `2024–2026` releases** → **100-Candidate Stratified Shortlist** → **20 Curated Picks**)  
+**Current Production Engine:** `v6.2` (**Exact Full-Rank Sparse EASE^R `14k×64` + Watchlist EASE^R Intent + SVD-64 `60/40` Hybrid** + **128-D Neural Semantic Cold-Start Embeddings `11.1k` with `Bucket E-Cold (Semantic)` & Web Worker `collabIdSet` Isolation** + **Multi-Persona Bucket B / Multi-Auteur Bucket C / Bucket D Alias Expansion** + **Explore Wave-3 Score Lock & Behavioral Signals** → **100-Candidate Stratified Shortlist** → **20 Curated Picks**)  
 **Primary Benchmark Standard:** `300` completely unseen MovieLens 32M users (`.data/fresh_300_users.json`), chronological temporal holdout (last `10` ratings `>= 8/10`), evaluated against the `9,733`-film TMDB-enriched catalog with **all `625` evaluation users stripped from training** (`Dev-150` tuning split + untouched `Holdout-150` verification split + `1,000`-resample paired bootstrap `95%` CI).
 
 ---
@@ -13,7 +13,8 @@
 | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **v5.6 Baseline** | 2026-11-20 | `SVD-64` (`CVEM v1`, 3.15 MB) + 12-feat Logistic Ranker · `39 → 10` | `12.3%` | `0.0789` | `0.1039` | `61.7%` | `1.247` | `0.887` | `HR@60: 86.0%` (`2.63`) |
 | **v6.0 (Baked `γ=0.12`)** | 2026-11-23 | **Exact Full-Rank Sparse EASE^R (`14k×64`, `λ=800`, `γ=0.12` baked pre-pruning) + `SVD-64` (`60/40`)** · **`100 → 20`** | **`17.7%`** *(+44%)* | **`0.1181`** *(**+49.7%\***)* | **`0.1520`** *(**+46.3%\***)* | **`74.0%`** *(+12.3 pts)* | **`1.713`** *(+37.4%)* | **`0.973`** *(**+9.7%**)* | **`HR@100: 96.7%` (`4.16` hits)** |
-| **v6.1 (Current — Cold-Start Upgrade)** | 2026-11-24 | `v6.0` Warm Engine + **`11,119 × 128-D` Neural Semantic Embeddings (`all-MiniLM-L6-v2` PCA, `2.76 MB`, `coldOnly: true`)** for `2024–2026` & unindexed films | **Warm: `17.7%`** | **Warm: `0.1181`** · **Cold Holdout: `0.0589` (+26.7%\*)** | **Warm: `0.1520`** · **Cold Holdout: `0.0716` (+22.1%\*)** | **Warm: `74.0%`** · **Cold Holdout: `46.7%` (+6.7 pts)** | **Warm: `1.713`** · **Cold Holdout: `0.693`** | **Warm: `0.973`** *(zero warm dilution)* | **Warm `HR@100: 96.7%` (`4.16`)** · **Cold `HR@100: 81.3%` (+6.0 pts)** |
+| **v6.1 (Cold-Start Upgrade)** | 2026-11-24 | `v6.0` Warm Engine + **`11,119 × 128-D` Neural Semantic Embeddings (`all-MiniLM-L6-v2` PCA, `2.76 MB`, `coldOnly: true`)** for `2024–2026` & unindexed films | **Warm: `17.7%`** | **Warm: `0.1181`** · **Cold Holdout: `0.0589` (+26.7%\*)** | **Warm: `0.1520`** · **Cold Holdout: `0.0716` (+22.1%\*)** | **Warm: `74.0%`** · **Cold Holdout: `46.7%` (+6.7 pts)** | **Warm: `1.713`** · **Cold Holdout: `0.693`** | **Warm: `0.973`** *(zero warm dilution)* | **Warm `HR@100: 96.7%` (`4.16`)** · **Cold `HR@100: 81.3%` (+6.0 pts)** |
+| **v6.2 (Current — Pipeline, Retrieval & Behavioral Activation)** | 2026-11-24 | `v6.1` Core Math (all 5 offline ML math re-tunings gated & rejected) + **`Bucket E-Cold (Semantic)` + Worker `collabIdSet` isolation** + **Multi-Persona Bucket B / Multi-Auteur Bucket C / Bucket D Aliases** + **Explore Wave-3 Score Lock** + **Watchlist EASE^R (`0.25×`, top-15) / Craft Breakdown / `1.15×` Rewatch-IMAX / Pacing Dismissal Filter** · `479/479` tests | **Warm: `17.7%`** *(exact `+0.0%` parity)* | **Warm: `0.1181`** · **Cold 11.1k `guard7`: `0.0569`** | **Warm: `0.1520`** · **Cold 11.1k `guard7`: `0.0692`** | **Warm: `74.0%`** · **Cold 11.1k `guard7`: `44.7%`** | **Warm: `1.713`** · **Cold 11.1k `guard7`: `0.700`** | **Warm: `0.973`** *(exact `0.000` ML-32M diff)* | **Warm `HR@100: 96.7%` (`4.16`)** · **Cold 11.1k `HR@100`: `80.0%`** |
 
 *\* = Statistically significant (`p < 0.05` via 1,000-resample paired bootstrap 95% CI) on BOTH `Dev-150` AND untouched `Holdout-150`.*
 
@@ -200,8 +201,198 @@ Retraining the exact leakage-clean `v6.0` production replica (`14,000 × 64`, `�
 
 ---
 
-## Next Refinement Backlog (v6.2+ Highest-Leverage Unexplored Ideas)
+## Detailed Experiment Chronicle — v6.2 Accuracy Math, Retrieval & Behavioral Refinement Sprint (2026-11-24)
 
-1. **Larger `n = 50+` Validation of Post-Hoc `ProtectTop-2` (Zero Prompt Tags):** Re-test `Control A + ProtectTop-2` once Gemini API quota resets; it showed `+21.4%` `NDCG@10` / `+13.9%` `NDCG@20` with zero `Tail@20` loss on `n = 17` and requires only ~8 lines in `mergeGeminiExplanationsWithRanker` if statistically confirmed.
+Every offline ML hypothesis in `v6.2` followed the strict **4-Part Hard Ship Gate** (`scripts/experiments/v6_gate_eval.mjs`): tune strictly on `Dev-150` (`users[0..149]`), verify once on untouched `Holdout-150` (`users[150..299]`, `1,000`-resample paired bootstrap `95%` CI, `seed = 42`), require `ciLower > 0` on `NDCG@10` or `NDCG@20` with zero significant regression on the other, `Tail@20 >= -1.0%`, `Cov >= 92%` of baseline, and `< 25 ms/user` (`>= +1.0%` `Holdout-150` `NDCG@20` per `+1 MB` binary bloat). **Any hypothesis failing the gate (`GATE: FAIL`) kept production ML files completely untouched.** Meanwhile, verified retrieval, runtime isolation, score-lock, and Vault behavioral signal upgrades were implemented via strict **RED → GREEN TDD**.
+
+### Locked Clean `v6.2` Reference Baseline (`.data/v6_lab/v6_baseline.json` & `.data/v6_lab/v6_2_best.json`)
+- **`DEV-150`:** `HR@1=20%` | `NDCG@10=0.1142` | `NDCG@20=0.1500` | `Hits@20=1.747` | `Tail@20=0.927` | `HR@20=76.7%` | `HR@100=97.3% (4.13)` | `Cov=899` | `AvgV=10,831` | `AUC8=0.6524` | `1.89 ms`
+- **`HOLDOUT-150`:** `HR@1=15.3%` | `NDCG@10=0.1220` | `NDCG@20=0.1540` | `Hits@20=1.680` | `Tail@20=1.020` | `HR@20=71.3%` | `HR@100=96% (4.19)` | `Cov=910` | `AvgV=9,934` | `AUC8=0.6888` | `1.92 ms`
+- **`ALL-300`:** `HR@1=17.7%` | `NDCG@10=0.1181` | `NDCG@20=0.1520` | `Hits@20=1.713` | `Tail@20=0.973` | `HR@20=74%` | `HR@100=96.7% (4.16)` | `Cov=1,134` | `AvgV=10,383` | `AUC8=0.6707` | `2.05 ms`
+
+---
+
+### Experiment 13 (Task 1 — CLEAN REJECT, `GATE: FAIL`, `c397850`): Client Bidirectional Reverse-Edge EASE^R & Z-Scored Implicit Weighting
+- **Script:** [scripts/experiments/sweep_v6_2_ease_client.mjs](./scripts/experiments/sweep_v6_2_ease_client.mjs) (Production `src/services/easeService.js` left untouched)
+- **Hypothesis:** Recovering reverse-edge transpose contributions (`B^T` scaled by `rev` with optional `1 / sqrt(inDegree[c] + 10)` damping) and replacing discrete rating weights (`0.7 + 0.6*(r-6)/4`) with calibrated sigmoid z-score × time-decay weights (`x_i = b + a * sigmoid(z_i) * (0.7 + 0.3 * timeDecay)`) in `buildEaseSimMapFromIndex` might boost recall for obscure items lacking outgoing top-64 edges.
+- **`DEV-150` Sweep & Untouched `HOLDOUT-150` Hard Ship Gate:**
+
+| Split & Candidate | `HR@1` | `NDCG@10` | `NDCG@20` | `Hits@20` | `Tail@20` | `HR@20` | `HR@100` (`Hits`) | `Cov` | `AvgV` | `AUC8` | `ms/user` |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`DEV-150` · `baseline_repro`** | 20% | `0.1142 (+0.0%)` | `0.1500 (+0.0%)` | `1.747` | `0.927 (+0.0%)` | 76.7% | — | 899 | 10,831 | `0.6524` | `2.04ms` |
+| **`DEV-150` · `rev=0.30_unscaled`** | 21.3% | `0.1125 (-1.5%)` | `0.1510 (+0.7%)` | `1.793` | `0.993 (+7.1%*)` | 78% | — | 942 | 10,429 | `0.6521` | `5.33ms` |
+| **`DEV-150` · `rev=0.45_unscaled`** *(Phase 1 winner)* | **22%** | `0.1117 (-2.2%)` | **`0.1526 (+1.7%)`** | **`1.820`** | **`1.027 (+10.8%*)`** | **78.7%** | — | **955** | 10,324 | `0.6517` | `5.61ms` |
+| **`DEV-150` · `rev=0.45_degDamp`** | 20% | `0.1145 (+0.3%)` | `0.1497 (-0.2%)` | `1.753` | `0.933 (+0.6%)` | 77.3% | — | 910 | 10,762 | `0.6533` | `5.83ms` |
+| **`DEV-150` · `z_0.65_0.55`** *(Phase 2 winner)* | 21.3% | **`0.1160 (+1.6%)`** | `0.1498 (-0.1%)` | `1.753` | `0.940 (+1.4%)` | 75.3% | — | 902 | 10,759 | `0.6517` | `2.02ms` |
+| **`DEV-150` · `rev=0.45_unscaled+z_0.65_0.55`** *(Combined)* | **22%** | `0.1148 (+0.5%)` | `0.1515 (+1.0%)` | `1.800` | `1.000 (+7.9%*)` | 77.3% | `96.7% (4.05)` | 953 | 10,352 | `0.6499` | `5.42ms` |
+| **`HOLDOUT-150` · `rev=0.45_unscaled+z_0.65_0.55`** *(Gate)* | 13.3% | **`0.1161 (-4.8%*)`** | **`0.1487 (-3.4%*)`** | `1.680` | `1.000 (-2.0%)` | 71.3% | `95.3% (4.24)` | 947 | 9,567 | `0.6831` | `5.42ms` |
+| **`ALL-300` · `rev=0.45_unscaled+z_0.65_0.55`** | 17.7% | `0.1154 (-2.3%)` | `0.1501 (-1.2%)` | `1.740` | `1.000 (+2.8%)` | 74.3% | `96% (4.14)` | 1,205 | 9,959 | `0.6666` | `5.46ms` |
+
+- **Gate Rules (`HOLDOUT-150`):** `rule1_primarySig: FAIL` (`d10Pct = -4.84%`, `d20Pct = -3.44%`, both significantly negative `*`), `rule2_noPopCheat: FAIL` (`dTailPct = -1.96% < -1.0%`, `dAvgVPct = -3.69%`), `rule3_coverage: PASS` (`covRatio = 1.041`), `rule4_perfAndSize: FAIL` (`msPerUser = 5.42ms`, `d20Pct = -3.44% < 0%`).
+- **Diagnosis:** Unscaled reverse-edge summation inflates `maxE` across niche items whose outgoing top-64 lists point to mainstream blockbusters, compressing normalized forward EASE^R scores (`ev / maxE`). Kept `src/services/easeService.js` untouched on `Dev-150`–`Holdout-150` baseline math.
+
+---
+
+### Experiment 14 (Task 2 — CLEAN REJECT, `GATE: FAIL`, `5dbd3cb`): Temporally-Directed & Session-Kernel EASE^R Offline Trainer
+- **Script:** [scripts/experiments/train_sparse_ease.py](./scripts/experiments/train_sparse_ease.py) (added worktree `ROOT` path fix + `--session-tau-days`, `--session-weight`, `--forward-eta` CLI flags; `public/models/item_ease_k64.cvea` untouched at `3.47 MB`)
+- **Hypothesis:** Blending a chronological session-kernel Gram matrix `G_sess` (`tau ∈ {90, 180}` days, `s_w = 0.5`) and/or a causal forward-transition matrix `B_fwd` (`eta ∈ {0.05, 0.10, 0.15}`) over `246,314` adjacent MovieLens pairs before Cholesky inversion (`--max-items 14000 --k 64 --lam 800 --pop-gamma 0.12`, 625 eval users excluded) might capture sequential watch-order intent.
+- **`DEV-150` Sweep (All 8 Clean Models) & Untouched `HOLDOUT-150` Hard Ship Gate (Top 2 Only):**
+
+| Split & Candidate | `HR@1` | `NDCG@10` | `NDCG@20` | `Hits@20` | `Tail@20` | `HR@20` | `HR@100` (`Hits`) | `Cov` | `AvgV` | `AUC8` | `ms/user` |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`DEV-150` · `tau90_eta0`** | 20% | `0.1158 (+1.4%)` | `0.1492 (-0.5%)` | `1.747` | `0.933 (+0.6%)` | 76% | — | 899 | 10,836 | `0.6498` | `1.94ms` |
+| **`DEV-150` · `tau180_eta0`** | 19.3% | `0.1149 (+0.6%)` | `0.1491 (-0.6%)` | `1.760` | `0.940 (+1.4%)` | 76% | — | 902 | 10,844 | `0.6486` | `1.94ms` |
+| **`DEV-150` · `tau0_eta005`** | 20% | `0.1143 (+0.1%)` | `0.1501 (+0.1%)` | `1.747` | `0.927 (+0.0%)` | 76.7% | — | 896 | 10,841 | `0.6519` | `1.83ms` |
+| **`DEV-150` · `tau0_eta015`** | 20% | `0.1148 (+0.5%)` | `0.1499 (-0.1%)` | `1.760` | `0.947 (+2.2%)` | 75.3% | — | 891 | 10,849 | `0.6515` | `1.88ms` |
+| **`DEV-150` · `tau90_eta005`** | 20% | `0.1158 (+1.4%)` | `0.1491 (-0.6%)` | `1.740` | `0.933 (+0.6%)` | 76% | — | 898 | 10,848 | `0.6493` | `1.94ms` |
+| **`DEV-150` · `tau90_eta010`** | 20.7% | `0.1164 (+1.9%)` | `0.1496 (-0.3%)` | `1.740` | `0.933 (+0.6%)` | 76% | — | 896 | 10,887 | `0.6491` | `1.97ms` |
+| **`DEV-150` · `tau90_eta015`** *(Top #1)* | 20.7% | **`0.1164 (+1.9%)`** | `0.1502 (+0.1%)` | `1.747` | `0.940 (+1.4%)` | 76% | `97.3% (4.14)` | 892 | 10,899 | `0.6493` | `1.94ms` |
+| **`HOLDOUT-150` · `tau90_eta015`** *(Gate)* | 14.7% | `0.1218 (-0.2%)` | `0.1517 (-1.5%)` | `1.660` | `0.993 (-2.6%)` | 70% | `96% (4.21)` | 897 | 10,036 | `0.6863` | `1.9ms` |
+| **`ALL-300` · `tau90_eta015`** | 17.7% | `0.1191 (+0.8%)` | `0.1510 (-0.7%)` | `1.703` | `0.967 (-0.6%)` | 73% | `96.7% (4.17)` | 1,123 | 10,468 | `0.6679` | `1.85ms` |
+| **`DEV-150` · `tau0_eta010`** *(Top #2)* | 20% | `0.1143 (+0.1%)` | **`0.1507 (+0.5%)`** | `1.753` | `0.940 (+1.4%)` | 75.3% | `97.3% (4.12)` | 895 | 10,832 | `0.6513` | `1.88ms` |
+| **`HOLDOUT-150` · `tau0_eta010`** *(Gate)* | 14% | `0.1211 (-0.7%)` | `0.1524 (-1.0%)` | `1.680` | `1.020 (+0.0%)` | 71.3% | `96% (4.22)` | 906 | 9,942 | `0.6885` | `1.8ms` |
+| **`ALL-300` · `tau0_eta010`** | 17% | `0.1177 (-0.3%)` | `0.1515 (-0.3%)` | `1.717` | `0.980 (+0.7%)` | 73.3% | `96.7% (4.17)` | 1,128 | 10,387 | `0.67` | `1.85ms` |
+
+- **Gate Rules (`HOLDOUT-150`):** Both failed `rule1_primarySig` (`tau90_eta015`: `d10Pct = -0.16`, `d20Pct = -1.49`, `rule2` `dTailPct = -2.65` FAIL; `tau0_eta010`: `d10Pct = -0.74`, `d20Pct = -1.04`, `rule2` PASS `dTailPct = 0`, `rule3` PASS `covRatio = 0.996`).
+- **Diagnosis:** In MovieLens 32M, ~60% of users submit ratings within `< 1 day` (`median span = 0.049 days`), reflecting retrospective logging order rather than true watch order. Down-weighting cross-session co-occurrences discarded genuine long-horizon taste signal.
+
+---
+
+### Experiment 15 (Task 3 — CLEAN REJECT, `GATE: FAIL`, `8431b56`): Support-Gated Bidirectional EASE^R Residual in Universal Taste Match
+- **Script:** [scripts/experiments/eval_taste_match_v6_2.mjs](./scripts/experiments/eval_taste_match_v6_2.mjs) (`tasteMatchService.js`, `MovieDetails.jsx`, and `SearchModal.jsx` kept untouched on pure dense `SVD-64`)
+- **Hypothesis:** Adding a support-gated, non-negative bidirectional EASE^R residual `alpha * max(0, bidirEaseNorm - normCollab)` (only when `supportCount > 0`, `reverseAlpha = 0.30`) to `predictMovieMatch` logits might solve Experiment 12's catalog compression while improving single-film Match `%` accuracy.
+- **Results (`1,000`-resample paired bootstrap `seed = 42`, `.data/v6_lab/ease_v6_baseline_clean.cvea` + `item_embeddings_clean2_f16.bin`):**
+
+| Split & Variant | `withinAUC` | `Δ withinAUC` (`95%` CI) | `vsCatalogAUC` | `Δ vsCatalogAUC` (`95%` CI) | `vsPoolAUC` | `Δ vsPoolAUC` (`95%` CI) | Runtime |
+| :--- | :---: | :--- | :---: | :--- | :---: | :--- | :---: |
+| **`DEV-150` · `control_svd64`** | `0.6551` | — | `0.8626` | — | `0.7022` | — | `9,494ms` |
+| **`DEV-150` · `alpha=0.4_rev=0.30`** | `0.6568` | `+0.0017 [-0.0001, 0.0033]` | `0.8639` | `+0.0012 [0.0008, 0.0018]*+` | `0.7032` | `+0.0010 [-0.0000, 0.0021]` | `7,760ms` |
+| **`DEV-150` · `alpha=0.7_rev=0.30`** | `0.6584` | `+0.0033 [0.0011, 0.0052]*+` | `0.8646` | `+0.0020 [0.0014, 0.0028]*+` | `0.7039` | `+0.0017 [0.0000, 0.0035]*+` | `7,629ms` |
+| **`DEV-150` · `alpha=1.0_rev=0.30`** | `0.6603` | `+0.0053 [0.0022, 0.0083]*+` | `0.8655` | `+0.0029 [0.0020, 0.0039]*+` | `0.7045` | `+0.0023 [0.0002, 0.0046]*+` | `7,829ms` |
+| **`DEV-150` · `alpha=1.4_rev=0.30`** *(Winner)* | **`0.6609`** | **`+0.0059 [0.0020, 0.0095]*+`** | **`0.8661`** | **`+0.0035 [0.0024, 0.0049]*+`** | **`0.7044`** | `+0.0023 [-0.0004, 0.0052]` | `8,034ms` |
+| **`HOLDOUT-150` · `control_svd64`** | `0.6816` | — | `0.8615` | — | `0.7464` | — | `9,673ms` |
+| **`HOLDOUT-150` · `alpha=1.4_rev=0.30`** *(Gate)* | `0.6823` | **`+0.0007 [-0.0035, 0.0044]`** (`FAIL`) | `0.8664` | **`+0.0049 [0.0035, 0.0063]*+`** (`PASS`) | `0.7471` | **`+0.0006 [-0.0013, 0.0027]`** (`FAIL`) | `8,302ms` |
+
+- **Diagnosis:** Support-gating completely fixed Experiment 12's catalog compression (`vsCatalogAUC +0.0049*+` on untouched `Holdout-150`), but the `Dev-150` rating-discrimination lift (`+0.0059*+` `withinAUC`) vanished on `Holdout-150` (`+0.0007 [-0.0035, +0.0044]`). Kept `tasteMatchService.js` purely on dense `SVD-64`, avoiding `item_ease_k64.cvea` load overhead in `MovieDetails` and `SearchModal`.
+
+---
+
+### Experiment 16 (Task 4 — SPLIT VERDICT): Cold-Start Math Ablations (`GATE: FAIL`, `482b2cf`) + `"Bucket E-Cold (Semantic)"` & Web Worker `collabIdSet` Isolation (**SHIPPED**, `fa5d4aa`, `01f0153`)
+
+#### Part 4A — Gated Cold-Start Math Ablations & 5-Fold OOF 64-D Ridge Projector (`GATE: FAIL`)
+- **Scripts:** [scripts/experiments/train_cold_projector.py](./scripts/experiments/train_cold_projector.py), [scripts/experiments/eval_cold_v6_2.mjs](./scripts/experiments/eval_cold_v6_2.mjs) (`public/models/cold_collab_64_f16.bin` **not** shipped; `contentSimService.js` retains `v6.1` single-mean cosine math)
+- **Anisotropy & OOF Diagnostics:**
+  - MiniLM-128D (`public/models/content_embeddings_f16.bin`, `11,119 × 128`, `2.76 MB`) catalog mean norms: `norm m_all = 0.0111`, `norm m_hist = 0.0764` (`9,620` historical items), `norm m_cold = 0.4268` (`1,499` `2024–2026` releases), `cos(m_hist, m_cold) = -0.9934` (pairwise dot mean `-0.0444`).
+  - Kernel-centered Dual Ridge (`MiniLM-384` + `TfidfVectorizer`, strict 5-fold out-of-fold CV across `9,122` warm + `498` cold items): selected `alpha = 3.0` on all 5 folds, 5-fold OOF SVD cosine alignment `0.6852 ± 0.0048`.
+- **100%-Cold Benchmark (`collabSim = 0`, 1,000-resample paired bootstrap `95%` CI vs `prod11k:v6.1_single_mean`):**
+
+| Split & Configuration | Extra MB | `NDCG@10` | `Δ NDCG@10` [`95%` CI] | `NDCG@20` | `Δ NDCG@20` [`95%` CI] | `Hits@20` | `HR@20` | `HR@100` | `Cov` | `ms/user` / Verdict |
+| :--- | :---: | :---: | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :--- |
+| **`DEV-150` · `lexical_tfidf_0MB`** | `0.00` | `0.0592` | — | `0.0722` | — | `0.740` | 42.7% | 75.3% | 1,140 | `103.01ms` |
+| **`DEV-150` · `prod11k:v6.1_single_mean`** *(base)* | `0.00` | `0.0688` | — | `0.0855` | — | `0.880` | 50.7% | 76.0% | 1,048 | `3.12ms` |
+| **`DEV-150` · `prod11k:guard7_only`** | `0.00` | `0.0688` | `+0.0% [+0.0000,+0.0000]` | `0.0855` | `+0.0% [-0.0000,+0.0000]` | `0.880` | 50.7% | 76.0% | 1,048 | `2.74ms` (bugfix shipped) |
+| **`DEV-150` · `prod11k:guard7+center`** | `0.00` | `0.0684` | `-0.6% [-0.0025,+0.0017]` | `0.0847` | `-0.9% [-0.0020,+0.0000]` | `0.873` | 50.0% | 76.0% | 1,059 | `2.81ms` |
+| **`DEV-150` · `prod11k:guard7+catmax`** | `0.00` | `0.0656` | `-4.7% [-0.0107,+0.0038]` | `0.0824` | `-3.6% [-0.0101,+0.0040]` | `0.887` | 52.0% | 73.3% | 1,017 | `4.95ms` |
+| **`DEV-150` · `prod11k:guard7+multiP(s0.20)`** | `0.00` | `0.0625` | `-9.2% [-0.0126,-0.0005]*-` | `0.0816` | `-4.6% [-0.0097,+0.0018]` | `0.900` | 50.0% | 76.0% | 1,090 | `56.78ms` |
+| **`DEV-150` · `prod11k:guard7+center+multiP(s0.20,pB1.0)`** | `0.00` | `0.0595` | `-13.5% [-0.0167,-0.0032]*-` | `0.0774` | `-9.5% [-0.0139,-0.0026]*-` | `0.873` | 49.3% | 76.7% | 1,093 | `9.84ms` |
+| **`DEV-150` · `ref9.6k:v6.1_single_mean`** | `0.00` | `0.0678` | `-1.5% [-0.0036,+0.0013]` | `0.0819` | `-4.2% [-0.0072,-0.0005]*-` | `0.853` | 50.0% | 78.0% | 1,053 | `2.44ms` |
+| **`DEV-150` · `proj64_oof:single_mean`** | `1.21` | `0.0583` | `-15.3% [-0.0193,-0.0019]*-` | `0.0711` | `-16.8% [-0.0236,-0.0059]*-` | `0.733` | 44.7% | 79.3% | 1,196 | `1.58ms` |
+| **`DEV-150` · `proj64_oof:cross_svd_to_oof_catmax`** | `1.21` | `0.0646` | `-6.1% [-0.0130,+0.0039]` | `0.0765` | `-10.5% [-0.0174,-0.0009]*-` | `0.820` | 46.7% | 78.0% | 1,304 | `6.98ms` |
+| **`DEV-150` · `hybrid:prod11k_50+cross_oof_50`** | `1.21` | `0.0697` | `+1.3% [-0.0047,+0.0062]` | `0.0849` | `-0.7% [-0.0063,+0.0050]` | `0.880` | 50.7% | 76.7% | 1,146 | `12.86ms` |
+| **`HOLDOUT-150` · `lexical_tfidf_0MB`** | `0.00` | `0.0465` | `-18.3% [-0.0187,-0.0025]*-` | `0.0586` | `-15.3% [-0.0193,-0.0020]*-` | `0.613` | 40.0% | 75.3% | 1,053 | Baseline ref |
+| **`HOLDOUT-150` · `prod11k:v6.1_single_mean`** *(base)* | `0.00` | `0.0569` | — | `0.0692` | — | `0.700` | 44.7% | 80.0% | 1,035 | Baseline |
+| **`HOLDOUT-150` · `ref9.6k:v6.1_single_mean`** *(ref)* | `0.00` | `0.0589` | — | `0.0716` | — | `0.693` | 46.7% | 81.3% | 1,061 | Ref (`AvgV=7,948`) |
+| **`HOLDOUT-150` · `prod11k:guard7_only`** | `0.00` | `0.0569` | `+0.0% [+0.0000,+0.0000]` | `0.0692` | `+0.0% [-0.0000,+0.0000]` | `0.700` | 44.7% | 80.0% | 1,035 | Bugfix always shipped |
+| **`HOLDOUT-150` · `prod11k:guard7+center`** | `0.00` | `0.0567` | `-0.4% [-0.0008,+0.0001]` | `0.0700` | `+1.2% [-0.0000,+0.0021]` | `0.713` | 45.3% | 79.3% | 1,045 | **FAIL** (`sig=false`) |
+| **`HOLDOUT-150` · `hybrid:prod11k_50+cross_oof_50`** | `1.21` | `0.0591` | `+3.9% [-0.0032,+0.0089]` | `0.0728` | `+5.2% [-0.0024,+0.0103]` | `0.753` | 47.3% | 84.0% | 1,138 | **FAIL** (`ciLo=-0.0032/-0.0024`) |
+| **`HOLDOUT-150` · `proj64_oof:cross_svd_to_oof_catmax`** | `1.21` | `0.0551` | `-3.2% [-0.0115,+0.0082]` | `0.0721` | `+4.2% [-0.0071,+0.0131]` | `0.813` | 50.7% | 78.7% | 1,243 | **FAIL** (`ciLo=-0.0115/-0.0071`) |
+
+#### Part 4B — Always-Shipped Fixes, `"Bucket E-Cold (Semantic)"` Retrieval & Web Worker `collabIdSet` Isolation (**SHIPPED**)
+- **Positive Rating Guard & Dead-Code Cleanup ([src/services/contentSimService.js](./src/services/contentSimService.js)):** Enforced `minPositiveRating = options.minPositiveRating ?? 7` across `buildUserContentVector`, overview TF-IDF, and `buildUserStructuredVector` (preventing harsh-rater `<= 5★` films with positive z-scores from entering the semantic centroid), short-circuited `computeCorpusTermDf` via `needsFallback`, and removed dead `64 === 128` `blendAligned` code.
+- **`retrieveColdContentNeighbors` & Web Worker `collabIdSet` Isolation ([contentSimService.js](./src/services/contentSimService.js), [embeddingWorker.js](./src/workers/embeddingWorker.js), [embeddingWorkerClient.js](./src/services/embeddingWorkerClient.js)):** Retrieves top-K unindexed cold semantic picks (`contentSim - repulsionWeight * repulsion`), strictly excluding `collabIndex?.idToIndex`, `collabIdSet` (compact `Uint32Array` `collabIds` structured-cloned from `embeddingWorker.js` so Web Worker mode never leaks warm indexed films with empty/near-zero `collabSimMap` entries), `collabSimMap`, and `excludeIds`.
+- **Oracle & Explore For You Wiring ([tmdbService.js](./src/services/tmdbService.js), [geminiService.js](./src/services/geminiService.js), [exploreForYouService.js](./src/services/exploreForYouService.js)):** Extended `fetchEmbeddingCandidates` with `options.sourceBucket` and `avoidRules` filtering (`candidateMatchesAvoidRule`), and wired `"Bucket E-Cold (Semantic)"` (`topK: 15`, `maxNeighbors: explicitMoodActive ? 6 : 12`, `maxScan: 15`) into both Oracle and Explore For You Wave 2 (`464 / 464` tests after Fix Round 1).
+
+---
+
+### Experiment 17 (Task 5 — CLEAN REJECT, `GATE: FAIL`, `fdcf8ae`): Non-Linear Ranker Calibration (`popMatch`, `collabShrink`, `crewBoost`)
+- **Script:** [scripts/experiments/eval_nonlinear_ranker_v6_2.mjs](./scripts/experiments/eval_nonlinear_ranker_v6_2.mjs) (`src/services/rankerService.js` and `public/models/ranker_weights.json` kept untouched)
+- **Hypothesis:** Non-linear ranker terms (`popMatch` Gaussian `log10(votes)` match, `collabShrink` `nIndexed / (nIndexed + k0)` damping, and `crewBoost` `(1 + gamma)` when `smoothT = 0`) might improve `Small-Vault (3..10)` and `100%-Cold` slices with `0.000` warm regression.
+- **Selected Summary Across Full, Small-Vault (`3..10`), and 100%-Cold (`150` users/split, vs `.data/v6_lab/v6_2_best.json` exact `+0.0%` baseline):**
+
+| Slice & Candidate | `HR@1` | `NDCG@10` | `Δ NDCG@10` (`95%` CI) | `NDCG@20` | `Δ NDCG@20` (`95%` CI) | `Tail@20` | `HR@20` | `Cov` | `AvgV` | Verdict |
+| :--- | :---: | :---: | :--- | :---: | :--- | :---: | :---: | :---: | :---: | :--- |
+| **`DEV-150` · `baseline`** | 20% | `0.1142` | — | `0.1500` | — | `0.927` | 76.7% | 899 | 10,831 | Baseline |
+| **`DEV-150` · `popMatch(w=0.3..1.4)`** | 17.3–20% | `0.1050–0.1118` | `-2.10%` to `-8.06%*-` | `0.1369–0.1487` | `-0.87%` to `-8.73%*-` | `0.907–0.967` | 74–76% | 895–904 | 9,726–10,562 | Regressed |
+| **`DEV-150` · `collabShrink(k0=3..8)`** | 20% | `0.1136–0.1141` | `-0.09%` to `-0.53%*-` | `0.1491–0.1497` | `-0.20%` to `-0.60%` | `0.927` | 75.3–76% | 903–906 | 10,807–10,835 | Regressed |
+| **`HOLDOUT-150` · `baseline`** | 15.3% | `0.1220` | — | `0.1540` | — | `1.020` | 71.3% | 910 | 9,934 | Baseline |
+| **`HOLDOUT-150` · `popMatch(w=0.6)`** | 14% | `0.1202` | `-1.48%` | `0.1523` | `-1.10%` | `1.053` | 71.3% | 903 | 9,501 | **FAIL** |
+| **`HOLDOUT-150` · `collabShrink(k0=8)`** | 15.3% | `0.1232` | `+0.98%` (non-sig) | `0.1529` | `-0.71%` | `0.993` | 71.3% | 904 | 9,933 | **FAIL** |
+| **`HOLDOUT-150` · `crewBoost(g=1.25,crew)`** | 15.3% | `0.1220` | `+0.00%` | `0.1536` | `-0.26%` | `1.013` | 71.3% | 913 | 9,914 | **FAIL** |
+| **`SMALL-DEV` · `baseline` (`3..10`)** | 8% | `0.0405` | — | `0.0514` | — | `0.373` | 42.7% | 1,406 | 7,477 | Baseline |
+| **`SMALL-DEV` · `collabShrink(k0=8)`** | 7.3% | `0.0339` | `-16.30%*-` | `0.0433` | `-15.76%*-` | `0.280` | 36% | 1,587 | 6,331 | Collapsed |
+| **`SMALL-VAL` · `baseline` (`3..10`)** | 9.3% | `0.0536` | — | `0.0670` | — | `0.513` | 48% | 1,401 | 7,049 | Baseline |
+| **`SMALL-VAL` · `popMatch(w=1.4)`** | 9.3% | `0.0549` | `+2.43% [-0.0016, 0.0043]` | `0.0715` | `+6.72%*+ [0.0002, 0.0089]` | `0.540` | 50% | 1,367 | 7,208 | **FAIL** (warm regressed) |
+| **`SMALL-VAL` · `collabShrink(k0=8)`** | 8% | `0.0457` | `-14.74% [-0.0182, 0.0005]` | `0.0541` | `-19.25%*- [-0.0236, -0.0049]` | `0.380` | 39.3% | 1,625 | 5,861 | **FAIL** |
+| **`COLD-DEV` · `baseline`** | 10.7% | `0.0688` | — | `0.0855` | — | `0.293` | 50.7% | 1,048 | 9,579 | Baseline |
+| **`COLD-DEV` · `crewBoost(g=1.25,crew)`** | 10% | `0.0529` | `-23.11%*-` | `0.0662` | `-22.57%*-` | `0.287` | 42% | 1,199 | 6,649 | Collapsed |
+| **`COLD-VAL` · `baseline`** | 8.7% | `0.0569` | — | `0.0692` | — | `0.300` | 44.7% | 1,035 | 7,966 | Baseline |
+| **`COLD-VAL` · `popMatch(w=0.6)`** | 9.3% | `0.0567` | `-0.35% [-0.0072, 0.0075]` | `0.0715` | `+3.32% [-0.0060, 0.0108]` | `0.380` | 46.7% | 932 | 7,878 | **FAIL** |
+| **`COLD-VAL` · `crewBoost(g=0.75..1.75)`** | 6.7–8% | `0.0377–0.0479` | `-15.82%*-` to `-33.74%*-` | `0.0489–0.0606` | `-12.43%*-` to `-29.34%*-` | `0.233–0.287` | 36.7–44.7% | 1,122–1,237 | 5,516–6,657 | **FAIL** |
+
+- **Diagnosis:** (1) `popMatch` suppressed valid cross-popularity favorites across full `Dev-150` and `Holdout-150` (`HR@1` `15.3% → 12.7–14%`). (2) `collabShrink` collapsed `Small-Vault (3..10)` because even 3–10 indexed ratings in `EASE^R + SVD` vastly outperform coarse metadata. (3) `crewBoost` let single-director ties overpower semantic `contentSim` and `bayesianRatingNorm` on 100%-cold pools (`-15.82%*-` to `-33.74%*-`).
+
+---
+
+### Experiment 18 (Task 6 — **SHIPPED**, `0b96df6`): Multi-Persona Bucket B, Multi-Auteur Bucket C & Bucket D Provider-Alias Expansion
+- **Files Changed:** [src/services/tmdbService.js](./src/services/tmdbService.js), [src/services/geminiService.js](./src/services/geminiService.js), [tests/pipelineBugs.test.js](./tests/pipelineBugs.test.js), [tests/recentReleaseSlots.test.js](./tests/recentReleaseSlots.test.js)
+- **What Shipped (verified TDD RED `5` failing -> GREEN `470 / 470` passing):**
+  1. **`selectPersonaAnchorIds(weightedRatings, embeddingIndex, maxAnchors = 3)`:** Selects the highest-weight `>= 8★` medoid per Spherical K-Means persona ordered by `mass` descending (using `{ k: Math.max(1, limit) }` when `< 12` indexed positive films), falling back to up to `3` distinct-genre `>= 9★` anchors when `embeddingIndex` is absent.
+  2. **Multi-Persona `fetchBucketB` & Multi-Auteur `fetchBucketC`:** `fetchBucketB` distributes `<= 4` TMDB discover pages across up to `3` anchors (round-robin interleaved via `interleaveTmdbStreams`, 100% backward compatible with a single ID); `fetchBucketC` fans out across `profile.topCrewIds.slice(0, 3)` in parallel (max `3` TMDB calls, preserving 3-page pagination when only `1` crew ID exists).
+  3. **Bucket D Alias Parity & Concurrent Index Preload:** Unified `applyProviderAndRegionParams` with `buildProviderFilter(userProviders, { expandAliases: true })` so Bucket D expands `PROVIDER_FAMILY_MAP` (e.g., Netflix `8` -> `8|1796|175`), and started `loadDefaultEmbeddingIndex()` concurrently with `extractTasteProfile` inside `getMovieRecommendations`.
+
+---
+
+### Experiment 19 (Task 7 — SPLIT VERDICT, `bda771e`): Explore Wave-3 Score Lock (**SHIPPED**) + `n = 50` Kernel MMR Over-Pitch Logit Fusion (`GATE: FAIL`, `n = 9 / 50` Quota-Blocked)
+- **Files Changed:** [src/services/exploreForYouService.js](./src/services/exploreForYouService.js), [tests/exploreForYouService.test.js](./tests/exploreForYouService.test.js), [scripts/experiments/eval_math_anchor_llm.mjs](./scripts/experiments/eval_math_anchor_llm.mjs) (`rankerService.js` and `geminiService.js` left **untouched**)
+- **Part A — `Explore For You` Wave-3 Score Lock (**SHIPPED**):** Removed `"s"` from `buildExploreForYouBatchPrompt` and `generateExploreForYouPool`'s `responseSchema`, locked `forYouScore` and `matchScore` to the calibrated local ranker inside `mergeExploreForYouResponse`, and preserved continuous math ordering via `rankIdxById` tie-breaker (`472 / 472` passing).
+- **Part B — `n = 50` Kernel MMR Shortlist + `100 → 25` Over-Pitch → `20` Logit Fusion + `ProtectTop-2` (`GATE: FAIL`, `n = 9 / 50`):**
+  - Dry-run (`--users 50 --dry-run`) verified across all 50 spaced `Holdout-150` users (`100/100` shortlist, `outlierDiff = 14/14` via Kernel MMR over normalized `SVD-64` + `MiniLM-128D`, zero `[Strong Vault Signal]` tags, `20.3k–23.0k` prompt chars, `324.63 ms/user` offline MMR).
+  - Live execution encountered `503 UNAVAILABLE` across all Gemini 3.x models (`gemini-3.5-flash-lite`, `3.1-flash-lite`, `3-flash-preview`, `3.5-flash`, `3.6-flash`, `3.7-flash`, `3.8-flash`, `gemini-4-hydrogen`); `gemini-2.5-flash` completed **`9 / 50`** paired users (`18` calls, `alpha = 0.8`, `mmrLambda = 0.65`) before hitting its Free Tier `20 RPD` cap (`429 RESOURCE_EXHAUSTED` on user `10/50`, `123418`). Checkpoint preserved in `.data/v6_lab/v6_2_overpitch_ckpt.json` for seamless resume.
+
+| Strategy (`n = 9 / 50`, `gemini-2.5-flash`) | `NDCG@10` | `NDCG@20` | `Hits@10` | `Hits@20` | `Tail@20` | `HR@20` | `Cov` | `AvgV` | Boilerplate Rate | Paired `95%` CI vs Control A (`1,000` resamples, `seed=42`) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Pure Math Top-20** *(ceiling ref)* | `0.1925` | `0.2092` | `1.444` | `1.889` | `0.333` | `66.7%` | 149 | 13,990 | `100.00%` (180/180) | — |
+| **Control A (`100 → 20`, production)** | `0.1200` | `0.1346` | `1.333` | `1.778` | `0.556` | `55.6%` | 154 | 13,343 | `5.56%` (10/180) | Baseline |
+| **Control A + `ProtectTop-2`** *(post-hoc ref)* | `0.1806` (+50.5%) | `0.1951` (+44.9%) | `1.444` | `1.889` | `0.556` (+0.0%) | `66.7%` | 152 | 13,434 | `7.22%` (13/180) | `ci10=[-0.0005, +0.1822]` (ns), `ci20=[-0.0005, +0.1822]` (ns) |
+| **Treatment (`Kernel MMR + 100 → 25 → 20 + ProtectTop-2`)** | **`0.1838` (+53.17%\*)** | **`0.1981` (+47.18%\*)** | **`1.444`** | **`1.889`** | **`0.556` (+0.00%)** | **`66.7%`** | 149 | 13,725 | **`1.67%` (3/180 <= 2%)** | **`ci10=[+0.0005, +0.1856]` (`sig10=true`)**, **`ci20=[+0.0002, +0.1854]` (`sig20=true`)**, `ciTail=[0, 0]` |
+
+- **Gate Verdict (`GATE: FAIL`):** Rejected solely because `fullSampleOk: false` (`n = 9 / 50` incomplete due to API quota/capacity). Once quota resets, completing the remaining `41 / 50` users from `.data/v6_lab/v6_2_overpitch_ckpt.json` is top priority.
+
+---
+
+### Experiment 20 (Task 8 — **SHIPPED**, `d0a3001`): Behavioral Signal Activation — Watchlist EASE^R Intent, Studio Craft Breakdown, Rewatch/IMAX Boost & Reason-Typed Dismissals
+- **Files Changed:** [easeService.js](./src/services/easeService.js), [tmdbService.js](./src/services/tmdbService.js), [onlineLearningService.js](./src/services/onlineLearningService.js), [geminiService.js](./src/services/geminiService.js), [exploreForYouService.js](./src/services/exploreForYouService.js), [embeddingWorkerClient.js](./src/services/embeddingWorkerClient.js), [embeddingWorker.js](./src/workers/embeddingWorker.js)
+- **What Shipped (verified TDD RED `5` failing -> GREEN `479 / 479` passing):**
+  1. **Watchlist EASE^R Forward Intent:** `buildEaseSimMapFromIndex` accepts `watchlistItems` and `watchlistWeight = 0.25`, deduplicates against watched `tmdbId`s, ranks unwatched indexed watchlist entries by recency (`updatedAt ?? dateAdded ?? addedAt ?? createdAt ?? ts`, tie-breaking newest append order), and caps at `15` items; wired across both Oracle (`geminiService.js`) and Explore For You (`exploreForYouService.js` -> `embeddingWorkerClient.js` -> `embeddingWorker.js`).
+  2. **Studio Craft Breakdown & `1.15x` Rewatch/Format Boost (`extractTasteProfile`):** Maps finite `1..5` `ratingBreakdown.direction`/`visuals` onto signed crew signals and `ratingBreakdown.acting` onto billing-decayed cast signals centered around `3.0` (so high craft on a `5★` script still builds positive creator affinity), falling back cleanly to overall `weight` when unset; applies `1.15x` positive magnitude boost for `>= 8★` films with `rewatchCount >= 2` or `watchMeta.format` in `{"imax", "physical"}` without altering `computeZScoredWeights`.
+  3. **Reason-Typed Pacing Dismissal Filtering (`derivePersonalizedRankerWeights`):** Skips `action === "dismissed"` entries matching `/too\s*slow|pacing/i` so pacing rejections do not push down `collabSim` or `genreOverlap` weights.
+
+---
+
+### Task 9: Final `v6.2` Regression Verification Snapshot (`v6.2-final`)
+- **`npm test`:** **`479 / 479` passing**, `0` failed, `0` skipped (`1,257.74 ms`).
+- **`npm run build`:** **`vite build` exited `0`** (`2,360` modules transformed in `5.51 s`; shipped assets in `build/models/`: `item_ease_k64.cvea` `3,640,016 B`, `item_embeddings_f16.bin` `3,300,016 B`, `content_embeddings_f16.bin` `2,890,956 B`, `ranker_weights.json` `416 B`).
+- **Weight Parity Check:** `public/models/ranker_weights.json` matches `DEFAULT_RANKER_WEIGHTS` in `src/services/rankerService.js` (`EXACT_MATCH: true`).
+- **`node scripts/experiments/v6_gate_eval.mjs --ease .data/v6_lab/ease_v6_baseline_clean.cvea --compare-baseline .data/v6_lab/v6_baseline.json --label v6.2-final`:**
+  - **`DEV-150`:** `HR1=20% | NDCG10=0.1142 (+0.0%) | NDCG20=0.1500 (+0.0%) | Hits20=1.747 | Tail20=0.927 (+0.0%) | HR20=76.7% | HR100=97.3%(4.13) | Cov=899 | AvgV=10831 | AUC8=0.6524 | 1.92ms`
+  - **`HOLDOUT-150`:** `HR1=15.3% | NDCG10=0.1220 (+0.0%) | NDCG20=0.1540 (+0.0%) | Hits20=1.680 | Tail20=1.020 (+0.0%) | HR20=71.3% | HR100=96%(4.19) | Cov=910 | AvgV=9934 | AUC8=0.6888 | 1.91ms`
+  - **`ALL-300`:** `HR1=17.7% | NDCG10=0.1181 (+0.0%) | NDCG20=0.1520 (+0.0%) | Hits20=1.713 | Tail20=0.973 (+0.0%) | HR20=74% | HR100=96.7%(4.16) | Cov=1134 | AvgV=10383 | AUC8=0.6707 | 1.83ms`
+  - Confirms exact `0.000` regression against the locked clean `v6.0`/`v6.1` MovieLens 32M baseline while shipping all `v6.2` retrieval, cold-isolation, Explore score-lock, and behavioral Vault signal upgrades.
+
+---
+
+## Next Refinement Backlog (v6.3+ Highest-Leverage Unexplored Ideas)
+
+1. **Resume `n = 50` Validation of `Kernel MMR + 100 → 25 Over-Pitch → 20 Logit Fusion + ProtectTop-2`:** Resume the remaining `41 / 50` `Holdout-150` users in `.data/v6_lab/v6_2_overpitch_ckpt.json` via `scripts/experiments/eval_math_anchor_llm.mjs` once Gemini API quota / 3.5-Flash-Lite capacity recovers (`n = 9/50` showed `+53.17%*` `NDCG@10`, `+47.18%*` `NDCG@20`, and `1.67%` boilerplate vs `5.56%` Control A).
 2. **Higher-Capacity Neural Content Encoder (`BGE-large` / `gemini-embedding-001`) + Cast/Director/Keyword Text Enrichment:** Expanding `content_embeddings_f16.bin` text inputs beyond `title + tagline + overview` (to include TMDB genres, director, top cast, and keywords) and refreshing quarterly for `2026+` releases.
-3. **Recency-Aware Implicit Sequence / Session Model (SASRec / Recency-Biased EASE):** True sequential modeling over chronologically ordered MovieLens 32M sequences rather than static bag-of-items co-occurrence.
+3. **Recency-Aware Implicit Sequence / Session Model (SASRec / Recency-Biased EASE):** True sequential modeling over chronologically ordered user-watch streams rather than static bag-of-items or noisy MovieLens logging timestamps.

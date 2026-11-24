@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { parseEmbeddingBinary, encodeEmbeddingBinary } from "../src/services/embeddingService.js";
-import { buildContentSimMap } from "../src/services/contentSimService.js";
+import * as contentSimService from "../src/services/contentSimService.js";
+const { buildContentSimMap } = contentSimService;
 
 test("buildContentSimMap with coldOnly:true scores unindexed cold films via contentIndex while leaving warm indexed films untouched", () => {
   const contentIndex = parseEmbeddingBinary(
@@ -60,4 +61,81 @@ test("production public/models/content_embeddings_f16.bin exists, parses as CVEM
     { collabIndex: null, collabSimMap: new Map(), coldOnly: true }
   );
   assert.ok((scores.get(693134) || 0) > 0, "Expected positive semantic contentSim for Dune: Part Two");
+});
+
+test("buildContentSimMap excludes harsh-rater <=5★ items from positive centroid and preserves coldOnly:true isolation", () => {
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 100, vector: [1, 0, 0, 0] },
+    { tmdbId: 101, vector: [0, 1, 0, 0] },
+    { tmdbId: 300, vector: [0, 1, 0, 0] }
+  ]));
+  const map = buildContentSimMap(
+    [
+      { tmdbId: 100, rating: 9, weight: 1.5, movie: { tmdbId: 100 } },
+      { tmdbId: 101, rating: 5, weight: 0.4, movie: { tmdbId: 101 } } // positive z-score for harsh rater, but <=5★
+    ],
+    contentIndex,
+    [{ tmdbId: 300 }],
+    { collabIndex: null, collabSimMap: new Map(), coldOnly: true }
+  );
+  assert.ok((map.get(300) || 0) < 0.25, `5★ movie must not drive positive content similarity, got ${map.get(300)}`);
+});
+
+test("retrieveColdContentNeighbors returns only unindexed cold films, excluding warm collabIndex items and watched/watchlist IDs", () => {
+  assert.equal(typeof contentSimService.retrieveColdContentNeighbors, "function", "retrieveColdContentNeighbors must be exported");
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 100, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] }, // warm (in collabIndex)
+    { tmdbId: 201, vector: [0.98, 0.19, 0, 0] }, // warm in collabIndex even with 0 collabSim
+    { tmdbId: 300, vector: [0.95, 0.31, 0, 0] }, // cold 2025 hit
+    { tmdbId: 301, vector: [0.90, 0.43, 0, 0] }  // cold 2025 watched
+  ]));
+  const collabIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 100, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [1, 0, 0, 0] },
+    { tmdbId: 201, vector: [0, 0, 1, 0] }
+  ]));
+  const picks = contentSimService.retrieveColdContentNeighbors(
+    [{ tmdbId: 100, rating: 10, weight: 1.5, movie: { tmdbId: 100 } }],
+    contentIndex,
+    new Set([100, 301]),
+    { collabIndex, collabSimMap: new Map([[100, 1.0], [200, 0.8], [201, 0]]), topK: 10 }
+  );
+  assert.deepEqual(picks.map((p) => p.tmdbId), [300]);
+  assert.ok(picks[0].contentSim > 0.8);
+  assert.equal(typeof picks[0].alignedScore, "number");
+});
+
+test("retrieveColdContentNeighbors excludes warm films via collabIdSet or near-zero collabSimMap entries when collabIndex is null", () => {
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 100, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] }, // warm in collabIdSet & empty collabSimMap (Worker mode)
+    { tmdbId: 201, vector: [0.98, 0.19, 0, 0] }, // warm with near-zero blended collabSim: 0.0005
+    { tmdbId: 202, vector: [0.97, 0.24, 0, 0] }, // warm with exact collabSim: 0 in collabSimMap
+    { tmdbId: 300, vector: [0.95, 0.31, 0, 0] }  // true cold 2025 film
+  ]));
+  const weightedRatings = [{ tmdbId: 100, rating: 10, weight: 1.5, movie: { tmdbId: 100 } }];
+
+  // Case A: Worker mode where collabIndex is null, collabIdSet holds indexed IDs, and collabSimMap is empty
+  const workerStylePicks = contentSimService.retrieveColdContentNeighbors(
+    weightedRatings,
+    contentIndex,
+    new Set([100]),
+    { collabIndex: null, collabIdSet: new Set([100, 200]), collabSimMap: new Map(), topK: 10 }
+  );
+  assert.equal(workerStylePicks.some((p) => p.tmdbId === 200), false, "Warm film in collabIdSet must be excluded when collabIndex is null");
+
+  // Case B: collabIndex & collabIdSet absent, collabSimMap has near-zero 0.0005 and 0 entries for indexed warm films
+  const nearZeroMapPicks = contentSimService.retrieveColdContentNeighbors(
+    weightedRatings,
+    contentIndex,
+    new Set([100]),
+    {
+      collabIndex: null,
+      collabIdSet: null,
+      collabSimMap: new Map([[200, 0.0005], [201, 0.0005], [202, 0]]),
+      topK: 10
+    }
+  );
+  assert.deepEqual(nearZeroMapPicks.map((p) => p.tmdbId), [300]);
 });

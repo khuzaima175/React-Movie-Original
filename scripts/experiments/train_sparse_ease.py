@@ -22,7 +22,7 @@ import pandas as pd
 from scipy.sparse import csr_matrix, diags
 from scipy.linalg import cho_factor, cho_solve
 
-ROOT = "g:/Important Projects/movie-ratings"
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 
 def export_cvea(out_path, tmdb_ids, nbr_idx, nbr_w):
@@ -47,15 +47,16 @@ def export_cvea(out_path, tmdb_ids, nbr_idx, nbr_w):
     print(f"  -> Exported {os.path.basename(out_path)} ({count} items x K={K}, {mb:.2f} MB)")
 
 
-def solve_ease_and_export(G_orig, tmdb_ids, item_counts_arr, lam, K, out_path, store_neg=0, pop_gamma=0.0):
+def solve_ease_and_export(G_orig, tmdb_ids, item_counts_arr, lam, K, out_path, store_neg=0, pop_gamma=0.0, F=None, forward_eta=0.0):
     t0 = time.time()
     n = G_orig.shape[0]
     G = G_orig.copy()
     diag_idx = np.arange(n)
+    g_diag_plus_lam = (G[diag_idx, diag_idx] + np.float32(lam)).astype(np.float32)
     G[diag_idx, diag_idx] += np.float32(lam)
 
     # Exact Cholesky inversion in float32 (SPD matrix!)
-    print(f"  Solving Cholesky ({n}x{n}, lambda={lam}, pop_gamma={pop_gamma})...")
+    print(f"  Solving Cholesky ({n}x{n}, lambda={lam}, pop_gamma={pop_gamma}, forward_eta={forward_eta})...")
     c, lower = cho_factor(G, overwrite_a=True, check_finite=False)
     del G
     gc.collect()
@@ -69,6 +70,18 @@ def solve_ease_and_export(G_orig, tmdb_ids, item_counts_arr, lam, K, out_path, s
     # B = -P / diag_P[None, :] (column j divided by P[j, j]), diag(B) = 0
     P /= (-diag_P[None, :])
     P[diag_idx, diag_idx] = 0.0
+
+    # Optional forward causal transition blend: B = (1 - eta) * B_ease + eta * B_fwd
+    if F is not None and forward_eta > 0.0:
+        eta = np.float32(forward_eta)
+        one_minus_eta = np.float32(1.0 - forward_eta)
+        denom = np.maximum(g_diag_plus_lam, np.float32(1e-9))
+        chunk = 1024
+        for r0 in range(0, n, chunk):
+            r1 = min(n, r0 + chunk)
+            P[r0:r1] *= one_minus_eta
+            P[r0:r1] += eta * (F[r0:r1] / denom[r0:r1, None])
+        P[diag_idx, diag_idx] = 0.0
 
     # Optional light column popularity damping (Steck 2020) baked in before top-K pruning
     if pop_gamma > 0.0 and item_counts_arr is not None:
@@ -98,6 +111,55 @@ def solve_ease_and_export(G_orig, tmdb_ids, item_counts_arr, lam, K, out_path, s
     export_cvea(out_path, tmdb_ids, nbr_idx, nbr_w)
 
 
+def compute_temporal_matrices(pos, user_codes, item_codes, vals, n_items, tau_days, forward_eta, default_fwd_bin_days=45.0):
+    """Build session-kernel Gram G_sess (O(nnz) via X_bin^T X_bin) and/or forward transition F."""
+    ts = pos["timestamp"].to_numpy(dtype=np.int64)
+    tmin = pos.groupby("userId")["timestamp"].transform("min").to_numpy(dtype=np.int64)
+    bin_days = (tau_days / 2.0) if tau_days > 0.0 else default_fwd_bin_days
+    bin_sec = max(1, int(round(bin_days * 86400.0)))
+    bin_id = (ts - tmin) // bin_sec
+    stride = int(bin_id.max()) + 3
+
+    G_sess = None
+    if tau_days > 0.0:
+        t_s = time.time()
+        overlap = np.float32(np.exp(-0.5))
+        u_all = np.concatenate([user_codes, user_codes])
+        b_all = np.concatenate([bin_id, bin_id + 1])
+        i_all = np.concatenate([item_codes, item_codes])
+        v_all = np.concatenate([vals, vals * overlap]).astype(np.float32)
+        keys = u_all.astype(np.int64) * stride + b_all.astype(np.int64)
+        uniq_keys, row_codes = np.unique(keys, return_inverse=True)
+        X_bin = csr_matrix((v_all, (row_codes, i_all)), shape=(len(uniq_keys), n_items), dtype=np.float32)
+        G_sess = (X_bin.T @ X_bin).toarray().astype(np.float32)
+        del u_all, b_all, i_all, v_all, keys, uniq_keys, row_codes, X_bin
+        gc.collect()
+        print(f"Session-kernel Gram G_sess (tau={tau_days}d, bin={bin_days:.1f}d) computed in {time.time() - t_s:.1f}s")
+
+    F = None
+    if forward_eta > 0.0:
+        t_f = time.time()
+        keys_w = user_codes.astype(np.int64) * stride + bin_id.astype(np.int64)
+        uniq_w, row_w = np.unique(keys_w, return_inverse=True)
+        u_w = uniq_w // stride
+        b_w = uniq_w % stride
+        is_adj = (u_w[:-1] == u_w[1:]) & (b_w[1:] == b_w[:-1] + 1)
+        idx_cur = np.nonzero(is_adj)[0]
+        if len(idx_cur) > 0:
+            X_win = csr_matrix((vals, (row_w, item_codes)), shape=(len(uniq_w), n_items), dtype=np.float32)
+            F = (X_win[idx_cur].T @ X_win[idx_cur + 1]).toarray().astype(np.float32)
+            np.fill_diagonal(F, 0.0)
+            del X_win
+        else:
+            F = np.zeros((n_items, n_items), dtype=np.float32)
+        n_adj = len(idx_cur)
+        del keys_w, uniq_w, row_w, u_w, b_w, is_adj, idx_cur
+        gc.collect()
+        print(f"Forward transition F (bin={bin_days:.1f}d, adj_pairs={n_adj:,}, eta={forward_eta}) computed in {time.time() - t_f:.1f}s")
+
+    return G_sess, F
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-items", type=int, default=14000, help="Top N most-rated items from prod_ids")
@@ -106,6 +168,9 @@ def main():
     parser.add_argument("--production", action="store_true", help="Train on ALL 32M users for production")
     parser.add_argument("--lam", type=float, default=None, help="Single lambda for production export")
     parser.add_argument("--pop-gamma", type=float, default=0.0, help="Light column popularity damping exponent")
+    parser.add_argument("--session-tau-days", type=float, default=0.0, help="Session-kernel temporal half-width tau in days (0 = disabled)")
+    parser.add_argument("--session-weight", type=float, default=0.5, help="Blend weight s_w for session-kernel Gram matrix")
+    parser.add_argument("--forward-eta", type=float, default=0.0, help="Forward causal transition blend weight eta (0 = disabled)")
     parser.add_argument("--out", type=str, default=None)
     args = parser.parse_args()
 
@@ -135,11 +200,17 @@ def main():
     links = links.drop_duplicates(subset=["tmdbId"])
     links = links[links["tmdbId"].isin(set(prod_ids.tolist()))].copy()
 
+    use_temporal = args.session_tau_days > 0.0 or args.forward_eta > 0.0
+    usecols = ["userId", "movieId", "rating", "timestamp"] if use_temporal else ["userId", "movieId", "rating"]
+    dtypes = {"userId": np.int32, "movieId": np.int32, "rating": np.float32}
+    if use_temporal:
+        dtypes["timestamp"] = np.int64
+
     print("Loading ratings.csv...")
     ratings = pd.read_csv(
         os.path.join(ml_dir, "ratings.csv"),
-        usecols=["userId", "movieId", "rating"],
-        dtype={"userId": np.int32, "movieId": np.int32, "rating": np.float32},
+        usecols=usecols,
+        dtype=dtypes,
     )
     if exclude_ids:
         ratings = ratings[~ratings["userId"].isin(exclude_ids)].copy()
@@ -165,14 +236,16 @@ def main():
     vals = (0.8 + 0.333 * (pos["rating"].to_numpy(dtype=np.float32) - 3.5)).astype(np.float32)
     user_cats = pos["userId"].astype("category")
     item_cats = pd.Categorical(pos["tmdbId"], categories=top_tmdb_ids)
+    user_codes = user_cats.cat.codes.to_numpy()
+    item_codes = item_cats.codes
+    n_users = len(user_cats.cat.categories)
+    n_items = len(top_tmdb_ids)
 
     X = csr_matrix(
-        (vals, (user_cats.cat.codes.to_numpy(), item_cats.codes)),
-        shape=(len(user_cats.cat.categories), len(top_tmdb_ids)),
+        (vals, (user_codes, item_codes)),
+        shape=(n_users, n_items),
         dtype=np.float32,
     )
-    del pos, vals, user_cats, item_cats
-    gc.collect()
 
     print(f"Sparse X shape={X.shape}, nnz={X.nnz:,}. Computing Gram matrix G = X^T X...")
     t_g = time.time()
@@ -181,17 +254,41 @@ def main():
     gc.collect()
     print(f"Gram matrix G ({G.shape}, {G.nbytes/1e6:.0f} MB) computed in {time.time() - t_g:.1f}s")
 
+    G_sess, F = (None, None)
+    if use_temporal:
+        G_sess, F = compute_temporal_matrices(
+            pos, user_codes, item_codes, vals, n_items,
+            args.session_tau_days, args.forward_eta
+        )
+
+    del pos, vals, user_cats, item_cats, user_codes, item_codes
+    gc.collect()
+
+    if G_sess is not None:
+        s_w = float(args.session_weight)
+        norm_match = float(np.trace(G)) / max(float(np.trace(G_sess)), 1e-9)
+        print(f"Blending G = (1 - {s_w:.2f}) * G_global + {s_w:.2f} * ({norm_match:.4f} * G_sess)...")
+        G *= np.float32(1.0 - s_w)
+        G += np.float32(s_w * norm_match) * G_sess
+        del G_sess
+        gc.collect()
+
     out_dir = os.path.join(ROOT, ".data/math_lab_ease")
     if args.lam is not None and args.out:
         out_path = args.out if os.path.isabs(args.out) else os.path.join(ROOT, args.out)
-        solve_ease_and_export(G, top_tmdb_ids, top_item_counts, args.lam, args.k, out_path, store_neg=0, pop_gamma=args.pop_gamma)
+        solve_ease_and_export(
+            G, top_tmdb_ids, top_item_counts, args.lam, args.k, out_path,
+            store_neg=0, pop_gamma=args.pop_gamma, F=F, forward_eta=args.forward_eta
+        )
     else:
         for lam in [300.0, 800.0, 2000.0]:
             solve_ease_and_export(
                 G, top_tmdb_ids, top_item_counts, lam, args.k,
                 os.path.join(out_dir, f"ease_exact_L{int(lam)}_k{args.k}.cvea"),
                 store_neg=0,
-                pop_gamma=args.pop_gamma
+                pop_gamma=args.pop_gamma,
+                F=F,
+                forward_eta=args.forward_eta,
             )
     print(f"Done in {time.time() - t_start:.1f}s!")
 

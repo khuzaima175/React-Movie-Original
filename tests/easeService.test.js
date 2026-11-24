@@ -149,3 +149,74 @@ test("production public/models/item_ease_k64.cvea parses cleanly and scores in <
   assert.ok((scores.get(1124) || 0) > 0.08, "Expected The Prestige (1124) strong EASE affinity");
   assert.ok(elapsed < 50, `Expected sub-50ms sparse EASE scoring, got ${elapsed.toFixed(2)}ms`);
 });
+
+test("buildEaseSimMapFromIndex incorporates light watchlist forward-intent without overpowering rated 10★ favorites", () => {
+  const items = [
+    { tmdbId: 100, neighbors: [{ index: 2, weight: 0.50 }] },
+    { tmdbId: 200, neighbors: [{ index: 3, weight: 0.50 }] },
+    { tmdbId: 300, neighbors: [{ index: 0, weight: 0.50 }] },
+    { tmdbId: 400, neighbors: [{ index: 1, weight: 0.50 }] }
+  ];
+  const idx = parseEaseBinary(encodeEaseBinary(items, 1));
+  const map = buildEaseSimMapFromIndex(
+    [{ tmdbId: 100, rating: 10, weight: 1.5 }],
+    idx,
+    { watchlistItems: [{ tmdbId: 200 }], watchlistWeight: 0.25 }
+  );
+  assert.ok((map.get(400) || 0) > 0, "Watchlist neighbor 400 should receive light positive EASE signal");
+  assert.ok(map.get(300) > map.get(400) * 3, "Rated 10★ anchor must strongly outweigh watchlist intent");
+});
+
+test("buildEaseSimMapFromIndex caps watchlist intent at 15 most-recent unwatched items, deduplicates IDs, and skips seen watches", () => {
+  // Items 101..120 (watchlist seeds) point to targets 201..220; item 100 is already watched (5★ -> x=0)
+  const items = [];
+  for (let i = 0; i < 21; i++) {
+    items.push({ tmdbId: 100 + i, neighbors: [{ index: 21 + i, weight: 0.40 }] });
+  }
+  for (let i = 0; i < 21; i++) {
+    items.push({ tmdbId: 200 + i, neighbors: [{ index: i, weight: 0.40 }] });
+  }
+  const idx = parseEaseBinary(encodeEaseBinary(items, 1));
+
+  // Chronological append order (no timestamps): 101 (oldest) .. 120 (newest), plus watched 100 and duplicate 119
+  const watchlistItems = [
+    { tmdbId: 100 }, // already watched (even at 5★ neutral) -> must be skipped
+    ...Array.from({ length: 20 }, (_, i) => ({ tmdbId: 101 + i })),
+    { tmdbId: 119 } // duplicate -> must not double-count
+  ];
+
+  const map = buildEaseSimMapFromIndex(
+    [{ tmdbId: 100, rating: 5, weight: 0 }],
+    idx,
+    { watchlistItems }
+  );
+
+  // Target 200 (from watched 5★ 100) must stay untouched
+  assert.equal(map.get(200) || 0, 0, "Already-watched item 100 must not contribute watchlist signal");
+  // Oldest 5 unwatched items (101..105 -> targets 201..205) should be excluded by 15-item cap
+  for (let id = 201; id <= 205; id++) {
+    assert.equal(map.get(id) || 0, 0, `Item ${id} from capped oldest watchlist entry should be 0`);
+  }
+  // Most-recent 15 items (106..120 -> targets 206..220) should receive single 0.25 * 0.40 = ~0.10 signal
+  for (let id = 206; id <= 220; id++) {
+    const score = map.get(id) || 0;
+    assert.ok(Math.abs(score - 0.10) < 0.01, `Expected ~0.10 for recent watchlist target ${id}, got ${score}`);
+  }
+
+  // With explicit timestamps, newer updatedAt wins regardless of array position
+  const timestampedWatchlist = [
+    { tmdbId: 101, updatedAt: "2026-11-24T00:00:00Z" },
+    ...Array.from({ length: 15 }, (_, i) => ({
+      tmdbId: 105 + i,
+      updatedAt: `2026-11-${String(1 + i).padStart(2, "0")}T00:00:00Z`
+    }))
+  ];
+  const tsMap = buildEaseSimMapFromIndex([], idx, { watchlistItems: timestampedWatchlist });
+  assert.ok((tsMap.get(201) || 0) > 0, "Newest timestamped watchlist item 101 must be retained");
+  assert.equal(tsMap.get(205) || 0, 0, "Oldest timestamped watchlist item 105 must be evicted beyond cap 15");
+
+  // Default watchlistItems=[] preserves exact 0.000 diff
+  const baseDefault = buildEaseSimMapFromIndex([{ tmdbId: 100, rating: 10 }], idx);
+  const baseEmpty = buildEaseSimMapFromIndex([{ tmdbId: 100, rating: 10 }], idx, { watchlistItems: [] });
+  assert.deepEqual([...baseDefault.entries()], [...baseEmpty.entries()]);
+});

@@ -13,7 +13,7 @@ A local-first film tracker and recommender. It combines an on-device taste model
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-12-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
-[![Tests](https://img.shields.io/badge/Tests-457_passing-46d369?style=for-the-badge)](#contributing-and-tests)
+[![Tests](https://img.shields.io/badge/Tests-479_passing-46d369?style=for-the-badge)](#contributing-and-tests)
 
 [Features](#features) · [Screenshots](#screenshots) · [Why CinemaVault](#why-cinemavault) · [How it works](#how-it-works) · [Model Refinement Log](./MODEL_REFINEMENT_LOG.md) · [Quick start](#quick-start) · [Known limitations](#known-limitations)
 
@@ -39,8 +39,8 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 
 | Area | What it does |
 | :--- | :--- |
-| Local taste model | **Exact Full-Rank Sparse EASE^R** (`14,000` films × `64` neighbors, `3.47 MB` `CVEA v1`, `< 1 ms` scoring) blended **`60/40`** with the `25,000`-film `64`-D SVD index (`CVEM v1`, `3.15 MB`), plus **`11,119 × 128-D` Neural Semantic Content Embeddings** (`content_embeddings_f16.bin`, `2.76 MB`, `coldOnly: true`, covering `1,499` `2024–2026` theatrical releases at **`+26.7%*` cold-start `NDCG@10`**), per-user z-scoring, tiered recency decay, persona mixtures, and `64×64` ridge fold-in (`+49.7%*` warm `NDCG@10` / `+46.3%*` `NDCG@20` on 300 unseen users — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)). Runs 100% in the browser. |
-| Recommendations | Five retrieval buckets (including top-50 aligned collaborative neighbors), a calibrated logistic ranker, and **20 curated picks** (rendered in a `#1` Spotlight hero + 2-column editorial card grid with grounded 2-sentence pitches) from a **100-candidate stratified shortlist**. Verified TMDB titles only. |
+| Local taste model | **Exact Full-Rank Sparse EASE^R** (`14,000` films × `64` neighbors, `3.47 MB` `CVEA v1`, `< 1 ms` scoring, incl. light Watchlist forward-intent across up to `15` recent items) blended **`60/40`** with the `25,000`-film `64`-D SVD index (`CVEM v1`, `3.15 MB`), plus **`11,119 × 128-D` Neural Semantic Content Embeddings** (`content_embeddings_f16.bin`, `2.76 MB`, `coldOnly: true`, covering `1,499` `2024–2026` theatrical releases at **`+26.7%*` cold-start `NDCG@10`**), per-user z-scoring, tiered recency decay, Craft Breakdown & `1.15×` rewatch/IMAX weighting, persona mixtures, `64×64` ridge fold-in, and pacing-dismissal-safe online learning (`+49.7%*` warm `NDCG@10` / `+46.3%*` `NDCG@20` on 300 unseen users — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)). Runs 100% in the browser. |
+| Recommendations | Six retrieval channels — multi-persona Bucket `B` (up to 3 K-Means anchors), multi-auteur Bucket `C` (up to 3 creators), semantic Bucket `A`, recent Bucket `D` (with unified provider-alias expansion), top-50 aligned Bucket `E` collaborative neighbors, and **`Bucket E-Cold (Semantic)`** (`2024–2026` & unindexed semantic picks) — plus a calibrated logistic ranker and **20 curated picks** (rendered in a `#1` Spotlight hero + 2-column editorial card grid with grounded 2-sentence pitches) from a **100-candidate stratified shortlist**. Verified TMDB titles only. |
 | Vibes | Six preset moods plus free-text "Match Vibe" queries such as "like Drive but quieter." |
 | Gemini cascade & BYOK | Dual Flash-Lite cascade (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`, up to 1,000 free requests/day) with error-specific cooldowns, optional browser-local personal Gemini key (`cv_user_gemini_key`), and deterministic on-device ranker fallback when shared quota is at capacity. |
 | Editions (Public / Personal) | Clean Public Edition by default; toggle Personal/Debug UI with `?debug=1` (`?debug=0` to clear) or build with `VITE_APP_EDITION=personal`. |
@@ -48,7 +48,7 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 | Rating studio | Ascending 10-bar cinema fader with editorial color grading, rolling score readout, live percentile calibration, same-tier pills, optional 4-aspect craft scores, and watch-session log. |
 | Demo onboarding | One-click `"Try a sample vault"` loads 14 rated films + 6 watchlist films locally without touching cloud sync. |
 | Import and export | Letterboxd and CinemaVault CSV import, Schema v2 JSON backup, and a diff preview before applying. |
-| Discovery & Explore For You | Discover's **"Picked For Your Taste"** row mirrors your real `CVEM v1` **"Movies You'll Like"** pool with match badges + `"See all →"`; `/explore` hosts a filterable workbench and 3-wave progressive ~250-film personalized pool backed by Web Worker ML and non-blocking background curation. |
+| Discovery & Explore For You | Discover's **"Picked For Your Taste"** row mirrors your real `CVEM v1` **"Movies You'll Like"** pool with match badges + `"See all →"`; `/explore` hosts a filterable workbench and 3-wave progressive ~250-film personalized pool backed by Web Worker ML (`collabIdSet`-isolated `Bucket E-Cold (Semantic)` injection + Wave-3 math score lock) and non-blocking background curation. |
 | Universal Match Predictor & Oracle Concierge | On-device `"For You"` Match `%` + calibrated `Est. X.X/10` prediction on Movie Detail pages and instant Match `%` pills in Search; Flagship **Film Oracle** Tonight's Concierge with 4 starter presets, instant `$0.00` Watchlist Tonight ranker, `#1 Top Pick Tonight` Spotlight hero, and centered Film Companion chat splitting watched references into inline chips. |
 | Community & Public Profiles | Privacy-first opt-in Community Mode in `/account` (`is_public = false` by default) unlocking shareable `/u/:username` profiles (Top 4 Showcase, Watch Diary, Spoiler-Safe Reviews, Follows, **64-D Taste Twin %**, and *"Films They Loved You Haven't Seen"*) plus CinemaVault Community ratings & reviews on Movie Detail pages. |
 | Compare | Two to three films side by side, with shared cast, genres, and taste similarity. |
@@ -79,13 +79,14 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 
 Recommendations come from local math first. Gemini does not generate titles.
 
-1. **Taste model.** Ratings are z-scored against each user's own distribution and modulated by a rating-tiered recency decay (about an 11.5-month half-life with asymptotic floors — `0.45` for 10/10 masterpieces or rewatched favorites, `0.30` for 9/10, `0.20` for 8/10, `0.25` for `<= 4/10` dislikes, and `0.10` for mid-tier watches — so all-time favorites never vanish). Undated and bulk-imported entries get a 180-day prior. Positive taste is clustered into one to four personas, blended with a ridge fold-in vector, and disliked films push nearby candidates down.
-2. **Candidate retrieval.** Five buckets run:
-   - **Bucket B (keyword successors):** films sharing micro-keywords with your highest-rated anchor (rated 9 or higher).
-   - **Bucket C (auteur network):** acclaimed films from your most-watched directors, cinematographers, composers, and writers.
+1. **Taste model.** Ratings are z-scored against each user's own distribution and modulated by a rating-tiered recency decay (about an 11.5-month half-life with asymptotic floors — `0.45` for 10/10 masterpieces or rewatched favorites, `0.30` for 9/10, `0.20` for 8/10, `0.25` for `<= 4/10` dislikes, and `0.10` for mid-tier watches — so all-time favorites never vanish). Undated and bulk-imported entries get a 180-day prior. Rating Studio craft breakdowns (`direction`/`visuals` for crew, `acting` for cast) and `1.15×` engagement boosts (`>= 8★` rewatches or IMAX/physical) refine creator affinities, while up to `15` recent unwatched Watchlist items add light `0.25×` EASE^R forward intent. Positive taste is clustered into one to four personas, blended with a ridge fold-in vector, disliked films push nearby candidates down, and pacing-only dismissals (`/too\s*slow|pacing/i`) are excluded from online weight penalties.
+2. **Candidate retrieval.** Six retrieval channels run:
+   - **Bucket B (keyword successors):** films sharing micro-keywords across up to 3 Spherical K-Means persona anchors (`>= 8★` medoids via `selectPersonaAnchorIds`, or distinct-genre `>= 9★` fallback), capped at `<= 4` TMDB pages.
+   - **Bucket C (auteur network):** acclaimed films fanned out across up to 3 top-weighted directors, cinematographers, composers, and writers (`topCrewIds.slice(0, 3)`).
    - **Bucket A (semantic discovery):** TMDB discover results filtered by loved genres, watchlist genres, mood, and regional streaming.
-   - **Bucket D (recent releases):** films from the last 18 months with reasonable acclaim, capped at 12.
+   - **Bucket D (recent releases):** films from the last 18 months with reasonable acclaim, capped at 12, with unified `PROVIDER_FAMILY_MAP` alias expansion (`expandAliases: true`).
    - **Bucket E (collaborative neighbors):** up to **50** unseen nearest neighbors from the hybrid EASE^R + SVD index (out of top 100 aligned), or 20 when an explicit mood is active.
+   - **Bucket E-Cold (semantic neighbors):** up to **12** unseen unindexed `2024–2026` / cold films (6 under explicit mood) retrieved from 128-D MiniLM embeddings (`retrieveColdContentNeighbors`), strictly skipping warm indexed items via `collabIdSet` even in Web Worker mode.
 3. **Ranking.** A 12-feature logistic ranker scores the pool using the **`60%` EASE^R / `40%` SVD** collaborative score (`easeService.js` + `embeddingService.js`). Under "Any Vibe," collaborative similarity is normalized against the whole catalog, and metadata is damped while collaborative signal is strong. Under an explicit mood, the ranker shifts weight toward genre fit and hard-gates candidates against the mood's rules. Display scores fall between 50 and 99 and preserve rank order.
 4. **Curation (`100 → 20`).** The stratified shortlist of **100 candidates** (`72` top-ranked core, `14` releases from 2024–2026, `14` diverse outliers) goes to Gemini with an adaptive prompt budget up to `34,000` characters. Gemini picks **20** films with grounded 2-sentence editorial pitches and may propose up to `2` extra wildcard titles (`4` when a custom free-text vibe query is active). Each wildcard must pass TMDB verification, vault/watchlist exclusions, streaming filters, and mood gates before appearing.
 5. **Fallback & Optional Personal Key.** If shared quota is at capacity or every model fails, the top **20** on-device ranker results appear with grounded TMDB premise explanations, a calm notice, and an optional **"Use your own Gemini key"** trigger. Keys saved there stay strictly in your browser's `localStorage` (`cv_user_gemini_key`) and call Google AI directly without touching CinemaVault servers or Supabase.
@@ -208,9 +209,9 @@ On a first visit with fewer than three rated films, a 30-film deck opens. Visito
 
 ```mermaid
 flowchart LR
-    A["Your vault\n(ratings, notes, CSV/JSON imports)"] --> B["On-device taste model\n• Exact Sparse EASE^R (14k×64, <1ms)\n• 64-D SVD Personas + Ridge (60/40 blend)\n• Dislike repulsion & relative cutoff"]
-    B --> C["Candidate retrieval\n• B keyword successors\n• C auteur network\n• A discover + mood\n• D recent releases\n• E top-50 EASE^R+SVD neighbors"]
-    C --> D["Logistic ranker\n• Catalog-normalized EASE^R+SVD score\n• Mood gate\n• Verified streaming"]
+    A["Your vault\n(ratings, notes, Craft Breakdown,\nWatchlist & CSV/JSON imports)"] --> B["On-device taste model\n• Exact Sparse EASE^R (14k×64, <1ms)\n• 64-D SVD Personas + Ridge (60/40 blend)\n• Watchlist EASE^R + 128-D Cold MiniLM"]
+    B --> C["6-channel retrieval\n• Multi-persona B & multi-auteur C\n• A discover + mood • D recent + aliases\n• E (top-50) & E-Cold (semantic)"]
+    C --> D["Logistic ranker\n• Catalog-normalized EASE^R+SVD score\n• Mood gate & pacing-safe learning\n• Verified streaming"]
     D --> E["Gemini cascade\n• 100-candidate shortlist → 20 picks\n• 2–4 verified wildcards\n• Ranker fallback"]
     E --> F["Cache (24h, ≥14 valid)\nRefresh rotation"]
 ```
@@ -273,7 +274,7 @@ Check the "About these picks" panel in Oracle to see which pipeline produced the
 | Destination | What is sent | When |
 | :--- | :--- | :--- |
 | TMDB and OMDb | Title, ID, and search or discover parameters. No notes or ratings. | Search, discovery, detail pages, and candidate harvesting. |
-| Gemini | A prompt containing your loved genres, anchor films, notes (up to 180 characters each), recent watches, dislikes, watchlist titles, and candidate films, bounded to 20,000 characters. Chat prompts include the films and notes you discuss. | Curation, chat, and vibe parsing. Only when AI features are used. |
+| Gemini | A prompt containing your loved genres, anchor films, notes (up to 180 characters each), recent watches, dislikes, watchlist titles, and candidate films, bounded dynamically to 20,000–34,000 characters by shortlist size. Chat prompts include the films and notes you discuss. | Curation, chat, and vibe parsing. Only when AI features are used. |
 | Supabase | Your vault rows (excluding `isSample` demo rows), ratings, notes, metadata, and optional Explore "Movies You'll Like" cache (`user_explore_picks`, excluding sample vaults). | Only after you sign in and enable sync. |
 | Your browser only | The vault, caches, spend tracking, feedback log, taste rules, and optional personal Gemini key (`cv_user_gemini_key`). | Always. |
 
@@ -285,7 +286,7 @@ If you do not want vault content sent to Gemini, do not use the AI features (Ora
 
 ## Known limitations
 
-- **Training data cutoff.** The collaborative embeddings come from MovieLens 32M, which ends around late 2023. Films released after that have no collaborative signal. They can appear through Bucket D and the structured fallback, but their ranking is less reliable than older films.
+- **Training data cutoff.** The collaborative embeddings come from MovieLens 32M, which ends around late 2023. Films released after that have no collaborative signal, so they rely on our `11,119 × 128-D` neural semantic embeddings (`content_embeddings_f16.bin`, covering `1,499` `2024–2026` releases), **`Bucket E-Cold (Semantic)`**, Bucket D, and the structured metadata fallback.
 - **Shared rate limits across serverless instances.** Without `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` configured, rate limits stay in-memory per serverless instance and reset on cold starts. Configuring Upstash enables durable daily per-IP (`GEMINI_DAILY_PER_IP`, default `30`) and global (`GEMINI_DAILY_GLOBAL`, default `450`) caps.
 - **Gemini quota.** Heavy shared usage can exhaust free-tier quota. The app then serves on-device ranker output and lets users optionally attach their own AI Studio key.
 - **Benchmarks are offline.** The metrics in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md) measure the deterministic ranker on MovieLens-derived data and a small set of sample vaults. They are not measures of user satisfaction.
@@ -397,7 +398,7 @@ npm run serve                # Preview the production build
 2. **Browse.** Use Discover for unwatched rows (with opt-in smooth row scrolling) and the "All Films" grid. Use `/explore` to filter the full catalog or switch to **"Movies You'll Like"** (`?mode=for-you`) to deep-filter and shuffle ~250 taste-matched films instantly. Use `Cmd + K` or `/` to search.
 3. **Rate and discuss.** Open a film, set a rating with the live percentile readout, optionally add craft scores and a watch format, then click **Discuss This Film**. Sign in to sync if you use more than one device.
 4. **Review stats.** Open the Vault page for screen time and the rating distribution.
-5. **Pick a film.** Open Oracle, choose a vibe or type one, filter by your streaming services, and browse the 10 picks. Refresh for new candidates.
+5. **Pick a film.** Open Oracle, choose a vibe or type one, filter by your streaming services, and browse the 20 picks. Refresh for new candidates.
 6. **Compare or roll.** Add up to three films to `/compare` to see the differences, or open Cinema Roulette to choose one at random.
 
 ---

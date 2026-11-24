@@ -1487,3 +1487,470 @@ test("formatTmdbMovieDetails, applyDetailsToCandidate, bridgeTmdbToOmdb, and mer
     }
 });
 
+test("fetchBucketC fans out across top 3 topCrewIds instead of starving on a single director", async () => {
+    const { fetchBucketC } = await import("../src/services/tmdbService.js");
+    const queriedCrew = [];
+    const mockFetch = async (url) => {
+        const u = new URL(url);
+        const crew = u.searchParams.get("with_crew");
+        queriedCrew.push(crew);
+        return {
+            ok: true,
+            json: async () => ({
+                results: [{
+                    id: Number(crew) * 10,
+                    title: `Film ${crew}`,
+                    overview: `Overview ${crew}`,
+                    vote_average: 7.8,
+                    vote_count: 500
+                }]
+            })
+        };
+    };
+    const out = await fetchBucketC(
+        { topCrewMemberId: 101, topCrewIds: [101, 202, 303, 404] },
+        { apiKey: "test", fetchFn: mockFetch },
+        {},
+        9
+    );
+    assert.equal(queriedCrew.length, 3, "must cap at 3 TMDB calls across top 3 auteurs");
+    assert.deepEqual(new Set(queriedCrew), new Set(["101", "202", "303"]));
+    assert.equal(out.length, 3);
+
+    // Backward compatibility: falls back to single topCrewMemberId when topCrewIds is absent
+    const singleQueried = [];
+    const singleOut = await fetchBucketC(
+        { topCrewMemberId: 707 },
+        {
+            apiKey: "test",
+            fetchFn: async (url) => {
+                const u = new URL(url);
+                singleQueried.push(u.searchParams.get("with_crew"));
+                return {
+                    ok: true,
+                    json: async () => ({
+                        results: [{ id: 7070, title: "Solo Auteur", overview: "Overview", vote_average: 8.0, vote_count: 400 }]
+                    })
+                };
+            }
+        },
+        {},
+        1
+    );
+    assert.deepEqual(singleQueried, ["707"]);
+    assert.equal(singleOut.length, 1);
+});
+
+test("fetchBucketB distributes keyword retrieval across multiple persona anchor IDs while staying backward-compatible with a single ID", async () => {
+    const { fetchBucketB } = await import("../src/services/tmdbService.js");
+    const kwLookups = [];
+    let discoverCalls = 0;
+    const mockFetch = async (url) => {
+        const u = new URL(url);
+        const movieMatch = u.pathname.match(/^\/3\/movie\/(\d+)$/);
+        if (movieMatch) {
+            const mid = movieMatch[1];
+            kwLookups.push(mid);
+            return {
+                ok: true,
+                json: async () => ({ keywords: { keywords: [{ id: Number(mid) + 1000 }] }, credits: { crew: [] } })
+            };
+        }
+        discoverCalls++;
+        const kw = u.searchParams.get("with_keywords");
+        return {
+            ok: true,
+            json: async () => ({
+                results: [{
+                    id: Number(kw) + 1,
+                    title: `Match ${kw}`,
+                    overview: `Overview ${kw}`,
+                    vote_average: 7.7,
+                    vote_count: 800
+                }]
+            })
+        };
+    };
+    const out = await fetchBucketB([10, 20], { apiKey: "test", fetchFn: mockFetch }, {}, 10);
+    assert.deepEqual(new Set(kwLookups), new Set(["10", "20"]));
+    assert.equal(out.length, 2);
+    assert.ok(discoverCalls <= 4, `Expected <= 4 discover calls, got ${discoverCalls}`);
+
+    // Backward compatibility with a single numeric anchorTmdbId
+    const singleKw = [];
+    const singleOut = await fetchBucketB(
+        30,
+        {
+            apiKey: "test",
+            fetchFn: async (url) => {
+                const u = new URL(url);
+                const movieMatch = u.pathname.match(/^\/3\/movie\/(\d+)$/);
+                if (movieMatch) {
+                    singleKw.push(movieMatch[1]);
+                    return { ok: true, json: async () => ({ keywords: { keywords: [{ id: 1030 }] }, credits: { crew: [] } }) };
+                }
+                return {
+                    ok: true,
+                    json: async () => ({
+                        results: [{ id: 9001, title: "Single Match", overview: "Overview", vote_average: 7.9, vote_count: 700 }]
+                    })
+                };
+            }
+        },
+        {},
+        1
+    );
+    assert.deepEqual(singleKw, ["30"]);
+    assert.equal(singleOut.length, 1);
+});
+
+test("selectPersonaAnchorIds picks highest-weight >=8★ medoid per K-Means persona and falls back to top-3 distinct-genre >=9★ anchors", async () => {
+    const { selectPersonaAnchorIds } = await import("../src/services/tmdbService.js");
+    const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+    assert.equal(typeof selectPersonaAnchorIds, "function");
+
+    const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+        { tmdbId: 1, vector: [1, 0, 0, 0] },
+        { tmdbId: 2, vector: [0.98, 0.15, 0, 0] },
+        { tmdbId: 3, vector: [0, 1, 0, 0] },
+        { tmdbId: 4, vector: [0.1, 0.99, 0, 0] },
+        { tmdbId: 5, vector: [0, 0, 1, 0] }
+    ]));
+
+    const weightedRatings = [
+        { movie: { tmdbId: 1, userRating: 10, tmdbGenreIds: [878] }, rating: 10, weight: 2.5 },
+        { movie: { tmdbId: 2, userRating: 9, tmdbGenreIds: [878] }, rating: 9, weight: 1.5 },
+        // Cluster 2: id=4 has higher weight (1.8) but rating=7 (<8★), so id=3 (8★) must win!
+        { movie: { tmdbId: 3, userRating: 8, tmdbGenreIds: [16] }, rating: 8, weight: 1.2 },
+        { movie: { tmdbId: 4, userRating: 7, tmdbGenreIds: [16] }, rating: 7, weight: 1.8 },
+        { movie: { tmdbId: 5, userRating: 9, tmdbGenreIds: [18] }, rating: 9, weight: 0.9 }
+    ];
+
+    const personaAnchors = selectPersonaAnchorIds(weightedRatings, index, 3);
+    assert.equal(personaAnchors.length, 3);
+    assert.deepEqual(personaAnchors.map((a) => a.tmdbId), [1, 3, 5]);
+    assert.ok(personaAnchors.every((a) => Number.isFinite(a.mass) && a.mass > 0));
+    const massSum = personaAnchors.reduce((s, a) => s + a.mass, 0);
+    assert.ok(Math.abs(massSum - 1.0) < 1e-6);
+
+    // Null embeddingIndex fallback: top-3 distinct primary-genre >=9★ films
+    const fallbackRatings = [
+        { movie: { tmdbId: 10, userRating: 10, tmdbGenreIds: [878, 18] }, rating: 10, weight: 2.5 },
+        { movie: { tmdbId: 11, userRating: 10, tmdbGenreIds: [878] }, rating: 10, weight: 2.2 }, // duplicate primary genre 878
+        { movie: { tmdbId: 12, userRating: 9, tmdbGenreIds: [18] }, rating: 9, weight: 1.8 },
+        { movie: { tmdbId: 13, userRating: 8, tmdbGenreIds: [35] }, rating: 8, weight: 2.4 }, // < 9★ excluded in fallback
+        { movie: { tmdbId: 14, userRating: 9, tmdbGenreIds: [16] }, rating: 9, weight: 1.2 },
+        { movie: { tmdbId: 15, userRating: 10, tmdbGenreIds: [80] }, rating: 10, weight: 0.7 }
+    ];
+    const fallbackAnchors = selectPersonaAnchorIds(fallbackRatings, null, 3);
+    assert.deepEqual(fallbackAnchors.map((a) => a.tmdbId), [10, 12, 14]);
+    const fbMassSum = fallbackAnchors.reduce((s, a) => s + a.mass, 0);
+    assert.ok(Math.abs(fbMassSum - 1.0) < 1e-6);
+});
+
+test("fetchCandidatePool uses persona anchors and topCrewIds while respecting <=4 Bucket B pages and <=3 Bucket C calls", async () => {
+    const { fetchCandidatePool } = await import("../src/services/tmdbService.js");
+    const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+
+    const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+        { tmdbId: 1, vector: [1, 0, 0, 0] },
+        { tmdbId: 2, vector: [0, 1, 0, 0] }
+    ]));
+
+    const kwLookups = [];
+    const crewQueries = [];
+    let bucketBDiscoverCalls = 0;
+
+    const mockFetch = async (url) => {
+        const u = new URL(url);
+        const movieMatch = u.pathname.match(/^\/3\/movie\/(\d+)$/);
+        if (movieMatch) {
+            const mid = movieMatch[1];
+            kwLookups.push(mid);
+            return {
+                ok: true,
+                json: async () => ({ keywords: { keywords: [{ id: Number(mid) + 500 }] }, credits: { crew: [] } })
+            };
+        }
+        const sp = u.searchParams;
+        if (sp.has("with_keywords")) {
+            bucketBDiscoverCalls++;
+            const kw = Number(sp.get("with_keywords"));
+            return {
+                ok: true,
+                json: async () => ({
+                    results: [1, 2, 3].map((k) => ({
+                        id: kw * 10 + k,
+                        title: `B-${kw}-${k}`,
+                        overview: `Overview B ${kw} ${k}`,
+                        release_date: "2020-01-01",
+                        genre_ids: [18],
+                        vote_average: 7.9,
+                        vote_count: 900
+                    }))
+                })
+            };
+        }
+        if (sp.has("with_crew")) {
+            const crew = sp.get("with_crew");
+            crewQueries.push(crew);
+            return {
+                ok: true,
+                json: async () => ({
+                    results: [{
+                        id: Number(crew) * 10,
+                        title: `C-${crew}`,
+                        overview: `Overview C ${crew}`,
+                        release_date: "2020-01-01",
+                        genre_ids: [18],
+                        vote_average: 8.0,
+                        vote_count: 600
+                    }]
+                })
+            };
+        }
+        if (sp.has("primary_release_date.gte")) {
+            return { ok: true, json: async () => ({ results: [] }) };
+        }
+        return {
+            ok: true,
+            json: async () => ({
+                results: Array.from({ length: 15 }, (_, i) => ({
+                    id: 7000 + i,
+                    title: `A-${i}`,
+                    overview: `Overview A ${i}`,
+                    release_date: "2020-01-01",
+                    genre_ids: [18],
+                    vote_average: 7.5,
+                    vote_count: 500
+                }))
+            })
+        };
+    };
+
+    const watched = [
+        { id: 1, tmdbId: 1, title: "SciFi Seed", userRating: 10, tmdbGenreIds: [878] },
+        { id: 2, tmdbId: 2, title: "Anim Seed", userRating: 9, tmdbGenreIds: [16] },
+        { id: 3, tmdbId: 3, title: "Other Seed", userRating: 8, tmdbGenreIds: [18] }
+    ];
+    const profile = {
+        lovedGenreIds: [18, 878],
+        hatedKeywordIds: [],
+        topCastIds: [],
+        topCrewMemberId: 101,
+        topCrewIds: [101, 202, 303],
+        anchorTmdbId: 1,
+        weightedRatings: [
+            { movie: watched[0], rating: 10, weight: 2.0 },
+            { movie: watched[1], rating: 9, weight: 1.5 },
+            { movie: watched[2], rating: 8, weight: 0.4 }
+        ]
+    };
+
+    const pool = await fetchCandidatePool(profile, "any", watched, [], {
+        apiKey: "test",
+        fetchFn: mockFetch,
+        embeddingIndex: index,
+        poolSize: 20
+    });
+
+    assert.deepEqual(new Set(kwLookups), new Set(["1", "2"]));
+    assert.ok(bucketBDiscoverCalls <= 4, `Bucket B must stay <= 4 pages, got ${bucketBDiscoverCalls}`);
+    assert.deepEqual(new Set(crewQueries), new Set(["101", "202", "303"]));
+    assert.ok(pool.some((c) => c.sourceBucket?.includes("Bucket B")));
+    assert.ok(pool.some((c) => c.sourceBucket?.includes("Bucket C")));
+});
+
+test("getMovieRecommendations forwards embeddingIndex into fetchCandidatePool for multi-persona Bucket B without breaking null embeddingIndex offline flow", async () => {
+    const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+    const prevTmdbKey = process.env.VITE_TMDB_KEY;
+    const prevFetch = globalThis.fetch;
+    delete process.env.VITE_GEMINI_KEY;
+    process.env.VITE_TMDB_KEY = "TEST_TMDB_KEY";
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+
+    const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+    const index = parseEmbeddingBinary(encodeEmbeddingBinary([
+        { tmdbId: 1, vector: [1, 0, 0, 0] },
+        { tmdbId: 2, vector: [0, 1, 0, 0] }
+    ]));
+
+    const kwLookups = [];
+    globalThis.fetch = async (url) => {
+        const u = new URL(String(url));
+        const movieMatch = u.pathname.match(/^\/3\/movie\/(\d+)$/);
+        if (movieMatch) {
+            const mid = movieMatch[1];
+            kwLookups.push(mid);
+            return {
+                ok: true,
+                json: async () => ({ keywords: { keywords: [{ id: Number(mid) + 700 }] }, credits: { crew: [] } })
+            };
+        }
+        const sp = u.searchParams;
+        if (sp.has("with_keywords")) {
+            const kw = Number(sp.get("with_keywords"));
+            return {
+                ok: true,
+                json: async () => ({
+                    results: [1, 2, 3].map((k) => ({
+                        id: kw * 10 + k,
+                        title: `Persona-${kw}-${k}`,
+                        overview: `Overview ${kw} ${k}`,
+                        release_date: "2020-01-01",
+                        genre_ids: [18],
+                        vote_average: 7.9,
+                        vote_count: 900
+                    }))
+                })
+            };
+        }
+        if (sp.has("primary_release_date.gte")) {
+            return { ok: true, json: async () => ({ results: [] }) };
+        }
+        return {
+            ok: true,
+            json: async () => ({
+                results: Array.from({ length: 12 }, (_, i) => ({
+                    id: 8000 + i,
+                    title: `Core-${i}`,
+                    overview: `Core Overview ${i}`,
+                    release_date: "2020-01-01",
+                    genre_ids: [18],
+                    vote_average: 7.5,
+                    vote_count: 600
+                }))
+            })
+        };
+    };
+
+    try {
+        // Both Persona A and Persona B share primary genre [878]:
+        // - With embeddingIndex forwarded, K-Means splits orthogonal clusters -> ["1", "2"]
+        // - Without embeddingIndex (offline null), distinct-genre fallback selects only ["1"]
+        const watched = [
+            { id: 1, tmdbId: 1, title: "Persona A", userRating: 10, tmdbGenreIds: [878] },
+            { id: 2, tmdbId: 2, title: "Persona B", userRating: 9, tmdbGenreIds: [878] },
+            { id: 3, tmdbId: 3, title: "Other", userRating: 6, tmdbGenreIds: [18] }
+        ];
+        const res = await getMovieRecommendations(watched, [], null, {
+            embeddingIndex: index,
+            injectEmbeddingNeighbors: false,
+            enrichCandidates: false,
+            targetCount: 10
+        });
+        assert.deepEqual(new Set(kwLookups), new Set(["1", "2"]));
+        assert.equal(res.recommendations.length, 10);
+
+        // Offline fallback when embeddingIndex is omitted (resolves to null in Node)
+        kwLookups.length = 0;
+        const offlineRes = await getMovieRecommendations(watched, [], null, {
+            injectEmbeddingNeighbors: false,
+            enrichCandidates: false,
+            targetCount: 10
+        });
+        assert.deepEqual(kwLookups, ["1"]);
+        assert.equal(offlineRes.recommendations.length, 10);
+    } finally {
+        globalThis.fetch = prevFetch;
+        if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+        else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+        if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+        else process.env.VITE_TMDB_KEY = prevTmdbKey;
+        resetSessionWorkingModels();
+        resetModelInfoForTests();
+    }
+});
+
+test("getMovieRecommendations forwards watchlist into buildEaseSimMapFromIndex so watchlist neighbors gain collabSim boost", async () => {
+    const prevGeminiKey = process.env.VITE_GEMINI_KEY;
+    const prevTmdbKey = process.env.VITE_TMDB_KEY;
+    delete process.env.VITE_GEMINI_KEY;
+    delete process.env.VITE_TMDB_KEY;
+    resetSessionWorkingModels();
+    resetModelInfoForTests();
+
+    try {
+        const { encodeEaseBinary, parseEaseBinary } = await import("../src/services/easeService.js");
+        const { encodeEmbeddingBinary, parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+
+        const easeIndex = parseEaseBinary(encodeEaseBinary([
+            { tmdbId: 100, neighbors: [{ index: 2, weight: 0.40 }] },
+            { tmdbId: 200, neighbors: [{ index: 3, weight: 0.50 }] },
+            { tmdbId: 300, neighbors: [{ index: 0, weight: 0.40 }] },
+            { tmdbId: 400, neighbors: [{ index: 1, weight: 0.50 }] },
+            { tmdbId: 500, neighbors: [{ index: 0, weight: 0.01 }] }
+        ], 1));
+        const embeddingIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+            { tmdbId: 100, vector: [1, 0, 0, 0] },
+            { tmdbId: 200, vector: [0, 1, 0, 0] },
+            { tmdbId: 300, vector: [0.9, 0.43, 0, 0] },
+            { tmdbId: 400, vector: [0, 0, 1, 0] },
+            { tmdbId: 500, vector: [0, 0, 1, 0] }
+        ]));
+
+        const makeCand = (id) => ({
+            id,
+            tmdbId: id,
+            title: `Candidate ${id}`,
+            year: "2020",
+            release_date: "2020-05-01",
+            genre: "Comedy",
+            tmdbGenreIds: [35],
+            vote_average: 6.8,
+            vote_count: 800,
+            plot: "Identical metadata candidate.",
+            realData: true
+        });
+        const candidates = [300, 400, 500, 501, 502, 503].map(makeCand);
+        const watched = [{ id: 100, tmdbId: 100, title: "Watched 100", userRating: 10, tmdbGenreIds: [18] }];
+        const watchlist = [{ id: 200, tmdbId: 200, title: "Watchlisted 200" }];
+
+        const resWithoutWl = await getMovieRecommendations(watched, [], null, {
+            candidates,
+            embeddingIndex,
+            easeIndex,
+            contentIndex: null,
+            dnaIndex: null,
+            injectEmbeddingNeighbors: false,
+            injectColdNeighbors: false,
+            enrichCandidates: false,
+            targetCount: 6
+        });
+        const baseline400 = resWithoutWl.recommendations.find((r) => r.tmdbId === 400);
+        assert.equal(baseline400?.features?.collabSim || 0, 0, "Without watchlist, 400 has 0 collabSim");
+
+        const res = await getMovieRecommendations(watched, watchlist, null, {
+            candidates,
+            embeddingIndex,
+            easeIndex,
+            contentIndex: null,
+            dnaIndex: null,
+            injectEmbeddingNeighbors: false,
+            injectColdNeighbors: false,
+            enrichCandidates: false,
+            targetCount: 6
+        });
+
+        const rank400 = res.recommendations.findIndex((r) => r.tmdbId === 400);
+        const rank500 = res.recommendations.findIndex((r) => r.tmdbId === 500);
+        const pick400 = res.recommendations[rank400];
+        const pick500 = res.recommendations[rank500];
+        assert.ok(rank400 !== -1 && rank500 !== -1);
+        assert.ok(
+            (pick400.features?.collabSim || 0) > (pick500.features?.collabSim || 0),
+            "Watchlist neighbor 400 must receive positive EASE signal from watchlisted 200"
+        );
+        assert.ok(rank400 < rank500, "Watchlist neighbor 400 must outrank identical non-neighbor 500");
+    } finally {
+        if (prevGeminiKey === undefined) delete process.env.VITE_GEMINI_KEY;
+        else process.env.VITE_GEMINI_KEY = prevGeminiKey;
+        if (prevTmdbKey === undefined) delete process.env.VITE_TMDB_KEY;
+        else process.env.VITE_TMDB_KEY = prevTmdbKey;
+        resetSessionWorkingModels();
+        resetModelInfoForTests();
+    }
+});
+
+

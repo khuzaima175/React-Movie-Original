@@ -29,7 +29,7 @@ test("buildBucketDParams sets 18-month release floor, top 3 loved genres, hated 
   assert.equal(params.get("with_genres"), "18|80|53");
   assert.equal(params.get("without_keywords"), "901|902");
   assert.equal(params.has("with_cast"), false);
-  assert.equal(params.get("with_watch_providers"), "8|258");
+  assert.equal(params.get("with_watch_providers"), "8|1796|175|258");
   assert.equal(params.get("watch_region"), "GB");
 });
 
@@ -576,3 +576,12 @@ test("computeReserveQualityScore aligns with ranker weights with noveltyBonus ne
   assert.ok(reservedNovelty.some(c => c.tmdbId === 903));
   assert.equal(reservedNovelty.some(c => c.tmdbId === 904), false);
 });
+
+test("buildBucketDParams expands PROVIDER_FAMILY_MAP aliases (e.g. Netflix 8 -> 8|1796|175)", async () => {
+  const { buildBucketDParams } = await import("../src/services/tmdbService.js");
+  const params = buildBucketDParams({ lovedGenreIds: [18] }, { userRegion: "US", userProviders: [8] }, "k");
+  const wp = params.get("with_watch_providers") || "";
+  assert.ok(wp.split("|").includes("1796"), `Expected Netflix Ads alias 1796 in Bucket D params, got ${wp}`);
+  assert.deepEqual(wp.split("|"), ["8", "1796", "175"]);
+});
+

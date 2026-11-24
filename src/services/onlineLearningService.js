@@ -134,7 +134,9 @@ export function derivePersonalizedRankerWeights(
     const isAlreadySeen =
       entry.action === "already_seen" ||
       (entry.action === "dismissed" && /already\s*seen/i.test(String(entry.reason || "")));
-    if (isAlreadySeen) continue;
+    const isPacingDismissal =
+      entry.action === "dismissed" && /too\s*slow|pacing/i.test(String(entry.reason || ""));
+    if (isAlreadySeen || isPacingDismissal) continue;
 
     const rating = resolveEntryRating(entry, watchedIndex);
     const isPositive =

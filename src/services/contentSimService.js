@@ -1,9 +1,7 @@
 import {
   createSessionBinaryIndexLoader,
   getRelativeWeightCutoff,
-  l2NormalizeInPlace,
-  computeUserEmbedding,
-  blendEmbeddings
+  l2NormalizeInPlace
 } from "./embeddingService.js";
 import { GENERIC_META_KEYWORD_IDS } from "./tmdbService.js";
 
@@ -123,7 +121,7 @@ export function computeOverviewBigramSim(userOverviewEntries = [], candidateOver
   return cosineSparseTf(userVec, candidateOverview);
 }
 
-function buildUserContentVector(weightedRatings, contentIndex, weightCutoff) {
+function buildUserContentVector(weightedRatings, contentIndex, weightCutoff, minPositiveRating = 7) {
   const { dim, vectors, idToIndex } = contentIndex;
   const accum = new Float32Array(dim);
   let matchedPositiveCount = 0;
@@ -132,6 +130,8 @@ function buildUserContentVector(weightedRatings, contentIndex, weightCutoff) {
   for (const entry of weightedRatings) {
     const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
     if (!Number.isFinite(weight) || weight <= weightCutoff) continue;
+    const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+    if (Number.isFinite(rating) && rating > 0 && rating < minPositiveRating) continue;
     totalPositiveCount++;
 
     const tmdbId = Number(entry?.movie?.tmdbId ?? entry?.tmdbId ?? entry?.movie?.id ?? 0);
@@ -155,8 +155,8 @@ function buildUserContentVector(weightedRatings, contentIndex, weightCutoff) {
 }
 
 /**
- * Builds Map<tmdbId, contentSim> from dense content embeddings (with optional aligned
- * collaborative-content blending) and opt-in overview bigram TF-IDF fallback.
+ * Builds Map<tmdbId, contentSim> from dense content embeddings and opt-in
+ * overview bigram / structured metadata fallback.
  */
 export function buildContentSimMap(
   weightedRatings = [],
@@ -171,38 +171,13 @@ export function buildContentSimMap(
 
   const weightCutoff = getRelativeWeightCutoff(weightedRatings);
   if (weightCutoff === null) return map;
+  const minPositiveRating = options.minPositiveRating ?? 7;
 
   if (contentIndex && contentIndex.count && contentIndex.dim) {
-    const userContent = buildUserContentVector(weightedRatings, contentIndex, weightCutoff);
+    const userContent = buildUserContentVector(weightedRatings, contentIndex, weightCutoff, minPositiveRating);
     if (userContent) {
-      let queryVec = userContent.vector;
+      const queryVec = userContent.vector;
       const { count, dim, ids, vectors } = contentIndex;
-
-      if (options.blendAligned !== false) {
-        const precomputedCollabVec =
-          options.collabUserVec && options.collabUserVec.length === dim
-            ? options.collabUserVec
-            : null;
-        const collabVec =
-          precomputedCollabVec ||
-          (options.collabIndex && options.collabIndex.dim === dim
-            ? computeUserEmbedding(weightedRatings, options.collabIndex)
-            : null);
-        if (collabVec) {
-          let alignDot = 0;
-          for (let d = 0; d < dim; d++) {
-            alignDot += collabVec[d] * queryVec[d];
-          }
-          if (options.blendAligned === true || alignDot > 0.15) {
-            queryVec = blendEmbeddings(
-              collabVec,
-              queryVec,
-              userContent.totalPositiveCount,
-              options.blendPivot ?? 8
-            );
-          }
-        }
-      }
 
       const enforceColdOnlyOnIndex = options.coldOnly === true;
       const collabSimMapForIndex = options.collabSimMap instanceof Map ? options.collabSimMap : null;
@@ -233,6 +208,8 @@ export function buildContentSimMap(
     for (const entry of weightedRatings) {
       const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
       if (!Number.isFinite(weight) || weight <= weightCutoff) continue;
+      const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? entry?.movie?.UserRating ?? NaN);
+      if (Number.isFinite(rating) && rating > 0 && rating < minPositiveRating) continue;
       const text = entry?.movie?.overview || entry?.movie?.plot || entry?.overview || entry?.plot || "";
       if (text) userOverviewEntries.push({ text, weight });
     }
@@ -261,23 +238,97 @@ export function buildContentSimMap(
     const negScale = options.negScale ?? 0.35;
     const includeNegative = options.includeNegative !== false;
 
-    const { dfMap, docCount } = computeCorpusTermDf(candidates);
-    const userVec = buildUserStructuredVector(weightedRatings, dfMap, docCount, {
-      negScale,
-      includeNegative
+    const needsFallback = candidates.some((cand) => {
+      const id = Number(cand?.tmdbId ?? cand?.id ?? 0);
+      if (!id || map.has(id)) return false;
+      return !(coldOnly && hasCollaborativeCoverage(id, collabSimMap, collabIndex));
     });
-    if (userVec) {
-      for (const cand of candidates) {
-        const id = Number(cand?.tmdbId ?? cand?.id ?? 0);
-        if (!id || map.has(id)) continue;
-        if (coldOnly && hasCollaborativeCoverage(id, collabSimMap, collabIndex)) continue;
-        const sim = scoreStructuredCandidate(userVec, cand, dfMap, docCount);
-        if (sim > 0) map.set(id, sim);
+
+    if (needsFallback) {
+      const { dfMap, docCount } = computeCorpusTermDf(candidates);
+      const userVec = buildUserStructuredVector(weightedRatings, dfMap, docCount, {
+        negScale,
+        includeNegative,
+        minPositiveRating
+      });
+      if (userVec) {
+        for (const cand of candidates) {
+          const id = Number(cand?.tmdbId ?? cand?.id ?? 0);
+          if (!id || map.has(id)) continue;
+          if (coldOnly && hasCollaborativeCoverage(id, collabSimMap, collabIndex)) continue;
+          const sim = scoreStructuredCandidate(userVec, cand, dfMap, docCount);
+          if (sim > 0) map.set(id, sim);
+        }
       }
     }
   }
 
   return map;
+}
+
+/**
+ * Retrieves top-K unindexed cold films (Bucket E-Cold) by semantic content similarity,
+ * strictly skipping any film present in `options.collabIndex.idToIndex`,
+ * `options.collabIdSet`, `collabSimMap`, or `excludeIds` (watched, watchlist, or already pooled).
+ */
+export function retrieveColdContentNeighbors(
+  weightedRatings = [],
+  contentIndex = null,
+  excludeIds = new Set(),
+  options = {}
+) {
+  if (!contentIndex || !contentIndex.count || !contentIndex.dim || !Array.isArray(weightedRatings) || weightedRatings.length === 0) {
+    return [];
+  }
+
+  const collabIndex = options.collabIndex || null;
+  const collabIdSet = typeof options.collabIdSet?.has === "function"
+    ? options.collabIdSet
+    : (options.collabIdSet && typeof options.collabIdSet[Symbol.iterator] === "function"
+        ? new Set(options.collabIdSet)
+        : null);
+  const collabSimMap = options.collabSimMap instanceof Map ? options.collabSimMap : null;
+  const repulsionMap = options.repulsionMap instanceof Map ? options.repulsionMap : null;
+  const repulsionWeight = Number.isFinite(Number(options.repulsionWeight))
+    ? Number(options.repulsionWeight)
+    : (1.5 / 6.4);
+  const topK = Math.max(1, Number(options.topK ?? 15));
+
+  const excluded = new Set(
+    [...(excludeIds || [])]
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+  );
+
+  const simMap = buildContentSimMap(weightedRatings, contentIndex, [], {
+    ...options,
+    collabIndex,
+    collabSimMap,
+    coldOnly: false,
+    enableOverviewTfIdf: false,
+    enableStructuredFallback: false
+  });
+  if (!simMap || simMap.size === 0) return [];
+
+  const results = [];
+  for (const [rawId, rawSim] of simMap.entries()) {
+    const tmdbId = Number(rawId);
+    if (!tmdbId || excluded.has(tmdbId)) continue;
+    if (
+      collabIndex?.idToIndex?.has(tmdbId) ||
+      collabIdSet?.has(tmdbId) ||
+      collabSimMap?.has(tmdbId) ||
+      hasCollaborativeCoverage(tmdbId, collabSimMap, collabIndex)
+    ) continue;
+    const contentSim = Number(rawSim);
+    if (!Number.isFinite(contentSim) || contentSim <= 0) continue;
+    const repulsion = repulsionMap?.get(tmdbId) ?? 0;
+    const alignedScore = contentSim - repulsionWeight * repulsion;
+    results.push({ tmdbId, contentSim, alignedScore });
+  }
+
+  results.sort((a, b) => (b.alignedScore !== a.alignedScore ? b.alignedScore - a.alignedScore : b.contentSim - a.contentSim));
+  return results.slice(0, topK);
 }
 
 function hasCollaborativeCoverage(id, collabSimMap, collabIndex) {
@@ -368,7 +419,7 @@ function buildNormalizedMovieStructuredVec(movie, dfMap, docCount) {
 }
 
 function buildUserStructuredVector(weightedRatings, dfMap, docCount, options = {}) {
-  const { negScale = 0.35, includeNegative = true } = options;
+  const { negScale = 0.35, includeNegative = true, minPositiveRating = 7 } = options;
   const userVec = new Map();
   let hasPos = false;
 
@@ -376,6 +427,7 @@ function buildUserStructuredVector(weightedRatings, dfMap, docCount, options = {
     const weight = Number(entry?.weight ?? entry?.finalWeight ?? 0);
     const rating = Number(entry?.rating ?? entry?.movie?.userRating ?? 0);
     if (!Number.isFinite(weight) || weight === 0) continue;
+    if (weight > 0 && rating > 0 && rating < minPositiveRating) continue;
     if (weight < 0 && (!includeNegative || rating >= 7)) continue;
 
     const mult = weight > 0 ? weight : weight * negScale;

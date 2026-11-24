@@ -44,6 +44,7 @@ self.onmessage = async (event) => {
         ok: true,
         result: {
           hasIndex: false,
+          collabIds: null,
           collabEntries: [],
           repulsionEntries: [],
           collabCatalogMax: null,
@@ -55,13 +56,20 @@ self.onmessage = async (event) => {
     }
 
     const weightedRatings = Array.isArray(payload?.weightedRatings) ? payload.weightedRatings : [];
+    const watchlistItems = Array.isArray(payload?.watchlistItems) ? payload.watchlistItems : [];
+    const watchlistWeight = payload?.watchlistWeight;
     const excludeSet = new Set(Array.isArray(payload?.excludeNumericIds) ? payload.excludeNumericIds : []);
     const topK = Number.isFinite(Number(payload?.topK)) ? Number(payload.topK) : 240;
     const rawRepulsionWeight = Number(payload?.repulsionWeight);
     const repulsionWeight = Number.isFinite(rawRepulsionWeight) ? rawRepulsionWeight : 0.25;
 
     const baseCollabSimMap = buildCollabSimMapFromIndex(weightedRatings, embeddingIndex);
-    const easeSimMap = easeIndex ? buildEaseSimMapFromIndex(weightedRatings, easeIndex) : null;
+    const easeSimMap = easeIndex
+      ? buildEaseSimMapFromIndex(weightedRatings, easeIndex, {
+          watchlistItems,
+          ...(watchlistWeight !== undefined ? { watchlistWeight } : {})
+        })
+      : null;
     const collabSimMap = blendEaseAndCollabSimMaps(easeSimMap, baseCollabSimMap, easeIndex);
     const repulsionMap = buildRepulsionMapFromIndex(weightedRatings, embeddingIndex);
     const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
@@ -84,6 +92,7 @@ self.onmessage = async (event) => {
       ok: true,
       result: {
         hasIndex: true,
+        collabIds: embeddingIndex.ids || null,
         collabEntries: collabSimMap ? [...collabSimMap.entries()] : [],
         repulsionEntries: repulsionMap ? [...repulsionMap.entries()] : [],
         collabCatalogMax,

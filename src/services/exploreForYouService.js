@@ -14,7 +14,8 @@ import { derivePersonalizedRankerWeights } from "./onlineLearningService.js";
 import { computeExploreEmbeddingSignals } from "./embeddingWorkerClient.js";
 import {
   loadDefaultContentIndex,
-  buildContentSimMap
+  buildContentSimMap,
+  retrieveColdContentNeighbors
 } from "./contentSimService.js";
 import {
   loadDefaultDnaIndex,
@@ -249,7 +250,8 @@ export function buildExploreForYouProfileHash({
 
 /**
  * Builds a compact, emoji-free single-shot prompt (<= 28k chars) asking Flash-Lite
- * to score and tag up to EXPLORE_FOR_YOU_AI_BATCH_LIMIT top verified TMDB candidates.
+ * to tag and explain up to EXPLORE_FOR_YOU_AI_BATCH_LIMIT top verified TMDB candidates
+ * while preserving calibrated local ranker scores.
  */
 export function buildExploreForYouBatchPrompt(
   profile = {},
@@ -277,8 +279,8 @@ export function buildExploreForYouBatchPrompt(
 
   const genres = Array.isArray(profile?.lovedGenreNames) ? profile.lovedGenreNames.slice(0, 5).join(", ") : "";
   const header = [
-    "You are CinemaVault's catalog curator. Score and tag the verified unseen TMDB candidates below for this viewer's personal Explore feed.",
-    `Return ONLY valid JSON: {"picks":[{"id":<tmdbId>,"s":<int 55..99>,"tag":"<2-3 word vibe>","r":"<short 8-14 word reason>"}]} for up to ${Math.min(aiCap, candidates.length)} distinct candidates from the list below.`,
+    "You are CinemaVault's catalog curator. Tag and write concise personal reasons for the verified unseen TMDB candidates below for this viewer's personal Explore feed.",
+    `Return ONLY valid JSON: {"picks":[{"id":<tmdbId>,"tag":"<2-3 word vibe>","r":"<short 8-14 word reason>"}]} for up to ${Math.min(aiCap, candidates.length)} distinct candidates from the list below.`,
     "STRICT RULES: Only use exact numeric ids from CANDIDATES. Never invent ids or films. No emojis. Respect Avoid rules and low-rated misses.",
     genres ? `TOP GENRES: ${genres}` : "",
     topLoved.length > 0 ? `FAVORITE ANCHORS: ${topLoved.join("; ")}` : "",
@@ -315,11 +317,13 @@ export function mergeExploreForYouResponse(
   { targetCount = EXPLORE_FOR_YOU_TARGET_COUNT } = {}
 ) {
   const byId = new Map();
+  const rankIdxById = new Map();
   const orderedCandidates = [];
   for (const raw of Array.isArray(candidates) ? candidates : []) {
     const normalized = normalizeCandidateForExplore(raw);
     if (!normalized.tmdbId || byId.has(normalized.tmdbId)) continue;
     byId.set(normalized.tmdbId, normalized);
+    rankIdxById.set(normalized.tmdbId, orderedCandidates.length);
     orderedCandidates.push(normalized);
   }
 
@@ -330,16 +334,14 @@ export function mergeExploreForYouResponse(
     const id = Number(pick?.id ?? pick?.tmdbId);
     if (!Number.isFinite(id) || seen.has(id) || !byId.has(id)) continue;
     const base = byId.get(id);
-    const rawS = Number(pick?.s ?? pick?.score ?? base.forYouScore);
-    const score = Number.isFinite(rawS) ? Math.max(50, Math.min(99, Math.round(rawS))) : base.forYouScore;
     const vibeTag = sanitizeLine(pick?.tag || pick?.vibeTag || "", 32) || base.vibeTag;
-    const reason = sanitizeLine(pick?.r || pick?.reason || "", 120);
+    const reason = sanitizeLine(pick?.r || pick?.reason || "", 120) || base.forYouReason;
 
     seen.add(id);
     out.push({
       ...base,
-      forYouScore: score,
-      matchScore: score,
+      forYouScore: base.forYouScore,
+      matchScore: base.matchScore,
       vibeTag,
       forYouReason: reason
     });
@@ -354,7 +356,11 @@ export function mergeExploreForYouResponse(
     out.push(cand);
   }
 
-  out.sort((a, b) => (b.forYouScore ?? 0) - (a.forYouScore ?? 0));
+  out.sort(
+    (a, b) =>
+      (b.forYouScore ?? 0) - (a.forYouScore ?? 0) ||
+      (rankIdxById.get(a.tmdbId) ?? 0) - (rankIdxById.get(b.tmdbId) ?? 0)
+  );
   return out.slice(0, targetCount);
 }
 
@@ -536,6 +542,7 @@ export async function generateExploreForYouPool({
   fetchCandidatePoolFn = fetchCandidatePool,
   fetchEmbeddingFn = fetchEmbeddingCandidates,
   enrichPoolFn = enrichCandidatePoolMetadata,
+  createWorkerFn = null,
   onPreliminaryReady = null,
   onStageUpdate = null,
   signal = null,
@@ -605,12 +612,15 @@ export async function generateExploreForYouPool({
 
   const embSignals = await computeExploreEmbeddingSignals({
     weightedRatings: profile.weightedRatings,
+    watchlistItems: watchlist,
     excludeNumericIds: [...numericExcludeSet],
     topK: 240,
     repulsionWeight,
-    embeddingIndex: injectedEmbeddingIndex
+    embeddingIndex: injectedEmbeddingIndex,
+    ...(typeof createWorkerFn === "function" ? { createWorkerFn } : {})
   }).catch(() => ({
     embeddingIndex: null,
+    collabIdSet: null,
     collabSimMap: null,
     repulsionMap: null,
     collabCatalogMax: null,
@@ -622,6 +632,7 @@ export async function generateExploreForYouPool({
   }
 
   const embeddingIndex = embSignals.embeddingIndex ?? (injectedEmbeddingIndex !== undefined ? injectedEmbeddingIndex : null);
+  const collabIdSet = embSignals.collabIdSet || null;
   const collabSimMap = embSignals.collabSimMap || null;
   const repulsionMap = embSignals.repulsionMap || null;
   const collabCatalogMax = embSignals.collabCatalogMax ?? null;
@@ -748,12 +759,31 @@ export async function generateExploreForYouPool({
       return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    // WAVE 2 (background): Expand to full ~250 films via TMDB page 2 + remaining 180 CVEM neighbors
+    // WAVE 2 (background): Expand to full ~250 films via TMDB page 2 + remaining 180 CVEM neighbors + Bucket E-Cold
     const wave2Aligned = aligned.slice(60, 240);
     const wave1SeenIds = wave1Raw
       .map((c) => c?.tmdbId ?? c?.id)
       .filter((id) => id !== undefined && id !== null);
-    const [wave2Base, wave2Emb] = await Promise.all([
+    const wave1SeenNumeric = wave1Raw
+      .map((c) => Number(c?.tmdbId ?? c?.id ?? 0))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const coldExcludeSet = new Set([
+      ...numericExcludeSet,
+      ...wave1SeenNumeric,
+      ...wave2Aligned.map((n) => Number(n?.tmdbId ?? 0)).filter((id) => Number.isFinite(id) && id > 0)
+    ]);
+    const wave2ColdNeighbors = contentIndex
+      ? retrieveColdContentNeighbors(profile.weightedRatings, contentIndex, coldExcludeSet, {
+          collabIndex: embeddingIndex,
+          collabIdSet,
+          collabSimMap,
+          repulsionMap,
+          repulsionWeight,
+          topK: 15
+        })
+      : [];
+
+    const [wave2Base, wave2Emb, wave2Cold] = await Promise.all([
       fetchCandidatePoolFn(profile, "any", watched, watchlist, {
         poolSize: 160,
         page: 2,
@@ -769,6 +799,19 @@ export async function generateExploreForYouPool({
             userProviders: userWatchProviders,
             maxNeighbors: 120,
             maxScan: 180,
+            tasteRules,
+            signal
+          }).catch(() => [])
+        : Promise.resolve([]),
+      wave2ColdNeighbors.length > 0
+        ? fetchEmbeddingFn(wave2ColdNeighbors, watched, watchlist, wave1Raw, {
+            userRegion: resolvedRegion,
+            userProviders: userWatchProviders,
+            mood: "any",
+            tasteRules,
+            maxNeighbors: 12,
+            maxScan: 15,
+            sourceBucket: "Bucket E-Cold (Semantic)",
             signal
           }).catch(() => [])
         : Promise.resolve([])
@@ -778,7 +821,7 @@ export async function generateExploreForYouPool({
       return { items: wave1Items, profileHash, source: "local-ranker", modelUsed: null, generatedAt: now, aborted: true };
     }
 
-    const mergedWave2Raw = dedupeAndFilterRaw([...wave1Raw, ...wave2Emb, ...wave2Base]);
+    const mergedWave2Raw = dedupeAndFilterRaw([...wave1Raw, ...wave2Emb, ...wave2Cold, ...wave2Base]);
     // Pre-rank so deep metadata enrichment runs ONLY on the top EXPLORE_FOR_YOU_ENRICH_LIMIT (120) films
     const preRankedRaw = rankCandidatePool(
       mergedWave2Raw,
@@ -874,11 +917,10 @@ export async function generateExploreForYouPool({
             type: Type.OBJECT,
             properties: {
               id: { type: Type.INTEGER },
-              s: { type: Type.INTEGER },
               tag: { type: Type.STRING },
               r: { type: Type.STRING }
             },
-            required: ["id", "s", "tag", "r"]
+            required: ["id", "tag", "r"]
           }
         }
       },

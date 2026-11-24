@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildBucketAParams, fetchCandidatePool } from "../src/services/tmdbService.js";
+import { buildBucketAParams, fetchCandidatePool, fetchEmbeddingCandidates } from "../src/services/tmdbService.js";
+import { parseEmbeddingBinary, encodeEmbeddingBinary } from "../src/services/embeddingService.js";
+import { getMovieRecommendations } from "../src/services/geminiService.js";
 import {
   DEFAULT_RANKER_WEIGHTS,
   rankCandidatePool,
@@ -516,4 +518,88 @@ test("rankCandidatePool excludes avoidRules matches from explicit mood gatePasse
   assert.equal(diag?.gatePassedCount, 1);
   assert.equal(diag?.gateRejectedCount, 1);
   assert.deepEqual(diag?.moodShortfall, { requested: 2, available: 1 });
+});
+
+test("Bucket E-Cold retrieval excludes warm collabIndex films, cold off-mood horror, and avoidRules hits in comfort-watch", async () => {
+  const coldNeighbors = [
+    { tmdbId: 301, contentSim: 0.96, alignedScore: 0.96 }, // 2025 Horror -> rejected by comfort-watch gate
+    { tmdbId: 302, contentSim: 0.94, alignedScore: 0.94 }, // 2025 Comedy with slapstick -> rejected by avoidRule
+    { tmdbId: 303, contentSim: 0.92, alignedScore: 0.92 }  // 2025 Cozy Family Comedy -> accepted!
+  ];
+  const detailsById = new Map([
+    [200, { tmdbId: 200, title: "Warm Indexed Comedy", year: "2019", release_date: "2019-06-01", genre: "Comedy, Family", tmdbGenreIds: [35, 10751], vote_average: 8.1, vote_count: 1500, plot: "Warm family story." }],
+    [301, { tmdbId: 301, title: "Cold 2025 Horror", year: "2025", release_date: "2025-02-14", genre: "Horror, Thriller", tmdbGenreIds: [27, 53], vote_average: 7.9, vote_count: 900, plot: "Terrifying slasher nightmare." }],
+    [302, { tmdbId: 302, title: "Cold 2025 Slapstick", year: "2025", release_date: "2025-03-01", genre: "Comedy", tmdbGenreIds: [35], vote_average: 7.8, vote_count: 700, plot: "Wild slapstick office mayhem." }],
+    [303, { tmdbId: 303, title: "Cold 2025 Cozy Pick", year: "2025", release_date: "2025-04-01", genre: "Comedy, Family", tmdbGenreIds: [35, 10751], vote_average: 7.8, vote_count: 850, plot: "Heartwarming neighborhood bakery friendship." }]
+  ]);
+  const tasteRules = [{ id: "a_slap", text: "Avoid slapstick", polarity: "avoid", active: true }];
+
+  // 1. Direct fetchEmbeddingCandidates check with sourceBucket + mood + tasteRules
+  const directInjected = await fetchEmbeddingCandidates(coldNeighbors, [], [], [], {
+    mood: "comfort-watch",
+    tasteRules,
+    maxNeighbors: 6,
+    sourceBucket: "Bucket E-Cold (Semantic)",
+    detailFetcher: async (id) => detailsById.get(id) || null
+  });
+  assert.deepEqual(directInjected.map((c) => c.tmdbId), [303]);
+  assert.equal(directInjected[0].sourceBucket, "Bucket E-Cold (Semantic)");
+  assert.equal(directInjected[0].collabSim, 0);
+
+  // 2. End-to-end getMovieRecommendations Bucket E-Cold wiring
+  const embeddingIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] }
+  ]));
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] },
+    { tmdbId: 301, vector: [0.97, 0.24, 0, 0] },
+    { tmdbId: 302, vector: [0.95, 0.31, 0, 0] },
+    { tmdbId: 303, vector: [0.93, 0.37, 0, 0] }
+  ]));
+  const baseCandidates = Array.from({ length: 12 }, (_, i) => ({
+    id: 500 + i,
+    tmdbId: 500 + i,
+    title: `Warm Comfort ${i}`,
+    year: "2018",
+    release_date: "2018-05-01",
+    genre: "Comedy, Family",
+    tmdbGenreIds: [35, 10751],
+    genre_ids: [35, 10751],
+    vote_average: 7.4,
+    vote_count: 600,
+    overview: "Warm gentle comedy."
+  }));
+
+  const fetchedIds = [];
+  let diag = null;
+  const res = await getMovieRecommendations(
+    [{ id: 1, tmdbId: 1, title: "Comfort Seed", userRating: 10, tmdbGenreIds: [35, 10751] }],
+    [],
+    null,
+    {
+      mood: "comfort-watch",
+      tasteRules,
+      candidates: baseCandidates,
+      embeddingIndex,
+      contentIndex,
+      injectEmbeddingNeighbors: true,
+      enrichCandidates: false,
+      aiClient: null,
+      targetCount: 10,
+      detailFetcher: async (id) => {
+        fetchedIds.push(id);
+        return detailsById.get(id) || null;
+      },
+      onDiagnostics: (d) => { diag = d; }
+    }
+  );
+
+  const coldBucketPool = (diag?.mergedCandidates || []).filter((c) => c.sourceBucket === "Bucket E-Cold (Semantic)");
+  assert.deepEqual(coldBucketPool.map((c) => c.tmdbId), [303], "Only cold cozy 303 should enter Bucket E-Cold");
+  assert.equal(coldBucketPool.some((c) => c.tmdbId === 200), false, "Warm collabIndex film 200 must never enter Bucket E-Cold");
+  assert.equal(res.recommendations.some((r) => r.tmdbId === 301), false, "Cold 2025 Horror must never leak into comfort-watch");
+  assert.equal(res.recommendations.some((r) => r.tmdbId === 302), false, "Cold avoid-rule match must never leak into recommendations");
+  assert.ok(fetchedIds.includes(303));
 });
