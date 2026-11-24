@@ -268,8 +268,8 @@ export function buildContentSimMap(
 
 /**
  * Retrieves top-K unindexed cold films (Bucket E-Cold) by semantic content similarity,
- * strictly skipping any film present in `options.collabIndex.idToIndex`, `collabSimMap`
- * collaborative coverage, or `excludeIds` (watched, watchlist, or already pooled).
+ * strictly skipping any film present in `options.collabIndex.idToIndex`,
+ * `options.collabIdSet`, `collabSimMap`, or `excludeIds` (watched, watchlist, or already pooled).
  */
 export function retrieveColdContentNeighbors(
   weightedRatings = [],
@@ -282,6 +282,11 @@ export function retrieveColdContentNeighbors(
   }
 
   const collabIndex = options.collabIndex || null;
+  const collabIdSet = typeof options.collabIdSet?.has === "function"
+    ? options.collabIdSet
+    : (options.collabIdSet && typeof options.collabIdSet[Symbol.iterator] === "function"
+        ? new Set(options.collabIdSet)
+        : null);
   const collabSimMap = options.collabSimMap instanceof Map ? options.collabSimMap : null;
   const repulsionMap = options.repulsionMap instanceof Map ? options.repulsionMap : null;
   const repulsionWeight = Number.isFinite(Number(options.repulsionWeight))
@@ -309,7 +314,12 @@ export function retrieveColdContentNeighbors(
   for (const [rawId, rawSim] of simMap.entries()) {
     const tmdbId = Number(rawId);
     if (!tmdbId || excluded.has(tmdbId)) continue;
-    if (collabIndex?.idToIndex?.has(tmdbId) || hasCollaborativeCoverage(tmdbId, collabSimMap, collabIndex)) continue;
+    if (
+      collabIndex?.idToIndex?.has(tmdbId) ||
+      collabIdSet?.has(tmdbId) ||
+      collabSimMap?.has(tmdbId) ||
+      hasCollaborativeCoverage(tmdbId, collabSimMap, collabIndex)
+    ) continue;
     const contentSim = Number(rawSim);
     if (!Number.isFinite(contentSim) || contentSim <= 0) continue;
     const repulsion = repulsionMap?.get(tmdbId) ?? 0;

@@ -98,3 +98,63 @@ test("computeExploreEmbeddingSignals recovers transparently when a Worker errors
   assert.equal(second.usedWorker, false);
   assert.equal(workerCreateCount, 1);
 });
+
+test("computeExploreEmbeddingSignals returns collabIdSet in both main-thread and Web Worker modes", async () => {
+  resetEmbeddingWorkerClientForTest();
+  const tinyIndex = makeTinyEmbeddingIndex();
+  const weightedRatings = [
+    { movie: { tmdbId: 10, userRating: 10 }, weight: 1.5, zScore: 1.8 }
+  ];
+
+  // Main-thread fallback preserves full indexed IDs in collabIdSet
+  const mainRes = await computeExploreEmbeddingSignals({
+    weightedRatings,
+    excludeNumericIds: [10],
+    topK: 3,
+    loadIndexFn: async () => tinyIndex
+  });
+  assert.equal(mainRes.usedWorker, false);
+  assert.ok(mainRes.collabIdSet instanceof Set);
+  assert.deepEqual([...mainRes.collabIdSet].sort((a, b) => a - b), [10, 20, 30, 40]);
+
+  // Worker path exposes collabIdSet from worker payload even when embeddingIndex is null and collabEntries omits/zeroes warm IDs
+  resetEmbeddingWorkerClientForTest();
+  const workerRes = await computeExploreEmbeddingSignals({
+    weightedRatings,
+    excludeNumericIds: [10],
+    topK: 3,
+    createWorkerFn: () => ({
+      onmessage: null,
+      onerror: null,
+      postMessage(msg) {
+        setTimeout(() => {
+          this.onmessage?.({
+            data: {
+              id: msg.id,
+              ok: true,
+              result: {
+                hasIndex: true,
+                collabIds: new Uint32Array([10, 20, 30, 40]),
+                collabEntries: [[20, 0.9], [40, 0.0005]],
+                repulsionEntries: [],
+                collabCatalogMax: 0.9,
+                collabUserVec: [1, 0, 0, 0],
+                alignedNeighbors: [{ tmdbId: 20, collabSim: 0.9, alignedScore: 0.9 }]
+              }
+            }
+          });
+        }, 0);
+      },
+      terminate() {}
+    })
+  });
+
+  try {
+    assert.equal(workerRes.usedWorker, true);
+    assert.equal(workerRes.embeddingIndex, null);
+    assert.ok(workerRes.collabIdSet instanceof Set);
+    assert.deepEqual([...workerRes.collabIdSet].sort((a, b) => a - b), [10, 20, 30, 40]);
+  } finally {
+    resetEmbeddingWorkerClientForTest();
+  }
+});

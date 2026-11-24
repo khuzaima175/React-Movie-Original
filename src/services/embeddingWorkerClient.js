@@ -86,6 +86,23 @@ function getOrCreateWorker(createWorkerFn) {
   }
 }
 
+function buildCollabIdSet(rawIds, collabSimMap = null) {
+  const set = new Set();
+  if (rawIds && typeof rawIds[Symbol.iterator] === "function") {
+    for (const rawId of rawIds) {
+      const id = Number(rawId);
+      if (Number.isFinite(id) && id > 0) set.add(id);
+    }
+  }
+  if (collabSimMap instanceof Map) {
+    for (const rawId of collabSimMap.keys()) {
+      const id = Number(rawId);
+      if (Number.isFinite(id) && id > 0) set.add(id);
+    }
+  }
+  return set.size > 0 ? set : null;
+}
+
 async function computeOnMainThread({
   weightedRatings = [],
   excludeNumericIds = [],
@@ -108,6 +125,7 @@ async function computeOnMainThread({
   if (!index) {
     return {
       embeddingIndex: null,
+      collabIdSet: null,
       collabSimMap: null,
       repulsionMap: null,
       collabCatalogMax: null,
@@ -139,6 +157,7 @@ async function computeOnMainThread({
 
   return {
     embeddingIndex: index,
+    collabIdSet: buildCollabIdSet(index.idToIndex ? index.idToIndex.keys() : index.ids, collabSimMap),
     collabSimMap,
     repulsionMap,
     collabCatalogMax,
@@ -220,6 +239,7 @@ export async function computeExploreEmbeddingSignals({
     if (!rawResult?.hasIndex) {
       return {
         embeddingIndex: null,
+        collabIdSet: null,
         collabSimMap: null,
         repulsionMap: null,
         collabCatalogMax: null,
@@ -229,9 +249,11 @@ export async function computeExploreEmbeddingSignals({
       };
     }
 
+    const collabSimMap = new Map(rawResult.collabEntries || []);
     return {
       embeddingIndex: null,
-      collabSimMap: new Map(rawResult.collabEntries || []),
+      collabIdSet: buildCollabIdSet(rawResult.collabIds, collabSimMap),
+      collabSimMap,
       repulsionMap: new Map(rawResult.repulsionEntries || []),
       collabCatalogMax: rawResult.collabCatalogMax ?? null,
       collabUserVec: Array.isArray(rawResult.collabUserVec)

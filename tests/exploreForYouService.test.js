@@ -507,3 +507,100 @@ test("generateExploreForYouPool Wave 2 injects Bucket E-Cold semantic neighbors 
   assert.equal(coldCall.opts.maxNeighbors, 12);
   assert.ok(res.items.some((m) => m.tmdbId === 303), "Cold neighbor 303 must appear in final Explore For You items");
 });
+
+test("generateExploreForYouPool Wave 2 excludes warm indexed films in Web Worker mode (embeddingIndex === null, near-zero or empty collabSim)", async () => {
+  const { resetEmbeddingWorkerClientForTest } = await import("../src/services/embeddingWorkerClient.js");
+  resetEmbeddingWorkerClientForTest();
+
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 1, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] }, // warm indexed in worker, missing from sparse collabEntries
+    { tmdbId: 202, vector: [0.98, 0.19, 0, 0] }, // warm indexed in worker, blended collabSim: 0.0005
+    { tmdbId: 303, vector: [0.96, 0.28, 0, 0] }  // true cold 2025 hit
+  ]));
+  const watched = [
+    { tmdbId: 1, title: "Seed 1", year: "2020", userRating: 10, tmdbGenreIds: [878] },
+    { tmdbId: 2, title: "Seed 2", year: "2021", userRating: 9, tmdbGenreIds: [878] },
+    { tmdbId: 3, title: "Seed 3", year: "2022", userRating: 8, tmdbGenreIds: [878] }
+  ];
+
+  const fetchEmbCalls = [];
+  const createWorkerFn = () => ({
+    onmessage: null,
+    onerror: null,
+    postMessage(msg) {
+      setTimeout(() => {
+        this.onmessage?.({
+          data: {
+            id: msg.id,
+            ok: true,
+            result: {
+              hasIndex: true,
+              collabIds: new Uint32Array([1, 200, 202]),
+              collabEntries: [[202, 0.0005]],
+              repulsionEntries: [],
+              collabCatalogMax: 0.5,
+              collabUserVec: [1, 0, 0, 0],
+              alignedNeighbors: []
+            }
+          }
+        });
+      }, 0);
+    },
+    terminate() {}
+  });
+
+  try {
+    await generateExploreForYouPool({
+      watched,
+      watchlist: [],
+      contentIndex,
+      createWorkerFn,
+      aiClient: null,
+      targetCount: 15,
+      fetchCandidatePoolFn: async (_profile, _mood, _w, _wl, opts) => {
+        const start = opts?.page === 2 ? 600 : 500;
+        return Array.from({ length: 8 }, (_, i) => ({
+          id: start + i,
+          tmdbId: start + i,
+          title: `Base ${start + i}`,
+          year: "2021",
+          release_date: "2021-05-01",
+          poster: `https://image.tmdb.org/t/p/w500/${start + i}.jpg`,
+          genre: "Comedy",
+          tmdbGenreIds: [35],
+          vote_average: 7.1,
+          vote_count: 250
+        }));
+      },
+      fetchEmbeddingFn: async (neighbors, _w, _wl, _existing, opts) => {
+        fetchEmbCalls.push({ neighbors, opts });
+        return neighbors.map((n) => ({
+          id: n.tmdbId,
+          tmdbId: n.tmdbId,
+          title: `Emb ${n.tmdbId}`,
+          year: "2025",
+          release_date: "2025-05-01",
+          poster: `https://image.tmdb.org/t/p/w500/${n.tmdbId}.jpg`,
+          genre: "Sci-Fi",
+          tmdbGenreIds: [878],
+          vote_average: 7.8,
+          vote_count: 400,
+          collabSim: n.collabSim ?? 0,
+          sourceBucket: opts?.sourceBucket || "Bucket E-Cold (Semantic)"
+        }));
+      },
+      enrichPoolFn: async (pool) => pool
+    });
+  } finally {
+    resetEmbeddingWorkerClientForTest();
+  }
+
+  const coldCall = fetchEmbCalls.find((c) => c.opts?.sourceBucket === "Bucket E-Cold (Semantic)");
+  assert.ok(coldCall, "Wave 2 must still invoke Bucket E-Cold in Web Worker mode");
+  assert.deepEqual(
+    coldCall.neighbors.map((n) => n.tmdbId),
+    [303],
+    "Bucket E-Cold in Web Worker mode must exclude warm 200 (collabIdSet) and 202 (collabSim 0.0005)"
+  );
+});

@@ -537,6 +537,7 @@ export async function generateExploreForYouPool({
   fetchCandidatePoolFn = fetchCandidatePool,
   fetchEmbeddingFn = fetchEmbeddingCandidates,
   enrichPoolFn = enrichCandidatePoolMetadata,
+  createWorkerFn = null,
   onPreliminaryReady = null,
   onStageUpdate = null,
   signal = null,
@@ -609,9 +610,11 @@ export async function generateExploreForYouPool({
     excludeNumericIds: [...numericExcludeSet],
     topK: 240,
     repulsionWeight,
-    embeddingIndex: injectedEmbeddingIndex
+    embeddingIndex: injectedEmbeddingIndex,
+    ...(typeof createWorkerFn === "function" ? { createWorkerFn } : {})
   }).catch(() => ({
     embeddingIndex: null,
+    collabIdSet: null,
     collabSimMap: null,
     repulsionMap: null,
     collabCatalogMax: null,
@@ -623,6 +626,7 @@ export async function generateExploreForYouPool({
   }
 
   const embeddingIndex = embSignals.embeddingIndex ?? (injectedEmbeddingIndex !== undefined ? injectedEmbeddingIndex : null);
+  const collabIdSet = embSignals.collabIdSet || null;
   const collabSimMap = embSignals.collabSimMap || null;
   const repulsionMap = embSignals.repulsionMap || null;
   const collabCatalogMax = embSignals.collabCatalogMax ?? null;
@@ -765,6 +769,7 @@ export async function generateExploreForYouPool({
     const wave2ColdNeighbors = contentIndex
       ? retrieveColdContentNeighbors(profile.weightedRatings, contentIndex, coldExcludeSet, {
           collabIndex: embeddingIndex,
+          collabIdSet,
           collabSimMap,
           repulsionMap,
           repulsionWeight,

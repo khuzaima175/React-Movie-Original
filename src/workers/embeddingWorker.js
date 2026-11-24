@@ -44,6 +44,7 @@ self.onmessage = async (event) => {
         ok: true,
         result: {
           hasIndex: false,
+          collabIds: null,
           collabEntries: [],
           repulsionEntries: [],
           collabCatalogMax: null,
@@ -84,6 +85,7 @@ self.onmessage = async (event) => {
       ok: true,
       result: {
         hasIndex: true,
+        collabIds: embeddingIndex.ids || null,
         collabEntries: collabSimMap ? [...collabSimMap.entries()] : [],
         repulsionEntries: repulsionMap ? [...repulsionMap.entries()] : [],
         collabCatalogMax,

@@ -105,3 +105,37 @@ test("retrieveColdContentNeighbors returns only unindexed cold films, excluding 
   assert.ok(picks[0].contentSim > 0.8);
   assert.equal(typeof picks[0].alignedScore, "number");
 });
+
+test("retrieveColdContentNeighbors excludes warm films via collabIdSet or near-zero collabSimMap entries when collabIndex is null", () => {
+  const contentIndex = parseEmbeddingBinary(encodeEmbeddingBinary([
+    { tmdbId: 100, vector: [1, 0, 0, 0] },
+    { tmdbId: 200, vector: [0.99, 0.14, 0, 0] }, // warm in collabIdSet & empty collabSimMap (Worker mode)
+    { tmdbId: 201, vector: [0.98, 0.19, 0, 0] }, // warm with near-zero blended collabSim: 0.0005
+    { tmdbId: 202, vector: [0.97, 0.24, 0, 0] }, // warm with exact collabSim: 0 in collabSimMap
+    { tmdbId: 300, vector: [0.95, 0.31, 0, 0] }  // true cold 2025 film
+  ]));
+  const weightedRatings = [{ tmdbId: 100, rating: 10, weight: 1.5, movie: { tmdbId: 100 } }];
+
+  // Case A: Worker mode where collabIndex is null, collabIdSet holds indexed IDs, and collabSimMap is empty
+  const workerStylePicks = contentSimService.retrieveColdContentNeighbors(
+    weightedRatings,
+    contentIndex,
+    new Set([100]),
+    { collabIndex: null, collabIdSet: new Set([100, 200]), collabSimMap: new Map(), topK: 10 }
+  );
+  assert.equal(workerStylePicks.some((p) => p.tmdbId === 200), false, "Warm film in collabIdSet must be excluded when collabIndex is null");
+
+  // Case B: collabIndex & collabIdSet absent, collabSimMap has near-zero 0.0005 and 0 entries for indexed warm films
+  const nearZeroMapPicks = contentSimService.retrieveColdContentNeighbors(
+    weightedRatings,
+    contentIndex,
+    new Set([100]),
+    {
+      collabIndex: null,
+      collabIdSet: null,
+      collabSimMap: new Map([[200, 0.0005], [201, 0.0005], [202, 0]]),
+      topK: 10
+    }
+  );
+  assert.deepEqual(nearZeroMapPicks.map((p) => p.tmdbId), [300]);
+});
