@@ -250,7 +250,8 @@ export function buildExploreForYouProfileHash({
 
 /**
  * Builds a compact, emoji-free single-shot prompt (<= 28k chars) asking Flash-Lite
- * to score and tag up to EXPLORE_FOR_YOU_AI_BATCH_LIMIT top verified TMDB candidates.
+ * to tag and explain up to EXPLORE_FOR_YOU_AI_BATCH_LIMIT top verified TMDB candidates
+ * while preserving calibrated local ranker scores.
  */
 export function buildExploreForYouBatchPrompt(
   profile = {},
@@ -278,8 +279,8 @@ export function buildExploreForYouBatchPrompt(
 
   const genres = Array.isArray(profile?.lovedGenreNames) ? profile.lovedGenreNames.slice(0, 5).join(", ") : "";
   const header = [
-    "You are CinemaVault's catalog curator. Score and tag the verified unseen TMDB candidates below for this viewer's personal Explore feed.",
-    `Return ONLY valid JSON: {"picks":[{"id":<tmdbId>,"s":<int 55..99>,"tag":"<2-3 word vibe>","r":"<short 8-14 word reason>"}]} for up to ${Math.min(aiCap, candidates.length)} distinct candidates from the list below.`,
+    "You are CinemaVault's catalog curator. Tag and write concise personal reasons for the verified unseen TMDB candidates below for this viewer's personal Explore feed.",
+    `Return ONLY valid JSON: {"picks":[{"id":<tmdbId>,"tag":"<2-3 word vibe>","r":"<short 8-14 word reason>"}]} for up to ${Math.min(aiCap, candidates.length)} distinct candidates from the list below.`,
     "STRICT RULES: Only use exact numeric ids from CANDIDATES. Never invent ids or films. No emojis. Respect Avoid rules and low-rated misses.",
     genres ? `TOP GENRES: ${genres}` : "",
     topLoved.length > 0 ? `FAVORITE ANCHORS: ${topLoved.join("; ")}` : "",
@@ -316,11 +317,13 @@ export function mergeExploreForYouResponse(
   { targetCount = EXPLORE_FOR_YOU_TARGET_COUNT } = {}
 ) {
   const byId = new Map();
+  const rankIdxById = new Map();
   const orderedCandidates = [];
   for (const raw of Array.isArray(candidates) ? candidates : []) {
     const normalized = normalizeCandidateForExplore(raw);
     if (!normalized.tmdbId || byId.has(normalized.tmdbId)) continue;
     byId.set(normalized.tmdbId, normalized);
+    rankIdxById.set(normalized.tmdbId, orderedCandidates.length);
     orderedCandidates.push(normalized);
   }
 
@@ -331,16 +334,14 @@ export function mergeExploreForYouResponse(
     const id = Number(pick?.id ?? pick?.tmdbId);
     if (!Number.isFinite(id) || seen.has(id) || !byId.has(id)) continue;
     const base = byId.get(id);
-    const rawS = Number(pick?.s ?? pick?.score ?? base.forYouScore);
-    const score = Number.isFinite(rawS) ? Math.max(50, Math.min(99, Math.round(rawS))) : base.forYouScore;
     const vibeTag = sanitizeLine(pick?.tag || pick?.vibeTag || "", 32) || base.vibeTag;
-    const reason = sanitizeLine(pick?.r || pick?.reason || "", 120);
+    const reason = sanitizeLine(pick?.r || pick?.reason || "", 120) || base.forYouReason;
 
     seen.add(id);
     out.push({
       ...base,
-      forYouScore: score,
-      matchScore: score,
+      forYouScore: base.forYouScore,
+      matchScore: base.matchScore,
       vibeTag,
       forYouReason: reason
     });
@@ -355,7 +356,11 @@ export function mergeExploreForYouResponse(
     out.push(cand);
   }
 
-  out.sort((a, b) => (b.forYouScore ?? 0) - (a.forYouScore ?? 0));
+  out.sort(
+    (a, b) =>
+      (b.forYouScore ?? 0) - (a.forYouScore ?? 0) ||
+      (rankIdxById.get(a.tmdbId) ?? 0) - (rankIdxById.get(b.tmdbId) ?? 0)
+  );
   return out.slice(0, targetCount);
 }
 
@@ -911,11 +916,10 @@ export async function generateExploreForYouPool({
             type: Type.OBJECT,
             properties: {
               id: { type: Type.INTEGER },
-              s: { type: Type.INTEGER },
               tag: { type: Type.STRING },
               r: { type: Type.STRING }
             },
-            required: ["id", "s", "tag", "r"]
+            required: ["id", "tag", "r"]
           }
         }
       },

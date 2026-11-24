@@ -75,9 +75,77 @@ test("mergeExploreForYouResponse strips hallucinated IDs, preserves AI tags, ded
   assert.equal(uniqueIds.size, 100);
 
   const pick1005 = merged.find((m) => m.tmdbId === 1005);
-  assert.equal(pick1005.forYouScore, 96);
+  assert.equal(pick1005.forYouScore, 97);
   assert.equal(pick1005.vibeTag, "Cerebral Sci-Fi");
   assert.equal(pick1005.forYouReason, "Echoes your taste for existential puzzles.");
+});
+
+test("mergeExploreForYouResponse preserves calibrated local ranker forYouScore instead of letting Flash-Lite overwrite scores or invert math ordering", () => {
+  const candidates = [
+    { tmdbId: 10, title: "Personal EASE Hit", matchScore: 94, forYouScore: 94 },
+    { tmdbId: 11, title: "Personal EASE Hit #2", matchScore: 94, forYouScore: 94 },
+    { tmdbId: 20, title: "Generic Prestige Classic", matchScore: 76, forYouScore: 76 }
+  ];
+  const geminiPicks = [
+    { id: 20, s: 99, tag: "Timeless Drama", r: "Acclaimed classic." },
+    { id: 11, s: 95, tag: "Mind-Bend Noir", r: "Matches your neo-noir picks." },
+    { id: 10, s: 72, tag: "Tight Sci-Fi", r: "Matches your anchors." }
+  ];
+  const merged = mergeExploreForYouResponse(candidates, geminiPicks, { targetCount: 3 });
+  assert.equal(merged[0].tmdbId, 10, "Personal EASE Hit must stay #1 even on tied rounded score");
+  assert.equal(merged[1].tmdbId, 11, "Tie-break must preserve local ranker ordering");
+  assert.equal(merged[0].forYouScore, 94, "Calibrated local ranker score must stay locked");
+  assert.equal(merged[0].matchScore, 94, "Calibrated matchScore must stay locked");
+  assert.equal(merged[0].vibeTag, "Tight Sci-Fi");
+  assert.equal(merged[0].forYouReason, "Matches your anchors.");
+  assert.equal(merged[2].tmdbId, 20);
+  assert.equal(merged[2].forYouScore, 76);
+});
+
+test("buildExploreForYouBatchPrompt and generateExploreForYouPool omit 's' score field so Flash-Lite writes only tag and reason", async () => {
+  const candidates = makeCandidates(15);
+  const prompt = buildExploreForYouBatchPrompt({ lovedGenreNames: ["Sci-Fi"] }, candidates, {
+    watched: [{ tmdbId: 1, title: "Arrival", year: "2016", userRating: 9 }],
+    targetCount: 10
+  });
+  assert.doesNotMatch(prompt, /"s"\s*:/, "Wave-3 prompt must not ask Flash-Lite to emit 's' scores");
+
+  let capturedSchema = null;
+  const res = await generateExploreForYouPool({
+    watched: [
+      { tmdbId: 1, title: "Interstellar", year: "2014", userRating: 10, tmdbGenreIds: [878] },
+      { tmdbId: 2, title: "Arrival", year: "2016", userRating: 9, tmdbGenreIds: [878] },
+      { tmdbId: 3, title: "Blade Runner 2049", year: "2017", userRating: 9, tmdbGenreIds: [878] }
+    ],
+    watchlist: [],
+    candidates,
+    embeddingIndex: null,
+    targetCount: 10,
+    aiClient: {
+      models: {
+        generateContent: async ({ contents, config }) => {
+          capturedSchema = config?.responseSchema;
+          const promptIds = [...String(contents || "").matchAll(/^(\d+)\|/gm)].map((m) => Number(m[1]));
+          return {
+            text: JSON.stringify({
+              picks: promptIds.slice(0, 5).map((id) => ({
+                id,
+                tag: "Locked Sci-Fi",
+                r: "Tuned to your sci-fi favorites."
+              }))
+            })
+          };
+        }
+      }
+    }
+  });
+
+  const itemSchema = capturedSchema?.properties?.picks?.items;
+  assert.ok(itemSchema, "Expected picks item schema");
+  assert.equal("s" in (itemSchema.properties || {}), false, "Schema must drop 's' property");
+  assert.deepEqual(itemSchema.required, ["id", "tag", "r"]);
+  assert.equal(res.source, "gemini-flash-lite");
+  assert.equal(res.items[0].vibeTag, "Locked Sci-Fi");
 });
 
 test("weightedShuffleForYou preserves all unique items, varies ordering by seed, and biases high affinity early", () => {
@@ -162,13 +230,14 @@ test("generateExploreForYouPool falls back cleanly to local ranker when aiClient
     targetCount: 100,
     aiClient: {
       models: {
-        generateContent: async () => {
+        generateContent: async ({ contents }) => {
           aiCalled += 1;
+          const promptIds = [...String(contents || "").matchAll(/^(\d+)\|/gm)].map((m) => Number(m[1]));
           return {
             text: JSON.stringify({
-              picks: candidates.slice(0, 60).map((c, idx) => ({
-                id: c.tmdbId,
-                s: 97 - Math.floor(idx * 0.4),
+              picks: promptIds.slice(0, 60).map((id, idx) => ({
+                id,
+                s: 55 + (idx % 5),
                 tag: "Editorial Sci-Fi",
                 r: "Fits your high ratings for atmospheric sci-fi."
               }))
@@ -182,6 +251,8 @@ test("generateExploreForYouPool falls back cleanly to local ranker when aiClient
   assert.equal(aiCalled, 1);
   assert.equal(geminiRes.source, "gemini-flash-lite");
   assert.equal(geminiRes.items.length, 100);
+  assert.equal(geminiRes.items[0].tmdbId, fallbackRes.items[0].tmdbId);
+  assert.equal(geminiRes.items[0].forYouScore, fallbackRes.items[0].forYouScore);
   assert.equal(geminiRes.items[0].vibeTag, "Editorial Sci-Fi");
 });
 
