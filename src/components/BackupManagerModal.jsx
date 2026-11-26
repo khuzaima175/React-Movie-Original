@@ -20,6 +20,7 @@ import {
   hasTmdbBackend
 } from "../services/apiTransport";
 import { parseCSVImport } from "../services/csvImport";
+import { parseLetterboxdZipArchive } from "../services/letterboxdZipImport";
 import { mapTmdbSearchItem } from "../services/searchService";
 import {
   buildBackupJsonPayload,
@@ -251,6 +252,7 @@ export default function BackupManagerModal({
     if (diffPreview.newWatchedCount > 0) parts.push(`${diffPreview.newWatchedCount} watched added`);
     if (diffPreview.updatedRatingCount > 0) parts.push(`${diffPreview.updatedRatingCount} ratings updated`);
     if (diffPreview.newWatchlistCount > 0) parts.push(`${diffPreview.newWatchlistCount} watchlisted`);
+    if (diffPreview.newListCount > 0) parts.push(`${diffPreview.newListCount} lists added`);
     if (diffPreview.duplicatesSkipped > 0) parts.push(`${diffPreview.duplicatesSkipped} skipped`);
 
     setResultMessage({
@@ -271,6 +273,35 @@ export default function BackupManagerModal({
 
     const lowerName = file.name.toLowerCase();
     try {
+      if (lowerName.endsWith(".zip")) {
+        setIsProcessing(true);
+        setProgress({ current: 1, total: 1, title: "Reading Letterboxd archive..." });
+        const arrayBuf = await file.arrayBuffer();
+        const archive = await parseLetterboxdZipArchive(arrayBuf);
+        setIsProcessing(false);
+        if (
+          archive.incomingWatched.length === 0 &&
+          archive.incomingWatchlist.length === 0 &&
+          archive.incomingLists.length === 0
+        ) {
+          setResultMessage({
+            type: "error",
+            text: "No readable Letterboxd ratings, watchlist, or list files found in this .zip archive."
+          });
+          return;
+        }
+        setPendingImport({
+          fileName: file.name,
+          formatLabel: "Letterboxd .ZIP Archive",
+          incomingWatched: archive.incomingWatched,
+          incomingWatchlist: archive.incomingWatchlist,
+          incomingLists: archive.incomingLists,
+          preferences: null,
+          droppedCount: 0
+        });
+        return;
+      }
+
       const content = await file.text();
 
       if (lowerName.endsWith(".json")) {
@@ -347,7 +378,7 @@ export default function BackupManagerModal({
 
       setResultMessage({
         type: "error",
-        text: "Unsupported file extension. Please upload a .json or .csv file."
+        text: "Unsupported file extension. Please upload a .zip, .json, or .csv file."
       });
     } catch (err) {
       setIsProcessing(false);
@@ -602,7 +633,7 @@ export default function BackupManagerModal({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".json,.csv,application/json,text/csv"
+                  accept=".zip,.json,.csv,application/zip,application/x-zip-compressed,application/json,text/csv"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
@@ -610,13 +641,13 @@ export default function BackupManagerModal({
                   <FileUp size={24} aria-hidden="true" />
                 </div>
                 <div className="text-[1.6rem] font-bold text-[#f4f4f2]">
-                  Choose or Drop a .JSON or .CSV File
+                  Choose or Drop a Letterboxd .ZIP, .JSON, or .CSV File
                 </div>
                 <p className="text-[1.25rem] text-[#9e9e99] max-w-[52rem] m-0 leading-[1.55]">
-                  Drag a backup file here or click to browse. We will compute a preview diff before modifying your Vault.
+                  Drag a Letterboxd export .zip or backup file here. We will compute a preview diff before modifying your Vault.
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-[0.8rem] mt-[0.4rem]">
-                  {["JSON v1 / v2", "CinemaVault CSV", "Letterboxd CSV", "IMDb CSV"].map((fmt) => (
+                  {["Letterboxd .ZIP", "JSON v1 / v3", "CinemaVault CSV", "Letterboxd CSV", "IMDb CSV"].map((fmt) => (
                     <span
                       key={fmt}
                       className="text-[1.1rem] text-[#9e9e99] bg-white/[0.04] border border-white/10 px-[0.9rem] py-[0.35rem] rounded-[0.5rem]"
@@ -637,9 +668,8 @@ export default function BackupManagerModal({
                   <div className="p-[1.2rem] rounded-[0.9rem] bg-[#141416] border border-white/8">
                     <div className="font-bold text-[#f4f4f2] mb-[0.35rem]">Letterboxd</div>
                     <p className="text-[#9e9e99] m-0">
-                      Open <strong className="text-[#d4d4cf] font-medium">Settings → Data → Export Your Data</strong>, unzip the folder, and upload{" "}
-                      <code className="text-[#e6e6e1]">ratings.csv</code>, <code className="text-[#e6e6e1]">diary.csv</code>, or{" "}
-                      <code className="text-[#e6e6e1]">watchlist.csv</code>.
+                      Open <strong className="text-[#d4d4cf] font-medium">Settings → Data → Export Your Data</strong> and drop the downloaded{" "}
+                      <code className="text-[#e6e6e1]">.zip</code> archive directly (imports ratings, reviews, diary, watchlist &amp; lists).
                     </p>
                   </div>
                   <div className="p-[1.2rem] rounded-[0.9rem] bg-[#141416] border border-white/8">
@@ -701,6 +731,7 @@ export default function BackupManagerModal({
                     </div>
                     <div className="text-[1.25rem] text-[#8a8a86]">
                       {pendingImport.formatLabel}
+                      {diffPreview.newListCount > 0 ? ` · ${diffPreview.newListCount} custom lists` : ""}
                       {pendingImport.droppedCount > 0
                         ? ` · ${pendingImport.droppedCount} blank rows skipped`
                         : ""}
