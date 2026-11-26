@@ -8,12 +8,12 @@ A local-first film tracker and recommender. It combines an on-device taste model
 
 [![React 18](https://img.shields.io/badge/React-18.3-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Vite 5](https://img.shields.io/badge/Vite-5.4-646cff?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Local ML EASE^R + CVEM v1](https://img.shields.io/badge/Local_ML-EASE^R_14k_+_CVEM_25k-e2b13c?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md)
+[![Local ML EASE^R + CVEM v1](https://img.shields.io/badge/Local_ML-EASE%5ER_14k_+_CVEM_25k-e2b13c?style=for-the-badge)](./LOCAL_MODEL_GUIDE.md)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-Resilient_Cascade-8e75ff?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-12-ff0055?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
 [![Supabase Sync](https://img.shields.io/badge/Cloud_Sync-Optional_Supabase_RLS-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white)](./ARCHITECTURE.md#20-opt-in-multi-user-supabase-cloud-sync-postgres-rls-schema--merge-engine)
-[![Tests](https://img.shields.io/badge/Tests-479_passing-46d369?style=for-the-badge)](#contributing-and-tests)
+[![Tests](https://img.shields.io/badge/Tests-Offline_Suite-46d369?style=for-the-badge)](#contributing-and-tests)
 
 [Features](#features) · [Screenshots](#screenshots) · [Why CinemaVault](#why-cinemavault) · [How it works](#how-it-works) · [Model Refinement Log](./MODEL_REFINEMENT_LOG.md) · [Quick start](#quick-start) · [Known limitations](#known-limitations)
 
@@ -39,21 +39,23 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 
 | Area | What it does |
 | :--- | :--- |
-| Local taste model | **Exact Full-Rank Sparse EASE^R** (`14,000` films × `64` neighbors, `3.47 MB` `CVEA v1`, `< 1 ms` scoring, incl. light Watchlist forward-intent across up to `15` recent items) blended **`60/40`** with the `25,000`-film `64`-D SVD index (`CVEM v1`, `3.15 MB`), plus **`11,119 × 128-D` Neural Semantic Content Embeddings** (`content_embeddings_f16.bin`, `2.76 MB`, `coldOnly: true`, covering `1,499` `2024–2026` theatrical releases at **`+26.7%*` cold-start `NDCG@10`**), per-user z-scoring, tiered recency decay, Craft Breakdown & `1.15×` rewatch/IMAX weighting, persona mixtures, `64×64` ridge fold-in, and pacing-dismissal-safe online learning (`+49.7%*` warm `NDCG@10` / `+46.3%*` `NDCG@20` on 300 unseen users — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)). Runs 100% in the browser. |
-| Recommendations | Six retrieval channels — multi-persona Bucket `B` (up to 3 K-Means anchors), multi-auteur Bucket `C` (up to 3 creators), semantic Bucket `A`, recent Bucket `D` (with unified provider-alias expansion), top-50 aligned Bucket `E` collaborative neighbors, and **`Bucket E-Cold (Semantic)`** (`2024–2026` & unindexed semantic picks) — plus a calibrated logistic ranker and **20 curated picks** (rendered in a `#1` Spotlight hero + 2-column editorial card grid with grounded 2-sentence pitches) from a **100-candidate stratified shortlist**. Verified TMDB titles only. |
+| Local taste model | **Exact Full-Rank Sparse EASE^R** (`14,000` films × `64` neighbors, `3.47 MB`, `< 1 ms` scoring, including light Watchlist forward-intent across up to `15` recent items) blended **`60/40`** with a `25,000`-film `64`-D SVD index (`CVEM v1`, `3.15 MB`), plus **`11,119 × 128-D` Neural Semantic Content Embeddings** (`2.76 MB`, covering `1,499` `2024–2026` cold-start releases at **`+26.7%*` cold-start `NDCG@10`**), per-user z-scoring, tiered recency decay, Craft Breakdown & `1.15×` rewatch/IMAX weighting, persona mixtures, ridge fold-in, and pacing-safe online learning (`+49.7%*` warm `NDCG@10` / `+46.3%*` `NDCG@20` on 300 unseen users — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)). Runs 100% in the browser. |
+| Recommendations | Six retrieval channels — multi-persona keyword successors, multi-auteur creator fan-out, semantic TMDB discovery, recent releases (with streaming alias expansion), top-50 aligned collaborative neighbors, and cold-start semantic neighbors (`2024–2026` & unindexed titles) — plus a calibrated logistic ranker and **20 curated picks** (Spotlight hero + 2-column editorial grid with grounded 2-sentence pitches) from a **100-candidate stratified shortlist**. Verified TMDB titles only. |
 | Vibes | Six preset moods plus free-text "Match Vibe" queries such as "like Drive but quieter." |
-| Gemini cascade & BYOK | Dual Flash-Lite cascade (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`, up to 1,000 free requests/day) with error-specific cooldowns, optional browser-local personal Gemini key (`cv_user_gemini_key`), and deterministic on-device ranker fallback when shared quota is at capacity. |
+| Gemini cascade & BYOK | Dual Flash-Lite cascade (`gemini-3.5-flash-lite` + `gemini-3.1-flash-lite`, up to 1,000 free requests/day) with error-specific cooldowns, optional browser-local personal Gemini key, and deterministic on-device ranker fallback when shared quota is at capacity. |
 | Editions (Public / Personal) | Clean Public Edition by default; toggle Personal/Debug UI with `?debug=1` (`?debug=0` to clear) or build with `VITE_APP_EDITION=personal`. |
 | Streaming | 12 services, 13 provider alias families, 15 regions. |
-| Rating studio | Ascending 10-bar cinema fader with editorial color grading, rolling score readout, live percentile calibration, same-tier pills, optional 4-aspect craft scores, and watch-session log. |
+| Rating studio | Ascending 10-bar cinema fader with editorial color grading, rolling score readout, live percentile calibration, same-tier anchor pills, optional 6-aspect craft scores, and watch-session log. |
 | Demo onboarding | One-click `"Try a sample vault"` loads 14 rated films + 6 watchlist films locally without touching cloud sync. |
 | Import and export | Letterboxd and CinemaVault CSV import, Schema v2 JSON backup, and a diff preview before applying. |
-| Discovery & Explore For You | Discover's **"Picked For Your Taste"** row mirrors your real `CVEM v1` **"Movies You'll Like"** pool with match badges + `"See all →"`; `/explore` hosts a filterable workbench and 3-wave progressive ~250-film personalized pool backed by Web Worker ML (`collabIdSet`-isolated `Bucket E-Cold (Semantic)` injection + Wave-3 math score lock) and non-blocking background curation. |
-| Universal Match Predictor & Oracle Concierge | On-device `"For You"` Match `%` + calibrated `Est. X.X/10` prediction on Movie Detail pages and instant Match `%` pills in Search; Flagship **Film Oracle** Tonight's Concierge with 4 starter presets, instant `$0.00` Watchlist Tonight ranker, `#1 Top Pick Tonight` Spotlight hero, and centered Film Companion chat splitting watched references into inline chips. |
-| Community & Public Profiles | Privacy-first opt-in Community Mode in `/account` (`is_public = false` by default) unlocking shareable `/u/:username` profiles (Top 4 Showcase, Watch Diary, Spoiler-Safe Reviews, Follows, **64-D Taste Twin %**, and *"Films They Loved You Haven't Seen"*) plus CinemaVault Community ratings & reviews on Movie Detail pages. |
+| Discovery & Explore For You | Discover's **"Picked For Your Taste"** row mirrors your personalized **"Movies You'll Like"** pool with match badges + `"See all →"`; `/explore` hosts a filterable workbench and 3-wave progressive ~250-film personalized pool backed by Web Worker ML and non-blocking background curation. |
+| Universal Match Predictor & Oracle Concierge | On-device `"For You"` Match `%` + calibrated `Est. X.X/10` prediction on Movie Detail pages and instant Match `%` pills in Search; **Film Oracle** Tonight's Concierge with 4 starter presets, instant `$0.00` Watchlist Tonight ranker, `#1 Top Pick Tonight` Spotlight hero, and Film Companion chat splitting watched references into inline chips. |
+| Community & Public Profiles | Privacy-first opt-in Community Mode in `/account` (private by default) unlocking shareable `/u/:username` profiles (Top 4 Showcase, Watch Diary, Spoiler-Safe Reviews, Follows, **64-D Taste Twin %**, and *"Films They Loved You Haven't Seen"*) plus Community ratings & reviews on Movie Detail pages. |
 | Compare | Two to three films side by side, with shared cast, genres, and taste similarity. |
 | Sync & Accounts | Optional `/auth` (Email + Password, Magic Link, Password Reset) and `/account` dashboard backed by Supabase Auth + Postgres row-level security, syncing ratings, watchlist, streaming preferences, taste rules, and your 250-film Explore For You cache while keeping Guest Mode 100% unlocked. |
 | Security | Serverless `/api/*` proxies keep API keys out of the browser bundle, bound prompt payloads, and support optional Upstash Redis daily caps. |
+
+> *\* Statistically significant (`p < 0.05` via 1,000-resample paired bootstrap 95% CI) on both `Dev-150` and untouched `Holdout-150` against the `v5.6` SVD-64 / lexical baseline — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md).*
 
 ---
 
@@ -133,8 +135,8 @@ Pick a random film from your Watchlist or your Watched list, with an animated re
 
 - An ascending 10-bar cinema fader (`1` to `10`) with editorial color grading, rolling serif score readout, and a tier label for each score. Clicking a bar locks your score (`Save X/10 to Vault`), while hovering previews without saving accidentally.
 - **Live calibration:** as you hover or lock a score, the stage shows your percentile in the vault and a compact two-column strip of up to two films rated the same or nearest.
-- **Progressive review drawer:** toggle `+ Add tags, craft breakdown & note` when desired to attach Quick Review Tags, 4-aspect craft ratings, Watch Log metadata, or a short review note without cluttering the studio card.
-- **Optional craft scores (1–5):** story, direction, performances, and visuals and sound.
+- **Progressive review drawer:** toggle `+ Add tags, craft breakdown & note` when desired to attach Quick Review Tags, 6-aspect craft ratings, Watch Log metadata, or a short review note without cluttering the studio card.
+- **Optional craft scores (1–5):** story & script, direction, performances, visuals & cinematography, audio & score, and pacing & editing.
 - **Watch log:** format (streaming, theater, IMAX or Dolby, physical media), rewatch count, and watch date.
 - **Notes and tags:** a short note and one-tap tags such as `#TightPacing` or `#WeakEnding`. Notes in Quick Rate are capped at 200 characters. Notes are passed to Gemini up to 180 characters.
 - **Score effects:** a 10 sets an anchor for keyword matching. Scores of 4 and below feed negative keyword and embedding repulsion.
@@ -184,8 +186,8 @@ On a first visit with fewer than three rated films, a 30-film deck opens. Visito
 ### 14. Explore workbench (`/explore`) & "Movies You'll Like"
 
 - **All Catalog mode:** direct title and franchise search (`?q=`) plus deep filters across genres (include and exclude), decades or custom years, runtime, minimum rating, minimum votes, language, country, keyword and person search, streaming services, and hide-watched.
-- **"Movies You'll Like" mode (`?mode=for-you`):** combines your full on-device ML taste stack (25k CVEM v1 collaborative embeddings, content embeddings, cinematic DNA, negative repulsion, and personalized logistic ranker) with a single-shot Flash-Lite pass over the top flagship picks to build a **~250-film** personalized library of unseen TMDB-verified movies with match percentages and editorial vibe tags.
-  - Cached locally in IndexedDB (7-day TTL) and optionally synced per user via the RLS-protected Supabase `public.user_explore_picks` table (sample vaults stay strictly local).
+- **"Movies You'll Like" mode (`?mode=for-you`):** runs in a background Web Worker in 3 progressive waves, combining your full on-device ML taste stack (`14k` Exact Sparse EASE^R `CVEA v1`, `25k` `CVEM v1` collaborative SVD embeddings, `128-D` cold-start semantic embeddings, cinematic DNA, negative repulsion, and the personalized logistic ranker) with a single-shot Flash-Lite pass over the top flagship picks to build a **~250-film** personalized library of unseen TMDB-verified movies with match percentages and editorial vibe tags.
+  - Cached locally in IndexedDB (7-day TTL) with instant stale-while-revalidate display and optional per-user sync via the RLS-protected Supabase `public.user_explore_picks` table (sample vaults stay strictly local).
   - Supports instant client-side Deep Filtering across your personalized pool and quality-weighted **"Shuffle"** reordering with zero extra API calls.
 - Every filter is stored in the URL, so searches can be shared and reloaded.
 - Clicking a genre or keyword on a movie page opens `/explore` with that filter applied.
@@ -202,6 +204,17 @@ On a first visit with fewer than three rated films, a 30-film deck opens. Visito
 - **Local first:** the app works fully offline with no sign-in.
 - **Optional sign-in:** if you configure Supabase, you can sign in by email and sync across devices. Rows are protected by row-level security. Merging gives watched entries priority over watchlist entries, prevents deleted items from coming back, and excludes sample demo entries.
 - **Proxies:** `GEMINI_API_KEY`, `TMDB_API_KEY`, and `OMDB_API_KEY` stay on the server behind `/api/*` routes, with model and path allowlists, payload/output bounds, and rate limits (with optional Upstash Redis daily caps). Production browser bundles contain no API keys.
+
+### 17. Universal Match Predictor & Oracle Concierge
+
+- **Instant Match & Predicted Rating:** Movie Detail pages compute an on-device `"For You"` Match `%` and calibrated `Est. X.X/10` score for unseen films using your local taste stack, while Search surfaces Match `%` pills inline on unseen candidates.
+- **Tonight's Concierge (`/ai`):** Film Oracle pairs 4 starter vibe presets with a zero-AI-cost **Watchlist Tonight** ranker, a `#1 Top Pick Tonight` Spotlight hero, and a centered Film Companion chat that parses watched movie references into interactive inline chips.
+
+### 18. Community & Public Profiles
+
+- **Opt-in Community Mode:** Private by default (`is_public = false`). Enabling it in `/account` unlocks a shareable `/u/:username` profile with a Top 4 Showcase, Watch Diary, spoiler-flagged reviews and craft breakdowns, follows, and a **64-D Taste Twin %** compatibility score plus *"Films They Loved You Haven't Seen"*.
+- **Movie Page Community Reviews:** Movie Detail pages surface community ratings and reviews from opted-in members, sortable by Taste Twin compatibility, likes, or recency.
+- **Public Lists & Watch Together:** Custom lists can optionally be shared via public URLs, and Watch Together sessions let two viewers score joint candidates side by side.
 
 ---
 
@@ -224,7 +237,7 @@ flowchart LR
 
 **Recent-release reserve.** Under "Any Vibe," two shortlist slots are reserved for recent releases that pass a quality floor. Their score ignores the novelty bonus so popular acclaimed films can compete.
 
-**Cache.** Results are cached for 24 hours under a key built from loved genres, watchlist genres, providers, region, mood, custom filters, and a hash of your vault ratings, notes, and taste rules. Logging or editing a rating invalidates the cache. A cached set is used only if it still has at least **14** valid picks (`MIN_VALID_CACHE_COUNT = 14`).
+**Cache.** Results are cached for 24 hours under a key built from loved genres, watchlist genres, providers, region, mood, custom filters, and a hash of your vault ratings, notes, and taste rules. Logging or editing a rating invalidates the cache. A cached set is used only if it still has at least **14** valid picks.
 
 **Refresh.** Refresh cycles through TMDB pages 1–5 and excludes up to 120 recently shown IDs. If that leaves too few candidates, the list is filled from the rest of the ranked pool.
 
@@ -275,7 +288,7 @@ Check the "About these picks" panel in Oracle to see which pipeline produced the
 | :--- | :--- | :--- |
 | TMDB and OMDb | Title, ID, and search or discover parameters. No notes or ratings. | Search, discovery, detail pages, and candidate harvesting. |
 | Gemini | A prompt containing your loved genres, anchor films, notes (up to 180 characters each), recent watches, dislikes, watchlist titles, and candidate films, bounded dynamically to 20,000–34,000 characters by shortlist size. Chat prompts include the films and notes you discuss. | Curation, chat, and vibe parsing. Only when AI features are used. |
-| Supabase | Your vault rows (excluding `isSample` demo rows), ratings, notes, metadata, and optional Explore "Movies You'll Like" cache (`user_explore_picks`, excluding sample vaults). | Only after you sign in and enable sync. |
+| Supabase | Your private vault rows (excluding `isSample` demo rows), ratings, notes, metadata, preferences, and optional Explore "Movies You'll Like" cache (`user_explore_picks`, excluding sample vaults). If you explicitly opt into **Community Mode** in `/account`, your public profile (`@username`, display name, bio, Top 4 Showcase, watched count, and 64-D `taste_vector` for Taste Twin matching), watched diary/ratings/craft breakdowns/spoiler-flagged reviews, review likes, follows, and any lists you mark public become readable by visitors; Watch Together room data is scoped to active session participants. | Only after you sign in and enable sync (or opt into Community Mode / public sharing). |
 | Your browser only | The vault, caches, spend tracking, feedback log, taste rules, and optional personal Gemini key (`cv_user_gemini_key`). | Always. |
 
 In production, Gemini, TMDB, and OMDb requests pass through your own `/api/*` routes (unless a visitor supplies their own Gemini key locally, which calls Google AI directly from the browser). Upstream providers still receive the request contents and see the caller's IP address. The project does not add third-party analytics, and spend tracking stays on your device.
@@ -289,7 +302,7 @@ If you do not want vault content sent to Gemini, do not use the AI features (Ora
 - **Training data cutoff.** The collaborative embeddings come from MovieLens 32M, which ends around late 2023. Films released after that have no collaborative signal, so they rely on our `11,119 × 128-D` neural semantic embeddings (`content_embeddings_f16.bin`, covering `1,499` `2024–2026` releases), **`Bucket E-Cold (Semantic)`**, Bucket D, and the structured metadata fallback.
 - **Shared rate limits across serverless instances.** Without `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` configured, rate limits stay in-memory per serverless instance and reset on cold starts. Configuring Upstash enables durable daily per-IP (`GEMINI_DAILY_PER_IP`, default `30`) and global (`GEMINI_DAILY_GLOBAL`, default `450`) caps.
 - **Gemini quota.** Heavy shared usage can exhaust free-tier quota. The app then serves on-device ranker output and lets users optionally attach their own AI Studio key.
-- **Benchmarks are offline.** The metrics in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md) measure the deterministic ranker on MovieLens-derived data and a small set of sample vaults. They are not measures of user satisfaction.
+- **Benchmarks are offline.** The metrics in [LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md) and [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md) measure the deterministic ranker on MovieLens-derived data and a small set of sample vaults. They are not measures of user satisfaction.
 - **Gemini curation is not benchmarked offline.** Its quality is tracked only through in-app `recSource` telemetry.
 - **Metadata depends on TMDB and OMDb.** Missing or outdated provider data (for example, streaming availability) shows up as missing or stale in the app.
 - **Streaming data is region-specific.** A title can be listed in one region and not another, and availability changes often.
@@ -303,7 +316,7 @@ If you do not want vault content sent to Gemini, do not use the AI features (Ora
 | :--- | :--- | :--- |
 | Framework | React 18.3 | Context for app state + lazy-loaded route bundles. |
 | Build | Vite 5.4 | Dev server and production bundle (`build` & `build:personal`). |
-| Local model | CVEM v1 float16 index, ridge fold-in, logistic ranker | Runs in the browser. |
+| Local model | Exact Full-Rank Sparse EASE^R (`CVEA v1`), `CVEM v1` 64-D float16 SVD index, `128-D` MiniLM cold-start semantic embeddings (`content_embeddings_f16.bin`), ridge fold-in, logistic ranker, Web Worker scoring | Runs in the browser. |
 | AI | Gemini cascade + optional browser-local BYOK | Curation, chat, and mood parsing. |
 | Serverless | Vercel Functions (`api/*.js`) | Keeps server keys off the client; bounded payloads; optional Upstash Redis daily caps. |
 | Cloud sync (optional) | Supabase Auth and Postgres 15+ with row-level security | Email sign-in. |
@@ -366,7 +379,7 @@ These are the points most likely to cause problems on first run:
 - **Production rejects requests without a browser origin.** When deployed, requests with no `Origin` header and no `Sec-Fetch-Site: same-origin` (or `same-site`) get a 403. This means `curl` against a deployed copy will fail. Test with a browser, or call the proxies from the same site.
 - **`ALLOWED_ORIGIN` is optional.** Set it to a comma-separated list if you serve the app from a domain other than the default Vercel host.
 - **`gemini-4-argon` is blocked by default.** It returns 403 unless `ENABLE_ARGON` is set to `"true"` on the server.
-- **Supabase sync needs two things before it works:** the migrations in `supabase/migrations/` (`20261114000000_init_cinemavault_schema.sql`, `20261120000000_explore_for_you_cache.sql`, and `20261120120000_profile_prefs_and_for_you_cap.sql`) applied to your project, and Email Auth / Redirect URLs configured in the Supabase Auth dashboard.
+- **Supabase sync & community features need two things before they work:** all SQL migrations in `supabase/migrations/` applied in chronological order (core schema `20261114000000_init_cinemavault_schema.sql`, Explore cache `20261120000000_explore_for_you_cache.sql`, profile prefs `20261120121725_profile_prefs_and_for_you_cap.sql`, community profiles/sync/RLS `20261120140144`–`20261120142349`, Watch Together `20261124000001`, public lists `20261124000002`, watchlist alerts `20261124000003`, and social feed/likes `20261126000001`), and Email Auth / Redirect URLs configured in the Supabase Auth dashboard.
 
 ### 4. Run, test, and build
 
@@ -406,6 +419,7 @@ npm run serve                # Preview the production build
 ## Documentation, history, and license
 
 - **[LOCAL_MODEL_GUIDE.md](./LOCAL_MODEL_GUIDE.md):** plain-English guide to the local model, its provenance, the evaluation runs, the errors found and fixed along the way, and verification commands.
+- **[MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md):** living experiment logbook covering the v5.6 → v6.2 EASE^R, cold-start MiniLM, and retrieval benchmarks.
 - **[ARCHITECTURE.md](./ARCHITECTURE.md):** full technical and mathematical specification.
 - **[SPEC.md](./SPEC.md):** UI design tokens and component specification.
 - **[docs/superpowers/](./docs/superpowers):** historical design specs and implementation plans.
@@ -416,4 +430,5 @@ npm run serve                # Preview the production build
 - This product uses the TMDB API but is not endorsed or certified by TMDB.
 - Movie metadata from [OMDb](http://www.omdbapi.com/).
 - AI features use [Google Gemini](https://ai.google.dev/).
-- The bundled embedding file is derived from the MovieLens 32M dataset by [GroupLens Research](https://grouplens.org/datasets/movielens/32m/). It is distributed for non-commercial research and educational use under the MovieLens terms. If you deploy this app commercially, check those terms or replace the file.
+- The bundled collaborative model files (`item_ease_k64.cvea` and `item_embeddings_f16.bin`) are derived from the MovieLens 32M dataset by [GroupLens Research](https://grouplens.org/datasets/movielens/32m/) and are distributed for non-commercial research and educational use under the MovieLens terms; if you deploy this app commercially, check those terms or replace those files.
+- The bundled cold-start semantic index (`content_embeddings_f16.bin`) is generated from TMDB text metadata using [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (Apache 2.0).

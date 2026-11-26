@@ -9,7 +9,9 @@ export const CRAFT_ASPECTS = Object.freeze([
   { id: "story", label: "Story & Script" },
   { id: "direction", label: "Direction" },
   { id: "acting", label: "Performances" },
-  { id: "visuals", label: "Visuals & Score" }
+  { id: "visuals", label: "Visuals & Cinematography" },
+  { id: "audio", label: "Audio & Score" },
+  { id: "pacing", label: "Pacing & Editing" }
 ]);
 
 const CRAFT_ASPECT_IDS = new Set(CRAFT_ASPECTS.map((a) => a.id));

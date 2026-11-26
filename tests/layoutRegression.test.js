@@ -29,3 +29,15 @@ test("oracle.css renders .recommendation-list-editorial as a 2-column grid on de
     /@media\s*\(max-width:\s*960px\)\s*\{[\s\S]*?\.recommendation-list-editorial\s*\{[\s\S]*?grid-template-columns:\s*1fr;/
   );
 });
+
+test("vault.css keeps .studio-hero-tier overflow visible for the actions dropdown while clipping .vault-hero-ambient-clip", () => {
+  const css = fs.readFileSync(path.join(process.cwd(), "src/styles/vault.css"), "utf8");
+  const heroTierMatch = css.match(/\.studio-hero-tier\s*\{[\s\S]*?\}/);
+  assert.ok(heroTierMatch, ".studio-hero-tier rule should exist");
+  assert.doesNotMatch(heroTierMatch[0], /overflow\s*:\s*hidden/);
+  assert.match(heroTierMatch[0], /z-index\s*:\s*20/);
+  assert.match(
+    css,
+    /\.vault-hero-ambient-clip\s*\{[\s\S]*?overflow\s*:\s*hidden;/
+  );
+});

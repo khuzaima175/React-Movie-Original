@@ -49,14 +49,15 @@ test("computeVaultCalibration finds exact-score anchors, excludes self, and fall
 });
 
 test("normalizeRatingBreakdown strips zeros/out-of-range and returns null when blank", () => {
-  assert.equal(CRAFT_ASPECTS.length, 4);
+  assert.equal(CRAFT_ASPECTS.length, 6);
   assert.equal(normalizeRatingBreakdown({ story: 0, direction: 0 }), null);
   assert.equal(normalizeRatingBreakdown(null), null);
   assert.deepEqual(
-    normalizeRatingBreakdown({ story: 5, direction: 4.4, acting: 99, visuals: 3, unknown: 5 }),
-    { story: 5, direction: 4, acting: 5, visuals: 3 }
+    normalizeRatingBreakdown({ story: 5, direction: 4.4, acting: 99, visuals: 3, audio: 5, pacing: 4, unknown: 5 }),
+    { story: 5, direction: 4, acting: 5, visuals: 3, audio: 5, pacing: 4 }
   );
   assert.equal(computeCraftAverage({ story: 5, direction: 4 }), 4.5);
+  assert.equal(computeCraftAverage({ story: 5, audio: 4, pacing: 3 }), 4);
   assert.equal(computeCraftAverage(null), null);
 });
 
