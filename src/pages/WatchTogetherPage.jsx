@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import { fetchTmdbJson, hasTmdbBackend } from "../services/apiTransport";
+import { fetchTmdbJson, getMovieDetailsBatch, hasTmdbBackend } from "../services/apiTransport";
+import { toDashboardCardItem } from "../services/dashboardService";
 import {
   computeProfileTasteVector,
   fetchPublicProfileByUsername
@@ -29,6 +30,7 @@ import {
 import { computeZScoredWeights } from "../services/scoringUtils";
 import { CORE_TASTE_DECK } from "../services/tasteDeckService";
 import {
+  buildJointCandidateIdPool,
   buildPartnerScoreMapFromVector,
   rankWatchTogetherCandidates
 } from "../services/watchTogetherService";
@@ -95,6 +97,68 @@ async function loadSharedCandidatePool(region = "US") {
   return [...byId.values()];
 }
 
+function hydrateTogetherCandidateFromRaw(raw, region = "US") {
+  if (!raw || !Number(raw.id)) return null;
+  const rCode = region && region !== "GLOBAL" ? region : "US";
+  const regionProviders = raw["watch/providers"]?.results?.[rCode] || raw["watch/providers"]?.results?.US || null;
+  const flatrate = Array.isArray(regionProviders?.flatrate) ? regionProviders.flatrate : [];
+  const free = Array.isArray(regionProviders?.free) ? regionProviders.free : [];
+  const card = toDashboardCardItem({
+    ...raw,
+    imdbID: raw.external_ids?.imdb_id || `tmdb_${raw.id}`,
+    genre_ids: Array.isArray(raw.genres) ? raw.genres.map((g) => g.id) : []
+  });
+  return {
+    ...card,
+    tmdbId: Number(raw.id),
+    id: `tmdb_${raw.id}`,
+    imdbID: raw.external_ids?.imdb_id || card.imdbID || `tmdb_${raw.id}`,
+    genre: Array.isArray(raw.genres) ? raw.genres.map((g) => g.name).join(", ") : (card.genre || ""),
+    tmdbGenreIds: Array.isArray(raw.genres) ? raw.genres.map((g) => g.id) : (card.tmdbGenreIds || []),
+    overview: raw.overview || card.overview || "",
+    vote_average: Number(raw.vote_average) || 0,
+    vote_count: Number(raw.vote_count) || 0,
+    streamProviders: flatrate.map((p) => ({ id: p.provider_id, name: p.provider_name })),
+    freeProviders: free.map((p) => ({ id: p.provider_id, name: p.provider_name })),
+    watchProviderLink: typeof regionProviders?.link === "string" ? regionProviders.link : null,
+    providersHydrated: Boolean(raw["watch/providers"])
+  };
+}
+
+async function buildPersonalizedTogetherPool({
+  scoresA,
+  scoresB,
+  watchedA,
+  watchedB,
+  region = "US"
+}) {
+  const fallbackPool = await loadSharedCandidatePool(region);
+  const fallbackById = new Map(fallbackPool.map((c) => [Number(c.tmdbId), c]));
+  const fallbackIds = fallbackPool.map((c) => Number(c.tmdbId)).filter(Boolean);
+
+  const targetIds = buildJointCandidateIdPool({
+    scoresA,
+    scoresB,
+    fallbackIds,
+    watchedA,
+    watchedB,
+    limit: 80
+  });
+
+  if (!hasTmdbBackend() || targetIds.length === 0) {
+    return fallbackPool;
+  }
+
+  const rawBatch = await getMovieDetailsBatch(targetIds).catch(() => ({}));
+  const hydrated = [];
+  for (const id of targetIds) {
+    const raw = rawBatch?.[id] || rawBatch?.[String(id)];
+    const mapped = hydrateTogetherCandidateFromRaw(raw, region) || fallbackById.get(id);
+    if (mapped) hydrated.push(mapped);
+  }
+  return hydrated.length > 0 ? hydrated : fallbackPool;
+}
+
 export default function WatchTogetherPage() {
   const { code: routeCode } = useParams();
   const [searchParams] = useSearchParams();
@@ -125,6 +189,7 @@ export default function WatchTogetherPage() {
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "swipe"
   const [localVotesA, setLocalVotesA] = useState({});
   const [localVotesB, setLocalVotesB] = useState({});
+  const [onlyMyProviders, setOnlyMyProviders] = useState(false);
 
   // Shareable Room State (/together/:code)
   const [roomState, setRoomState] = useState({
@@ -184,22 +249,33 @@ export default function WatchTogetherPage() {
           ratings: res.ratings || []
         });
 
-        const [candidates, hostRes] = await Promise.all([
-          loadSharedCandidatePool(userRegion),
-          computeHostScoreMap(null, watched)
-        ]);
-        const candIds = candidates.map((c) => c.tmdbId).filter(Boolean);
-        const scoresB = buildPartnerScoreMapFromVector(
-          res.profile.taste_vector,
-          hostRes.embIdx,
-          candIds
-        );
+        const hostRes = await computeHostScoreMap(null, watched);
         const partnerWatched = (res.ratings || []).map((r) => ({
           tmdbId: r.tmdb_id,
           imdbID: r.imdb_id,
           title: r.title,
           year: r.year
         }));
+
+        const allVectorScoresB = buildPartnerScoreMapFromVector(
+          res.profile.taste_vector,
+          hostRes.embIdx,
+          []
+        );
+        const candidates = await buildPersonalizedTogetherPool({
+          scoresA: hostRes.scoreMap,
+          scoresB: allVectorScoresB,
+          watchedA: watched,
+          watchedB: partnerWatched,
+          region: userRegion
+        });
+
+        const candIds = candidates.map((c) => c.tmdbId).filter(Boolean);
+        const scoresB = buildPartnerScoreMapFromVector(
+          res.profile.taste_vector,
+          hostRes.embIdx,
+          candIds
+        );
 
         const ranked = rankWatchTogetherCandidates({
           candidates,
@@ -209,6 +285,7 @@ export default function WatchTogetherPage() {
           watchedB: partnerWatched,
           tasteRulesA: tasteRules,
           userProviders: userWatchProviders,
+          requireSelectedProviders: onlyMyProviders,
           limit: 20
         });
         setMergedPicks(ranked);
@@ -218,7 +295,7 @@ export default function WatchTogetherPage() {
         setIsComputing(false);
       }
     },
-    [cloudUser?.id, computeHostScoreMap, tasteRules, userRegion, userWatchProviders, watched]
+    [cloudUser?.id, computeHostScoreMap, onlyMyProviders, tasteRules, userRegion, userWatchProviders, watched]
   );
 
   useEffect(() => {
@@ -258,10 +335,14 @@ export default function WatchTogetherPage() {
   const handleCreateRoom = async () => {
     setRoomBusy(true);
     try {
-      const [candidates, hostRes] = await Promise.all([
-        loadSharedCandidatePool(userRegion),
-        computeHostScoreMap(null, watched)
-      ]);
+      const hostRes = await computeHostScoreMap(null, watched);
+      const candidates = await buildPersonalizedTogetherPool({
+        scoresA: hostRes.scoreMap,
+        scoresB: hostRes.scoreMap,
+        watchedA: watched,
+        watchedB: [],
+        region: userRegion
+      });
       const initialDeck = rankWatchTogetherCandidates({
         candidates,
         scoresA: hostRes.scoreMap,
@@ -269,6 +350,7 @@ export default function WatchTogetherPage() {
         watchedA: watched,
         tasteRulesA: tasteRules,
         userProviders: userWatchProviders,
+        requireSelectedProviders: onlyMyProviders,
         limit: 15
       });
 
@@ -321,7 +403,16 @@ export default function WatchTogetherPage() {
           }));
 
       const guestVector = embIdx ? computeProfileTasteVector(guestWatched, embIdx) : null;
-      const candidates = await loadSharedCandidatePool(roomState.session.region || "US");
+      const roomRegion = roomState.session.region || "US";
+      const allScoresA = buildPartnerScoreMapFromVector(roomState.session.host_vector, embIdx, []);
+      const allScoresB = buildPartnerScoreMapFromVector(guestVector, embIdx, []);
+      const candidates = await buildPersonalizedTogetherPool({
+        scoresA: allScoresA,
+        scoresB: allScoresB,
+        watchedA: roomState.session.host_watched_ids || [],
+        watchedB: guestWatched,
+        region: roomRegion
+      });
       const candIds = candidates.map((c) => c.tmdbId).filter(Boolean);
 
       const scoresA = buildPartnerScoreMapFromVector(roomState.session.host_vector, embIdx, candIds);
@@ -593,6 +684,18 @@ export default function WatchTogetherPage() {
                 {partnerState.loading || isComputing ? "Blending..." : "Blend Tastes"}
               </Button>
             </form>
+
+            {userWatchProviders.length > 0 && (
+              <label className="inline-flex items-center gap-2 text-[1.3rem] text-[#b6b6b2] mb-5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={onlyMyProviders}
+                  onChange={(e) => setOnlyMyProviders(e.target.checked)}
+                  className="w-[1.5rem] h-[1.5rem] accent-amber-400 cursor-pointer"
+                />
+                <span>Only on my selected streaming services ({userWatchProviders.length})</span>
+              </label>
+            )}
 
             {partnerState.error && (
               <div className="together-error-banner" role="alert">

@@ -146,9 +146,65 @@ export function normalizeScoreMapToUnit(scoreMap) {
 }
 
 /**
+ * Builds a deduplicated, interleaved candidate TMDB ID pool from both partners' top unseen
+ * EASE+SVD / 64-D vector neighbors, falling back to `fallbackIds` only to reach `limit`.
+ */
+export function buildJointCandidateIdPool({
+  scoresA = new Map(),
+  scoresB = new Map(),
+  fallbackIds = [],
+  watchedA = [],
+  watchedB = [],
+  limit = 90
+} = {}) {
+  const watchedSet = new Set(
+    [...(Array.isArray(watchedA) ? watchedA : []), ...(Array.isArray(watchedB) ? watchedB : [])]
+      .map((m) => Number(typeof m === "object" && m !== null ? (m.tmdbId ?? m.id) : m))
+      .filter((n) => Number.isSafeInteger(n) && n > 0)
+  );
+
+  const topFromMap = (scoreMap, maxCount = 60) => {
+    if (!(scoreMap instanceof Map) || scoreMap.size === 0) return [];
+    return [...scoreMap.entries()]
+      .filter(([id, score]) => Number.isSafeInteger(Number(id)) && Number(id) > 0 && !watchedSet.has(Number(id)) && Number.isFinite(Number(score)))
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, maxCount)
+      .map(([id]) => Number(id));
+  };
+
+  const listA = topFromMap(scoresA, Math.max(50, limit));
+  const listB = topFromMap(scoresB, Math.max(50, limit));
+  const out = [];
+  const seen = new Set();
+
+  const tryPush = (rawId) => {
+    const id = Number(rawId);
+    if (!Number.isSafeInteger(id) || id <= 0 || watchedSet.has(id) || seen.has(id)) return false;
+    seen.add(id);
+    out.push(id);
+    return true;
+  };
+
+  const maxLen = Math.max(listA.length, listB.length);
+  for (let i = 0; i < maxLen && out.length < limit; i += 1) {
+    if (i < listA.length) tryPush(listA[i]);
+    if (out.length >= limit) break;
+    if (i < listB.length) tryPush(listB[i]);
+  }
+
+  for (const fbId of Array.isArray(fallbackIds) ? fallbackIds : []) {
+    if (out.length >= limit) break;
+    tryPush(fbId);
+  }
+
+  return out.slice(0, Math.max(1, limit));
+}
+
+/**
  * Ranks a candidate pool for two viewers:
  * - Excludes movies seen by EITHER partner
  * - Drops movies violating EITHER partner's active avoid Taste Rules
+ * - Optionally restricts to `userProviders` when `requireSelectedProviders` is true
  * - Scores via Nash-welfare harmonic joint compatibility + quality/provider tie-breakers
  */
 export function rankWatchTogetherCandidates({
@@ -160,6 +216,7 @@ export function rankWatchTogetherCandidates({
   tasteRulesA = [],
   tasteRulesB = [],
   userProviders = [],
+  requireSelectedProviders = false,
   limit = 20
 } = {}) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
@@ -197,6 +254,9 @@ export function rankWatchTogetherCandidates({
       continue;
     }
     if (avoidRules.length > 0 && candidateMatchesAvoidRule(cand, avoidRules).matched) {
+      continue;
+    }
+    if (requireSelectedProviders && hasProviderPref && !matchesWatchProviders(cand, userProviders)) {
       continue;
     }
 

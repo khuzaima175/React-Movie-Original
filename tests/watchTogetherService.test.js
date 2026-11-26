@@ -4,6 +4,7 @@ import {
   scoreJointCandidate,
   rankWatchTogetherCandidates,
   buildPartnerScoreMapFromVector,
+  buildJointCandidateIdPool,
   evaluateSwipeRound,
   generateRoomCode
 } from "../src/services/watchTogetherService.js";
@@ -106,4 +107,39 @@ test("evaluateSwipeRound surfaces mutual yes matches and falls back to top-3 com
 test("generateRoomCode creates uppercase 8-char alphanumeric codes", () => {
   const code = generateRoomCode();
   assert.match(code, /^[A-Z0-9]{8}$/);
+});
+
+test("buildJointCandidateIdPool interleaves top unseen neighbors from both partners even when top 60 popular films are watched", () => {
+  const watchedA = Array.from({ length: 60 }, (_, i) => ({ tmdbId: i + 1 }));
+  const watchedB = Array.from({ length: 30 }, (_, i) => ({ tmdbId: i + 40 }));
+  const scoresA = new Map([[10, 0.99], [501, 0.92], [502, 0.88]]);
+  const scoresB = new Map([[50, 0.99], [601, 0.94], [502, 0.85]]);
+
+  const ids = buildJointCandidateIdPool({
+    scoresA,
+    scoresB,
+    fallbackIds: [1, 2, 701, 702],
+    watchedA,
+    watchedB,
+    limit: 5
+  });
+
+  assert.equal(ids.includes(10), false);
+  assert.equal(ids.includes(50), false);
+  assert.deepEqual(ids, [501, 601, 502, 701, 702]);
+});
+
+test("rankWatchTogetherCandidates filters to userProviders when requireSelectedProviders is true", () => {
+  const candidates = [
+    { tmdbId: 1, title: "On Netflix", streamProviders: [{ id: 8, name: "Netflix" }] },
+    { tmdbId: 2, title: "Not Streaming", streamProviders: [{ id: 350, name: "Apple TV+" }] }
+  ];
+  const ranked = rankWatchTogetherCandidates({
+    candidates,
+    scoresA: new Map([[1, 0.8], [2, 0.9]]),
+    scoresB: new Map([[1, 0.8], [2, 0.9]]),
+    userProviders: [8],
+    requireSelectedProviders: true
+  });
+  assert.deepEqual(ranked.map((c) => c.tmdbId), [1]);
 });
