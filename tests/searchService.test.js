@@ -4,7 +4,8 @@ import {
   mapTmdbSearchItem,
   mergeAndRankSearchResults,
   searchCatalogMovies,
-  loadSearchTrendingPosters
+  loadSearchTrendingPosters,
+  searchMultiEntity
 } from "../src/services/searchService.js";
 
 test("mapTmdbSearchItem converts TMDB result to unified search record with genres, backdrop, and score", () => {
@@ -88,4 +89,51 @@ test("loadSearchTrendingPosters returns fallback visual posters when TMDB is una
   });
   assert.equal(list.length, 8);
   assert.ok(list.every((item) => item.Poster && item.Title));
+});
+
+test("searchMultiEntity returns movies, people, public users, and public lists with graceful degradation", async () => {
+  const mockSupabase = {
+    from(table) {
+      if (table === "public_profiles") {
+        const chain = {
+          or() { return chain; },
+          order() { return chain; },
+          limit: async () => ({
+            data: [{ user_id: "u1", username: "villeneuve_fan", display_name: "Villeneuve Fan", watched_count: 42 }],
+            error: null
+          })
+        };
+        return { select: () => chain };
+      }
+      if (table === "user_lists") {
+        const chain = {
+          eq() { return chain; },
+          is() { return chain; },
+          ilike() { return chain; },
+          order() { return chain; },
+          limit: async () => ({
+            data: [{ id: "l1", name: "Villeneuve Ranked", slug: "villeneuve-ranked-abc123", items: [{ title: "Arrival" }] }],
+            error: null
+          })
+        };
+        return { select: () => chain };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }
+  };
+
+  const res = await searchMultiEntity(
+    { query: "villeneuve", watched: [], watchlist: [] },
+    {
+      searchMoviesFn: async () => [{ imdbID: "tt1856101", Title: "Blade Runner 2049", Year: "2017" }],
+      fetchTmdbFn: async () => ({
+        results: [{ id: 137427, name: "Denis Villeneuve", known_for_department: "Directing", profile_path: "/p.jpg" }]
+      }),
+      supabaseClient: mockSupabase
+    }
+  );
+  assert.equal(res.movies.length, 1);
+  assert.equal(res.people[0].name, "Denis Villeneuve");
+  assert.equal(res.users[0].username, "villeneuve_fan");
+  assert.equal(res.lists[0].slug, "villeneuve-ranked-abc123");
 });

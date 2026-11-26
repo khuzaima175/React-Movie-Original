@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Bookmark,
   Check,
   Compass,
   Film,
+  ListChecks,
   Loader2,
   Plus,
   Search,
   Star,
+  User,
+  Users,
   X
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
@@ -17,7 +21,7 @@ import PosterImage from "./PosterImage";
 import { prepareWatchlistPayload } from "../services/ratingTiers";
 import {
   loadSearchTrendingPosters,
-  searchCatalogMovies
+  searchMultiEntity
 } from "../services/searchService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
 import { buildTasteMatchContext, predictMovieMatch } from "../services/tasteMatchService";
@@ -25,7 +29,9 @@ import { buildTasteMatchContext, predictMovieMatch } from "../services/tasteMatc
 const QUICK_FILTER_TABS = [
   { id: "all", label: "All" },
   { id: "vault", label: "In My Vault" },
-  { id: "watchlist", label: "Watchlisted" }
+  { id: "watchlist", label: "Watchlisted" },
+  { id: "people", label: "People" },
+  { id: "community", label: "Community" }
 ];
 
 export default function SearchModal({
@@ -35,6 +41,7 @@ export default function SearchModal({
   onQuickRate,
   onExploreQuery
 }) {
+  const navigate = useNavigate();
   const { watched = [], watchlist = [], tasteRules = [], addToWatchlist } = useApp();
   const [embeddingIndex, setEmbeddingIndex] = useState(null);
 
@@ -57,6 +64,9 @@ export default function SearchModal({
   );
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [peopleResults, setPeopleResults] = useState([]);
+  const [userResults, setUserResults] = useState([]);
+  const [listResults, setListResults] = useState([]);
   const [trendingPosters, setTrendingPosters] = useState([]);
   const [activeFilter, setActiveFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(false);
@@ -112,6 +122,9 @@ export default function SearchModal({
     const trimmed = query.trim();
     if (!trimmed) {
       setResults([]);
+      setPeopleResults([]);
+      setUserResults([]);
+      setListResults([]);
       setIsLoading(false);
       setError("");
       setSelectedIndex(0);
@@ -123,14 +136,17 @@ export default function SearchModal({
       setIsLoading(true);
       setError("");
       try {
-        const merged = await searchCatalogMovies({
+        const multi = await searchMultiEntity({
           query: trimmed,
           watched,
           watchlist,
           signal: controller.signal
         });
         if (!controller.signal.aborted) {
-          setResults(merged);
+          setResults(multi.movies);
+          setPeopleResults(multi.people);
+          setUserResults(multi.users);
+          setListResults(multi.lists);
           setSelectedIndex(0);
           setIsLoading(false);
         }
@@ -149,6 +165,7 @@ export default function SearchModal({
   }, [query, isOpen, watched, watchlist]);
 
   const filteredResults = useMemo(() => {
+    if (activeFilter === "people" || activeFilter === "community") return [];
     if (activeFilter === "vault") return results.filter((item) => item.inVault);
     if (activeFilter === "watchlist") return results.filter((item) => item.inWatchlist);
     return results;
@@ -156,11 +173,13 @@ export default function SearchModal({
 
   const filterCounts = useMemo(
     () => ({
-      all: results.length,
+      all: results.length + peopleResults.length + userResults.length + listResults.length,
       vault: results.filter((item) => item.inVault).length,
-      watchlist: results.filter((item) => item.inWatchlist).length
+      watchlist: results.filter((item) => item.inWatchlist).length,
+      people: peopleResults.length,
+      community: userResults.length + listResults.length
     }),
-    [results]
+    [results, peopleResults.length, userResults.length, listResults.length]
   );
 
   useEffect(() => {
@@ -261,8 +280,8 @@ export default function SearchModal({
             className="search-theater-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search films, directors, or IMDb ID..."
-            aria-label="Search films by title, director, or IMDb ID"
+            placeholder="Search films, people, @users, or lists..."
+            aria-label="Search films, people, users, or lists"
           />
           {query && (
             <button
@@ -394,23 +413,77 @@ export default function SearchModal({
             <div className="search-results-pane">
               {error && <div className="search-status-banner">{error}</div>}
 
-              {isLoading && filteredResults.length === 0 ? (
+              {isLoading && filterCounts[activeFilter] === 0 ? (
                 <div className="search-empty-state">
                   <Loader2 size={24} className="search-spinner-icon" aria-hidden="true" />
                   <p>Searching catalog...</p>
                 </div>
-              ) : filteredResults.length === 0 ? (
+              ) : filterCounts[activeFilter] === 0 ? (
                 <div className="search-empty-state">
                   <Film size={28} aria-hidden="true" />
                   <p>
-                    {results.length > 0
+                    {results.length + peopleResults.length + userResults.length + listResults.length > 0
                       ? "No matches under this filter. Try switching to All."
-                      : `No films found matching "${trimmedQuery}".`}
+                      : `No results found matching "${trimmedQuery}".`}
                   </p>
                 </div>
               ) : (
                 <div className="search-results-list" role="listbox" aria-label="Search results">
-                  {filteredResults.map((movie, idx) => {
+                  {(activeFilter === "all" || activeFilter === "people") && peopleResults.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-2 px-1">
+                      {peopleResults.map((person) => (
+                        <button
+                          key={`person-${person.id}`}
+                          type="button"
+                          onClick={() => {
+                            navigate(`/person/${person.id}`);
+                            onClose?.();
+                          }}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/12 text-[1.25rem] text-[#f4f4f2] hover:border-white/30 cursor-pointer"
+                        >
+                          <User size={13} className="text-amber-300" aria-hidden="true" />
+                          <span>{person.name}</span>
+                          <span className="text-[1.1rem] text-[#9e9e99]">{person.department}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {(activeFilter === "all" || activeFilter === "community") && (userResults.length > 0 || listResults.length > 0) && (
+                    <div className="mb-3 flex flex-wrap gap-2 px-1">
+                      {userResults.map((u) => (
+                        <button
+                          key={`user-${u.user_id}`}
+                          type="button"
+                          onClick={() => {
+                            navigate(`/u/${u.username}`);
+                            onClose?.();
+                          }}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[1.25rem] text-emerald-200 hover:border-emerald-400/60 cursor-pointer"
+                        >
+                          <Users size={13} aria-hidden="true" />
+                          <span>@{u.username}</span>
+                        </button>
+                      ))}
+                      {listResults.map((l) => (
+                        <button
+                          key={`list-${l.id}`}
+                          type="button"
+                          onClick={() => {
+                            navigate(`/list/${l.slug}`);
+                            onClose?.();
+                          }}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/12 text-[1.25rem] text-[#f4f4f2] hover:border-white/30 cursor-pointer"
+                        >
+                          <ListChecks size={13} className="text-amber-300" aria-hidden="true" />
+                          <span>{l.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {(activeFilter === "all" || activeFilter === "vault" || activeFilter === "watchlist") &&
+                    filteredResults.map((movie, idx) => {
                     const isFocused = idx === selectedIndex;
                     return (
                       <div

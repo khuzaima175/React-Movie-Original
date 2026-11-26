@@ -5,6 +5,7 @@ import {
   hasTmdbBackend
 } from "./apiTransport.js";
 import { TMDB_ID_TO_GENRE } from "./tmdbService.js";
+import { getSupabaseClientAsync, hasSupabaseConfig } from "./supabaseClient.js";
 
 const CURATED_TRENDING_FALLBACK = [
   {
@@ -460,4 +461,125 @@ export async function loadSearchTrendingPosters({
   return baseList
     .slice(0, limit)
     .map((item) => annotateVaultState(item, watchedIndex, watchlistIndex));
+}
+
+function sanitizeSearchFilterToken(raw = "") {
+  return String(raw || "")
+    .trim()
+    .replace(/[%_(),.*]/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, 60);
+}
+
+/**
+ * Searches movies, TMDB people, public CinemaVault `@users`, and public curated lists
+ * concurrently with graceful degradation if any backend is offline or unconfigured.
+ */
+export async function searchMultiEntity(
+  {
+    query = "",
+    watched = [],
+    watchlist = [],
+    includeCommunity = true,
+    signal
+  } = {},
+  options = {}
+) {
+  const trimmed = String(query || "").trim();
+  if (!trimmed) {
+    return { movies: [], people: [], users: [], lists: [] };
+  }
+
+  const searchMoviesFn =
+    typeof options.searchMoviesFn === "function" ? options.searchMoviesFn : searchCatalogMovies;
+  const fetchTmdbFn =
+    typeof options.fetchTmdbFn === "function"
+      ? options.fetchTmdbFn
+      : hasTmdbBackend()
+        ? fetchTmdbJson
+        : null;
+
+  const isImdbLookup = /^tt\d{5,}$/i.test(trimmed);
+  const moviePromise = searchMoviesFn({ query: trimmed, watched, watchlist, signal });
+
+  const peoplePromise =
+    fetchTmdbFn && trimmed.length >= 2 && !isImdbLookup
+      ? fetchTmdbFn(
+          "/3/search/person",
+          { query: trimmed, include_adult: false, language: "en-US", page: 1 },
+          { signal }
+        )
+          .then((res) =>
+            (Array.isArray(res?.results) ? res.results : []).slice(0, 4).map((p) => ({
+              id: Number(p.id),
+              name: p.name || "Unknown",
+              department: p.known_for_department || "Film",
+              profilePath: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null
+            }))
+          )
+          .catch((err) => {
+            if (err?.name === "AbortError") throw err;
+            return [];
+          })
+      : Promise.resolve([]);
+
+  const communityPromise = (async () => {
+    if (!includeCommunity || trimmed.length < 2 || isImdbLookup) {
+      return { users: [], lists: [] };
+    }
+    const supabase =
+      "supabaseClient" in options
+        ? options.supabaseClient
+        : hasSupabaseConfig()
+          ? await getSupabaseClientAsync().catch(() => null)
+          : null;
+    if (!supabase) return { users: [], lists: [] };
+
+    const safeQ = sanitizeSearchFilterToken(trimmed.replace(/^@+/, ""));
+    if (!safeQ) return { users: [], lists: [] };
+
+    const [usersRes, listsRes] = await Promise.allSettled([
+      supabase
+        .from("public_profiles")
+        .select("user_id, username, display_name, watched_count")
+        .or(`username.ilike.%${safeQ}%,display_name.ilike.%${safeQ}%`)
+        .order("watched_count", { ascending: false })
+        .limit(3),
+      supabase
+        .from("user_lists")
+        .select("id, name, slug, items")
+        .eq("is_public", true)
+        .is("deleted_at", null)
+        .ilike("name", `%${safeQ}%`)
+        .order("bookmark_count", { ascending: false })
+        .limit(3)
+    ]);
+
+    const users =
+      usersRes.status === "fulfilled" && Array.isArray(usersRes.value?.data)
+        ? usersRes.value.data
+        : [];
+    const lists =
+      listsRes.status === "fulfilled" && Array.isArray(listsRes.value?.data)
+        ? listsRes.value.data
+        : [];
+    return { users, lists };
+  })();
+
+  const [moviesSettled, peopleSettled, communitySettled] = await Promise.allSettled([
+    moviePromise,
+    peoplePromise,
+    communityPromise
+  ]);
+
+  if (moviesSettled.status === "rejected" && moviesSettled.reason?.name === "AbortError") {
+    throw moviesSettled.reason;
+  }
+
+  return {
+    movies: moviesSettled.status === "fulfilled" && Array.isArray(moviesSettled.value) ? moviesSettled.value : [],
+    people: peopleSettled.status === "fulfilled" && Array.isArray(peopleSettled.value) ? peopleSettled.value : [],
+    users: communitySettled.status === "fulfilled" ? communitySettled.value.users : [],
+    lists: communitySettled.status === "fulfilled" ? communitySettled.value.lists : []
+  };
 }
