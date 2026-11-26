@@ -64,6 +64,7 @@ import AddToListPopover from "./AddToListPopover";
 import TrailerModal from "./TrailerModal";
 import { buildTrailerEmbedUrl } from "../services/navHelpers";
 import { appendWatchHistoryEntry } from "../services/diaryService";
+import { parseAwardsSummary } from "../services/awardsService";
 import {
   ArrowLeft,
   ChevronRight,
@@ -74,6 +75,7 @@ import {
   Plus,
   Check,
   Award,
+  Trophy,
   Gauge,
   Film,
   User,
@@ -336,6 +338,11 @@ export default function MovieDetails({
     [watched, movieIdentity]
   );
 
+  const parsedAwards = useMemo(
+    () => parseAwardsSummary(movie?.awards || movie?.Awards || watchedItem?.Awards),
+    [movie?.awards, movie?.Awards, watchedItem?.Awards]
+  );
+
   const watchlistItem = useMemo(
     () => findMatchingMovie(watchlist, movieIdentity),
     [watchlist, movieIdentity]
@@ -481,6 +488,9 @@ export default function MovieDetails({
         const tmdbVotes = tmdbData?.vote_count ? new Intl.NumberFormat().format(tmdbData.vote_count) : null;
         const metascore = omdbData?.Metascore && omdbData.Metascore !== "N/A" ? omdbData.Metascore : null;
         const rottenTomatoes = omdbData?.Ratings?.find((r) => r.Source === "Rotten Tomatoes")?.Value || null;
+        const awards = omdbData?.Awards && omdbData.Awards !== "N/A"
+          ? omdbData.Awards
+          : (watchedItem?.Awards && watchedItem.Awards !== "N/A" ? watchedItem.Awards : null);
 
         const mpaaRating = tmdbData?.mpaaRating || (omdbData?.Rated && omdbData.Rated !== "N/A" ? omdbData.Rated : null);
 
@@ -518,6 +528,7 @@ export default function MovieDetails({
           tmdbVotes,
           metascore,
           rottenTomatoes,
+          awards,
           trailerKey: tmdbData?.trailerKey || null,
           trailerUrl: tmdbData?.trailerUrl || null,
           streamProviders: tmdbData?.streamProviders || [],
@@ -1420,6 +1431,43 @@ export default function MovieDetails({
                   </div>
                 )}
               </div>
+
+              {/* Awards & Accolades Strip */}
+              {parsedAwards && (
+                <div
+                  className={`awards-accolades-strip ${parsedAwards.isOscarWinner ? "is-oscar-winner" : parsedAwards.hasOscars ? "is-oscar-nominee" : ""}`}
+                  aria-label="Awards and nominations"
+                >
+                  <span className="awards-accolades-icon" aria-hidden="true">
+                    {parsedAwards.hasOscars ? <Trophy size={16} /> : <Award size={16} />}
+                  </span>
+                  <div className="awards-accolades-body">
+                    <span className="awards-accolades-kicker">Awards &amp; Recognition</span>
+                    <div className="awards-accolades-row tabular-num">
+                      {parsedAwards.oscarLabel && (
+                        <span className="awards-headline-pill">
+                          {parsedAwards.oscarLabel}
+                        </span>
+                      )}
+                      {!parsedAwards.oscarLabel && parsedAwards.prestigeLabel && (
+                        <span className="awards-headline-pill">
+                          {parsedAwards.prestigeLabel}
+                        </span>
+                      )}
+                      {parsedAwards.totalLabel && (
+                        <span className="awards-totals-text">
+                          {parsedAwards.totalLabel}
+                        </span>
+                      )}
+                      {parsedAwards.headline && (
+                        <span className="awards-totals-text">
+                          {parsedAwards.headline}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Genres Row */}
               {movie.genres?.length > 0 && (

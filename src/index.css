@@ -5346,6 +5346,101 @@
   color: #71717a;
 }
 
+/* Awards & Recognition Strip */
+.awards-accolades-strip {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 1.15rem 1.4rem;
+  border-radius: 1rem;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.awards-accolades-strip.is-oscar-winner {
+  background:
+    radial-gradient(120% 140% at 0% 50%, rgba(246, 208, 122, 0.14) 0%, rgba(24, 25, 28, 0.96) 65%);
+  border-color: rgba(246, 208, 122, 0.34);
+}
+
+.awards-accolades-strip.is-oscar-nominee {
+  border-color: rgba(230, 186, 108, 0.24);
+}
+
+.awards-accolades-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  border-radius: 0.75rem;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  color: #a1a1aa;
+}
+
+.awards-accolades-strip.is-oscar-winner .awards-accolades-icon {
+  background: rgba(246, 208, 122, 0.14);
+  color: #f6d07a;
+}
+
+.awards-accolades-strip.is-oscar-nominee .awards-accolades-icon {
+  background: rgba(230, 186, 108, 0.1);
+  color: #e6ba6c;
+}
+
+.awards-accolades-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.awards-accolades-kicker {
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+}
+
+.awards-accolades-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.9rem;
+}
+
+.awards-headline-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.75rem;
+  border-radius: 999px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #f4f4f2;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.awards-accolades-strip.is-oscar-winner .awards-headline-pill {
+  color: #f6d07a;
+  background: rgba(246, 208, 122, 0.14);
+  border-color: rgba(246, 208, 122, 0.36);
+}
+
+.awards-accolades-strip.is-oscar-nominee .awards-headline-pill {
+  color: #e6ba6c;
+  background: rgba(230, 186, 108, 0.11);
+  border-color: rgba(230, 186, 108, 0.28);
+}
+
+.awards-totals-text {
+  font-size: 1.32rem;
+  font-weight: 600;
+  color: #e4e4e7;
+}
+
 .netflix-genres-row {
   display: flex;
   flex-wrap: wrap;
