@@ -146,8 +146,11 @@ export function buildTasteCardData({ watched = [], profile = null, year = null }
 /**
  * Renders the Taste Passport model directly onto an HTML5 Canvas 2D surface.
  */
-export async function renderTasteCardToCanvas(canvas, model, { aspect = "story" } = {}) {
+export async function renderTasteCardToCanvas(canvas, model, { aspect = "story", isCancelled = null } = {}) {
   if (!canvas || !model) return;
+  const loadedPosters = await Promise.all((model.topFilms || []).map((f) => loadPosterImage(f.poster)));
+  if (typeof isCancelled === "function" && isCancelled()) return;
+
   const layout = computeTasteCardLayout(aspect);
   const { isStory, width, height, pad, statsY, statsH, posterY, posterGap, posterW, posterH, rowGap, footerY } = layout;
 
@@ -204,7 +207,6 @@ export async function renderTasteCardToCanvas(canvas, model, { aspect = "story" 
     ctx.fillText(st.value.slice(0, 12), sx + 16, statsY + (isStory ? 84 : 60));
   });
 
-  const loadedPosters = await Promise.all((model.topFilms || []).map((f) => loadPosterImage(f.poster)));
   const gridStartX = isStory ? (width - (posterW * 2 + posterGap)) / 2 : pad;
 
   (model.topFilms || []).slice(0, 4).forEach((film, idx) => {

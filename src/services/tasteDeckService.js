@@ -497,14 +497,17 @@ export function shouldAutoShowTasteOnboarding({
 
 /**
  * Shows the non-blocking inline onboarding strip on Discover for first-time visitors
- * once the vault is hydrated, < 3 films are rated, and the user has not dismissed it.
+ * once local vault storage and any pending cloud auth/sync have settled, < 3 films
+ * are rated, and the user has not dismissed it.
  */
 export function shouldShowInlineOnboardingBanner({
   watchedCount = 0,
   dismissedFlag = null,
-  isVaultHydrated = true
+  isVaultHydrated = true,
+  isAuthLoading = false,
+  isCloudSyncPending = false
 } = {}) {
-  if (!isVaultHydrated) return false;
+  if (!isVaultHydrated || isAuthLoading || isCloudSyncPending) return false;
   return Number(watchedCount) < 3 && dismissedFlag !== "true";
 }
 

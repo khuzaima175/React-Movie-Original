@@ -29,10 +29,12 @@ export default function TasteCardModal({
     if (!isOpen || !canvasRef.current) return undefined;
     let active = true;
     const targetCanvas = canvasRef.current;
-    renderTasteCardToCanvas(targetCanvas, cardData, { aspect }).catch(() => {});
+    renderTasteCardToCanvas(targetCanvas, cardData, {
+      aspect,
+      isCancelled: () => !active
+    }).catch(() => {});
     return () => {
       active = false;
-      void active;
     };
   }, [isOpen, cardData, aspect]);
 

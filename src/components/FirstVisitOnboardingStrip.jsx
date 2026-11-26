@@ -18,7 +18,11 @@ export default function FirstVisitOnboardingStrip({
     watched = [],
     watchlist = [],
     addWatched,
-    cloudUser,
+    hasCloudConfig = false,
+    cloudUser = null,
+    isAuthLoading = false,
+    cloudSyncStatus = "idle",
+    forYouLivePool = null,
     loadSampleVault,
     isVaultHydrated = true
   } = useApp();
@@ -39,10 +43,17 @@ export default function FirstVisitOnboardingStrip({
     [watched]
   );
 
+  const isCloudSyncPending = Boolean(
+    hasCloudConfig &&
+      (cloudSyncStatus === "syncing" || (cloudUser && cloudSyncStatus === "idle" && ratedCount === 0))
+  );
+
   const visible = shouldShowInlineOnboardingBanner({
     watchedCount: ratedCount,
     dismissedFlag: dismissed ? "true" : null,
-    isVaultHydrated
+    isVaultHydrated,
+    isAuthLoading,
+    isCloudSyncPending
   });
 
   useEffect(() => {
@@ -60,6 +71,7 @@ export default function FirstVisitOnboardingStrip({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, skippedIds]);
 
+  const hasLiveForYou = Array.isArray(forYouLivePool?.items) && forYouLivePool.items.length > 0;
   const showUnlockedBanner = Object.keys(justRatedIds).length > 0 && ratedCount >= 3 && !dismissed;
   if ((!visible && !showUnlockedBanner) || (visible && batch.length === 0)) return null;
 
@@ -102,7 +114,9 @@ export default function FirstVisitOnboardingStrip({
             <h2 className="m-0 text-[2rem] sm:text-[2.2rem] font-semibold tracking-tight text-[var(--text-1)]">
               {remainingNeeded > 0
                 ? `Pick ${remainingNeeded} more ${remainingNeeded === 1 ? "film" : "films"} you know to unlock personalized picks`
-                : "Taste Profile unlocked — your Discover rows are updating"}
+                : hasLiveForYou
+                  ? "Taste Profile unlocked — “Picked For Your Taste” is live below"
+                  : "Taste Profile unlocked — building your personalized Discover row…"}
             </h2>
             <p className="mt-1 mb-0 text-[1.35rem] text-[var(--text-2)]">
               Tap Love or Like on a few titles, or import your Letterboxd history in seconds.

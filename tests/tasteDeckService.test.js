@@ -50,6 +50,8 @@ test("shouldShowInlineOnboardingBanner shows only when hydrated, < 3 watched, an
   assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 3, dismissedFlag: null, isVaultHydrated: true }), false);
   assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 0, dismissedFlag: "true", isVaultHydrated: true }), false);
   assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 0, dismissedFlag: null, isVaultHydrated: false }), false);
+  assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 0, dismissedFlag: null, isVaultHydrated: true, isAuthLoading: true }), false);
+  assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 0, dismissedFlag: null, isVaultHydrated: true, isCloudSyncPending: true }), false);
 });
 
 test("selectInlineStarterFilms returns up to 8 genre-diverse unseen films", () => {

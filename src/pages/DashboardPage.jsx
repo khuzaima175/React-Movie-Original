@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SlidersHorizontal } from "lucide-react";
 import { useApp } from "../context/AppContext";
@@ -22,14 +22,19 @@ export default function DashboardPage({ onOpenTasteDeck, onOpenImport }) {
     watchlist = [],
     tasteRules = [],
     userRegion = "GLOBAL",
+    isVaultHydrated = true,
     forYouLivePool = null,
+    backgroundJobs = null,
+    startForYouBackgroundJob,
     addWatched,
     addToWatchlist
   } = useApp();
   const [feeds, setFeeds] = useState({ heroSlides: [], rows: [], mosaicPool: [], isLive: false });
   const [hasLoadedFeeds, setHasLoadedFeeds] = useState(false);
   const [cachedForYouItems, setCachedForYouItems] = useState([]);
+  const [cachedForYouChecked, setCachedForYouChecked] = useState(false);
   const [quickAddMovie, setQuickAddMovie] = useState(null);
+  const autoTriggeredForYouSigRef = useRef("");
 
   const ratedCount = useMemo(
     () => (Array.isArray(watched) ? watched.filter((m) => Number(m?.userRating) > 0).length : 0),
@@ -47,16 +52,21 @@ export default function DashboardPage({ onOpenTasteDeck, onOpenImport }) {
   useEffect(() => {
     if (ratedCount < HOME_FOR_YOU_MIN_RATED) {
       setCachedForYouItems([]);
+      setCachedForYouChecked(false);
       return undefined;
     }
     let active = true;
+    setCachedForYouChecked(false);
     loadLatestLocalExploreForYouFallback()
       .then((fallback) => {
         if (active) {
           setCachedForYouItems(fallback?.items?.length > 0 ? fallback.items : []);
+          setCachedForYouChecked(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active) setCachedForYouChecked(true);
+      });
     return () => {
       active = false;
     };
@@ -66,6 +76,34 @@ export default function DashboardPage({ onOpenTasteDeck, onOpenImport }) {
     Array.isArray(forYouLivePool?.items) && forYouLivePool.items.length > 0
       ? forYouLivePool.items
       : cachedForYouItems;
+
+  // Automatically generate "Picked For Your Taste" on Discover once >= 3 films are rated
+  // and no cached/live For-You pool exists yet (e.g. right after inline homepage calibration).
+  useEffect(() => {
+    if (
+      !isVaultHydrated ||
+      !cachedForYouChecked ||
+      ratedCount < HOME_FOR_YOU_MIN_RATED ||
+      activeForYouSource.length > 0 ||
+      backgroundJobs?.forYou?.status === "running" ||
+      autoTriggeredForYouSigRef.current === vaultTasteSignature
+    ) {
+      return;
+    }
+    autoTriggeredForYouSigRef.current = vaultTasteSignature;
+    startForYouBackgroundJob?.({
+      profileHash: `home:${vaultTasteSignature}`,
+      forceRefresh: false
+    });
+  }, [
+    isVaultHydrated,
+    cachedForYouChecked,
+    ratedCount,
+    activeForYouSource.length,
+    backgroundJobs?.forYou?.status,
+    startForYouBackgroundJob,
+    vaultTasteSignature
+  ]);
 
   const personalizedTasteRow = useMemo(
     () =>

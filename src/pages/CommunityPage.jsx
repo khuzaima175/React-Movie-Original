@@ -85,7 +85,6 @@ export default function CommunityPage() {
   }, [watched]);
 
   useEffect(() => {
-    if (activeTab !== "feed") return undefined;
     if (!hasCloudConfig || !cloudUser?.id) {
       setFeedState({ loading: false, items: [], status: "signed_out", error: "" });
       return undefined;
@@ -117,7 +116,7 @@ export default function CommunityPage() {
     return () => {
       active = false;
     };
-  }, [activeTab, hasCloudConfig, cloudUser?.id]);
+  }, [hasCloudConfig, cloudUser?.id]);
 
   useEffect(() => {
     if (activeTab !== "lists") return undefined;
