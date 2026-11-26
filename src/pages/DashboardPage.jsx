@@ -7,13 +7,14 @@ import MovieCarouselRow from "../components/MovieCarouselRow";
 import RowSkeleton from "../components/RowSkeleton";
 import HomePosterGrid from "../components/HomePosterGrid";
 import QuickRateModal from "../components/QuickRateModal";
+import FirstVisitOnboardingStrip from "../components/FirstVisitOnboardingStrip";
 import { loadHomeDiscoveryFeeds, buildPersonalizedHomeRow } from "../services/dashboardService";
 import { loadLatestLocalExploreForYouFallback } from "../services/exploreForYouCache";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 const HOME_FOR_YOU_MIN_RATED = 3;
 
-export default function DashboardPage({ onOpenTasteDeck }) {
+export default function DashboardPage({ onOpenTasteDeck, onOpenImport }) {
   useDocumentTitle("Discover");
   const navigate = useNavigate();
   const {
@@ -144,6 +145,10 @@ export default function DashboardPage({ onOpenTasteDeck }) {
       />
 
       <div className="home-rows-container">
+        <FirstVisitOnboardingStrip
+          onOpenTasteDeck={onOpenTasteDeck}
+          onOpenImport={onOpenImport}
+        />
         {!hasLoadedFeeds && (!feeds.rows || feeds.rows.length === 0) && (
           <>
             <RowSkeleton />

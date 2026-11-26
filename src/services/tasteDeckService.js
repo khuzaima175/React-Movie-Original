@@ -1,6 +1,7 @@
 import { buildSeenCollisionSet } from "./dashboardService.js";
 
 export const TASTE_ONBOARDING_DISMISSED_KEY = "cinemavault_taste_onboarding_dismissed_v1";
+export const INLINE_ONBOARDING_DISMISSED_KEY = "cinemavault_inline_onboarding_dismissed_v1";
 
 export const CORE_TASTE_DECK = [
   // Sci-Fi
@@ -492,4 +493,30 @@ export function shouldAutoShowTasteOnboarding({
 } = {}) {
   if (!isVaultHydrated) return false;
   return Number(watchedCount) < 3 && dismissedFlag !== "true";
+}
+
+/**
+ * Shows the non-blocking inline onboarding strip on Discover for first-time visitors
+ * once the vault is hydrated, < 3 films are rated, and the user has not dismissed it.
+ */
+export function shouldShowInlineOnboardingBanner({
+  watchedCount = 0,
+  dismissedFlag = null,
+  isVaultHydrated = true
+} = {}) {
+  if (!isVaultHydrated) return false;
+  return Number(watchedCount) < 3 && dismissedFlag !== "true";
+}
+
+/**
+ * Selects up to `limit` genre-diverse unseen starter films for inline quick-calibration.
+ */
+export function selectInlineStarterFilms({
+  watched = [],
+  watchlist = [],
+  livePool = [],
+  limit = 8
+} = {}) {
+  const safeLimit = Math.max(1, Math.min(30, Number(limit) || 8));
+  return buildTasteDeck({ watched, watchlist, livePool, deckSize: safeLimit });
 }

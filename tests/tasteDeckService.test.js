@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   CORE_TASTE_DECK,
   buildTasteDeck,
-  shouldAutoShowTasteOnboarding
+  shouldAutoShowTasteOnboarding,
+  INLINE_ONBOARDING_DISMISSED_KEY,
+  shouldShowInlineOnboardingBanner,
+  selectInlineStarterFilms
 } from "../src/services/tasteDeckService.js";
 
 test("CORE_TASTE_DECK covers at least 8 distinct genres with 30 valid poster records", () => {
@@ -37,4 +40,22 @@ test("shouldAutoShowTasteOnboarding triggers only for new users (< 3 watched) wh
   assert.equal(shouldAutoShowTasteOnboarding({ watchedCount: 2, dismissedFlag: "false" }), true);
   assert.equal(shouldAutoShowTasteOnboarding({ watchedCount: 3, dismissedFlag: null }), false);
   assert.equal(shouldAutoShowTasteOnboarding({ watchedCount: 0, dismissedFlag: "true" }), false);
+});
+
+test("shouldShowInlineOnboardingBanner shows only when hydrated, < 3 watched, and not dismissed", () => {
+  assert.equal(INLINE_ONBOARDING_DISMISSED_KEY, "cinemavault_inline_onboarding_dismissed_v1");
+  assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 0, dismissedFlag: null, isVaultHydrated: true }), true);
+  assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 2, dismissedFlag: "false", isVaultHydrated: true }), true);
+  assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 3, dismissedFlag: null, isVaultHydrated: true }), false);
+  assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 0, dismissedFlag: "true", isVaultHydrated: true }), false);
+  assert.equal(shouldShowInlineOnboardingBanner({ watchedCount: 0, dismissedFlag: null, isVaultHydrated: false }), false);
+});
+
+test("selectInlineStarterFilms returns up to 8 genre-diverse unseen films", () => {
+  const watched = [CORE_TASTE_DECK[0]];
+  const starters = selectInlineStarterFilms({ watched, watchlist: [], limit: 8 });
+  assert.equal(starters.length, 8);
+  assert.equal(starters.some((m) => m.imdbID === CORE_TASTE_DECK[0].imdbID), false);
+  const genres = new Set(starters.map((m) => m.primaryGenre));
+  assert.ok(genres.size >= 6);
 });

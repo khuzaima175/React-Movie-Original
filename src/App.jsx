@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useEffect, useRef } from "react";
+import { Suspense, lazy, useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -59,7 +59,6 @@ function prefetchRoute(path) {
 }
 
 import {
-  shouldAutoShowTasteOnboarding,
   TASTE_ONBOARDING_DISMISSED_KEY
 } from "./services/tasteDeckService";
 import { buildExploreRoute } from "./services/exploreService";
@@ -102,7 +101,6 @@ function AppContent() {
   const [tasteDeckInitialMode, setTasteDeckInitialMode] = useState("flashcards");
   const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
   const [quickRateTarget, setQuickRateTarget] = useState(null);
-  const didCheckOnboardingRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -134,26 +132,6 @@ function AppContent() {
       navigate("/auth?mode=reset", { replace: true });
     }
   }, [isPasswordRecovery, location.pathname, navigate]);
-
-  useEffect(() => {
-    if (!isVaultHydrated || didCheckOnboardingRef.current) return;
-    didCheckOnboardingRef.current = true;
-    try {
-      const dismissedFlag = localStorage.getItem(TASTE_ONBOARDING_DISMISSED_KEY);
-      if (
-        shouldAutoShowTasteOnboarding({
-          watchedCount: watched.length,
-          dismissedFlag,
-          isVaultHydrated
-        })
-      ) {
-        setTasteDeckInitialMode("grid");
-        setIsTasteDeckOpen(true);
-      }
-    } catch {
-      // ignore storage availability errors
-    }
-  }, [watched.length, isVaultHydrated]);
 
   useEffect(() => {
     function handleGlobalKey(e) {
@@ -296,6 +274,7 @@ function AppContent() {
               <DashboardPage
                 onOpenSearch={() => setIsSearchOpen(true)}
                 onOpenTasteDeck={() => handleOpenTasteDeck("flashcards")}
+                onOpenImport={() => handleOpenBackup("import")}
               />
             }
           />
