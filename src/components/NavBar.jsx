@@ -60,19 +60,8 @@ function MobileTab({ to, end = false, icon: Icon, label, onPrefetch }) {
       onPointerDown={onPrefetch}
       className={({ isActive }) => `mobile-tab ${isActive ? "active" : ""}`}
     >
-      {({ isActive }) => (
-        <>
-          {isActive && (
-            <motion.span
-              layoutId="mobile-tab-pill"
-              className="mobile-tab-pill"
-              transition={{ type: "spring", stiffness: 480, damping: 36 }}
-            />
-          )}
-          <Icon size={18} aria-hidden="true" />
-          <span>{label}</span>
-        </>
-      )}
+      <Icon size={18} aria-hidden="true" />
+      <span>{label}</span>
     </NavLink>
   );
 }

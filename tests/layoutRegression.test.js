@@ -41,3 +41,10 @@ test("vault.css keeps .studio-hero-tier overflow visible for the actions dropdow
     /\.vault-hero-ambient-clip\s*\{[\s\S]*?overflow\s*:\s*hidden;/
   );
 });
+
+test("Menu.jsx portals dropdown panel to document.body with viewport-clamped fixed positioning", () => {
+  const jsx = fs.readFileSync(path.join(process.cwd(), "src/components/ui/Menu.jsx"), "utf8");
+  assert.match(jsx, /createPortal\(/);
+  assert.match(jsx, /position:\s*['"]fixed['"]/);
+  assert.match(jsx, /viewportWidth\s*-\s*effectiveWidth\s*-\s*margin/);
+});

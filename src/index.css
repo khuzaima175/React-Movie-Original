@@ -5346,25 +5346,46 @@
   color: #71717a;
 }
 
-/* Awards & Recognition Strip */
-.awards-accolades-strip {
+/* Collapsible Awards & Recognition Card */
+.awards-accolades-card {
+  border-radius: 1rem;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: border-color 0.18s ease;
+}
+
+.awards-accolades-card.is-oscar-winner {
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(246, 208, 122, 0.13) 0%, rgba(24, 25, 28, 0.98) 60%);
+  border-color: rgba(246, 208, 122, 0.34);
+}
+
+.awards-accolades-card.is-oscar-nominee {
+  border-color: rgba(230, 186, 108, 0.24);
+}
+
+.awards-accolades-trigger {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 1.2rem;
   padding: 1.15rem 1.4rem;
-  border-radius: 1rem;
-  background: #18191c;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition: background-color 0.16s ease;
 }
 
-.awards-accolades-strip.is-oscar-winner {
-  background:
-    radial-gradient(120% 140% at 0% 50%, rgba(246, 208, 122, 0.14) 0%, rgba(24, 25, 28, 0.96) 65%);
-  border-color: rgba(246, 208, 122, 0.34);
+.awards-accolades-trigger:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.awards-accolades-strip.is-oscar-nominee {
-  border-color: rgba(230, 186, 108, 0.24);
+.awards-accolades-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .awards-accolades-icon {
@@ -5379,17 +5400,18 @@
   color: #a1a1aa;
 }
 
-.awards-accolades-strip.is-oscar-winner .awards-accolades-icon {
+.awards-accolades-card.is-oscar-winner .awards-accolades-icon {
   background: rgba(246, 208, 122, 0.14);
   color: #f6d07a;
 }
 
-.awards-accolades-strip.is-oscar-nominee .awards-accolades-icon {
+.awards-accolades-card.is-oscar-nominee .awards-accolades-icon {
   background: rgba(230, 186, 108, 0.1);
   color: #e6ba6c;
 }
 
 .awards-accolades-body {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 0.32rem;
@@ -5423,13 +5445,13 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-.awards-accolades-strip.is-oscar-winner .awards-headline-pill {
+.awards-accolades-card.is-oscar-winner .awards-headline-pill {
   color: #f6d07a;
   background: rgba(246, 208, 122, 0.14);
   border-color: rgba(246, 208, 122, 0.36);
 }
 
-.awards-accolades-strip.is-oscar-nominee .awards-headline-pill {
+.awards-accolades-card.is-oscar-nominee .awards-headline-pill {
   color: #e6ba6c;
   background: rgba(230, 186, 108, 0.11);
   border-color: rgba(230, 186, 108, 0.28);
@@ -5439,6 +5461,179 @@
   font-size: 1.32rem;
   font-weight: 600;
   color: #e4e4e7;
+}
+
+.awards-toggle-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  font-size: 1.18rem;
+  font-weight: 600;
+  color: #9ca3af;
+  padding: 0.38rem 0.75rem;
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.awards-breakdown-panel {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1.25rem 1.4rem 1.35rem;
+  background: rgba(11, 12, 16, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.awards-breakdown-status {
+  font-size: 1.25rem;
+  color: #9e9e99;
+  padding: 0.4rem 0;
+}
+
+.awards-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.awards-filter-pill {
+  padding: 0.32rem 0.85rem;
+  border-radius: 999px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.awards-filter-pill.is-active {
+  background: rgba(246, 208, 122, 0.14);
+  border-color: rgba(246, 208, 122, 0.36);
+  color: #f6d07a;
+}
+
+.awards-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  max-height: 36rem;
+  overflow-y: auto;
+  padding-right: 0.35rem;
+}
+
+.awards-ceremony-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.awards-ceremony-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.awards-ceremony-title {
+  font-size: 1.22rem;
+  font-weight: 700;
+  color: #e4e4e7;
+}
+
+.awards-ceremony-title.is-oscar {
+  color: #f6d07a;
+}
+
+.awards-ceremony-year {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #9ca3af;
+}
+
+.awards-category-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.awards-category-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.awards-outcome-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.8rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 0.42rem;
+  font-size: 1.04rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  margin-top: 0.12rem;
+}
+
+.awards-outcome-badge.is-won {
+  background: rgba(246, 208, 122, 0.15);
+  border: 1px solid rgba(246, 208, 122, 0.38);
+  color: #f6d07a;
+}
+
+.awards-outcome-badge.is-nominated {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #a1a1aa;
+}
+
+.awards-category-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.awards-category-name {
+  font-size: 1.28rem;
+  font-weight: 600;
+  color: #f4f4f2;
+  line-height: 1.3;
+}
+
+.awards-category-people {
+  font-size: 1.16rem;
+  color: #9e9e99;
+  line-height: 1.35;
+}
+
+.awards-breakdown-footnote {
+  font-size: 1.08rem;
+  color: #71717a;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@media (max-width: 540px) {
+  .awards-accolades-trigger {
+    flex-wrap: wrap;
+    gap: 0.9rem;
+  }
+
+  .awards-toggle-hint {
+    margin-left: auto;
+  }
 }
 
 .netflix-genres-row {

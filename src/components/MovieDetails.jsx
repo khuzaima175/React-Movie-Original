@@ -64,7 +64,7 @@ import AddToListPopover from "./AddToListPopover";
 import TrailerModal from "./TrailerModal";
 import { buildTrailerEmbedUrl } from "../services/navHelpers";
 import { appendWatchHistoryEntry } from "../services/diaryService";
-import { parseAwardsSummary } from "../services/awardsService";
+import { fetchMovieAwardsBreakdown, parseAwardsSummary } from "../services/awardsService";
 import {
   ArrowLeft,
   ChevronRight,
@@ -140,6 +140,15 @@ export default function MovieDetails({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [activePerson, setActivePerson] = useState(null);
   const [isTrailerOpen, setIsTrailerOpen] = useState(false);
+  const [awardsDropdownOpen, setAwardsDropdownOpen] = useState(false);
+  const [awardsFilter, setAwardsFilter] = useState("all");
+  const [awardsBreakdownState, setAwardsBreakdownState] = useState({
+    loading: false,
+    status: "idle",
+    groups: [],
+    totalWins: 0,
+    totalNominations: 0
+  });
   const [collectionRaw, setCollectionRaw] = useState(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [embeddingNeighbors, setEmbeddingNeighbors] = useState([]);
@@ -153,7 +162,52 @@ export default function MovieDetails({
     setActivePerson(null);
     setShowReviewComposer(false);
     setIsTrailerOpen(false);
+    setAwardsDropdownOpen(false);
+    setAwardsFilter("all");
+    setAwardsBreakdownState({
+      loading: false,
+      status: "idle",
+      groups: [],
+      totalWins: 0,
+      totalNominations: 0
+    });
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!awardsDropdownOpen || !movie || awardsBreakdownState.status !== "idle") return undefined;
+    let active = true;
+    const controller = new AbortController();
+    setAwardsBreakdownState((prev) => ({ ...prev, loading: true }));
+    fetchMovieAwardsBreakdown({
+      imdbID: movie.imdbID,
+      tmdbId: movie.tmdbId,
+      signal: controller.signal
+    })
+      .then((res) => {
+        if (!active || controller.signal.aborted) return;
+        setAwardsBreakdownState({
+          loading: false,
+          status: res?.status || "empty",
+          groups: Array.isArray(res?.groups) ? res.groups : [],
+          totalWins: Number(res?.totalWins) || 0,
+          totalNominations: Number(res?.totalNominations) || 0
+        });
+      })
+      .catch(() => {
+        if (!active || controller.signal.aborted) return;
+        setAwardsBreakdownState({
+          loading: false,
+          status: "error",
+          groups: [],
+          totalWins: 0,
+          totalNominations: 0
+        });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [awardsDropdownOpen, movie, awardsBreakdownState.status]);
 
   useEffect(() => {
     let active = true;
@@ -1432,40 +1486,149 @@ export default function MovieDetails({
                 )}
               </div>
 
-              {/* Awards & Accolades Strip */}
+              {/* Collapsible Awards & Accolades Strip with On-Demand Category Breakdown */}
               {parsedAwards && (
                 <div
-                  className={`awards-accolades-strip ${parsedAwards.isOscarWinner ? "is-oscar-winner" : parsedAwards.hasOscars ? "is-oscar-nominee" : ""}`}
-                  aria-label="Awards and nominations"
+                  className={`awards-accolades-card ${parsedAwards.isOscarWinner ? "is-oscar-winner" : parsedAwards.hasOscars ? "is-oscar-nominee" : ""} ${awardsDropdownOpen ? "is-open" : ""}`}
                 >
-                  <span className="awards-accolades-icon" aria-hidden="true">
-                    {parsedAwards.hasOscars ? <Trophy size={16} /> : <Award size={16} />}
-                  </span>
-                  <div className="awards-accolades-body">
-                    <span className="awards-accolades-kicker">Awards &amp; Recognition</span>
-                    <div className="awards-accolades-row tabular-num">
-                      {parsedAwards.oscarLabel && (
-                        <span className="awards-headline-pill">
-                          {parsedAwards.oscarLabel}
-                        </span>
+                  <button
+                    type="button"
+                    className="awards-accolades-trigger"
+                    aria-expanded={awardsDropdownOpen}
+                    aria-controls="movie-awards-breakdown-panel"
+                    onClick={() => {
+                      setAwardsDropdownOpen((prev) => {
+                        const next = !prev;
+                        if (next && awardsBreakdownState.status === "error") {
+                          setAwardsBreakdownState((s) => ({ ...s, status: "idle" }));
+                        }
+                        return next;
+                      });
+                    }}
+                  >
+                    <span className="awards-accolades-icon" aria-hidden="true">
+                      {parsedAwards.hasOscars ? <Trophy size={16} /> : <Award size={16} />}
+                    </span>
+                    <div className="awards-accolades-body">
+                      <span className="awards-accolades-kicker">Awards &amp; Recognition</span>
+                      <div className="awards-accolades-row tabular-num">
+                        {parsedAwards.oscarLabel && (
+                          <span className="awards-headline-pill">
+                            {parsedAwards.oscarLabel}
+                          </span>
+                        )}
+                        {!parsedAwards.oscarLabel && parsedAwards.prestigeLabel && (
+                          <span className="awards-headline-pill">
+                            {parsedAwards.prestigeLabel}
+                          </span>
+                        )}
+                        {parsedAwards.totalLabel && (
+                          <span className="awards-totals-text">
+                            {parsedAwards.totalLabel}
+                          </span>
+                        )}
+                        {parsedAwards.headline && (
+                          <span className="awards-totals-text">
+                            {parsedAwards.headline}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="awards-toggle-hint">
+                      <span>{awardsDropdownOpen ? "Hide" : "Breakdown"}</span>
+                      {awardsDropdownOpen ? (
+                        <ChevronUp size={15} aria-hidden="true" />
+                      ) : (
+                        <ChevronDown size={15} aria-hidden="true" />
                       )}
-                      {!parsedAwards.oscarLabel && parsedAwards.prestigeLabel && (
-                        <span className="awards-headline-pill">
-                          {parsedAwards.prestigeLabel}
-                        </span>
-                      )}
-                      {parsedAwards.totalLabel && (
-                        <span className="awards-totals-text">
-                          {parsedAwards.totalLabel}
-                        </span>
-                      )}
-                      {parsedAwards.headline && (
-                        <span className="awards-totals-text">
-                          {parsedAwards.headline}
-                        </span>
+                    </span>
+                  </button>
+
+                  {awardsDropdownOpen && (
+                    <div id="movie-awards-breakdown-panel" className="awards-breakdown-panel">
+                      {awardsBreakdownState.loading ? (
+                        <div className="awards-breakdown-status">
+                          Loading ceremonies, years &amp; categories…
+                        </div>
+                      ) : awardsBreakdownState.status === "error" ? (
+                        <div className="awards-breakdown-status">
+                          Could not reach Wikidata right now. Try expanding again in a moment.
+                        </div>
+                      ) : awardsBreakdownState.groups.length === 0 ? (
+                        <div className="awards-breakdown-status">
+                          Individual category records are not yet indexed on Wikidata for this film.
+                        </div>
+                      ) : (
+                        <>
+                          {awardsBreakdownState.totalWins > 0 && awardsBreakdownState.totalNominations > 0 && (
+                            <div className="awards-filter-row" role="tablist" aria-label="Filter awards by outcome">
+                              {[
+                                { id: "all", label: `All (${awardsBreakdownState.totalWins + awardsBreakdownState.totalNominations})` },
+                                { id: "won", label: `Won (${awardsBreakdownState.totalWins})` },
+                                { id: "nominated", label: `Nominated (${awardsBreakdownState.totalNominations})` }
+                              ].map((tab) => (
+                                <button
+                                  key={tab.id}
+                                  type="button"
+                                  role="tab"
+                                  aria-selected={awardsFilter === tab.id}
+                                  className={`awards-filter-pill ${awardsFilter === tab.id ? "is-active" : ""}`}
+                                  onClick={() => setAwardsFilter(tab.id)}
+                                >
+                                  {tab.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="awards-groups-list">
+                            {awardsBreakdownState.groups
+                              .map((group) => ({
+                                ...group,
+                                visibleItems:
+                                  awardsFilter === "all"
+                                    ? group.items
+                                    : group.items.filter((it) => it.outcome === awardsFilter)
+                              }))
+                              .filter((group) => group.visibleItems.length > 0)
+                              .map((group) => (
+                                <div key={group.id} className="awards-ceremony-group">
+                                  <div className="awards-ceremony-head">
+                                    <span className={`awards-ceremony-title ${group.isOscar ? "is-oscar" : ""}`}>
+                                      {group.title}
+                                    </span>
+                                    {group.year && (
+                                      <span className="awards-ceremony-year tabular-num">{group.year}</span>
+                                    )}
+                                  </div>
+                                  <ul className="awards-category-list">
+                                    {group.visibleItems.map((entry) => (
+                                      <li key={entry.id} className="awards-category-row">
+                                        <span className={`awards-outcome-badge is-${entry.outcome}`}>
+                                          {entry.outcome === "won" ? "Won" : "Nominee"}
+                                        </span>
+                                        <div className="awards-category-text">
+                                          <span className="awards-category-name">{entry.category}</span>
+                                          {entry.recipients?.length > 0 && (
+                                            <span className="awards-category-people">
+                                              {entry.recipients.join(", ")}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                          </div>
+
+                          <div className="awards-breakdown-footnote">
+                            Category records via Wikidata (major ceremonies indexed) · overall tallies via OMDb
+                          </div>
+                        </>
                       )}
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
