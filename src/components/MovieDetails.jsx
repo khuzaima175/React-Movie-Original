@@ -59,6 +59,8 @@ import {
 import { resolveProviderLaunchUrl } from "../services/watchLinkService";
 import MovieCommunitySection from "./MovieCommunitySection";
 import AddToListPopover from "./AddToListPopover";
+import TrailerModal from "./TrailerModal";
+import { buildTrailerEmbedUrl } from "../services/navHelpers";
 import {
   ArrowLeft,
   ChevronRight,
@@ -130,6 +132,7 @@ export default function MovieDetails({
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [activePerson, setActivePerson] = useState(null);
+  const [isTrailerOpen, setIsTrailerOpen] = useState(false);
   const [collectionRaw, setCollectionRaw] = useState(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [embeddingNeighbors, setEmbeddingNeighbors] = useState([]);
@@ -142,6 +145,7 @@ export default function MovieDetails({
   useEffect(() => {
     setActivePerson(null);
     setShowReviewComposer(false);
+    setIsTrailerOpen(false);
   }, [selectedId]);
 
   useEffect(() => {
@@ -759,23 +763,33 @@ export default function MovieDetails({
                 </button>
 
                 {(movie.trailerKey || movie.title) && (
-                  <a
-                    href={
-                      movie.trailerKey
-                        ? `https://www.youtube.com/watch?v=${movie.trailerKey}`
-                        : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} ${movie.year || ""} official trailer`)}`
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn-hero-trailer-play"
-                    aria-label={`Watch official trailer for ${movie.title} on YouTube (opens in new tab)`}
-                  >
-                    <Play size={16} fill="currentColor" aria-hidden="true" />
-                    <span>
-                      <span className="movie-hero-desktop-only">Watch </span>Trailer
-                    </span>
-                    <ExternalLink size={14} aria-hidden="true" />
-                  </a>
+                  buildTrailerEmbedUrl(movie.trailerKey) ? (
+                    <button
+                      type="button"
+                      className="btn-hero-trailer-play"
+                      onClick={() => setIsTrailerOpen(true)}
+                      aria-label={`Watch official trailer for ${movie.title} inline`}
+                    >
+                      <Play size={16} fill="currentColor" aria-hidden="true" />
+                      <span>
+                        <span className="movie-hero-desktop-only">Watch </span>Trailer
+                      </span>
+                    </button>
+                  ) : (
+                    <a
+                      href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} ${movie.year || ""} official trailer`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-hero-trailer-play"
+                      aria-label={`Search trailer for ${movie.title} on YouTube (opens in new tab)`}
+                    >
+                      <Play size={16} fill="currentColor" aria-hidden="true" />
+                      <span>
+                        <span className="movie-hero-desktop-only">Watch </span>Trailer
+                      </span>
+                      <ExternalLink size={14} aria-hidden="true" />
+                    </a>
+                  )
                 )}
               </div>
             </div>
@@ -1681,6 +1695,14 @@ export default function MovieDetails({
           />
         </div>
       ) : null}
+
+      <TrailerModal
+        isOpen={isTrailerOpen}
+        onClose={() => setIsTrailerOpen(false)}
+        title={movie?.title || "Film"}
+        year={movie?.year || ""}
+        trailerKey={movie?.trailerKey || ""}
+      />
 
       <PersonFilmographyModal
         personTarget={activePerson}

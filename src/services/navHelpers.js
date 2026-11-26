@@ -123,3 +123,12 @@ export function getPrimaryNavDestinations() {
     { to: "/together", label: "Together", end: false }
   ];
 }
+
+/**
+ * Validates an 11-character YouTube video ID and returns a privacy-enhanced embed URL.
+ */
+export function buildTrailerEmbedUrl(trailerKey = "") {
+  const clean = String(trailerKey || "").trim();
+  if (!/^[A-Za-z0-9_-]{11}$/.test(clean)) return null;
+  return `https://www.youtube-nocookie.com/embed/${clean}?autoplay=1&rel=0`;
+}
