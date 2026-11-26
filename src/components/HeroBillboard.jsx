@@ -55,6 +55,23 @@ function HeroCarousel({
   const [isPaused, setIsPaused] = useState(false);
   const heroRef = useRef(null);
   const prefersReducedMotion = useReducedMotion();
+  const [isCompactViewport, setIsCompactViewport] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(max-width: 900px), (hover: none)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mql = window.matchMedia("(max-width: 900px), (hover: none)");
+    const sync = () => setIsCompactViewport(mql.matches);
+    sync();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", sync);
+      return () => mql.removeEventListener("change", sync);
+    }
+    mql.addListener?.(sync);
+    return () => mql.removeListener?.(sync);
+  }, []);
 
   // Scroll-linked parallax: backdrop drifts slower than the page, copy fades up.
   const { scrollYProgress } = useScroll({
@@ -147,24 +164,27 @@ function HeroCarousel({
     }
   }
 
-  const parallaxStyle = prefersReducedMotion ? undefined : { y: bgY };
-  const contentStyle = prefersReducedMotion ? undefined : { y: contentY, opacity: contentOpacity };
+  const disableHeavyMotion = Boolean(prefersReducedMotion || isCompactViewport);
+  const parallaxStyle = disableHeavyMotion ? undefined : { y: bgY };
+  const contentStyle = disableHeavyMotion ? undefined : { y: contentY, opacity: contentOpacity };
 
   return (
     <section className="hero-billboard-wrap page-rail hero-has-glow" aria-label="Featured Film Billboard">
-      {/* Ambient glow: the same (already cached) backdrop, blurred, bleeding past the card edges */}
-      <AnimatePresence>
-        <motion.div
-          key={`glow-${slideId || safeIndex}`}
-          className="hero-glow"
-          aria-hidden="true"
-          style={{ backgroundImage: `url(${hasBackdrop ? slide.backdrop : slide.poster || ""})` }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.58 }}
-          exit={{ opacity: 0, transition: { duration: 0.6 } }}
-          transition={{ duration: 1.1, ease: EASE }}
-        />
-      </AnimatePresence>
+      {/* Ambient glow: desktop only — skipped on compact/touch devices to save mobile GPU fill rate */}
+      {!isCompactViewport && (
+        <AnimatePresence>
+          <motion.div
+            key={`glow-${slideId || safeIndex}`}
+            className="hero-glow"
+            aria-hidden="true"
+            style={{ backgroundImage: `url(${hasBackdrop ? slide.backdrop : slide.poster || ""})` }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.58 }}
+            exit={{ opacity: 0, transition: { duration: 0.6 } }}
+            transition={{ duration: 1.1, ease: EASE }}
+          />
+        </AnimatePresence>
+      )}
       <motion.div
         ref={heroRef}
         className={`hero-billboard ${isPaused || prefersReducedMotion ? "is-paused" : ""}`}

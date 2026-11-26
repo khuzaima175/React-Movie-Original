@@ -2029,9 +2029,9 @@
 /* ── Mobile tab bar: glass + sliding indicator ───────────────────────────── */
 @media (max-width: 900px) {
   .mobile-stream-bar {
-    background: rgba(13, 14, 17, 0.78);
-    -webkit-backdrop-filter: blur(18px) saturate(140%);
-    backdrop-filter: blur(18px) saturate(140%);
+    background: rgba(13, 14, 17, 0.96);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
   }
 
@@ -2444,4 +2444,36 @@
 
 .dashboard-explore-link:hover {
   background: var(--btn-primary-hover);
+}
+
+/* ── Weak-mobile GPU savings: strip expensive real-time blurs & idle animations ── */
+@media (max-width: 900px), (hover: none) {
+  .nav-bar-stream,
+  .movie-sticky-bar {
+    background: rgba(13, 14, 17, 0.96);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .hero-glow,
+  .hero-glow::before {
+    display: none;
+    will-change: auto;
+  }
+
+  .hero-backdrop-ken-burns {
+    animation: none;
+    will-change: auto;
+  }
+
+  .hero-backdrop-blurred {
+    filter: blur(12px) saturate(1.1);
+  }
+
+  .unified-movie-card,
+  .unified-card-poster,
+  .unified-overlay-actions,
+  .cv-reveal {
+    will-change: auto;
+  }
 }

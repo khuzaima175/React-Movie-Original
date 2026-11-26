@@ -75,8 +75,7 @@ export function appendWatchHistoryEntry(
   );
   const rewatchCount = Math.max(
     Number(movie.watchMeta?.rewatchCount) || 0,
-    watchHistory.filter((e) => e.isRewatch).length,
-    Math.max(0, watchHistory.length - 1)
+    watchHistory.length
   );
 
   return {

@@ -7,6 +7,8 @@ import {
   predictMovieMatch
 } from "../src/services/tasteMatchService.js";
 
+import { encodeEaseBinary, parseEaseBinary } from "../src/services/easeService.js";
+
 function makeTinyEmbeddingIndex() {
   const dim = 4;
   // 10 & 11 = loved sci-fi thrillers; 20 = close unseen match; 30 = hated horror; 31 = close to hated horror
@@ -166,4 +168,73 @@ test("predictMovieMatch honors Prefer vs Avoid taste rules properly and matches 
 
   assert.ok(withPrefer.matchPct >= baseline.matchPct, `Prefer rule must not penalize (${withPrefer.matchPct} vs ${baseline.matchPct})`);
   assert.ok(withAvoid.matchPct < baseline.matchPct - 10, `Avoid rule must penalize (${withAvoid.matchPct} vs ${baseline.matchPct})`);
+});
+
+test("buildTasteMatchContext blends EASE^R graph neighbors and predicts 2024-2026 cold-start films via 128-D content embeddings", () => {
+  const embeddingIndex = makeTinyEmbeddingIndex();
+  // Cold film 901 (2025 sci-fi aligned with Inception/Interstellar), Cold film 902 (2025 orthogonal romantic comedy)
+  const contentIds = [10, 11, 30, 901, 902];
+  const contentDim = 4;
+  const contentVecs = [
+    [0.95, 0.3, 0, 0],
+    [0.92, 0.38, 0, 0],
+    [0, 0, 0.98, 0.2],
+    [0.94, 0.34, 0, 0],
+    [0, 0, 0.1, 0.99]
+  ];
+  const contentVectors = new Float32Array(contentIds.length * contentDim);
+  const contentIdToIndex = new Map();
+  contentIds.forEach((id, i) => {
+    contentIdToIndex.set(id, i);
+    for (let d = 0; d < contentDim; d += 1) {
+      contentVectors[i * contentDim + d] = contentVecs[i][d];
+    }
+  });
+  const contentIndex = {
+    dim: contentDim,
+    count: contentIds.length,
+    ids: new Uint32Array(contentIds),
+    vectors: contentVectors,
+    idToIndex: contentIdToIndex
+  };
+
+  // EASE graph strongly connects Inception(10) -> Cold/Warm item 20 & item 31 stays isolated
+  const easeBuf = encodeEaseBinary(
+    [
+      { tmdbId: 10, neighbors: [{ index: 1, weight: 0.9 }, { index: 2, weight: 0.01 }] },
+      { tmdbId: 20, neighbors: [{ index: 0, weight: 0.9 }, { index: 2, weight: 0.01 }] },
+      { tmdbId: 30, neighbors: [{ index: 0, weight: 0.01 }, { index: 1, weight: 0.01 }] }
+    ],
+    2
+  );
+  const easeIndex = parseEaseBinary(easeBuf);
+
+  const watched = [
+    { tmdbId: 10, title: "Inception", userRating: 10, genre: "Sci-Fi, Thriller", tmdbGenreIds: [878, 53] },
+    { tmdbId: 11, title: "Interstellar", userRating: 9, genre: "Sci-Fi, Drama", tmdbGenreIds: [878, 18] },
+    { tmdbId: 30, title: "Slasher X", userRating: 3, genre: "Horror", tmdbGenreIds: [27] }
+  ];
+
+  const ctx = buildTasteMatchContext({ watched, embeddingIndex, easeIndex, contentIndex });
+  assert.equal(ctx.hasEaseBlend, true);
+
+  const warmEaseMatch = predictMovieMatch({
+    movie: { tmdbId: 20, title: "Tenet", genre: "Sci-Fi, Thriller", tmdbGenreIds: [878, 53], vote_average: 7.4, vote_count: 8000 },
+    cachedContext: ctx
+  });
+  assert.equal(warmEaseMatch.confidence, "high");
+
+  const coldAligned = predictMovieMatch({
+    movie: { tmdbId: 901, title: "Nebula Rising", year: "2025", genre: "Drama", vote_average: 7.4, vote_count: 500 },
+    cachedContext: ctx
+  });
+  const coldOrthogonal = predictMovieMatch({
+    movie: { tmdbId: 902, title: "Wedding Chaos", year: "2025", genre: "Comedy", vote_average: 7.4, vote_count: 500 },
+    cachedContext: ctx
+  });
+
+  assert.equal(coldAligned.confidence, "semantic");
+  assert.equal(coldOrthogonal.confidence, "semantic");
+  assert.ok(coldAligned.matchPct > coldOrthogonal.matchPct + 10, `Semantic cold-start match (${coldAligned.matchPct}) should outscore orthogonal film (${coldOrthogonal.matchPct})`);
+  assert.ok(coldAligned.anchorTitles.includes("Inception") || coldAligned.anchorTitles.includes("Interstellar"));
 });

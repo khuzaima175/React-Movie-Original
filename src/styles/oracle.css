@@ -3709,3 +3709,23 @@
     transform: scale(1.02);
   }
 }
+
+@media (max-width: 900px), (hover: none) {
+  .studio-deck-backdrop-img {
+    display: none;
+  }
+
+  .oracle-prefs-scrim {
+    background: rgba(0, 0, 0, 0.84);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .oracle-prefs-popover,
+  .oracle-toast,
+  .oracle-floating-bar {
+    background: rgba(14, 15, 19, 0.97);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

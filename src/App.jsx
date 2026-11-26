@@ -68,11 +68,33 @@ import { buildExploreRoute } from "./services/exploreService";
 import { syncDebugFlagFromSearch } from "./services/debugFlags";
 import { motion, MotionConfig, useScroll, useSpring } from "framer-motion";
 
-/** Thin reading-progress line pinned above the navbar. */
-function ScrollProgress() {
+/** Thin reading-progress line pinned above the navbar (disabled on mobile/reduced motion). */
+function ScrollProgressBar() {
   const { scrollYProgress } = useScroll();
   const scaleX = useSpring(scrollYProgress, { stiffness: 140, damping: 28, restDelta: 0.001 });
   return <motion.div className="scroll-progress" style={{ scaleX }} aria-hidden="true" />;
+}
+
+function ScrollProgress() {
+  const [disabled, setDisabled] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(max-width: 900px), (prefers-reduced-motion: reduce)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mql = window.matchMedia("(max-width: 900px), (prefers-reduced-motion: reduce)");
+    const sync = () => setDisabled(mql.matches);
+    sync();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", sync);
+      return () => mql.removeEventListener("change", sync);
+    }
+    mql.addListener?.(sync);
+    return () => mql.removeListener?.(sync);
+  }, []);
+
+  return disabled ? null : <ScrollProgressBar />;
 }
 
 function scrollToTop() {

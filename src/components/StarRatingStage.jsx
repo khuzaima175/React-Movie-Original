@@ -1,8 +1,31 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { memo, useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { SlidersHorizontal } from "lucide-react";
 import { computeStarStageMetrics } from "../services/ratingStudioService";
 import { getRatingTier } from "../services/ratingTiers";
+
+function useLiteMotion() {
+  const reduced = useReducedMotion();
+  const [isCompactOrTouch, setIsCompactOrTouch] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(max-width: 900px), (hover: none), (pointer: coarse)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mql = window.matchMedia("(max-width: 900px), (hover: none), (pointer: coarse)");
+    const sync = () => setIsCompactOrTouch(mql.matches);
+    sync();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", sync);
+      return () => mql.removeEventListener("change", sync);
+    }
+    mql.addListener?.(sync);
+    return () => mql.removeListener?.(sync);
+  }, []);
+
+  return Boolean(reduced || isCompactOrTouch);
+}
 
 export function getEditorialScorePalette(score = 0) {
   const numeric = Number(score);
@@ -67,7 +90,7 @@ export function getEditorialScorePalette(score = 0) {
   };
 }
 
-export default function StarRatingStage({
+const StarRatingStage = memo(function StarRatingStage({
   value = 0,
   hoverValue = 0,
   onChange,
@@ -78,11 +101,21 @@ export default function StarRatingStage({
   titleLabel = "Rating Studio",
   ariaLabel = "Rate this film from 1 to 10"
 }) {
-  const instanceId = useId();
+  const liteMotion = useLiteMotion();
   const [justPickedScore, setJustPickedScore] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
   const trackRef = useRef(null);
   const dragStateRef = useRef({ active: false, moved: false, lastScore: 0 });
+  const pointerStartRef = useRef({
+    active: false,
+    cancelled: false,
+    x: 0,
+    y: 0,
+    pointerId: null,
+    pointerType: ""
+  });
+  const scrubEngagedRef = useRef(false);
+  const lastHoveredRef = useRef(0);
   const suppressClickRef = useRef(false);
 
   const metrics = computeStarStageMetrics(value, hoverValue);
@@ -96,11 +129,17 @@ export default function StarRatingStage({
     prevScoreRef.current = activeScore;
   }, [activeScore]);
 
+  function emitHoverChange(score) {
+    if (lastHoveredRef.current === score) return;
+    lastHoveredRef.current = score;
+    onHoverChange?.(score);
+  }
+
   function handleSelectScore(score) {
     setJustPickedScore(score);
-    if (score >= 9) setBurstKey((k) => k + 1);
+    if (!liteMotion && score >= 9) setBurstKey((k) => k + 1);
     onChange?.(score);
-    onHoverChange?.(0);
+    emitHoverChange(0);
   }
 
   function resolveScoreFromClientX(clientX) {
@@ -114,35 +153,102 @@ export default function StarRatingStage({
 
   function handlePointerDown(event) {
     if (event.button !== undefined && event.button !== 0) return;
+    const pointerType = event.pointerType || "mouse";
     const score = resolveScoreFromClientX(event.clientX);
     if (!score) return;
+
+    pointerStartRef.current = {
+      active: true,
+      cancelled: false,
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+      pointerType
+    };
+
+    if (pointerType === "touch") {
+      // Wait for intentional horizontal drag so vertical scrolling over the fader is never trapped.
+      scrubEngagedRef.current = false;
+      dragStateRef.current = { active: false, moved: false, lastScore: score };
+      return;
+    }
+
+    scrubEngagedRef.current = true;
     dragStateRef.current = { active: true, moved: false, lastScore: score };
     try {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     } catch {
       // ignore synthetic events
     }
-    onHoverChange?.(score);
+    emitHoverChange(score);
   }
 
   function handlePointerMove(event) {
+    const start = pointerStartRef.current;
+    if (!start.active || start.cancelled) return;
+
+    if (start.pointerType === "touch" && !scrubEngagedRef.current) {
+      const dx = Math.abs(event.clientX - start.x);
+      const dy = Math.abs(event.clientY - start.y);
+      if (dy > 10 && dy >= dx) {
+        start.cancelled = true;
+        emitHoverChange(0);
+        return;
+      }
+      if (dx > 8 && dx > dy * 1.2) {
+        scrubEngagedRef.current = true;
+        dragStateRef.current.active = true;
+        dragStateRef.current.moved = true;
+        try {
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+        } catch {
+          // ignore synthetic events
+        }
+        const initialScrub = resolveScoreFromClientX(event.clientX);
+        if (initialScrub) {
+          dragStateRef.current.lastScore = initialScrub;
+          emitHoverChange(initialScrub);
+        }
+      }
+      return;
+    }
+
     if (!dragStateRef.current.active) return;
     const score = resolveScoreFromClientX(event.clientX);
     if (!score || score === dragStateRef.current.lastScore) return;
     dragStateRef.current.moved = true;
     dragStateRef.current.lastScore = score;
-    onHoverChange?.(score);
+    emitHoverChange(score);
   }
 
   function handlePointerUp(event) {
-    if (!dragStateRef.current.active) return;
-    const finalScore = resolveScoreFromClientX(event.clientX) || dragStateRef.current.lastScore;
+    const start = pointerStartRef.current;
+    if (!start.active) return;
+
+    const wasCancelled = start.cancelled;
+    const wasTouch = start.pointerType === "touch";
+    const dx = Math.abs(event.clientX - start.x);
+    const dy = Math.abs(event.clientY - start.y);
+
+    start.active = false;
     dragStateRef.current.active = false;
-    try {
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
-    } catch {
-      // ignore synthetic events
+    if (scrubEngagedRef.current) {
+      try {
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // ignore synthetic events
+      }
     }
+
+    const wasTap = !scrubEngagedRef.current && dx < 10 && dy < 10;
+    scrubEngagedRef.current = false;
+
+    if (wasCancelled || (wasTouch && !wasTap && !dragStateRef.current.moved)) {
+      emitHoverChange(0);
+      return;
+    }
+
+    const finalScore = resolveScoreFromClientX(event.clientX) || dragStateRef.current.lastScore;
     if (finalScore) {
       suppressClickRef.current = true;
       handleSelectScore(finalScore);
@@ -153,9 +259,11 @@ export default function StarRatingStage({
   }
 
   function handlePointerCancel() {
-    if (!dragStateRef.current.active) return;
+    pointerStartRef.current.active = false;
+    pointerStartRef.current.cancelled = true;
+    scrubEngagedRef.current = false;
     dragStateRef.current.active = false;
-    onHoverChange?.(0);
+    emitHoverChange(0);
   }
 
   function handleKeyDown(event, currentScore) {
@@ -230,8 +338,8 @@ export default function StarRatingStage({
       {/* Editorial Rolling Serif Odometer Hero Stage */}
       <div className="star-stage-hero">
         <div className="star-stage-score-block">
-          <span className="star-stage-score-aura" aria-hidden="true" />
-          {burstKey > 0 && (
+          {!liteMotion && <span className="star-stage-score-aura" aria-hidden="true" />}
+          {!liteMotion && burstKey > 0 && (
             <span className="roulette-burst star-burst" key={burstKey} aria-hidden="true">
               {Array.from({ length: 12 }).map((_, i) => (
                 <i
@@ -247,18 +355,24 @@ export default function StarRatingStage({
           )}
           <div className="star-stage-score-readout">
             <span className="star-stage-score-slot">
-              <AnimatePresence mode="popLayout" initial={false}>
-                <motion.span
-                  key={activeScore}
-                  className="star-stage-score-num display-title"
-                  initial={{ y: rollDirection * 16, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: rollDirection * -16, opacity: 0 }}
-                  transition={{ duration: 0.17, ease: [0.22, 1, 0.36, 1] }}
-                >
+              {liteMotion ? (
+                <span className="star-stage-score-num display-title">
                   {activeScore > 0 ? activeScore : "—"}
-                </motion.span>
-              </AnimatePresence>
+                </span>
+              ) : (
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={activeScore}
+                    className="star-stage-score-num display-title"
+                    initial={{ y: rollDirection * 16, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: rollDirection * -16, opacity: 0 }}
+                    transition={{ duration: 0.17, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    {activeScore > 0 ? activeScore : "—"}
+                  </motion.span>
+                </AnimatePresence>
+              )}
             </span>
             <span className="star-stage-score-denom">/ 10</span>
           </div>
@@ -272,7 +386,7 @@ export default function StarRatingStage({
         <div className="star-stage-hero-meter" aria-hidden="true">
           <span
             className="star-stage-hero-meter-fill"
-            style={{ width: `${fillPercent}%` }}
+            style={{ transform: `scaleX(${fillPercent / 100})` }}
           />
         </div>
       </div>
@@ -281,7 +395,10 @@ export default function StarRatingStage({
       <div className="cinema-fader-housing">
         <div
           className="cinema-fader-beam"
-          style={{ width: `${fillPercent}%` }}
+          style={{
+            transform: `scaleX(${fillPercent / 100})`,
+            opacity: activeScore > 0 ? 0.72 : 0
+          }}
           aria-hidden="true"
         />
         <div
@@ -290,7 +407,7 @@ export default function StarRatingStage({
           role="radiogroup"
           aria-label={ariaLabel}
           onMouseLeave={() => {
-            if (!dragStateRef.current.active) onHoverChange?.(0);
+            if (!dragStateRef.current.active) emitHoverChange(0);
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -298,7 +415,7 @@ export default function StarRatingStage({
           onPointerCancel={handlePointerCancel}
         >
           {stars.map((star) => {
-            const isPopped = justPickedScore === star.score && star.isSelected;
+            const isPopped = !liteMotion && justPickedScore === star.score && star.isSelected;
             const isActiveFocus = star.isCurrent || (!isHovering && star.isSelected);
             const barHeightPct = Math.round(30 + star.score * 7);
             return (
@@ -328,7 +445,7 @@ export default function StarRatingStage({
                   handleSelectScore(star.score);
                 }}
                 onMouseEnter={() => {
-                  if (!dragStateRef.current.active) onHoverChange?.(star.score);
+                  if (!dragStateRef.current.active) emitHoverChange(star.score);
                 }}
                 onKeyDown={(e) => handleKeyDown(e, star.score)}
                 onAnimationEnd={() => {
@@ -341,12 +458,7 @@ export default function StarRatingStage({
                 <span className="cinema-fader-num tabular-num">
                   {star.score}
                   {isActiveFocus && (
-                    <motion.span
-                      layoutId={`cinema-fader-dot-${instanceId}`}
-                      className="cinema-fader-dot"
-                      transition={{ type: "spring", stiffness: 540, damping: 36 }}
-                      aria-hidden="true"
-                    />
+                    <span className="cinema-fader-dot" aria-hidden="true" />
                   )}
                 </span>
               </button>
@@ -390,4 +502,6 @@ export default function StarRatingStage({
       )}
     </div>
   );
-}
+});
+
+export default StarRatingStage;

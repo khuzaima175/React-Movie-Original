@@ -24,6 +24,8 @@ import {
   searchMultiEntity
 } from "../services/searchService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { loadDefaultEaseIndex } from "../services/easeService";
+import { loadDefaultContentIndex } from "../services/contentSimService";
 import { buildTasteMatchContext, predictMovieMatch } from "../services/tasteMatchService";
 
 const QUICK_FILTER_TABS = [
@@ -44,23 +46,38 @@ export default function SearchModal({
   const navigate = useNavigate();
   const { watched = [], watchlist = [], tasteRules = [], addToWatchlist } = useApp();
   const [embeddingIndex, setEmbeddingIndex] = useState(null);
+  const [easeIndex, setEaseIndex] = useState(null);
+  const [contentIndex, setContentIndex] = useState(null);
 
   useEffect(() => {
-    if (!isOpen || embeddingIndex) return undefined;
+    if (!isOpen || (embeddingIndex && easeIndex && contentIndex)) return undefined;
     let active = true;
-    loadDefaultEmbeddingIndex()
-      .then((idx) => {
-        if (active && idx) setEmbeddingIndex(idx);
-      })
-      .catch(() => {});
+    Promise.all([
+      embeddingIndex ? Promise.resolve(embeddingIndex) : loadDefaultEmbeddingIndex().catch(() => null),
+      easeIndex ? Promise.resolve(easeIndex) : loadDefaultEaseIndex().catch(() => null),
+      contentIndex ? Promise.resolve(contentIndex) : loadDefaultContentIndex().catch(() => null)
+    ]).then(([svdIdx, easeIdx, contIdx]) => {
+      if (!active) return;
+      if (svdIdx && !embeddingIndex) setEmbeddingIndex(svdIdx);
+      if (easeIdx && !easeIndex) setEaseIndex(easeIdx);
+      if (contIdx && !contentIndex) setContentIndex(contIdx);
+    });
     return () => {
       active = false;
     };
-  }, [isOpen, embeddingIndex]);
+  }, [isOpen, embeddingIndex, easeIndex, contentIndex]);
 
   const tasteMatchCtx = useMemo(
-    () => buildTasteMatchContext({ watched, watchlist, tasteRules, embeddingIndex }),
-    [watched, watchlist, tasteRules, embeddingIndex]
+    () =>
+      buildTasteMatchContext({
+        watched,
+        watchlist,
+        tasteRules,
+        embeddingIndex,
+        easeIndex,
+        contentIndex
+      }),
+    [watched, watchlist, tasteRules, embeddingIndex, easeIndex, contentIndex]
   );
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -171,6 +188,19 @@ export default function SearchModal({
     return results;
   }, [results, activeFilter]);
 
+  const navigableItems = useMemo(() => {
+    if (activeFilter === "people") {
+      return peopleResults.map((person) => ({ type: "person", item: person }));
+    }
+    if (activeFilter === "community") {
+      return [
+        ...userResults.map((user) => ({ type: "user", item: user })),
+        ...listResults.map((list) => ({ type: "list", item: list }))
+      ];
+    }
+    return filteredResults.map((movie) => ({ type: "movie", item: movie }));
+  }, [activeFilter, peopleResults, userResults, listResults, filteredResults]);
+
   const filterCounts = useMemo(
     () => ({
       all: results.length + peopleResults.length + userResults.length + listResults.length,
@@ -183,17 +213,18 @@ export default function SearchModal({
   );
 
   useEffect(() => {
-    if (selectedIndex >= filteredResults.length && filteredResults.length > 0) {
+    if (selectedIndex >= navigableItems.length && navigableItems.length > 0) {
       setSelectedIndex(0);
     }
-  }, [filteredResults.length, selectedIndex]);
+  }, [navigableItems.length, selectedIndex]);
 
   useEffect(() => {
+    if (activeFilter === "people" || activeFilter === "community") return;
     const activeRow = rowRefs.current[selectedIndex];
     if (activeRow && typeof activeRow.scrollIntoView === "function") {
       activeRow.scrollIntoView({ block: "nearest" });
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, activeFilter]);
 
   const activePreview = filteredResults[selectedIndex] || filteredResults[0] || null;
 
@@ -235,17 +266,30 @@ export default function SearchModal({
       openInExplore();
       return;
     }
-    if (filteredResults.length === 0) return;
+    if (navigableItems.length === 0) return;
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev + 1) % filteredResults.length);
+      setSelectedIndex((prev) => (prev + 1) % navigableItems.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev - 1 + filteredResults.length) % filteredResults.length);
-    } else if (e.key === "Enter" && activePreview) {
+      setSelectedIndex((prev) => (prev - 1 + navigableItems.length) % navigableItems.length);
+    } else if (e.key === "Enter") {
+      const target = navigableItems[selectedIndex] || navigableItems[0];
+      if (!target) return;
       e.preventDefault();
-      openFilmDetails(activePreview);
+      if (target.type === "person") {
+        navigate(`/person/${target.item.id}`);
+        onClose?.();
+      } else if (target.type === "user") {
+        navigate(`/u/${target.item.username}`);
+        onClose?.();
+      } else if (target.type === "list") {
+        navigate(`/list/${target.item.slug}`);
+        onClose?.();
+      } else {
+        openFilmDetails(target.item);
+      }
     }
   }
 
@@ -431,54 +475,73 @@ export default function SearchModal({
                 <div className="search-results-list" role="listbox" aria-label="Search results">
                   {(activeFilter === "all" || activeFilter === "people") && peopleResults.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-2 px-1">
-                      {peopleResults.map((person) => (
-                        <button
-                          key={`person-${person.id}`}
-                          type="button"
-                          onClick={() => {
-                            navigate(`/person/${person.id}`);
-                            onClose?.();
-                          }}
-                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/12 text-[1.25rem] text-[#f4f4f2] hover:border-white/30 cursor-pointer"
-                        >
-                          <User size={13} className="text-amber-300" aria-hidden="true" />
-                          <span>{person.name}</span>
-                          <span className="text-[1.1rem] text-[#9e9e99]">{person.department}</span>
-                        </button>
-                      ))}
+                      {peopleResults.map((person, idx) => {
+                        const isFocused = activeFilter === "people" && idx === selectedIndex;
+                        return (
+                          <button
+                            key={`person-${person.id}`}
+                            type="button"
+                            onMouseEnter={() => activeFilter === "people" && setSelectedIndex(idx)}
+                            onClick={() => {
+                              navigate(`/person/${person.id}`);
+                              onClose?.();
+                            }}
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border text-[1.25rem] text-[#f4f4f2] hover:border-white/30 cursor-pointer ${
+                              isFocused ? "border-amber-300/75 ring-1 ring-amber-300/40" : "border-white/12"
+                            }`}
+                          >
+                            <User size={13} className="text-amber-300" aria-hidden="true" />
+                            <span>{person.name}</span>
+                            <span className="text-[1.1rem] text-[#9e9e99]">{person.department}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
                   {(activeFilter === "all" || activeFilter === "community") && (userResults.length > 0 || listResults.length > 0) && (
                     <div className="mb-3 flex flex-wrap gap-2 px-1">
-                      {userResults.map((u) => (
-                        <button
-                          key={`user-${u.user_id}`}
-                          type="button"
-                          onClick={() => {
-                            navigate(`/u/${u.username}`);
-                            onClose?.();
-                          }}
-                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[1.25rem] text-emerald-200 hover:border-emerald-400/60 cursor-pointer"
-                        >
-                          <Users size={13} aria-hidden="true" />
-                          <span>@{u.username}</span>
-                        </button>
-                      ))}
-                      {listResults.map((l) => (
-                        <button
-                          key={`list-${l.id}`}
-                          type="button"
-                          onClick={() => {
-                            navigate(`/list/${l.slug}`);
-                            onClose?.();
-                          }}
-                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/12 text-[1.25rem] text-[#f4f4f2] hover:border-white/30 cursor-pointer"
-                        >
-                          <ListChecks size={13} className="text-amber-300" aria-hidden="true" />
-                          <span>{l.name}</span>
-                        </button>
-                      ))}
+                      {userResults.map((u, idx) => {
+                        const isFocused = activeFilter === "community" && idx === selectedIndex;
+                        return (
+                          <button
+                            key={`user-${u.user_id}`}
+                            type="button"
+                            onMouseEnter={() => activeFilter === "community" && setSelectedIndex(idx)}
+                            onClick={() => {
+                              navigate(`/u/${u.username}`);
+                              onClose?.();
+                            }}
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border text-[1.25rem] text-emerald-200 hover:border-emerald-400/60 cursor-pointer ${
+                              isFocused ? "border-emerald-300 ring-1 ring-emerald-300/40" : "border-emerald-500/30"
+                            }`}
+                          >
+                            <Users size={13} aria-hidden="true" />
+                            <span>@{u.username}</span>
+                          </button>
+                        );
+                      })}
+                      {listResults.map((l, idx) => {
+                        const navIdx = userResults.length + idx;
+                        const isFocused = activeFilter === "community" && navIdx === selectedIndex;
+                        return (
+                          <button
+                            key={`list-${l.id}`}
+                            type="button"
+                            onMouseEnter={() => activeFilter === "community" && setSelectedIndex(navIdx)}
+                            onClick={() => {
+                              navigate(`/list/${l.slug}`);
+                              onClose?.();
+                            }}
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.05] border text-[1.25rem] text-[#f4f4f2] hover:border-white/30 cursor-pointer ${
+                              isFocused ? "border-amber-300/75 ring-1 ring-amber-300/40" : "border-white/12"
+                            }`}
+                          >
+                            <ListChecks size={13} className="text-amber-300" aria-hidden="true" />
+                            <span>{l.name}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -669,7 +732,7 @@ export default function SearchModal({
           </div>
           {trimmedQuery && (
             <span className="search-hint-count">
-              {filteredResults.length} {filteredResults.length === 1 ? "result" : "results"}
+              {navigableItems.length} {navigableItems.length === 1 ? "result" : "results"}
             </span>
           )}
         </div>

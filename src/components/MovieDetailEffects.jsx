@@ -17,7 +17,11 @@ export function HeroParallaxController() {
   const reduced = useReducedMotion();
 
   useEffect(() => {
-    if (reduced) return undefined;
+    const compactOrTouch =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(max-width: 900px), (hover: none)").matches;
+    if (reduced || compactOrTouch) return undefined;
     const hero = document.querySelector(".movie-backdrop-hero");
     if (!hero) return undefined;
     let frame = 0;

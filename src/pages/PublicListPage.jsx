@@ -5,6 +5,8 @@ import { useApp } from "../context/AppContext";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { fetchPublicListBySlug, toggleBookmarkPublicList } from "../services/publicListsService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { loadDefaultEaseIndex } from "../services/easeService";
+import { loadDefaultContentIndex } from "../services/contentSimService";
 import { buildTasteMatchContext, predictMovieMatch } from "../services/tasteMatchService";
 import PosterImage from "../components/PosterImage";
 import { Button } from "../components/ui/Button";
@@ -36,6 +38,8 @@ export default function PublicListPage() {
     error: ""
   });
   const [embIdx, setEmbIdx] = useState(null);
+  const [easeIdx, setEaseIdx] = useState(null);
+  const [contentIdx, setContentIdx] = useState(null);
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [clonedId, setClonedId] = useState(null);
 
@@ -63,11 +67,16 @@ export default function PublicListPage() {
   useEffect(() => {
     if (watched.length < 3) return undefined;
     let active = true;
-    loadDefaultEmbeddingIndex()
-      .then((idx) => {
-        if (active && idx) setEmbIdx(idx);
-      })
-      .catch(() => {});
+    Promise.all([
+      loadDefaultEmbeddingIndex().catch(() => null),
+      loadDefaultEaseIndex().catch(() => null),
+      loadDefaultContentIndex().catch(() => null)
+    ]).then(([svd, ease, content]) => {
+      if (!active) return;
+      if (svd) setEmbIdx(svd);
+      if (ease) setEaseIdx(ease);
+      if (content) setContentIdx(content);
+    });
     return () => {
       active = false;
     };
@@ -79,9 +88,11 @@ export default function PublicListPage() {
         watched,
         watchlist,
         tasteRules,
-        embeddingIndex: embIdx
+        embeddingIndex: embIdx,
+        easeIndex: easeIdx,
+        contentIndex: contentIdx
       }),
-    [watched, watchlist, tasteRules, embIdx]
+    [watched, watchlist, tasteRules, embIdx, easeIdx, contentIdx]
   );
 
   const handleBookmark = async () => {
@@ -194,7 +205,9 @@ export default function PublicListPage() {
       <div className="lists-items-grid">
         {state.list.items.map((item) => {
           const path = moviePath(item);
-          const pred = tasteContext.ready ? predictMovieMatch(item, tasteContext) : null;
+          const pred = tasteContext.ready
+            ? predictMovieMatch({ movie: item, cachedContext: tasteContext })
+            : null;
           return (
             <div key={item.id || item.imdbID || item.title} className="lists-movie-tile">
               <button

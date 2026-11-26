@@ -274,6 +274,13 @@ export default function BackupManagerModal({
     const lowerName = file.name.toLowerCase();
     try {
       if (lowerName.endsWith(".zip")) {
+        if (file.size > 50 * 1024 * 1024) {
+          setResultMessage({
+            type: "error",
+            text: "ZIP archive is too large (50 MB max). Please upload a standard Letterboxd export .zip."
+          });
+          return;
+        }
         setIsProcessing(true);
         setProgress({ current: 1, total: 1, title: "Reading Letterboxd archive..." });
         const arrayBuf = await file.arrayBuffer();

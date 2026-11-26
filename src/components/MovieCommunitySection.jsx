@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, Heart, Sparkles, Star, Users } from "lucide-react";
 import { useApp } from "../context/AppContext";
@@ -20,6 +20,8 @@ export default function MovieCommunitySection({ tmdbId, imdbID, title, refreshKe
   const [sortBy, setSortBy] = useState("taste");
   const [viewerVector, setViewerVector] = useState(null);
   const [likedIds, setLikedIds] = useState(() => new Set());
+  const [likingIds, setLikingIds] = useState(() => new Set());
+  const likingIdsRef = useRef(new Set());
   const [likeDeltas, setLikeDeltas] = useState(() => ({}));
   const [revealedSpoilers, setRevealedSpoilers] = useState(() => new Set());
 
@@ -79,23 +81,31 @@ export default function MovieCommunitySection({ tmdbId, imdbID, title, refreshKe
       navigate("/auth");
       return;
     }
+    if (likingIdsRef.current.has(reviewId)) return;
+    likingIdsRef.current.add(reviewId);
+    setLikingIds(new Set(likingIdsRef.current));
     const currentlyLiked = likedIds.has(reviewId);
-    const res = await toggleReviewLike({
-      userId: cloudUser.id,
-      ratingId: reviewId,
-      currentlyLiked
-    });
-    if (res.ok) {
-      setLikedIds((prev) => {
-        const next = new Set(prev);
-        if (res.isLiked) next.add(reviewId);
-        else next.delete(reviewId);
-        return next;
+    try {
+      const res = await toggleReviewLike({
+        userId: cloudUser.id,
+        ratingId: reviewId,
+        currentlyLiked
       });
-      setLikeDeltas((prev) => ({
-        ...prev,
-        [reviewId]: (prev[reviewId] || 0) + (res.isLiked ? 1 : -1)
-      }));
+      if (res.ok) {
+        setLikedIds((prev) => {
+          const next = new Set(prev);
+          if (res.isLiked) next.add(reviewId);
+          else next.delete(reviewId);
+          return next;
+        });
+        setLikeDeltas((prev) => ({
+          ...prev,
+          [reviewId]: (prev[reviewId] || 0) + (res.isLiked ? 1 : -1)
+        }));
+      }
+    } finally {
+      likingIdsRef.current.delete(reviewId);
+      setLikingIds(new Set(likingIdsRef.current));
     }
   }
 
@@ -221,9 +231,10 @@ export default function MovieCommunitySection({ tmdbId, imdbID, title, refreshKe
                 <div className="flex items-center justify-end pt-1">
                   <button
                     type="button"
+                    disabled={likingIds.has(rev.id)}
                     onClick={() => handleToggleLike(rev.id)}
                     aria-pressed={isLiked}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[1.2rem] border cursor-pointer transition-colors ${
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[1.2rem] border cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-wait ${
                       isLiked
                         ? "bg-rose-500/15 border-rose-500/40 text-rose-300"
                         : "bg-transparent border-white/10 text-[#9e9e99] hover:border-white/25 hover:text-[#f4f4f2]"

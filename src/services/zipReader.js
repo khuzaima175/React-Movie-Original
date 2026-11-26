@@ -109,9 +109,15 @@ export async function extractZipTextFiles(arrayBuffer, options = {}) {
   let totalDeclaredUncompressed = 0;
   let totalActualUncompressed = 0;
 
+  const cdEnd = cdOffset + cdSize;
   for (let i = 0; i < entryCount; i += 1) {
-    if (cursor + 46 > bytes.byteLength || view.getUint32(cursor, true) !== CENTRAL_DIR_SIG) {
+    if (cursor + 46 > cdEnd || cursor + 46 > bytes.byteLength || view.getUint32(cursor, true) !== CENTRAL_DIR_SIG) {
       throw new Error("Invalid ZIP archive: corrupt central directory header.");
+    }
+
+    const generalPurposeFlag = view.getUint16(cursor + 8, true);
+    if ((generalPurposeFlag & 1) !== 0) {
+      throw new Error("Encrypted ZIP archives are not supported.");
     }
 
     const method = view.getUint16(cursor + 10, true);
@@ -121,6 +127,10 @@ export async function extractZipTextFiles(arrayBuffer, options = {}) {
     const extraLen = view.getUint16(cursor + 30, true);
     const commentLen = view.getUint16(cursor + 32, true);
     const localHeaderOffset = view.getUint32(cursor + 42, true);
+
+    if (cursor + 46 + nameLen + extraLen + commentLen > cdEnd) {
+      throw new Error("Invalid ZIP archive: central directory entry out of bounds.");
+    }
 
     const nameBytes = bytes.subarray(cursor + 46, cursor + 46 + nameLen);
     const entryName = validateSafeEntryPath(decoder.decode(nameBytes));

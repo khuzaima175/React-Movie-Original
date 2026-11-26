@@ -33,7 +33,7 @@ test("appendWatchHistoryEntry logs rewatches, updates watchMeta.rewatchCount, an
     isRewatch: true
   });
   assert.equal(updated.watchHistory.length, 2);
-  assert.equal(updated.watchMeta.rewatchCount, 1);
+  assert.equal(updated.watchMeta.rewatchCount, 2);
   assert.equal(updated.userRating, 10);
 
   const groups = buildMonthlyDiaryGroups([updated], { year: 2026 });

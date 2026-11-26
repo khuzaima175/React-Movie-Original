@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { MovieDetailsSkeleton } from "./Loader";
@@ -24,6 +24,8 @@ import {
 import { fetchOmdbJson, getMovieDetailsBatch } from "../services/apiTransport";
 import { toDashboardCardItem } from "../services/dashboardService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
+import { loadDefaultEaseIndex } from "../services/easeService";
+import { loadDefaultContentIndex } from "../services/contentSimService";
 import { buildTasteMatchContext, predictMovieMatch } from "../services/tasteMatchService";
 import { buildExploreRoute } from "../services/exploreService";
 import {
@@ -118,6 +120,8 @@ export default function MovieDetails({
   } = useApp();
   const [movie, setMovie] = useState(null);
   const [embeddingIndex, setEmbeddingIndex] = useState(null);
+  const [easeIndex, setEaseIndex] = useState(null);
+  const [contentIndex, setContentIndex] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [userRating, setUserRating] = useState(0);
@@ -151,19 +155,44 @@ export default function MovieDetails({
 
   useEffect(() => {
     let active = true;
-    loadDefaultEmbeddingIndex()
-      .then((idx) => {
-        if (active && idx) setEmbeddingIndex(idx);
-      })
-      .catch(() => {});
+    Promise.all([
+      loadDefaultEmbeddingIndex().catch(() => null),
+      loadDefaultEaseIndex().catch(() => null),
+      loadDefaultContentIndex().catch(() => null)
+    ]).then(([svdIdx, easeIdx, contIdx]) => {
+      if (!active) return;
+      if (svdIdx) setEmbeddingIndex(svdIdx);
+      if (easeIdx) setEaseIndex(easeIdx);
+      if (contIdx) setContentIndex(contIdx);
+    });
     return () => {
       active = false;
     };
   }, []);
 
+  const handleRatingStageChange = useCallback((val) => {
+    setUserRating(val);
+    setHoverRating(0);
+  }, []);
+
+  const handleSelectCalibrationAnchor = useCallback(
+    (anchor) => {
+      if (anchor?.imdbID) navigate(`/movie/${encodeURIComponent(anchor.imdbID)}`);
+    },
+    [navigate]
+  );
+
   const tasteMatchCtx = useMemo(
-    () => buildTasteMatchContext({ watched, watchlist, tasteRules, embeddingIndex }),
-    [watched, watchlist, tasteRules, embeddingIndex]
+    () =>
+      buildTasteMatchContext({
+        watched,
+        watchlist,
+        tasteRules,
+        embeddingIndex,
+        easeIndex,
+        contentIndex
+      }),
+    [watched, watchlist, tasteRules, embeddingIndex, easeIndex, contentIndex]
   );
 
   const personalTasteMatch = useMemo(
@@ -968,15 +997,10 @@ export default function MovieDetails({
                     <StarRatingStage
                       value={userRating}
                       hoverValue={hoverRating}
-                      onChange={(val) => {
-                        setUserRating(val);
-                        setHoverRating(0);
-                      }}
+                      onChange={handleRatingStageChange}
                       onHoverChange={setHoverRating}
                       calibration={vaultCalibration}
-                      onSelectAnchor={(anchor) =>
-                        anchor?.imdbID && navigate(`/movie/${encodeURIComponent(anchor.imdbID)}`)
-                      }
+                      onSelectAnchor={handleSelectCalibrationAnchor}
                       titleLabel={isWatched ? "Update Vault Entry" : "Rating Studio"}
                       ariaLabel="Rate this film from 1 to 10"
                     />

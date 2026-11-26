@@ -1216,3 +1216,17 @@ body:has(.vault-bulk-floating-bar) .compare-dock-wrap {
     padding-right: 1.4rem;
   }
 }
+
+@media (max-width: 900px), (hover: none) {
+  .compare-modal-backdrop {
+    background: rgba(8, 9, 12, 0.92);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .compare-dock-pill {
+    background: rgba(20, 22, 27, 0.98);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

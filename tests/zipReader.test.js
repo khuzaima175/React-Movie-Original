@@ -89,3 +89,19 @@ test("extractZipTextFiles rejects path traversal, excessive entries, and ZIP bom
   );
   await assert.rejects(() => extractZipTextFiles(manyEntries), /entry limit/i);
 });
+
+test("extractZipTextFiles rejects encrypted entries and central directory entries extending past declared cdSize", async () => {
+  const validBuf = buildTestZip([{ name: "ratings.csv", data: Buffer.from("a,b\n"), method: 0 }]);
+  const encryptedBytes = new Uint8Array(validBuf.slice(0));
+  const view = new DataView(encryptedBytes.buffer);
+  // Central directory starts right after 30 + "ratings.csv".length (11) + 4 = 45
+  const cdStart = 30 + 11 + 4;
+  view.setUint16(cdStart + 8, 1, true); // set bit 0 general purpose flag (encrypted)
+  await assert.rejects(() => extractZipTextFiles(encryptedBytes.buffer), /encrypted/i);
+
+  const oobBytes = new Uint8Array(validBuf.slice(0));
+  const oobView = new DataView(oobBytes.buffer);
+  const eocdOffset = oobBytes.byteLength - 22;
+  oobView.setUint32(eocdOffset + 12, 50, true); // shrink declared cdSize below 46 + nameLen
+  await assert.rejects(() => extractZipTextFiles(oobBytes.buffer), /out of bounds/i);
+});

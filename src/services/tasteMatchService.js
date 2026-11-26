@@ -1,8 +1,13 @@
 import {
   buildCollabSimMapFromIndex,
   buildRepulsionMapFromIndex,
-  getCollabCatalogMax
+  getCollabCatalogMax,
+  l2NormalizeInPlace
 } from "./embeddingService.js";
+import {
+  buildEaseSimMapFromIndex,
+  blendEaseAndCollabSimMaps
+} from "./easeService.js";
 import { computeZScoredWeights } from "./scoringUtils.js";
 import { compileActiveTasteRules, candidateMatchesAvoidRule, candidateMatchesPreferRule } from "./tasteRulesService.js";
 import { extractTmdbNumericId, isSameMovie } from "./movieIdentity.js";
@@ -86,15 +91,48 @@ export function calibratePredictedRating({ matchPct, watched = [] } = {}) {
   return Math.round(clamped * 10) / 10;
 }
 
+function buildUserContentVector(weightedRatings = [], contentIndex = null) {
+  if (!contentIndex?.count || !contentIndex?.dim || !contentIndex?.vectors || !contentIndex?.idToIndex) {
+    return null;
+  }
+  const { dim, vectors, idToIndex } = contentIndex;
+  const accum = new Float32Array(dim);
+  let matchedCount = 0;
+
+  for (const item of weightedRatings) {
+    const rating = Number(item?.rating ?? 0);
+    if (!Number.isFinite(rating) || rating < 7) continue;
+    const tmdbId = Number(item?.tmdbId ?? item?.movie?.tmdbId ?? item?.movie?.id ?? 0);
+    if (!tmdbId) continue;
+    const idx = idToIndex.get(tmdbId);
+    if (idx === undefined) continue;
+
+    const w = Math.max(0.25, Math.min(2.0, Number(item?.weight) || 1));
+    const base = idx * dim;
+    for (let d = 0; d < dim; d += 1) {
+      accum[d] += w * vectors[base + d];
+    }
+    matchedCount += 1;
+  }
+
+  if (matchedCount === 0) return null;
+  const norm = l2NormalizeInPlace(accum, 0, dim);
+  return norm > 1e-12 ? accum : null;
+}
+
 /**
  * Builds a reusable per-vault taste match context so scoring 1 detail page or
  * 50+ search/catalog cards runs in <2ms on-device at $0.00 API cost.
+ * Supports 3-tier on-device inference: EASE^R + 64-D SVD blend for warm catalog films,
+ * 128-D MiniLM content embeddings for 2024-2026 cold-start films, and metadata DNA fallback.
  */
 export function buildTasteMatchContext({
   watched = [],
   watchlist = [],
   tasteRules = [],
   embeddingIndex = null,
+  easeIndex = null,
+  contentIndex = null,
   now = Date.now()
 } = {}) {
   const ratedWatched = (Array.isArray(watched) ? watched : []).filter(
@@ -119,13 +157,21 @@ export function buildTasteMatchContext({
     tmdbId: Number(entry.movie?.tmdbId || 0) || null
   }));
 
-  const collabSimMap = embeddingIndex
+  const svdSimMap = embeddingIndex
     ? buildCollabSimMapFromIndex(weightedRatings, embeddingIndex)
     : null;
+  const easeSimMap = easeIndex
+    ? buildEaseSimMapFromIndex(weightedRatings, easeIndex, { watchlistItems: watchlist })
+    : null;
+  const hasEaseBlend = Boolean(easeSimMap && easeSimMap.size > 0);
+  const collabSimMap = hasEaseBlend
+    ? blendEaseAndCollabSimMaps(easeSimMap, svdSimMap, easeIndex)
+    : svdSimMap;
   const repulsionMap = embeddingIndex
     ? buildRepulsionMapFromIndex(weightedRatings, embeddingIndex)
     : null;
   const collabCatalogMax = collabSimMap ? getCollabCatalogMax(collabSimMap) : null;
+  const userContentVec = buildUserContentVector(weightedRatings, contentIndex);
 
   // Build lightweight genre & director affinity tables from rated entries
   const genreScoreById = new Map();
@@ -165,6 +211,10 @@ export function buildTasteMatchContext({
     watched: ratedWatched,
     watchlist: Array.isArray(watchlist) ? watchlist : [],
     embeddingIndex,
+    easeIndex,
+    contentIndex,
+    userContentVec,
+    hasEaseBlend,
     collabSimMap,
     repulsionMap,
     collabCatalogMax,
@@ -187,63 +237,69 @@ function resolveMovieTmdbId(movie) {
   );
 }
 
-function findClosestAnchors(movie, ctx) {
-  const anchors = [];
-  const tmdbId = resolveMovieTmdbId(movie);
-  const index = ctx.embeddingIndex;
+function findClosestAnchorsInIndex(movie, tmdbId, index, topAnchors = [], minSim = 0.25) {
+  if (!index?.idToIndex?.has(tmdbId) || !index.vectors || !index.dim) return [];
+  const candIdx = index.idToIndex.get(tmdbId);
+  const dim = index.dim;
+  const candBase = candIdx * dim;
+  let candNormSq = 0;
+  for (let d = 0; d < dim; d += 1) {
+    const v = index.vectors[candBase + d];
+    candNormSq += v * v;
+  }
+  const candNorm = Math.sqrt(candNormSq) || 1;
 
-  // 1. Vector cosine proximity against user's top loved anchors
-  if (index?.idToIndex?.has(tmdbId) && index.vectors && index.dim) {
-    const candIdx = index.idToIndex.get(tmdbId);
-    const dim = index.dim;
-    const candBase = candIdx * dim;
-    let candNormSq = 0;
+  const scoredAnchors = [];
+  for (const anchor of topAnchors || []) {
+    if (isSameMovie(anchor.movie, movie)) continue;
+    const aid = resolveMovieTmdbId(anchor.movie);
+    if (!aid || aid === tmdbId || !index.idToIndex.has(aid)) continue;
+    const aIdx = index.idToIndex.get(aid);
+    const aBase = aIdx * dim;
+    let dot = 0;
+    let aNormSq = 0;
     for (let d = 0; d < dim; d += 1) {
-      const v = index.vectors[candBase + d];
-      candNormSq += v * v;
+      const av = index.vectors[aBase + d];
+      dot += av * index.vectors[candBase + d];
+      aNormSq += av * av;
     }
-    const candNorm = Math.sqrt(candNormSq) || 1;
-
-    const scoredAnchors = [];
-    for (const anchor of ctx.topAnchors || []) {
-      if (isSameMovie(anchor.movie, movie)) continue;
-      const aid = resolveMovieTmdbId(anchor.movie);
-      if (!aid || aid === tmdbId || !index.idToIndex.has(aid)) continue;
-      const aIdx = index.idToIndex.get(aid);
-      const aBase = aIdx * dim;
-      let dot = 0;
-      let aNormSq = 0;
-      for (let d = 0; d < dim; d += 1) {
-        const av = index.vectors[aBase + d];
-        dot += av * index.vectors[candBase + d];
-        aNormSq += av * av;
-      }
-      const sim = dot / (candNorm * (Math.sqrt(aNormSq) || 1));
-      if (sim > 0.25) {
-        scoredAnchors.push({ title: anchor.movie.title || anchor.movie.Title, sim });
-      }
-    }
-    scoredAnchors.sort((a, b) => b.sim - a.sim);
-    for (const a of scoredAnchors.slice(0, 2)) {
-      if (a.title) anchors.push(a.title);
+    const sim = dot / (candNorm * (Math.sqrt(aNormSq) || 1));
+    if (sim > minSim) {
+      scoredAnchors.push({ title: anchor.movie.title || anchor.movie.Title, sim });
     }
   }
+  scoredAnchors.sort((a, b) => b.sim - a.sim);
+  return scoredAnchors
+    .slice(0, 2)
+    .map((a) => a.title)
+    .filter(Boolean);
+}
 
-  // 2. Fallback: same director or overlapping genres from topAnchors
-  if (anchors.length === 0) {
-    const movieDirs = new Set(parseDirectorNames(movie).map(normalizeNameKey));
-    const movieGenres = new Set(parseGenreNames(movie).map(canonicalGenreName));
-    for (const anchor of ctx.topAnchors || []) {
-      if (isSameMovie(anchor.movie, movie)) continue;
-      const title = anchor.movie?.title || anchor.movie?.Title;
-      if (!title || anchors.includes(title)) continue;
-      const aDirs = parseDirectorNames(anchor.movie).map(normalizeNameKey);
-      const aGenres = parseGenreNames(anchor.movie).map(canonicalGenreName);
-      if (aDirs.some((d) => movieDirs.has(d)) || aGenres.some((g) => movieGenres.has(g))) {
-        anchors.push(title);
-      }
-      if (anchors.length >= 2) break;
+function findClosestAnchors(movie, ctx) {
+  const tmdbId = resolveMovieTmdbId(movie);
+
+  // 1. SVD collaborative cosine proximity against user's top loved anchors
+  const svdAnchors = findClosestAnchorsInIndex(movie, tmdbId, ctx.embeddingIndex, ctx.topAnchors, 0.25);
+  if (svdAnchors.length > 0) return svdAnchors;
+
+  // 2. Cold-start 128-D semantic cosine proximity (for 2024-2026 films absent from 64-D SVD)
+  const contentAnchors = findClosestAnchorsInIndex(movie, tmdbId, ctx.contentIndex, ctx.topAnchors, 0.34);
+  if (contentAnchors.length > 0) return contentAnchors;
+
+  // 3. Fallback: same director or overlapping genres from topAnchors
+  const anchors = [];
+  const movieDirs = new Set(parseDirectorNames(movie).map(normalizeNameKey));
+  const movieGenres = new Set(parseGenreNames(movie).map(canonicalGenreName));
+  for (const anchor of ctx.topAnchors || []) {
+    if (isSameMovie(anchor.movie, movie)) continue;
+    const title = anchor.movie?.title || anchor.movie?.Title;
+    if (!title || anchors.includes(title)) continue;
+    const aDirs = parseDirectorNames(anchor.movie).map(normalizeNameKey);
+    const aGenres = parseGenreNames(anchor.movie).map(canonicalGenreName);
+    if (aDirs.some((d) => movieDirs.has(d)) || aGenres.some((g) => movieGenres.has(g))) {
+      anchors.push(title);
     }
+    if (anchors.length >= 2) break;
   }
 
   return anchors;
@@ -357,6 +413,26 @@ export function predictMovieMatch({
     else if (candidateMatchesPreferRule(movie, ctx.compiledRules.preferRules).matched) ruleShift += 0.55;
   }
 
+  let hasContentEntry = false;
+  let normContent = 0;
+  if (!hasCollabEntry && tmdbId && ctx.userContentVec && ctx.contentIndex?.idToIndex?.has(tmdbId)) {
+    const cIdx = ctx.contentIndex.idToIndex.get(tmdbId);
+    const dim = ctx.contentIndex.dim;
+    const base = cIdx * dim;
+    let dot = 0;
+    let candNormSq = 0;
+    for (let d = 0; d < dim; d += 1) {
+      const cv = ctx.contentIndex.vectors[base + d];
+      dot += ctx.userContentVec[d] * cv;
+      candNormSq += cv * cv;
+    }
+    if (candNormSq > 1e-12) {
+      const rawContentSim = dot / Math.sqrt(candNormSq);
+      hasContentEntry = true;
+      normContent = Math.max(-1, Math.min(1, (rawContentSim - 0.28) / 0.3));
+    }
+  }
+
   let logit = 0;
   let confidence = "metadata";
   if (hasCollabEntry) {
@@ -368,6 +444,15 @@ export function predictMovieMatch({
       genreAffinity * 0.65 +
       normDirector * 0.75 +
       acclaimSignal * 0.55 +
+      ruleShift;
+  } else if (hasContentEntry) {
+    confidence = "semantic";
+    logit =
+      0.15 +
+      normContent * 1.95 +
+      genreAffinity * 0.85 +
+      normDirector * 0.95 +
+      acclaimSignal * 0.65 +
       ruleShift;
   } else {
     confidence = "metadata";
@@ -387,12 +472,12 @@ export function predictMovieMatch({
   const signals = [];
   if (matchedDirector) signals.push(matchedDirector);
   if (matchedGenreLabels.length > 0) signals.push(matchedGenreLabels.slice(0, 2).join(" · "));
-  if (confidence === "high" && anchorTitles.length > 0) {
+  if ((confidence === "high" || confidence === "semantic") && anchorTitles.length > 0) {
     signals.push(`Near ${anchorTitles.join(" & ")}`);
   }
 
   let summary = "";
-  if (anchorTitles.length > 0 && hasCollabEntry) {
+  if (anchorTitles.length > 0 && (hasCollabEntry || hasContentEntry)) {
     summary = `Close to ${anchorTitles.join(" & ")}${matchedDirector ? ` · ${matchedDirector}` : ""}`;
   } else if (matchedDirector && matchedGenreLabels.length > 0) {
     summary = `Matches ${matchedDirector} & ${matchedGenreLabels[0]} DNA`;
@@ -400,8 +485,14 @@ export function predictMovieMatch({
     summary = `Director fit: ${matchedDirector}`;
   } else if (matchedGenreLabels.length > 0) {
     summary = `Estimated from ${matchedGenreLabels.slice(0, 2).join(" & ")} taste DNA`;
+  } else if (hasCollabEntry) {
+    summary = ctx.hasEaseBlend
+      ? "Based on your EASE + 64-D taste profile"
+      : "Based on your 64-D taste profile";
+  } else if (hasContentEntry) {
+    summary = "Based on 128-D semantic taste DNA";
   } else {
-    summary = hasCollabEntry ? "Based on your 64-D taste profile" : "Estimated from genre & acclaim DNA";
+    summary = "Estimated from genre & acclaim DNA";
   }
 
   return {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Bookmark,
@@ -40,21 +40,33 @@ export default function CommunityPage() {
   const { cloudUser = null, watched = [], hasCloudConfig = false } = useApp();
 
   const initialTab = searchParams.get("tab");
+  const hasExplicitTab = initialTab === "lists" || initialTab === "twins" || initialTab === "feed";
+  const userPickedTabRef = useRef(hasExplicitTab);
   const [activeTab, setActiveTab] = useState(
-    initialTab === "lists" || initialTab === "twins" || initialTab === "feed"
-      ? initialTab
-      : cloudUser
-        ? "feed"
-        : "twins"
+    hasExplicitTab ? initialTab : cloudUser ? "feed" : "twins"
   );
 
   const [viewerVector, setViewerVector] = useState(null);
-  const [feedState, setFeedState] = useState({ loading: false, items: [], status: "idle" });
-  const [listsState, setListsState] = useState({ loading: true, lists: [], sort: "popular" });
-  const [membersState, setMembersState] = useState({ loading: true, profiles: [] });
+  const [feedState, setFeedState] = useState({ loading: false, items: [], status: "idle", error: "" });
+  const [listsState, setListsState] = useState({ loading: false, lists: [], sort: "popular", error: "" });
+  const [membersState, setMembersState] = useState({ loading: false, profiles: [], error: "" });
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [revealedSpoilers, setRevealedSpoilers] = useState(() => new Set());
   const [followingMap, setFollowingMap] = useState(() => ({}));
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!userPickedTabRef.current && cloudUser?.id && activeTab !== "feed") {
+      setActiveTab("feed");
+    }
+  }, [cloudUser?.id, activeTab]);
 
   useEffect(() => {
     if (watched.length < 3) {
@@ -73,61 +85,97 @@ export default function CommunityPage() {
   }, [watched]);
 
   useEffect(() => {
+    if (activeTab !== "feed") return undefined;
     if (!hasCloudConfig || !cloudUser?.id) {
-      setFeedState({ loading: false, items: [], status: "signed_out" });
+      setFeedState({ loading: false, items: [], status: "signed_out", error: "" });
       return undefined;
     }
     let active = true;
-    setFeedState((prev) => ({ ...prev, loading: true }));
-    fetchFriendsActivityFeed(cloudUser.id, { limit: 35 }).then((res) => {
-      if (!active) return;
-      setFeedState({ loading: false, items: res.items || [], status: res.status });
-      if (Array.isArray(res.followingIds)) {
-        const seeded = {};
-        for (const id of res.followingIds) {
-          seeded[id] = true;
+    setFeedState((prev) => ({ ...prev, loading: true, error: "" }));
+    fetchFriendsActivityFeed(cloudUser.id, { limit: 35 })
+      .then((res) => {
+        if (!active) return;
+        const isErr = res?.status === "error";
+        setFeedState({
+          loading: false,
+          items: res?.items || [],
+          status: res?.status || "ok",
+          error: isErr ? "Unable to load Following Feed right now. Please try again shortly." : ""
+        });
+        if (Array.isArray(res?.followingIds)) {
+          const seeded = {};
+          for (const id of res.followingIds) {
+            seeded[id] = true;
+          }
+          setFollowingMap(seeded);
         }
-        setFollowingMap(seeded);
-      }
-    });
+      })
+      .catch(() => {
+        if (!active) return;
+        setFeedState({ loading: false, items: [], status: "error", error: "Unable to load Following Feed right now." });
+      });
     return () => {
       active = false;
     };
-  }, [hasCloudConfig, cloudUser?.id]);
+  }, [activeTab, hasCloudConfig, cloudUser?.id]);
 
   useEffect(() => {
+    if (activeTab !== "lists") return undefined;
     if (!hasCloudConfig) {
-      setListsState((prev) => ({ ...prev, loading: false, lists: [] }));
+      setListsState((prev) => ({ ...prev, loading: false, lists: [], error: "" }));
       return undefined;
     }
     let active = true;
-    setListsState((prev) => ({ ...prev, loading: true }));
-    fetchPublicListsDirectory({ query: searchQuery, sort: listsState.sort, limit: 24 }).then((res) => {
-      if (!active) return;
-      setListsState((prev) => ({ ...prev, loading: false, lists: res.lists || [] }));
-    });
+    setListsState((prev) => ({ ...prev, loading: true, error: "" }));
+    fetchPublicListsDirectory({ query: debouncedSearch, sort: listsState.sort, limit: 24 })
+      .then((res) => {
+        if (!active) return;
+        const isErr = res?.status === "error";
+        setListsState((prev) => ({
+          ...prev,
+          loading: false,
+          lists: res?.lists || [],
+          error: isErr ? "Unable to load public lists right now. Please try again shortly." : ""
+        }));
+      })
+      .catch(() => {
+        if (!active) return;
+        setListsState((prev) => ({ ...prev, loading: false, lists: [], error: "Unable to load public lists right now." }));
+      });
     return () => {
       active = false;
     };
-  }, [hasCloudConfig, searchQuery, listsState.sort]);
+  }, [activeTab, hasCloudConfig, debouncedSearch, listsState.sort]);
 
   useEffect(() => {
+    if (activeTab !== "twins") return undefined;
     if (!hasCloudConfig) {
-      setMembersState({ loading: false, profiles: [] });
+      setMembersState({ loading: false, profiles: [], error: "" });
       return undefined;
     }
     let active = true;
-    setMembersState((prev) => ({ ...prev, loading: true }));
-    fetchCommunityDirectory({ query: searchQuery, viewerVector, limit: 24 }).then((res) => {
-      if (!active) return;
-      setMembersState({ loading: false, profiles: res.profiles || [] });
-    });
+    setMembersState((prev) => ({ ...prev, loading: true, error: "" }));
+    fetchCommunityDirectory({ query: debouncedSearch, viewerVector, limit: 24 })
+      .then((res) => {
+        if (!active) return;
+        const isErr = res?.status === "error";
+        setMembersState({
+          loading: false,
+          profiles: res?.profiles || [],
+          error: isErr ? "Unable to load Taste Twins directory right now. Please try again shortly." : ""
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setMembersState({ loading: false, profiles: [], error: "Unable to load Taste Twins directory right now." });
+      });
     return () => {
       active = false;
     };
-  }, [hasCloudConfig, searchQuery, viewerVector]);
+  }, [activeTab, hasCloudConfig, debouncedSearch, viewerVector]);
 
   function handleTabChange(nextTab) {
+    userPickedTabRef.current = true;
     setActiveTab(nextTab);
     setSearchParams({ tab: nextTab }, { replace: true });
   }
@@ -246,6 +294,12 @@ export default function CommunityPage() {
               <Loader2 size={18} className="animate-spin" aria-hidden="true" />
               <span>Loading your feed...</span>
             </div>
+          ) : feedState.error ? (
+            <div className="together-empty-card">
+              <Users size={26} aria-hidden="true" />
+              <h3>Could not load Following Feed</h3>
+              <p>{feedState.error}</p>
+            </div>
           ) : feedState.items.length === 0 ? (
             <div className="together-empty-card">
               <Sparkles size={26} aria-hidden="true" />
@@ -331,6 +385,12 @@ export default function CommunityPage() {
               <Loader2 size={18} className="animate-spin" aria-hidden="true" />
               <span>Loading curated lists...</span>
             </div>
+          ) : listsState.error ? (
+            <div className="together-empty-card">
+              <ListChecks size={26} aria-hidden="true" />
+              <h3>Could not load public lists</h3>
+              <p>{listsState.error}</p>
+            </div>
           ) : listsState.lists.length === 0 ? (
             <div className="together-empty-card">
               <ListChecks size={26} aria-hidden="true" />
@@ -367,6 +427,12 @@ export default function CommunityPage() {
           <div className="flex items-center justify-center gap-3 py-16 text-[1.4rem] text-[#9e9e99]">
             <Loader2 size={18} className="animate-spin" aria-hidden="true" />
             <span>Finding Taste Twins...</span>
+          </div>
+        ) : membersState.error ? (
+          <div className="together-empty-card">
+            <Users size={26} aria-hidden="true" />
+            <h3>Could not load Taste Twins</h3>
+            <p>{membersState.error}</p>
           </div>
         ) : visibleMembers.length === 0 ? (
           <div className="together-empty-card">

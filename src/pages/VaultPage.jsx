@@ -15,7 +15,8 @@ import { buildBulkMoveWatchedItem } from "../services/csvImport";
 import {
   YEARLY_GOAL_STORAGE_KEY,
   buildMonthlyDiaryGroups,
-  computeYearlyDiaryStats
+  computeYearlyDiaryStats,
+  normalizeWatchHistory
 } from "../services/diaryService";
 import PosterImage from "../components/PosterImage";
 import { Bookmark, Calendar, Film, Compass, RotateCcw, Search, Star, Upload } from "lucide-react";
@@ -56,6 +57,18 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [toast, setToast] = useState(null);
   const currentYear = new Date().getFullYear();
   const [diaryYear, setDiaryYear] = useState(currentYear);
+  const diaryYearChoices = useMemo(() => {
+    const years = new Set([currentYear]);
+    for (const movie of Array.isArray(watched) ? watched : []) {
+      for (const entry of normalizeWatchHistory(movie)) {
+        const yr = Number(String(entry.watchedAt || "").slice(0, 4));
+        if (Number.isInteger(yr) && yr >= 1970 && yr <= currentYear + 1) {
+          years.add(yr);
+        }
+      }
+    }
+    return [...years].sort((a, b) => b - a).slice(0, 8);
+  }, [watched, currentYear]);
   const [yearlyGoal, setYearlyGoal] = useState(() => {
     try {
       const saved = Number(localStorage.getItem(YEARLY_GOAL_STORAGE_KEY));
@@ -329,7 +342,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
             const yearStats = computeYearlyDiaryStats(watched, diaryYear);
             const monthGroups = buildMonthlyDiaryGroups(watched, { year: diaryYear });
             const goalPct = yearlyGoal > 0 ? Math.min(100, Math.round((yearStats.count / yearlyGoal) * 100)) : 0;
-            const yearChoices = [currentYear, currentYear - 1, currentYear - 2];
+            const yearChoices = diaryYearChoices;
 
             return (
               <section className="flex flex-col gap-6" aria-label="Chronological Watch Diary">
@@ -350,7 +363,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <div className="together-role-toggle" role="group" aria-label="Filter diary year">
+                      <div className="together-role-toggle flex-wrap" role="group" aria-label="Filter diary year">
                         {yearChoices.map((yr) => (
                           <button
                             key={yr}

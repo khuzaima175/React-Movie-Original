@@ -817,3 +817,17 @@ button.cast-actor-card.cast-actor-card--interactive:focus-visible .cast-card-che
     height: 5.6rem;
   }
 }
+
+@media (max-width: 900px), (hover: none) {
+  .person-modal-backdrop {
+    background: rgba(7, 8, 10, 0.92);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .person-vault-pill {
+    background: rgba(13, 14, 17, 0.94);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
