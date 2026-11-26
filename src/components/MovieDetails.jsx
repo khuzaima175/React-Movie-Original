@@ -61,6 +61,7 @@ import MovieCommunitySection from "./MovieCommunitySection";
 import AddToListPopover from "./AddToListPopover";
 import TrailerModal from "./TrailerModal";
 import { buildTrailerEmbedUrl } from "../services/navHelpers";
+import { appendWatchHistoryEntry } from "../services/diaryService";
 import {
   ArrowLeft,
   ChevronRight,
@@ -926,6 +927,27 @@ export default function MovieDetails({
                       >
                         <Edit3 size={15} aria-hidden="true" />
                         <span>Edit Rating / Review</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-edit-vault-rating"
+                        onClick={() => {
+                          if (!watchedItem) return;
+                          const updated = appendWatchHistoryEntry(watchedItem, {
+                            date: new Date().toISOString().slice(0, 10),
+                            format: watchedItem.watchMeta?.format || "streaming",
+                            rating: watchedItem.userRating,
+                            isRewatch: true
+                          });
+                          onAddWatched?.(updated);
+                          setSaveSuccess(true);
+                          setTimeout(() => setSaveSuccess(false), 3000);
+                        }}
+                        aria-label="Log another rewatch today"
+                      >
+                        <Plus size={15} aria-hidden="true" />
+                        <span>Log Rewatch</span>
                       </button>
 
                       <AddToListPopover movie={movie} />

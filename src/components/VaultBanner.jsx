@@ -167,11 +167,12 @@ export default function VaultBanner({
       {/* ── Tier 1: Editorial Header & Typographic Stats ── */}
       <div className="studio-hero-tier">
         {ambientPoster && (
-          <div
-            className="vault-hero-ambient"
-            style={{ backgroundImage: `url(${ambientPoster})` }}
-            aria-hidden="true"
-          />
+          <div className="vault-hero-ambient-clip" aria-hidden="true">
+            <div
+              className="vault-hero-ambient"
+              style={{ backgroundImage: `url(${ambientPoster})` }}
+            />
+          </div>
         )}
         <div className="studio-hero-left">
           <div className="studio-title-stack">
@@ -442,6 +443,7 @@ export default function VaultBanner({
         <Tabs
           tabs={[
             { id: "watched", label: "Watched", count: watched.length },
+            { id: "diary", label: "Diary" },
             { id: "watchlist", label: "Watchlist", count: watchlist.length },
             { id: "lists", label: "Lists", count: customListsCount },
             { id: "checklists", label: "Checklists", count: checklistsCount }

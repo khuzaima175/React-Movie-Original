@@ -12,7 +12,13 @@ import ToastNotification from "../components/ToastNotification";
 import QuickRateModal from "../components/QuickRateModal";
 import { CANON_CHECKLISTS } from "../services/listsService";
 import { buildBulkMoveWatchedItem } from "../services/csvImport";
-import { Bookmark, Film, Compass, Search, Upload } from "lucide-react";
+import {
+  YEARLY_GOAL_STORAGE_KEY,
+  buildMonthlyDiaryGroups,
+  computeYearlyDiaryStats
+} from "../services/diaryService";
+import PosterImage from "../components/PosterImage";
+import { Bookmark, Calendar, Film, Compass, RotateCcw, Search, Star, Upload } from "lucide-react";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
@@ -35,7 +41,7 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const canTrySampleVault = !cloudUser && watched.length < 3;
 
   const resolveInitialTab = (raw) =>
-    raw === "watchlist" || raw === "lists" || raw === "checklists" ? raw : "watched";
+    raw === "watchlist" || raw === "lists" || raw === "checklists" || raw === "diary" ? raw : "watched";
 
   const [activeTab, setActiveTab] = useState(() => resolveInitialTab(searchParams.get("tab")));
   const [selectedListId, setSelectedListId] = useState(() => searchParams.get("list") || null);
@@ -48,6 +54,18 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [quickAddMovie, setQuickAddMovie] = useState(null);
   const [toast, setToast] = useState(null);
+  const currentYear = new Date().getFullYear();
+  const [diaryYear, setDiaryYear] = useState(currentYear);
+  const [yearlyGoal, setYearlyGoal] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(YEARLY_GOAL_STORAGE_KEY));
+      return Number.isFinite(saved) && saved > 0 ? saved : 50;
+    } catch {
+      return 50;
+    }
+  });
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
+  const [goalDraft, setGoalDraft] = useState(String(yearlyGoal));
   const getInitialGridBatch = () =>
     typeof window !== "undefined" && window.innerWidth <= 900 ? 36 : 60;
   const [visibleGridCount, setVisibleGridCount] = useState(getInitialGridBatch);
@@ -306,7 +324,180 @@ export default function VaultPage({ onOpenBackup, onOpenCloudSync }) {
 
       {/* ── 2. Main Collection Grid / List View ── */}
       <div className="vault-collection-body">
-        {activeTab === "lists" || activeTab === "checklists" ? (
+        {activeTab === "diary" ? (
+          (() => {
+            const yearStats = computeYearlyDiaryStats(watched, diaryYear);
+            const monthGroups = buildMonthlyDiaryGroups(watched, { year: diaryYear });
+            const goalPct = yearlyGoal > 0 ? Math.min(100, Math.round((yearStats.count / yearlyGoal) * 100)) : 0;
+            const yearChoices = [currentYear, currentYear - 1, currentYear - 2];
+
+            return (
+              <section className="flex flex-col gap-6" aria-label="Chronological Watch Diary">
+                <div className="rounded-[var(--r-xl)] border border-[var(--hairline-strong)] bg-[var(--surface-1)] p-5 sm:p-6 flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <span className="text-[1.15rem] uppercase tracking-[0.12em] font-semibold text-amber-300">
+                        {diaryYear} Watch Goal
+                      </span>
+                      <h2 className="m-0 mt-1 text-[2.2rem] font-semibold text-[var(--text-1)] tabular-num">
+                        {yearStats.count} / {yearlyGoal} films{" "}
+                        <span className="text-[1.45rem] font-normal text-[var(--text-2)]">({goalPct}%)</span>
+                      </h2>
+                      <p className="m-0 mt-1 text-[1.3rem] text-[var(--text-3)] tabular-num">
+                        {Math.round(yearStats.totalMinutes / 60)}h watched · {yearStats.rewatchCount} rewatches
+                        {yearStats.avgRating ? ` · ${yearStats.avgRating}/10 avg` : ""}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="together-role-toggle" role="group" aria-label="Filter diary year">
+                        {yearChoices.map((yr) => (
+                          <button
+                            key={yr}
+                            type="button"
+                            className={diaryYear === yr ? "is-active" : ""}
+                            onClick={() => setDiaryYear(yr)}
+                          >
+                            {yr}
+                          </button>
+                        ))}
+                      </div>
+
+                      {!isEditingGoal ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGoalDraft(String(yearlyGoal));
+                            setIsEditingGoal(true);
+                          }}
+                          className="px-3 py-1.5 rounded-[var(--r-md)] border border-[var(--hairline-strong)] bg-[var(--surface-2)] text-[1.25rem] text-[var(--text-1)] cursor-pointer"
+                        >
+                          Edit Goal
+                        </button>
+                      ) : (
+                        <form
+                          className="flex items-center gap-2"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const parsed = Math.max(1, Math.min(1000, Math.round(Number(goalDraft) || 50)));
+                            setYearlyGoal(parsed);
+                            setIsEditingGoal(false);
+                            try {
+                              localStorage.setItem(YEARLY_GOAL_STORAGE_KEY, String(parsed));
+                            } catch {
+                              // ignore storage errors
+                            }
+                          }}
+                        >
+                          <input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={goalDraft}
+                            onChange={(e) => setGoalDraft(e.target.value)}
+                            aria-label="Yearly film goal"
+                            className="w-[7rem] px-2.5 py-1 rounded-[var(--r-sm)] bg-[var(--surface-2)] border border-[var(--hairline-strong)] text-[1.3rem] text-[var(--text-1)]"
+                          />
+                          <button
+                            type="submit"
+                            className="px-3 py-1 rounded-[var(--r-sm)] bg-amber-400/20 border border-amber-400/40 text-amber-200 text-[1.25rem] font-semibold cursor-pointer"
+                          >
+                            Save
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="w-full h-[0.7rem] rounded-full bg-white/[0.06] overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400 transition-all duration-300"
+                      style={{ width: `${goalPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                {monthGroups.length === 0 ? (
+                  <div className="watched-empty-card">
+                    <Calendar size={30} className="empty-icon-quiet" aria-hidden="true" />
+                    <h3>No dated watches logged in {diaryYear}</h3>
+                    <p>Rate any film or click &ldquo;Log Rewatch&rdquo; on a film page to build your chronological diary.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-6">
+                    {monthGroups.map((group) => (
+                      <div key={group.monthKey} className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between border-b border-[var(--hairline)] pb-2">
+                          <h3 className="m-0 text-[1.65rem] font-semibold text-[var(--text-1)]">
+                            {group.monthLabel}
+                          </h3>
+                          <span className="text-[1.25rem] text-[var(--text-3)] tabular-num">
+                            {group.entries.length} {group.entries.length === 1 ? "watch" : "watches"}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          {group.entries.map((entry) => (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              onClick={() => entry.movieId && handleSelectMovie(entry.movieId)}
+                              className="flex items-center justify-between gap-4 p-3 rounded-[var(--r-lg)] border border-[var(--hairline)] bg-[var(--surface-1)] hover:border-[var(--hairline-strong)] text-left cursor-pointer transition-colors"
+                            >
+                              <div className="flex items-center gap-3.5 min-w-0">
+                                <span className="w-[4.6rem] text-[1.25rem] font-semibold text-[var(--text-3)] tabular-num shrink-0">
+                                  {entry.watchedAt.slice(5, 10)}
+                                </span>
+                                <div className="w-[3.4rem] h-[5rem] rounded-[0.4rem] overflow-hidden bg-[var(--surface-2)] shrink-0">
+                                  <PosterImage src={entry.poster} title={entry.title} />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <strong className="text-[1.45rem] text-[var(--text-1)] truncate">
+                                      {entry.title}
+                                    </strong>
+                                    {entry.year && (
+                                      <span className="text-[1.25rem] text-[var(--text-3)]">{entry.year}</span>
+                                    )}
+                                    {entry.isRewatch && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/[0.06] text-[1.1rem] text-[var(--text-2)]">
+                                        <RotateCcw size={10} aria-hidden="true" />
+                                        Rewatch
+                                      </span>
+                                    )}
+                                  </div>
+                                  {entry.note && (
+                                    <p className="m-0 mt-0.5 text-[1.25rem] text-[var(--text-2)] truncate max-w-[56rem]">
+                                      {entry.note}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3 shrink-0">
+                                {entry.format && entry.format !== "streaming" && (
+                                  <span className="text-[1.15rem] uppercase tracking-wider text-[var(--text-3)] hidden sm:inline">
+                                    {entry.format}
+                                  </span>
+                                )}
+                                {entry.rating && (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-200 text-[1.25rem] font-semibold tabular-num">
+                                    <Star size={11} fill="currentColor" aria-hidden="true" />
+                                    {entry.rating}/10
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })()
+        ) : activeTab === "lists" || activeTab === "checklists" ? (
           <VaultListsPanel
             mode={activeTab}
             selectedListId={selectedListId}

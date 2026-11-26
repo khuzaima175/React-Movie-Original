@@ -125,6 +125,9 @@ export function compactVaultMovieForStorage(movie, { aggressive = false } = {}) 
   if (Array.isArray(out.castIds) && out.castIds.length > 10) {
     out.castIds = out.castIds.slice(0, 10);
   }
+  if (aggressive && Array.isArray(out.watchHistory) && out.watchHistory.length > 50) {
+    out.watchHistory = out.watchHistory.slice(0, 50);
+  }
 
   return out;
 }
