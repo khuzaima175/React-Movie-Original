@@ -15,11 +15,13 @@ import {
   Cloud,
   MoreHorizontal,
   BarChart3,
-  Compass
+  Compass,
+  Share2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button, Menu, Select, StatCell, Tabs } from "./ui";
 import AnimatedNumber from "./ui/AnimatedNumber";
+import TasteCardModal from "./TasteCardModal";
 import { buildRatingHistogramBins } from "../services/vaultStats";
 
 export default function VaultBanner({
@@ -51,6 +53,7 @@ export default function VaultBanner({
   totalCount = 0
 }) {
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+  const [isTasteCardOpen, setIsTasteCardOpen] = useState(false);
 
   // Computed Cinema Metrics
   const totalMovies = watched.length;
@@ -302,6 +305,11 @@ export default function VaultBanner({
               <Menu.Item icon={ArrowUpDown} onClick={onOpenBackup}>
                 Import / Export Vault
               </Menu.Item>
+              {totalMovies > 0 && (
+                <Menu.Item icon={Share2} onClick={() => setIsTasteCardOpen(true)}>
+                  Share Taste Card
+                </Menu.Item>
+              )}
               {onOpenCloudSync && (
                 <>
                   <Menu.Divider />
@@ -555,6 +563,13 @@ export default function VaultBanner({
         </div>
         )}
       </div>
+
+      <TasteCardModal
+        isOpen={isTasteCardOpen}
+        onClose={() => setIsTasteCardOpen(false)}
+        watched={watched}
+        profile={cloudUser ? { displayName: cloudUser.email?.split("@")[0] } : null}
+      />
     </div>
   );
 }

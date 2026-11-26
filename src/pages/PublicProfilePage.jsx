@@ -23,6 +23,7 @@ import {
 import { fetchPublicListsByUsername } from "../services/publicListsService";
 import { loadDefaultEmbeddingIndex } from "../services/embeddingService";
 import PosterImage from "../components/PosterImage";
+import TasteCardModal from "../components/TasteCardModal";
 import { Button } from "../components/ui/Button";
 import "../styles/community.css";
 
@@ -54,6 +55,7 @@ export default function PublicProfilePage() {
   const [followBusy, setFollowBusy] = useState(false);
   const [revealedSpoilers, setRevealedSpoilers] = useState(() => new Set());
   const [publicLists, setPublicLists] = useState([]);
+  const [isTasteCardOpen, setIsTasteCardOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -241,9 +243,16 @@ export default function PublicProfilePage() {
             )}
 
             {isOwnProfile ? (
-              <Button variant="secondary" onClick={() => navigate("/account")}>
-                Edit Public Profile
-              </Button>
+              <div className="flex flex-wrap gap-[0.8rem]">
+                <Button variant="secondary" onClick={() => navigate("/account")}>
+                  Edit Public Profile
+                </Button>
+                {state.ratings.length > 0 && (
+                  <Button variant="accent" onClick={() => setIsTasteCardOpen(true)}>
+                    Share Taste Card
+                  </Button>
+                )}
+              </div>
             ) : (
               <div className="flex flex-wrap gap-[0.8rem]">
                 <Button
@@ -441,6 +450,19 @@ export default function PublicProfilePage() {
           )}
         </section>
       </div>
+
+      <TasteCardModal
+        isOpen={isTasteCardOpen}
+        onClose={() => setIsTasteCardOpen(false)}
+        watched={state.ratings.map((r) => ({
+          title: r.title,
+          year: r.year,
+          poster: r.poster,
+          userRating: r.user_rating,
+          dateWatched: r.watched_at || r.updated_at
+        }))}
+        profile={profile}
+      />
     </div>
   );
 }
