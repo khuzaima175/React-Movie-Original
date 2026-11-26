@@ -76,7 +76,7 @@ test("parseLetterboxdZipArchive merges watched, ratings, reviews, diary, watchli
     },
     {
       name: "ratings.csv",
-      text: "Date,Name,Year,Letterboxd URI,Rating\n2025-05-01,Arrival,2016,https://boxd.it/a1,4.5\n"
+      text: "Date,Name,Year,Letterboxd URI,Rating\n2025-08-01,Arrival,2016,https://boxd.it/a1,4.5\n"
     },
     {
       name: "reviews.csv",
@@ -109,6 +109,14 @@ test("parseLetterboxdZipArchive merges watched, ratings, reviews, diary, watchli
   assert.ok(arrival);
   assert.equal(arrival.userRating, 9);
   assert.match(arrival.userNote, /masterpiece/i);
-  assert.ok(arrival.dateWatched);
+  assert.equal(arrival.dateWatched.slice(0, 10), "2025-05-01");
+  assert.equal(arrival.dateSource, "watched");
   assert.equal(Array.isArray(arrival.watchHistory) && arrival.watchHistory.length, 2);
+
+  const unrated = result.incomingWatched.find((m) => m.title === "Unrated Film");
+  assert.ok(unrated);
+  assert.equal(unrated.userRating, 0);
+
+  const secondPass = await parseLetterboxdZipArchive(mockZipBuffer);
+  assert.equal(secondPass.incomingLists[0].id, result.incomingLists[0].id);
 });

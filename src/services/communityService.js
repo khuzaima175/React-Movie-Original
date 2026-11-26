@@ -468,9 +468,9 @@ export function sortCommunityReviews(
  * Fetches recent ratings and reviews from accounts the viewer follows.
  */
 export async function fetchFriendsActivityFeed(viewerUserId, { limit = 30 } = {}, options = {}) {
-  if (!viewerUserId) return { status: "signed_out", items: [] };
+  if (!viewerUserId) return { status: "signed_out", items: [], followingIds: [] };
   const supabase = await resolveCommunitySupabase(options);
-  if (!supabase) return { status: "unconfigured", items: [] };
+  if (!supabase) return { status: "unconfigured", items: [], followingIds: [] };
 
   const { data: follows, error: followErr } = await supabase
     .from("user_follows")
@@ -478,11 +478,11 @@ export async function fetchFriendsActivityFeed(viewerUserId, { limit = 30 } = {}
     .eq("follower_id", viewerUserId);
 
   if (followErr) {
-    return { status: "error", error: followErr.message, items: [] };
+    return { status: "error", error: followErr.message, items: [], followingIds: [] };
   }
   const followingIds = (follows || []).map((f) => f.following_id).filter(Boolean);
   if (followingIds.length === 0) {
-    return { status: "ok", items: [] };
+    return { status: "ok", items: [], followingIds: [] };
   }
 
   const { data: items, error: feedErr } = await supabase
@@ -493,12 +493,13 @@ export async function fetchFriendsActivityFeed(viewerUserId, { limit = 30 } = {}
     .limit(Math.max(1, Math.min(80, Number(limit) || 30)));
 
   if (feedErr) {
-    return { status: "error", error: feedErr.message, items: [] };
+    return { status: "error", error: feedErr.message, items: [], followingIds };
   }
 
   return {
     status: "ok",
-    items: Array.isArray(items) ? items : []
+    items: Array.isArray(items) ? items : [],
+    followingIds
   };
 }
 

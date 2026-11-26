@@ -1,6 +1,6 @@
 import { extractZipTextFiles } from "./zipReader.js";
 import { parseCSVImport, parseCSVLine, parseImportDate, parseRating } from "./csvImport.js";
-import { createCustomList } from "./listsService.js";
+import { normalizeCustomList } from "./listsService.js";
 import { resolveCsvRowFallbackRecord } from "./vaultPortability.js";
 
 function normalizeFilmKey(title = "", year = "") {
@@ -175,7 +175,7 @@ export async function parseLetterboxdZipArchive(arrayBuffer, options = {}) {
 
   const mergedByKey = new Map();
 
-  const upsertRow = (row, sourcePriority) => {
+  const upsertRow = (row, { ratingPriority = 1, allowRating = true } = {}) => {
     const key = normalizeFilmKey(row.title, row.year);
     if (!key) return;
     const existing = mergedByKey.get(key) || {
@@ -189,6 +189,7 @@ export async function parseLetterboxdZipArchive(arrayBuffer, options = {}) {
       dateWatched: null,
       dateSource: null,
       isBulkImported: false,
+      _ratingPriority: -1,
       _datePriority: -1
     };
 
@@ -196,9 +197,15 @@ export async function parseLetterboxdZipArchive(arrayBuffer, options = {}) {
     if (!existing.imdbId && row.imdbId) existing.imdbId = row.imdbId;
     if (!existing.tmdbId && row.tmdbId) existing.tmdbId = row.tmdbId;
 
-    const nextRating = Number(row.rating);
-    if (Number.isFinite(nextRating) && nextRating > 0 && (!existing.rating || sourcePriority >= 3)) {
+    const nextRating = allowRating ? Number(row.rating) : 0;
+    if (
+      Number.isFinite(nextRating) &&
+      nextRating >= 1 &&
+      nextRating <= 10 &&
+      ratingPriority >= existing._ratingPriority
+    ) {
       existing.rating = nextRating;
+      existing._ratingPriority = ratingPriority;
     }
 
     const nextNote = String(row.note || "").trim();
@@ -206,10 +213,11 @@ export async function parseLetterboxdZipArchive(arrayBuffer, options = {}) {
       existing.note = nextNote;
     }
 
-    if (row.dateWatched && sourcePriority >= existing._datePriority) {
+    const rowDatePriority = row.dateSource === "watched" ? 2 : 1;
+    if (row.dateWatched && rowDatePriority >= existing._datePriority) {
       existing.dateWatched = row.dateWatched;
       existing.dateSource = row.dateSource || existing.dateSource;
-      existing._datePriority = sourcePriority;
+      existing._datePriority = rowDatePriority;
     }
     if (row.isBulkImported && !existing.dateWatched) {
       existing.isBulkImported = true;
@@ -219,16 +227,24 @@ export async function parseLetterboxdZipArchive(arrayBuffer, options = {}) {
   };
 
   if (watchedCsv) {
-    for (const row of parseCSVImport(watchedCsv, { now }).rows) upsertRow(row, 1);
+    for (const row of parseCSVImport(watchedCsv, { now }).rows) {
+      upsertRow(row, { ratingPriority: 0, allowRating: false });
+    }
   }
   if (ratingsCsv) {
-    for (const row of parseCSVImport(ratingsCsv, { now }).rows) upsertRow(row, 4);
+    for (const row of parseCSVImport(ratingsCsv, { now }).rows) {
+      upsertRow(row, { ratingPriority: 4, allowRating: true });
+    }
   }
   if (diaryCsv) {
-    for (const row of parseCSVImport(diaryCsv, { now }).rows) upsertRow(row, 3);
+    for (const row of parseCSVImport(diaryCsv, { now }).rows) {
+      upsertRow(row, { ratingPriority: 2, allowRating: true });
+    }
   }
   if (reviewsCsv) {
-    for (const row of parseCSVImport(reviewsCsv, { now }).rows) upsertRow(row, 3);
+    for (const row of parseCSVImport(reviewsCsv, { now }).rows) {
+      upsertRow(row, { ratingPriority: 3, allowRating: true });
+    }
   }
 
   const diaryHistoryByKey = extractRawDiaryHistory(diaryCsv || "", now);
@@ -276,15 +292,27 @@ export async function parseLetterboxdZipArchive(arrayBuffer, options = {}) {
     }
   }
 
-  let incomingLists = [];
+  const incomingLists = [];
+  const seenListIds = new Set();
   for (const lf of listFiles) {
     const parsedList = parseLetterboxdListCsv(lf.text, lf.fallbackName);
     if (parsedList.items.length === 0) continue;
-    incomingLists = createCustomList(incomingLists, {
+    const slugKey = String(lf.path || parsedList.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 64) || "list";
+    const listId = `list_lb_${slugKey}`;
+    if (seenListIds.has(listId)) continue;
+    seenListIds.add(listId);
+    const normalized = normalizeCustomList({
+      id: listId,
       name: parsedList.name,
       description: parsedList.description,
-      initialItems: parsedList.items
+      items: parsedList.items,
+      isPublic: false
     });
+    if (normalized) incomingLists.push(normalized);
   }
 
   return {

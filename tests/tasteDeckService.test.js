@@ -6,7 +6,8 @@ import {
   shouldAutoShowTasteOnboarding,
   INLINE_ONBOARDING_DISMISSED_KEY,
   shouldShowInlineOnboardingBanner,
-  selectInlineStarterFilms
+  selectInlineStarterFilms,
+  retainRatedInlineStarters
 } from "../src/services/tasteDeckService.js";
 
 test("CORE_TASTE_DECK covers at least 8 distinct genres with 30 valid poster records", () => {
@@ -58,4 +59,19 @@ test("selectInlineStarterFilms returns up to 8 genre-diverse unseen films", () =
   assert.equal(starters.some((m) => m.imdbID === CORE_TASTE_DECK[0].imdbID), false);
   const genres = new Set(starters.map((m) => m.primaryGenre));
   assert.ok(genres.size >= 6);
+});
+
+test("retainRatedInlineStarters preserves card positions of already-rendered starters after rating so checkmarks stay visible", () => {
+  const initial = selectInlineStarterFilms({ watched: [], watchlist: [], limit: 8 });
+  const ratedId = initial[1].imdbID;
+  const skippedIds = new Set([initial[3].imdbID]);
+  const next = retainRatedInlineStarters(initial, {
+    justRatedIds: { [ratedId]: 9 },
+    skippedIds,
+    watched: [{ imdbID: ratedId, userRating: 9 }],
+    watchlist: [],
+    limit: 8
+  });
+  assert.equal(next[1].imdbID, ratedId);
+  assert.equal(next.some((m) => m.imdbID === initial[3].imdbID), false);
 });

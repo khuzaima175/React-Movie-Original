@@ -337,3 +337,15 @@ test("parseCSVImport keeps most recent non-empty rating when newest rewatch row 
   assert.equal(paris.dateWatched, "2024-08-01T00:00:00.000Z");
   assert.equal(paris.rating, null);
 });
+
+test("parseCSVImport does not read Year column as rating on headered CSVs lacking a Rating column (e.g. watched.csv)", () => {
+  const csv = [
+    "Date,Name,Year,Letterboxd URI",
+    "2025-06-01,Unrated Film,2020,https://boxd.it/u1"
+  ].join("\n");
+  const { rows } = parseCSVImport(csv, { now: NOW });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].title, "Unrated Film");
+  assert.equal(rows[0].year, "2020");
+  assert.equal(rows[0].rating, null);
+});

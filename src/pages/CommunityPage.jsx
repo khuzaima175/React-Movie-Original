@@ -82,6 +82,13 @@ export default function CommunityPage() {
     fetchFriendsActivityFeed(cloudUser.id, { limit: 35 }).then((res) => {
       if (!active) return;
       setFeedState({ loading: false, items: res.items || [], status: res.status });
+      if (Array.isArray(res.followingIds)) {
+        const seeded = {};
+        for (const id of res.followingIds) {
+          seeded[id] = true;
+        }
+        setFollowingMap(seeded);
+      }
     });
     return () => {
       active = false;

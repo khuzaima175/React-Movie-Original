@@ -210,8 +210,8 @@ export function parseCSVImport(content, options = {}) {
   const getColIdx = (idx, fallback) => (idx !== -1 ? idx : fallback);
 
   const finalTitleIdx = getColIdx(titleIdx, 0);
-  const finalYearIdx = getColIdx(yearIdx, 1);
-  const finalRatingIdx = getColIdx(ratingIdx, 2);
+  const finalYearIdx = yearIdx !== -1 ? yearIdx : (hasRecognizedHeader ? -1 : 1);
+  const finalRatingIdx = ratingIdx !== -1 ? ratingIdx : (hasRecognizedHeader ? -1 : 2);
   const finalNoteIdx = noteIdx !== -1 ? noteIdx : (hasRecognizedHeader ? -1 : 3);
   const finalTypeIdx = getColIdx(typeIdx, -1);
   const finalImdbIdIdx = getColIdx(imdbIdIdx, -1);

@@ -1,5 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
-import { buildOgDescriptor, renderOgHtml } from "./_ogHelpers.js";
+import { createClient } from "@supabase/supabase-js";
+import {
+  buildOgDescriptor,
+  fetchTogetherRoomForOg,
+  renderOgHtml,
+  resolveSafeSiteUrl
+} from "./_ogHelpers.js";
 
 function getPublicSupabase() {
   const url = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
@@ -11,14 +17,6 @@ function getPublicSupabase() {
   ).trim();
   if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
-function resolveSiteUrl(req) {
-  const host = String(req?.headers?.["x-forwarded-host"] || req?.headers?.host || "").split(",")[0].trim();
-  const proto = String(req?.headers?.["x-forwarded-proto"] || "https").split(",")[0].trim();
-  if (host) return `${proto}://${host}`;
-  const prod = String(process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || "").trim();
-  return prod ? `https://${prod}` : "";
 }
 
 async function fetchMovieSummaryForOg(rawId) {
@@ -58,7 +56,7 @@ export default async function handler(req, res) {
 
   const routeType = String(req.query?.type || "").trim().toLowerCase();
   const param = String(req.query?.id || "").trim();
-  const siteUrl = resolveSiteUrl(req);
+  const siteUrl = resolveSafeSiteUrl(req?.headers || {}, process.env);
   let record = null;
 
   try {
@@ -88,14 +86,7 @@ export default async function handler(req, res) {
     } else if (routeType === "together" && /^[A-Z0-9]{6,12}$/i.test(param)) {
       const supabase = getPublicSupabase();
       if (supabase) {
-        const { data } = await supabase
-          .from("watch_sessions")
-          .select("room_code, host_name, region, expires_at")
-          .eq("room_code", param.toUpperCase())
-          .maybeSingle();
-        if (data && (!data.expires_at || Date.parse(data.expires_at) > Date.now())) {
-          record = data;
-        }
+        record = await fetchTogetherRoomForOg(supabase, param);
       }
     } else if (routeType === "movie" && param) {
       record = await fetchMovieSummaryForOg(param);

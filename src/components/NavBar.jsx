@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useApp } from "../context/AppContext";
 import {
@@ -101,6 +101,7 @@ export default function NavBar({
 }) {
   const { watched = [], watchlist = [], cloudProfile = null } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
   const isScrolled = useScrolled();
   const shortcutLabel = getSearchShortcutHint(
     typeof navigator !== "undefined" ? navigator.platform : ""
@@ -185,6 +186,7 @@ export default function NavBar({
             {accountNav.visible && (
               <NavLink
                 to={accountNav.to}
+                state={accountNav.isSignedIn ? undefined : { from: `${location.pathname}${location.search || ""}` }}
                 className={`nav-account-btn ${accountNav.isSignedIn ? "is-signed-in" : ""}`}
                 aria-label={accountNav.isSignedIn ? `Account (${accountNav.label})` : "Sign In"}
                 title={accountNav.isSignedIn ? `${accountNav.label} · Account & Sync` : "Sign in or create account"}

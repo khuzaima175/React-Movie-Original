@@ -183,3 +183,62 @@ export function renderOgSvgCard({ title = "CinemaVault", subtitle = "", kicker =
   <text x="275" y="534" fill="#7d808a" font-family="system-ui, -apple-system, sans-serif" font-size="22">Personal Film Log · On-Device Taste Engine</text>
 </svg>`;
 }
+
+const VALID_HOST_RE = /^(localhost|127\.0\.0\.1|\[::1\]|[a-z0-9-]+(?:\.[a-z0-9-]+)+)(?::\d{1,5})?$/i;
+
+/**
+ * Resolves a verified public origin for Open Graph tags, ignoring untrusted forwarded headers
+ * when a canonical Vercel host is configured and validating proto/host syntax otherwise.
+ */
+export function resolveSafeSiteUrl(headers = {}, env = process.env) {
+  const prod = String(env?.VERCEL_PROJECT_PRODUCTION_URL || env?.VERCEL_URL || "").trim();
+  if (prod) {
+    const cleanProd = prod.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    if (VALID_HOST_RE.test(cleanProd)) {
+      return `https://${cleanProd}`;
+    }
+  }
+
+  const rawProto = String(headers?.["x-forwarded-proto"] || "https").split(",")[0].trim().toLowerCase();
+  if (rawProto !== "http" && rawProto !== "https") {
+    return "";
+  }
+
+  const rawHost = String(headers?.["x-forwarded-host"] || headers?.host || "").split(",")[0].trim();
+  if (!rawHost || !VALID_HOST_RE.test(rawHost)) {
+    return "";
+  }
+
+  return `${rawProto}://${rawHost}`;
+}
+
+/**
+ * Fetches public Watch Together room summary via the `get_watch_session_by_code` RPC
+ * (required because `watch_sessions` has RLS with zero direct SELECT policies).
+ */
+export async function fetchTogetherRoomForOg(supabase, roomCode = "") {
+  const cleanCode = String(roomCode || "").trim().toUpperCase();
+  if (!supabase || typeof supabase.rpc !== "function" || !/^[A-Z0-9]{6,12}$/.test(cleanCode)) {
+    return null;
+  }
+
+  const { data, error } = await supabase.rpc("get_watch_session_by_code", {
+    p_room_code: cleanCode
+  });
+  if (error || !data || typeof data !== "object") {
+    return null;
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || !row.room_code) return null;
+  if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
+    return null;
+  }
+
+  return {
+    room_code: row.room_code,
+    host_name: row.host_name || "A friend",
+    region: row.region || "US",
+    expires_at: row.expires_at || null
+  };
+}

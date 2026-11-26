@@ -162,6 +162,7 @@ test("fetchFriendsActivityFeed returns followed users' recent ratings in descend
   assert.equal(res.status, "ok");
   assert.equal(res.items.length, 1);
   assert.equal(res.items[0].username, "alex");
+  assert.deepEqual(res.followingIds, ["u2"]);
 });
 
 test("fetchCommunityDirectory scores members by Taste Twin compatibility and toggleReviewLike writes own row", async () => {

@@ -5,7 +5,9 @@ import {
   escapeHtmlAttr,
   buildOgDescriptor,
   renderOgHtml,
-  renderOgSvgCard
+  renderOgSvgCard,
+  resolveSafeSiteUrl,
+  fetchTogetherRoomForOg
 } from "../api/_ogHelpers.js";
 
 test("escapeHtmlAttr neutralizes quotes, angle brackets, and ampersands against XSS", () => {
@@ -46,4 +48,58 @@ test("CRAWLER_UA_PATTERN matches major social bots and ignores normal browsers",
   assert.equal(CRAWLER_UA_PATTERN.test("Mozilla/5.0 Chrome/120.0.0.0"), false);
   const svg = renderOgSvgCard({ title: "Alex's Room", subtitle: "Swipe together", kicker: "Watch Together" });
   assert.match(svg, /^<svg /);
+});
+
+test("resolveSafeSiteUrl rejects spoofed forwarded headers and prefers verified Vercel/localhost origins", () => {
+  const prodUrl = resolveSafeSiteUrl(
+    { "x-forwarded-host": "evil.attacker.com", "x-forwarded-proto": "javascript" },
+    { VERCEL_PROJECT_PRODUCTION_URL: "cinemavault.app" }
+  );
+  assert.equal(prodUrl, "https://cinemavault.app");
+
+  const localUrl = resolveSafeSiteUrl(
+    { host: "localhost:3000", "x-forwarded-proto": "http" },
+    {}
+  );
+  assert.equal(localUrl, "http://localhost:3000");
+
+  const invalidProto = resolveSafeSiteUrl(
+    { host: "evil.com", "x-forwarded-proto": "ftp" },
+    {}
+  );
+  assert.equal(invalidProto, "");
+});
+
+test("fetchTogetherRoomForOg uses get_watch_session_by_code RPC and blocks expired rooms", async () => {
+  let rpcName = "";
+  let rpcArgs = null;
+  const mockSupabase = {
+    rpc: async (name, args) => {
+      rpcName = name;
+      rpcArgs = args;
+      return {
+        data: {
+          room_code: "ABCD2345",
+          host_name: "Alex",
+          region: "US",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+          host_vector: [1, 2, 3]
+        },
+        error: null
+      };
+    }
+  };
+  const room = await fetchTogetherRoomForOg(mockSupabase, "abcd2345");
+  assert.equal(rpcName, "get_watch_session_by_code");
+  assert.deepEqual(rpcArgs, { p_room_code: "ABCD2345" });
+  assert.equal(room.host_name, "Alex");
+  assert.equal("host_vector" in room, false);
+
+  const expiredSupabase = {
+    rpc: async () => ({
+      data: { room_code: "OLD12345", host_name: "Old", expires_at: "2020-01-01T00:00:00Z" },
+      error: null
+    })
+  };
+  assert.equal(await fetchTogetherRoomForOg(expiredSupabase, "OLD12345"), null);
 });

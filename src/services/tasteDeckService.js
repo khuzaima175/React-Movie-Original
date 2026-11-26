@@ -520,3 +520,34 @@ export function selectInlineStarterFilms({
   const safeLimit = Math.max(1, Math.min(30, Number(limit) || 8));
   return buildTasteDeck({ watched, watchlist, livePool, deckSize: safeLimit });
 }
+
+/**
+ * Preserves already-rendered starter cards in their original grid slots after being rated
+ * in the current session, removes explicitly skipped films, and tops up empty slots.
+ */
+export function retainRatedInlineStarters(
+  currentBatch = [],
+  { justRatedIds = {}, skippedIds = new Set(), watched = [], watchlist = [], limit = 8 } = {}
+) {
+  const safeLimit = Math.max(1, Math.min(30, Number(limit) || 8));
+  const kept = [];
+  const keptIds = new Set();
+
+  for (const item of Array.isArray(currentBatch) ? currentBatch : []) {
+    if (!item?.imdbID || skippedIds.has(item.imdbID)) continue;
+    kept.push(item);
+    keptIds.add(item.imdbID);
+    if (kept.length >= safeLimit) return kept;
+  }
+
+  const freshPool = selectInlineStarterFilms({ watched, watchlist, limit: safeLimit + 12 });
+  for (const cand of freshPool) {
+    if (kept.length >= safeLimit) break;
+    if (keptIds.has(cand.imdbID) || skippedIds.has(cand.imdbID)) continue;
+    if (justRatedIds && justRatedIds[cand.imdbID]) continue;
+    kept.push(cand);
+    keptIds.add(cand.imdbID);
+  }
+
+  return kept;
+}

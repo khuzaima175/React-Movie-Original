@@ -26,19 +26,29 @@ export default function TasteCardModal({
   );
 
   useEffect(() => {
-    if (!isOpen || !canvasRef.current) return;
-    renderTasteCardToCanvas(canvasRef.current, cardData, { aspect }).catch(() => {});
+    if (!isOpen || !canvasRef.current) return undefined;
+    let active = true;
+    const targetCanvas = canvasRef.current;
+    renderTasteCardToCanvas(targetCanvas, cardData, { aspect }).catch(() => {});
+    return () => {
+      active = false;
+      void active;
+    };
   }, [isOpen, cardData, aspect]);
 
   function handleDownload() {
     if (!canvasRef.current) return;
-    const url = canvasRef.current.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `cinemavault-passport-${aspect}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      const url = canvasRef.current.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `cinemavault-passport-${aspect}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      // ignore tainted canvas errors
+    }
   }
 
   async function handleShare() {

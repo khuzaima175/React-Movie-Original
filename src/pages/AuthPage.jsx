@@ -91,9 +91,12 @@ export default function AuthPage({ defaultMode = "signin" }) {
           : "Sign In";
   useDocumentTitle(pageTitle);
 
-  const returnTo = typeof location.state?.from === "string" && location.state.from.startsWith("/")
-    ? location.state.from
-    : "/";
+  const returnTo =
+    typeof location.state?.from === "string" &&
+    location.state.from.startsWith("/") &&
+    !location.state.from.startsWith("//")
+      ? location.state.from
+      : "/";
 
   useEffect(() => {
     if (hasCloudConfig) {
@@ -113,6 +116,14 @@ export default function AuthPage({ defaultMode = "signin" }) {
       setMode(queryMode);
     }
   }, [searchParams, isPasswordRecovery]);
+
+  useEffect(() => {
+    const oauthErr = searchParams.get("error_description") || searchParams.get("error");
+    if (oauthErr) {
+      setStatusError(String(oauthErr));
+      consumeOAuthReturnPath();
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (cloudUser && !isPasswordRecovery && mode !== "reset" && !hasRecoveryUrlSignal(searchParams)) {
@@ -256,7 +267,7 @@ export default function AuthPage({ defaultMode = "signin" }) {
                 <div>
                   <span className="auth-benefit-title">Lossless Vault &amp; Preferences Sync</span>
                   <span className="auth-benefit-desc">
-                    Watched ratings, 4-aspect craft notes, watchlist items, and Taste Rules merge cleanly without overwriting local history.
+                    Watched ratings, craft breakdown notes, watchlist items, and Taste Rules merge cleanly without overwriting local history.
                   </span>
                 </div>
               </li>

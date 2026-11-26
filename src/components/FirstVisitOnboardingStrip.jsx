@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Sparkles, SlidersHorizontal, Upload, X, Check } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import PosterImage from "./PosterImage";
@@ -6,7 +6,7 @@ import { Button } from "./ui/Button";
 import { prepareQuickRatePayload } from "../services/ratingTiers";
 import {
   INLINE_ONBOARDING_DISMISSED_KEY,
-  selectInlineStarterFilms,
+  retainRatedInlineStarters,
   shouldShowInlineOnboardingBanner
 } from "../services/tasteDeckService";
 
@@ -32,6 +32,7 @@ export default function FirstVisitOnboardingStrip({
   });
   const [skippedIds, setSkippedIds] = useState(() => new Set());
   const [justRatedIds, setJustRatedIds] = useState(() => ({}));
+  const [batch, setBatch] = useState([]);
 
   const ratedCount = useMemo(
     () => (Array.isArray(watched) ? watched.filter((m) => Number(m?.userRating) > 0).length : 0),
@@ -44,14 +45,23 @@ export default function FirstVisitOnboardingStrip({
     isVaultHydrated
   });
 
-  const starterFilms = useMemo(() => {
-    if (!visible) return [];
-    return selectInlineStarterFilms({ watched, watchlist, limit: 12 })
-      .filter((m) => !skippedIds.has(m.imdbID))
-      .slice(0, 8);
-  }, [visible, watched, watchlist, skippedIds]);
+  useEffect(() => {
+    if (!visible) return;
+    setBatch((prev) =>
+      retainRatedInlineStarters(prev, {
+        justRatedIds,
+        skippedIds,
+        watched,
+        watchlist,
+        limit: 8
+      })
+    );
+    // Intentionally exclude `watched` when cards are already mounted so rated cards stay in place
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, skippedIds]);
 
-  if (!visible || starterFilms.length === 0) return null;
+  const showUnlockedBanner = Object.keys(justRatedIds).length > 0 && ratedCount >= 3 && !dismissed;
+  if ((!visible && !showUnlockedBanner) || (visible && batch.length === 0)) return null;
 
   const canTrySampleVault = !cloudUser && watched.length < 3;
   const remainingNeeded = Math.max(0, 3 - ratedCount);
@@ -92,7 +102,7 @@ export default function FirstVisitOnboardingStrip({
             <h2 className="m-0 text-[2rem] sm:text-[2.2rem] font-semibold tracking-tight text-[var(--text-1)]">
               {remainingNeeded > 0
                 ? `Pick ${remainingNeeded} more ${remainingNeeded === 1 ? "film" : "films"} you know to unlock personalized picks`
-                : "Taste Profile unlocked"}
+                : "Taste Profile unlocked — your Discover rows are updating"}
             </h2>
             <p className="mt-1 mb-0 text-[1.35rem] text-[var(--text-2)]">
               Tap Love or Like on a few titles, or import your Letterboxd history in seconds.
@@ -127,7 +137,7 @@ export default function FirstVisitOnboardingStrip({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3.5">
-          {starterFilms.map((movie) => {
+          {batch.map((movie) => {
             const scored = justRatedIds[movie.imdbID];
             return (
               <article

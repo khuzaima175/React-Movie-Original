@@ -184,7 +184,7 @@ export default function WatchTogetherPage() {
     profile: null,
     ratings: []
   });
-  const [mergedPicks, setMergedPicks] = useState([]);
+  const [mergeCache, setMergeCache] = useState(null);
   const [isComputing, setIsComputing] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "swipe"
   const [localVotesA, setLocalVotesA] = useState({});
@@ -239,7 +239,7 @@ export default function WatchTogetherPage() {
             profile: null,
             ratings: []
           });
-          setMergedPicks([]);
+          setMergeCache(null);
           return;
         }
         setPartnerState({
@@ -277,26 +277,35 @@ export default function WatchTogetherPage() {
           candIds
         );
 
-        const ranked = rankWatchTogetherCandidates({
+        setMergeCache({
           candidates,
           scoresA: hostRes.scoreMap,
           scoresB,
-          watchedA: watched,
-          watchedB: partnerWatched,
-          tasteRulesA: tasteRules,
-          userProviders: userWatchProviders,
-          requireSelectedProviders: onlyMyProviders,
-          limit: 20
+          partnerWatched
         });
-        setMergedPicks(ranked);
         setLocalVotesA({});
         setLocalVotesB({});
       } finally {
         setIsComputing(false);
       }
     },
-    [cloudUser?.id, computeHostScoreMap, onlyMyProviders, tasteRules, userRegion, userWatchProviders, watched]
+    [cloudUser?.id, computeHostScoreMap, userRegion, watched]
   );
+
+  const mergedPicks = useMemo(() => {
+    if (!mergeCache) return [];
+    return rankWatchTogetherCandidates({
+      candidates: mergeCache.candidates,
+      scoresA: mergeCache.scoresA,
+      scoresB: mergeCache.scoresB,
+      watchedA: watched,
+      watchedB: mergeCache.partnerWatched,
+      tasteRulesA: tasteRules,
+      userProviders: userWatchProviders,
+      requireSelectedProviders: onlyMyProviders,
+      limit: 20
+    });
+  }, [mergeCache, watched, tasteRules, userWatchProviders, onlyMyProviders]);
 
   useEffect(() => {
     if (initialPartner && !activeCode) {
