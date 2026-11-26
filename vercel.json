@@ -16,6 +16,50 @@
   ],
   "rewrites": [
     {
+      "source": "/u/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(Twitterbot|facebookexternalhit|WhatsApp|Discordbot|Slackbot|LinkedInBot|TelegramBot|Applebot).*"
+        }
+      ],
+      "destination": "/api/og-meta?type=profile&id=:id"
+    },
+    {
+      "source": "/list/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(Twitterbot|facebookexternalhit|WhatsApp|Discordbot|Slackbot|LinkedInBot|TelegramBot|Applebot).*"
+        }
+      ],
+      "destination": "/api/og-meta?type=list&id=:id"
+    },
+    {
+      "source": "/together/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(Twitterbot|facebookexternalhit|WhatsApp|Discordbot|Slackbot|LinkedInBot|TelegramBot|Applebot).*"
+        }
+      ],
+      "destination": "/api/og-meta?type=together&id=:id"
+    },
+    {
+      "source": "/movie/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(Twitterbot|facebookexternalhit|WhatsApp|Discordbot|Slackbot|LinkedInBot|TelegramBot|Applebot).*"
+        }
+      ],
+      "destination": "/api/og-meta?type=movie&id=:id"
+    },
+    {
       "source": "/((?!api/|assets/|models/|icons/|sw\\.js|manifest\\.json|og-image\\.png).*)",
       "destination": "/index.html"
     }
