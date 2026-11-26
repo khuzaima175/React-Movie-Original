@@ -21,7 +21,8 @@ import {
   getSearchShortcutHint,
   getCloudSyncBadgeLabel,
   formatVaultNavCount,
-  getAccountNavState
+  getAccountNavState,
+  getPrimaryNavDestinations
 } from "../services/navHelpers";
 
 function NavTab({ to, end = false, onPrefetch, children }) {
@@ -127,18 +128,16 @@ export default function NavBar({
             </NavLink>
 
             <nav className="nav-links-desktop" role="navigation" aria-label="Primary sections">
-              <NavTab to="/" end>
-                Discover
-              </NavTab>
-              <NavTab to="/explore" onPrefetch={() => onPrefetchRoute?.("/explore")}>
-                Explore
-              </NavTab>
-              <NavTab to="/vault" onPrefetch={() => onPrefetchRoute?.("/vault")}>
-                Vault
-              </NavTab>
-              <NavTab to="/ai" onPrefetch={() => onPrefetchRoute?.("/ai")}>
-                Oracle
-              </NavTab>
+              {getPrimaryNavDestinations().map((item) => (
+                <NavTab
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onPrefetch={item.to !== "/" ? () => onPrefetchRoute?.(item.to) : undefined}
+                >
+                  {item.label}
+                </NavTab>
+              ))}
             </nav>
           </div>
 
@@ -159,6 +158,16 @@ export default function NavBar({
           </div>
 
           <div className="nav-actions-group">
+            <NavLink
+              to="/together"
+              onPointerDown={() => onPrefetchRoute?.("/together")}
+              className="stream-together-mobile-btn"
+              aria-label="Watch Together"
+              title="Watch Together"
+            >
+              <Users size={16} aria-hidden="true" />
+            </NavLink>
+
             <NavLink
               to="/vault?tab=watchlist"
               className="stream-watchlist-btn"

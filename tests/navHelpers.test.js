@@ -8,7 +8,8 @@ import {
   goBackOrHome,
   formatDocumentTitle,
   resolveMenuAlignment,
-  getAccountNavState
+  getAccountNavState,
+  getPrimaryNavDestinations
 } from "../src/services/navHelpers.js";
 
 test("getSearchShortcutHint adapts shortcut glyph to OS platform", () => {
@@ -99,4 +100,9 @@ test("getAccountNavState returns guest sign-in state when signed out and user in
   assert.equal(authed.label, "Khuzaima");
   assert.equal(authed.to, "/account");
   assert.equal(authed.syncTone, "synced");
+});
+
+test("getPrimaryNavDestinations includes Watch Together at top level alongside Discover, Explore, Vault, and Oracle", () => {
+  const links = getPrimaryNavDestinations();
+  assert.deepEqual(links.map((l) => l.to), ["/", "/explore", "/vault", "/ai", "/together"]);
 });

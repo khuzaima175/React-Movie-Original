@@ -113,3 +113,13 @@ export function getAccountNavState({
     syncTone
   };
 }
+
+export function getPrimaryNavDestinations() {
+  return [
+    { to: "/", label: "Discover", end: true },
+    { to: "/explore", label: "Explore", end: false },
+    { to: "/vault", label: "Vault", end: false },
+    { to: "/ai", label: "Oracle", end: false },
+    { to: "/together", label: "Together", end: false }
+  ];
+}

@@ -215,12 +215,33 @@
   color: var(--text-1);
 }
 
+.stream-together-mobile-btn {
+  display: none;
+}
+
 /* Mobile Floating Bottom Tab Bar */
 .mobile-stream-bar {
   display: none;
 }
 
 @media (max-width: 900px) {
+  .stream-together-mobile-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.4rem;
+    height: 3.4rem;
+    border-radius: var(--r-sm);
+    color: var(--text-2);
+    text-decoration: none;
+    transition: background-color var(--dur-1) ease, color var(--dur-1) ease;
+  }
+
+  .stream-together-mobile-btn:hover,
+  .stream-together-mobile-btn.active {
+    background: var(--surface-1);
+    color: var(--text-1);
+  }
   .nav-bar-stream {
     background: var(--bg);
     backdrop-filter: none;
