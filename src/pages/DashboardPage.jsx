@@ -186,6 +186,7 @@ export default function DashboardPage({ onOpenTasteDeck, onOpenImport }) {
         <FirstVisitOnboardingStrip
           onOpenTasteDeck={onOpenTasteDeck}
           onOpenImport={onOpenImport}
+          livePool={feeds.mosaicPool}
         />
         {!hasLoadedFeeds && (!feeds.rows || feeds.rows.length === 0) && (
           <>
@@ -237,10 +238,22 @@ export default function DashboardPage({ onOpenTasteDeck, onOpenImport }) {
               <h3>Research &amp; Filter the Full Catalog</h3>
               <p>Dial in exact genres, motifs, runtime, acclaim floor, directors, and streaming hubs.</p>
             </div>
-            <Link to="/explore" className="dashboard-explore-link">
-              <SlidersHorizontal size={15} aria-hidden="true" />
-              <span>Open Deep Filter &rarr;</span>
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              {onOpenTasteDeck && (
+                <button
+                  type="button"
+                  onClick={onOpenTasteDeck}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-[var(--r-sm)] border border-[var(--hairline-strong)] bg-[var(--surface-2)] text-[var(--text-1)] text-[1.35rem] font-medium hover:bg-[var(--surface-3)] transition-colors cursor-pointer"
+                >
+                  <SlidersHorizontal size={15} aria-hidden="true" />
+                  <span>Taste Calibration ({ratedCount} rated)</span>
+                </button>
+              )}
+              <Link to="/explore" className="dashboard-explore-link">
+                <SlidersHorizontal size={15} aria-hidden="true" />
+                <span>Open Deep Filter &rarr;</span>
+              </Link>
+            </div>
           </div>
         </div>
 

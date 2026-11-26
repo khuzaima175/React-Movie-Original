@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CORE_TASTE_DECK,
+  STARTER_GENRE_FILTERS,
   buildTasteDeck,
   shouldAutoShowTasteOnboarding,
   INLINE_ONBOARDING_DISMISSED_KEY,
@@ -76,4 +77,25 @@ test("retainRatedInlineStarters preserves card positions of already-rendered sta
   });
   assert.equal(next[1].imdbID, ratedId);
   assert.equal(next.some((m) => m.imdbID === initial[3].imdbID), false);
+});
+
+test("selectInlineStarterFilms filters by preferredGenres and swaps unseen batches cleanly via excludeIds", () => {
+  assert.ok(STARTER_GENRE_FILTERS.includes("Sci-Fi"));
+  const scifiBatch = selectInlineStarterFilms({
+    preferredGenres: ["Sci-Fi"],
+    limit: 6
+  });
+  assert.equal(scifiBatch.length, 6);
+  const firstBatchIds = new Set(scifiBatch.map((m) => m.imdbID));
+  assert.ok(
+    scifiBatch.slice(0, 3).every((m) => /sci-fi/i.test(`${m.primaryGenre} ${m.genre}`)),
+    "Preferred genre items should appear first"
+  );
+
+  const swappedBatch = selectInlineStarterFilms({
+    excludeIds: firstBatchIds,
+    limit: 6
+  });
+  assert.equal(swappedBatch.length, 6);
+  assert.equal(swappedBatch.some((m) => firstBatchIds.has(m.imdbID)), false);
 });

@@ -511,17 +511,63 @@ export function shouldShowInlineOnboardingBanner({
   return Number(watchedCount) < 3 && dismissedFlag !== "true";
 }
 
+export const STARTER_GENRE_FILTERS = Object.freeze([
+  "Sci-Fi",
+  "Thriller",
+  "Action",
+  "Drama",
+  "Crime",
+  "Comedy",
+  "Horror",
+  "Animation",
+  "Mystery",
+  "Romance"
+]);
+
+function matchesPreferredGenre(item, preferredSet) {
+  if (!preferredSet || preferredSet.size === 0) return false;
+  const primary = String(item?.primaryGenre || "").trim().toLowerCase();
+  if (primary && preferredSet.has(primary)) return true;
+  const parts = String(item?.genre || "")
+    .split(/[,•|/]/)
+    .map((g) => g.trim().toLowerCase())
+    .filter(Boolean);
+  return parts.some((g) => preferredSet.has(g));
+}
+
 /**
- * Selects up to `limit` genre-diverse unseen starter films for inline quick-calibration.
+ * Selects up to `limit` genre-diverse unseen starter films for inline quick-calibration,
+ * optionally prioritizing `preferredGenres` and cycling past `excludeIds`.
  */
 export function selectInlineStarterFilms({
   watched = [],
   watchlist = [],
   livePool = [],
+  preferredGenres = [],
+  excludeIds = [],
   limit = 8
 } = {}) {
   const safeLimit = Math.max(1, Math.min(30, Number(limit) || 8));
-  return buildTasteDeck({ watched, watchlist, livePool, deckSize: safeLimit });
+  const excludeSet = excludeIds instanceof Set
+    ? excludeIds
+    : new Set(Array.isArray(excludeIds) ? excludeIds : []);
+  const fullDeck = buildTasteDeck({ watched, watchlist, livePool, deckSize: 60 });
+  const preferredSet = new Set(
+    (Array.isArray(preferredGenres) ? preferredGenres : [])
+      .map((g) => String(g || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  const nonExcluded = fullDeck.filter((m) => !excludeSet.has(m.imdbID));
+  const pool = nonExcluded.length >= Math.min(4, safeLimit) ? nonExcluded : fullDeck;
+
+  if (preferredSet.size === 0) {
+    return pool.slice(0, safeLimit);
+  }
+
+  const matching = pool.filter((m) => matchesPreferredGenre(m, preferredSet));
+  const remainder = pool.filter((m) => !matchesPreferredGenre(m, preferredSet));
+  return [...matching, ...remainder].slice(0, safeLimit);
 }
 
 /**
@@ -530,20 +576,45 @@ export function selectInlineStarterFilms({
  */
 export function retainRatedInlineStarters(
   currentBatch = [],
-  { justRatedIds = {}, skippedIds = new Set(), watched = [], watchlist = [], limit = 8 } = {}
+  {
+    justRatedIds = {},
+    skippedIds = new Set(),
+    watched = [],
+    watchlist = [],
+    livePool = [],
+    preferredGenres = [],
+    limit = 8
+  } = {}
 ) {
   const safeLimit = Math.max(1, Math.min(30, Number(limit) || 8));
   const kept = [];
   const keptIds = new Set();
+  const preferredSet = new Set(
+    (Array.isArray(preferredGenres) ? preferredGenres : [])
+      .map((g) => String(g || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
 
   for (const item of Array.isArray(currentBatch) ? currentBatch : []) {
     if (!item?.imdbID || skippedIds.has(item.imdbID)) continue;
+    const wasJustRated = Boolean(justRatedIds && justRatedIds[item.imdbID]);
+    // When genre filters are active, swap out unrated non-matching cards immediately for faster tuning
+    if (preferredSet.size > 0 && !wasJustRated && !matchesPreferredGenre(item, preferredSet)) {
+      continue;
+    }
     kept.push(item);
     keptIds.add(item.imdbID);
     if (kept.length >= safeLimit) return kept;
   }
 
-  const freshPool = selectInlineStarterFilms({ watched, watchlist, limit: safeLimit + 12 });
+  const freshPool = selectInlineStarterFilms({
+    watched,
+    watchlist,
+    livePool,
+    preferredGenres,
+    excludeIds: skippedIds,
+    limit: safeLimit + 16
+  });
   for (const cand of freshPool) {
     if (kept.length >= safeLimit) break;
     if (keptIds.has(cand.imdbID) || skippedIds.has(cand.imdbID)) continue;
