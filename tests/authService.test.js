@@ -9,7 +9,11 @@ import {
   signInWithMagicLink,
   sendPasswordResetEmail,
   updateAccountPassword,
-  updateAccountProfile
+  updateAccountProfile,
+  SUPPORTED_OAUTH_PROVIDERS,
+  signInWithOAuthProvider,
+  persistOAuthReturnPath,
+  consumeOAuthReturnPath
 } from "../src/services/authService.js";
 
 test("validateAuthForm enforces email format, 8+ char passwords, and matching confirmation across all modes", () => {
@@ -170,4 +174,50 @@ test("signInWithEmailPassword, signInWithMagicLink, sendPasswordResetEmail, upda
   assert.equal(profRes.ok, true);
   assert.equal(profRes.displayName, "Khuzaima");
   assert.equal(calls.length, 5);
+});
+
+test("signInWithOAuthProvider validates provider allowlist and forwards redirectTo", async () => {
+  assert.deepEqual(SUPPORTED_OAUTH_PROVIDERS, ["google"]);
+  const bad = await signInWithOAuthProvider(
+    { auth: { signInWithOAuth: async () => ({}) } },
+    { provider: "github" }
+  );
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /unsupported/i);
+
+  let captured = null;
+  const mockSupabase = {
+    auth: {
+      signInWithOAuth: async (args) => {
+        captured = args;
+        return { data: { url: "https://accounts.google.com/o/oauth2/auth" }, error: null };
+      }
+    }
+  };
+  const ok = await signInWithOAuthProvider(mockSupabase, {
+    provider: "google",
+    redirectTo: "https://cinemavault.app/auth"
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.url, "https://accounts.google.com/o/oauth2/auth");
+  assert.equal(captured.provider, "google");
+  assert.equal(captured.options.redirectTo, "https://cinemavault.app/auth");
+});
+
+test("persistOAuthReturnPath & consumeOAuthReturnPath only keep safe relative app paths and clear after read", () => {
+  const store = new Map();
+  const mockStorage = {
+    getItem: (k) => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k)
+  };
+  persistOAuthReturnPath("https://evil.example/phish", mockStorage);
+  assert.equal(consumeOAuthReturnPath(mockStorage), "/account");
+
+  persistOAuthReturnPath("//evil.example/phish", mockStorage);
+  assert.equal(consumeOAuthReturnPath(mockStorage), "/account");
+
+  persistOAuthReturnPath("/together/ABCD2345", mockStorage);
+  assert.equal(consumeOAuthReturnPath(mockStorage), "/together/ABCD2345");
+  assert.equal(consumeOAuthReturnPath(mockStorage), "/account");
 });

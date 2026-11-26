@@ -1,4 +1,6 @@
 export const MIN_PASSWORD_LENGTH = 8;
+export const SUPPORTED_OAUTH_PROVIDERS = Object.freeze(["google"]);
+export const OAUTH_RETURN_TO_STORAGE_KEY = "cv_auth_return_to";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -239,4 +241,79 @@ export async function updateAccountProfile(supabase, { userId, displayName } = {
   }
 
   return { ok: true, displayName: cleanName, error: null };
+}
+
+function resolveSessionStorage(explicitStorage = null) {
+  if (explicitStorage) return explicitStorage;
+  try {
+    return typeof sessionStorage !== "undefined" ? sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeRelativeReturnPath(path) {
+  const raw = String(path || "").trim();
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
+  if (raw === "/auth" || raw === "/login" || raw === "/signup") return "/account";
+  return raw;
+}
+
+/**
+ * Persists a safe relative in-app path before redirecting to an external OAuth provider.
+ */
+export function persistOAuthReturnPath(path, storage = null) {
+  const store = resolveSessionStorage(storage);
+  if (!store || typeof store.setItem !== "function") return;
+  const safePath = sanitizeRelativeReturnPath(path) || "/account";
+  try {
+    store.setItem(OAUTH_RETURN_TO_STORAGE_KEY, safePath);
+  } catch {
+    // ignore private browsing storage errors
+  }
+}
+
+/**
+ * Reads and clears any stored OAuth return path, defaulting safely to "/account".
+ */
+export function consumeOAuthReturnPath(storage = null) {
+  const store = resolveSessionStorage(storage);
+  if (!store || typeof store.getItem !== "function") return "/account";
+  try {
+    const raw = store.getItem(OAUTH_RETURN_TO_STORAGE_KEY);
+    store.removeItem?.(OAUTH_RETURN_TO_STORAGE_KEY);
+    return sanitizeRelativeReturnPath(raw) || "/account";
+  } catch {
+    return "/account";
+  }
+}
+
+/**
+ * Initiates Supabase OAuth sign-in for an allowlisted provider (currently Google).
+ */
+export async function signInWithOAuthProvider(
+  supabase,
+  { provider = "google", redirectTo } = {}
+) {
+  if (!supabase?.auth || typeof supabase.auth.signInWithOAuth !== "function") {
+    return { ok: false, url: null, error: "Cloud accounts are not configured." };
+  }
+
+  const normalized = String(provider || "").trim().toLowerCase();
+  if (!SUPPORTED_OAUTH_PROVIDERS.includes(normalized)) {
+    return { ok: false, url: null, error: `Unsupported sign-in provider: ${normalized || "unknown"}.` };
+  }
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: normalized,
+    options: {
+      ...(redirectTo ? { redirectTo } : {})
+    }
+  });
+
+  if (error) {
+    return { ok: false, url: null, error: normalizeAuthError(error) };
+  }
+
+  return { ok: true, url: data?.url || null, error: null };
 }

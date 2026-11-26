@@ -17,7 +17,13 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
-import { validateAuthForm, MIN_PASSWORD_LENGTH } from "../services/authService";
+import {
+  validateAuthForm,
+  MIN_PASSWORD_LENGTH,
+  persistOAuthReturnPath,
+  consumeOAuthReturnPath,
+  OAUTH_RETURN_TO_STORAGE_KEY
+} from "../services/authService";
 import { Button } from "../components/ui/Button";
 import "../styles/auth.css";
 
@@ -50,6 +56,7 @@ export default function AuthPage({ defaultMode = "signin" }) {
     signInWithPassword,
     signUpWithPassword,
     signInWithEmailOtp,
+    signInWithOAuth,
     sendPasswordReset,
     updatePassword,
     watched = [],
@@ -109,10 +116,35 @@ export default function AuthPage({ defaultMode = "signin" }) {
 
   useEffect(() => {
     if (cloudUser && !isPasswordRecovery && mode !== "reset" && !hasRecoveryUrlSignal(searchParams)) {
-      const isAuthPath = returnTo === "/auth" || returnTo === "/login" || returnTo === "/signup";
-      navigate(isAuthPath ? "/account" : returnTo, { replace: true });
+      let target = returnTo;
+      try {
+        if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(OAUTH_RETURN_TO_STORAGE_KEY)) {
+          target = consumeOAuthReturnPath();
+        }
+      } catch {
+        // ignore storage errors
+      }
+      const isAuthPath = target === "/auth" || target === "/login" || target === "/signup";
+      navigate(isAuthPath ? "/account" : target, { replace: true });
     }
   }, [cloudUser, isPasswordRecovery, mode, navigate, returnTo, searchParams]);
+
+  async function handleGoogleSignIn() {
+    setStatusError("");
+    setStatusSuccess("");
+    setIsSubmitting(true);
+    try {
+      persistOAuthReturnPath(returnTo);
+      const res = await signInWithOAuth?.("google");
+      if (!res?.ok) {
+        setStatusError(res?.error || "Could not start Google sign-in.");
+        setIsSubmitting(false);
+      }
+    } catch {
+      setStatusError("Could not start Google sign-in.");
+      setIsSubmitting(false);
+    }
+  }
 
   function handleCancelReset() {
     clearPasswordRecovery?.();
@@ -274,26 +306,43 @@ export default function AuthPage({ defaultMode = "signin" }) {
             ) : (
               <>
                 {(mode === "signin" || mode === "signup") && (
-                  <div className="auth-mode-tabs" role="tablist" aria-label="Sign in or create account">
-                    <button
+                  <>
+                    <div className="auth-mode-tabs" role="tablist" aria-label="Sign in or create account">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={mode === "signin"}
+                        className={`auth-mode-tab ${mode === "signin" ? "is-active" : ""}`}
+                        onClick={() => switchMode("signin")}
+                      >
+                        Sign In
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={mode === "signup"}
+                        className={`auth-mode-tab ${mode === "signup" ? "is-active" : ""}`}
+                        onClick={() => switchMode("signup")}
+                      >
+                        Create Account
+                      </button>
+                    </div>
+
+                    <Button
                       type="button"
-                      role="tab"
-                      aria-selected={mode === "signin"}
-                      className={`auth-mode-tab ${mode === "signin" ? "is-active" : ""}`}
-                      onClick={() => switchMode("signin")}
+                      variant="secondary"
+                      disabled={isSubmitting}
+                      onClick={handleGoogleSignIn}
+                      className="w-full justify-center py-[1.05rem] text-[1.4rem]"
                     >
-                      Sign In
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={mode === "signup"}
-                      className={`auth-mode-tab ${mode === "signup" ? "is-active" : ""}`}
-                      onClick={() => switchMode("signup")}
-                    >
-                      Create Account
-                    </button>
-                  </div>
+                      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.8-5.5 3.8-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.3 14.6 2.4 12 2.4 6.7 2.4 2.4 6.7 2.4 12s4.3 9.6 9.6 9.6c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12z"/>
+                      </svg>
+                      <span>Continue with Google</span>
+                    </Button>
+
+                    <div className="auth-divider">or with email</div>
+                  </>
                 )}
 
                 {mode === "magic" && (

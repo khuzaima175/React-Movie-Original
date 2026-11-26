@@ -50,6 +50,7 @@ import {
   signUpWithEmailPassword,
   signInWithEmailPassword,
   signInWithMagicLink,
+  signInWithOAuthProvider,
   sendPasswordResetEmail,
   updateAccountPassword,
   updateAccountProfile
@@ -1128,6 +1129,20 @@ export function AppProvider({ children }) {
     return res;
   }
 
+  async function signInWithOAuth(provider = "google") {
+    const supabase = await initAuthSession();
+    if (!supabase) {
+      return { ok: false, url: null, error: "Supabase cloud sync is not configured." };
+    }
+    setCloudError(null);
+    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/auth` : undefined;
+    const res = await signInWithOAuthProvider(supabase, { provider, redirectTo });
+    if (!res.ok) {
+      setCloudError(res.error);
+    }
+    return res;
+  }
+
   async function sendPasswordReset(email) {
     const supabase = await initAuthSession();
     if (!supabase) {
@@ -2028,6 +2043,7 @@ export function AppProvider({ children }) {
         signUpWithPassword,
         signInWithPassword,
         signInWithEmailOtp,
+        signInWithOAuth,
         sendPasswordReset,
         updatePassword,
         updateDisplayName,
