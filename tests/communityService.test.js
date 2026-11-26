@@ -5,7 +5,11 @@ import {
   computeTasteTwinCompatibility,
   aggregateCommunityRatings,
   computeProfileTasteVector,
-  pickUnseenFavoritesFromProfile
+  pickUnseenFavoritesFromProfile,
+  sortCommunityReviews,
+  fetchFriendsActivityFeed,
+  fetchCommunityDirectory,
+  toggleReviewLike
 } from "../src/services/communityService.js";
 import { encodeEmbeddingBinary, parseEmbeddingBinary } from "../src/services/embeddingService.js";
 
@@ -97,4 +101,103 @@ test("pickUnseenFavoritesFromProfile filters to 8+ rated films not yet in viewer
 
   const picks = pickUnseenFavoritesFromProfile(profileRatings, viewerWatched, 6);
   assert.deepEqual(picks.map((p) => p.title), ["Unseen Masterpiece", "Unseen Great"]);
+});
+
+test("sortCommunityReviews ranks higher Taste Match % first in 'taste' mode and highest likes first in 'likes' mode", () => {
+  const viewerVec = [1, ...new Array(63).fill(0)];
+  const profileVectorMap = new Map([
+    ["u_twin", [0.95, ...new Array(63).fill(0)]],
+    ["u_diff", [-0.8, ...new Array(63).fill(0)]]
+  ]);
+  const reviews = [
+    { id: 1, user_id: "u_diff", user_note: "B", like_count: 10, updated_at: "2026-11-25T10:00:00Z" },
+    { id: 2, user_id: "u_twin", user_note: "A", like_count: 1, updated_at: "2026-11-24T10:00:00Z" }
+  ];
+  const byTaste = sortCommunityReviews(reviews, { sortBy: "taste", viewerVector: viewerVec, profileVectorMap });
+  assert.equal(byTaste[0].id, 2);
+  assert.ok(byTaste[0].tasteMatchPct > byTaste[1].tasteMatchPct);
+
+  const byLikes = sortCommunityReviews(reviews, { sortBy: "likes", viewerVector: viewerVec, profileVectorMap });
+  assert.equal(byLikes[0].id, 1);
+});
+
+test("fetchFriendsActivityFeed returns followed users' recent ratings in descending order", async () => {
+  const fakeSupabase = {
+    from(table) {
+      if (table === "user_follows") {
+        return {
+          select() {
+            return {
+              eq: async () => ({ data: [{ following_id: "u2" }], error: null })
+            };
+          }
+        };
+      }
+      if (table === "community_ratings") {
+        return {
+          select() {
+            return {
+              in() {
+                return {
+                  order() {
+                    return {
+                      limit: async () => ({
+                        data: [
+                          { id: 10, user_id: "u2", username: "alex", title: "Arrival", user_rating: 9, updated_at: "2026-11-25T12:00:00Z" }
+                        ],
+                        error: null
+                      })
+                    };
+                  }
+                };
+              }
+            };
+          }
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }
+  };
+  const res = await fetchFriendsActivityFeed("u1", { limit: 10 }, { supabaseClient: fakeSupabase });
+  assert.equal(res.status, "ok");
+  assert.equal(res.items.length, 1);
+  assert.equal(res.items[0].username, "alex");
+});
+
+test("fetchCommunityDirectory scores members by Taste Twin compatibility and toggleReviewLike writes own row", async () => {
+  const viewerVec = [1, ...new Array(63).fill(0)];
+  const fakeSupabase = {
+    from(table) {
+      if (table === "public_profiles") {
+        const chain = {
+          or() { return chain; },
+          order() { return chain; },
+          limit: async () => ({
+            data: [
+              { user_id: "u_other", username: "other", taste_vector: [-0.9, ...new Array(63).fill(0)], watched_count: 50 },
+              { user_id: "u_twin", username: "twin", taste_vector: [0.99, ...new Array(63).fill(0)], watched_count: 25 }
+            ],
+            error: null
+          })
+        };
+        return { select: () => chain };
+      }
+      if (table === "community_review_likes") {
+        return {
+          insert: async () => ({ error: null }),
+          delete: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) })
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }
+  };
+
+  const dir = await fetchCommunityDirectory({ viewerVector: viewerVec }, { supabaseClient: fakeSupabase });
+  assert.equal(dir.status, "ok");
+  assert.equal(dir.profiles[0].username, "twin");
+  assert.ok(dir.profiles[0].tasteTwin.matchPct >= 90);
+
+  const liked = await toggleReviewLike({ userId: "u1", ratingId: 10, currentlyLiked: false }, { supabaseClient: fakeSupabase });
+  assert.equal(liked.ok, true);
+  assert.equal(liked.isLiked, true);
 });

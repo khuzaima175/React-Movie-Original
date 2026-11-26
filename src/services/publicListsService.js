@@ -119,3 +119,63 @@ export async function toggleBookmarkPublicList(
   if (error) return { ok: false, error: error.message };
   return { ok: true, isBookmarked: true };
 }
+
+/**
+ * Fetches public curated lists directory ordered by popularity (`popular`) or recency (`recent`).
+ */
+export async function fetchPublicListsDirectory(
+  { query = "", sort = "popular", limit = 24 } = {},
+  options = {}
+) {
+  const supabase = await resolveSupabase(options);
+  if (!supabase) return { status: "unconfigured", lists: [] };
+
+  const safeQ = String(query || "").trim().replace(/[%_]/g, " ").slice(0, 60);
+  let req = supabase
+    .from("user_lists")
+    .select("id, user_id, name, description, slug, items, bookmark_count, updated_at")
+    .eq("is_public", true)
+    .is("deleted_at", null);
+
+  if (safeQ) {
+    req = req.ilike("name", `%${safeQ}%`);
+  }
+
+  if (sort === "recent") {
+    req = req.order("updated_at", { ascending: false });
+  } else {
+    req = req.order("bookmark_count", { ascending: false }).order("updated_at", { ascending: false });
+  }
+
+  const { data: rows, error } = await req.limit(Math.max(1, Math.min(60, Number(limit) || 24)));
+  if (error) {
+    return { status: "error", error: error.message, lists: [] };
+  }
+
+  const listRows = Array.isArray(rows) ? rows : [];
+  const userIds = [...new Set(listRows.map((r) => r.user_id).filter(Boolean))];
+  const curatorMap = new Map();
+
+  if (userIds.length > 0) {
+    const { data: curators } = await supabase
+      .from("public_profiles")
+      .select("user_id, username, display_name")
+      .in("user_id", userIds);
+    for (const c of curators || []) {
+      curatorMap.set(c.user_id, c);
+    }
+  }
+
+  return {
+    status: "ok",
+    lists: listRows.map((row) => {
+      const curator = curatorMap.get(row.user_id);
+      return {
+        ...row,
+        items: Array.isArray(row.items) ? row.items : [],
+        curatorUsername: curator?.username || null,
+        curatorDisplayName: curator?.display_name || null
+      };
+    })
+  };
+}

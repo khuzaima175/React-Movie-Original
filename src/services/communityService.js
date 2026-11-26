@@ -347,22 +347,23 @@ export async function fetchPublicProfileByUsername(rawUsername, currentUserId = 
 }
 
 /**
- * Fetches all public community ratings & reviews for a specific movie (by TMDB ID or IMDb ID).
+ * Fetches all public community ratings & reviews for a specific movie (by TMDB ID or IMDb ID),
+ * along with reviewer taste vectors and viewer like state when available.
  */
-export async function fetchMovieCommunityRatings({ tmdbId, imdbID } = {}) {
-  if (!hasSupabaseConfig()) return aggregateCommunityRatings([]);
+export async function fetchMovieCommunityRatings({ tmdbId, imdbID, viewerUserId = null } = {}) {
+  if (!hasSupabaseConfig()) return { ...aggregateCommunityRatings([]), profileVectorMap: new Map(), likedIds: new Set() };
   const cleanTmdb = Number(tmdbId);
   const cleanImdb = String(imdbID || "").trim().toLowerCase();
   const hasTmdb = Number.isSafeInteger(cleanTmdb) && cleanTmdb > 0;
   const hasImdb = /^tt\d+$/i.test(cleanImdb);
-  if (!hasTmdb && !hasImdb) return aggregateCommunityRatings([]);
+  if (!hasTmdb && !hasImdb) return { ...aggregateCommunityRatings([]), profileVectorMap: new Map(), likedIds: new Set() };
 
   const supabase = await getSupabaseClientAsync();
-  if (!supabase) return aggregateCommunityRatings([]);
+  if (!supabase) return { ...aggregateCommunityRatings([]), profileVectorMap: new Map(), likedIds: new Set() };
 
   let query = supabase
     .from("community_ratings")
-    .select("id, user_id, username, display_name, movie_key, tmdb_id, imdb_id, user_rating, user_note, contains_spoilers, craft_breakdown, watched_at, updated_at")
+    .select("id, user_id, username, display_name, movie_key, tmdb_id, imdb_id, user_rating, user_note, contains_spoilers, craft_breakdown, like_count, watched_at, updated_at")
     .order("updated_at", { ascending: false })
     .limit(80);
 
@@ -377,9 +378,209 @@ export async function fetchMovieCommunityRatings({ tmdbId, imdbID } = {}) {
   const { data, error } = await query;
   if (error) {
     console.warn("Failed to load community ratings for movie:", error.message);
-    return aggregateCommunityRatings([]);
+    return { ...aggregateCommunityRatings([]), profileVectorMap: new Map(), likedIds: new Set() };
   }
-  return aggregateCommunityRatings(data || []);
+
+  const rows = Array.isArray(data) ? data : [];
+  const agg = aggregateCommunityRatings(rows);
+  const userIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
+  const ratingIds = rows.map((r) => r.id).filter(Boolean);
+
+  const [profilesRes, likesRes] = await Promise.all([
+    userIds.length > 0
+      ? supabase.from("public_profiles").select("user_id, taste_vector").in("user_id", userIds)
+      : Promise.resolve({ data: [] }),
+    viewerUserId && ratingIds.length > 0
+      ? supabase.from("community_review_likes").select("rating_id").eq("user_id", viewerUserId).in("rating_id", ratingIds)
+      : Promise.resolve({ data: [] })
+  ]);
+
+  const profileVectorMap = new Map();
+  for (const p of profilesRes?.data || []) {
+    if (p?.user_id && Array.isArray(p.taste_vector)) {
+      profileVectorMap.set(p.user_id, p.taste_vector);
+    }
+  }
+  const likedIds = new Set((likesRes?.data || []).map((l) => l.rating_id));
+
+  return {
+    ...agg,
+    profileVectorMap,
+    likedIds
+  };
+}
+
+function sanitizePostgrestSearch(raw = "") {
+  return String(raw || "")
+    .trim()
+    .replace(/[%_(),.*]/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, 60);
+}
+
+async function resolveCommunitySupabase(options = {}) {
+  if ("supabaseClient" in options) return options.supabaseClient;
+  if (!hasSupabaseConfig()) return null;
+  return getSupabaseClientAsync();
+}
+
+/**
+ * Sorts movie reviews by Taste Twin compatibility (`taste`), review likes (`likes`), or recency (`recent`).
+ */
+export function sortCommunityReviews(
+  reviews = [],
+  { sortBy = "taste", viewerVector = null, profileVectorMap = new Map() } = {}
+) {
+  const safeList = Array.isArray(reviews) ? reviews : [];
+  const enriched = safeList.map((rev) => {
+    const revVec = profileVectorMap instanceof Map ? profileVectorMap.get(rev.user_id) : null;
+    const twin = viewerVector && revVec ? computeTasteTwinCompatibility(viewerVector, revVec) : null;
+    return {
+      ...rev,
+      tasteMatchPct: twin ? twin.matchPct : null,
+      tasteLabel: twin ? twin.label : null
+    };
+  });
+
+  if (sortBy === "likes") {
+    return enriched.sort(
+      (a, b) =>
+        (Number(b.like_count) || 0) - (Number(a.like_count) || 0) ||
+        (Date.parse(b.updated_at || 0) || 0) - (Date.parse(a.updated_at || 0) || 0)
+    );
+  }
+
+  if (sortBy === "taste") {
+    return enriched.sort((a, b) => {
+      const aMatch = a.tasteMatchPct ?? -1;
+      const bMatch = b.tasteMatchPct ?? -1;
+      if (bMatch !== aMatch) return bMatch - aMatch;
+      return (Number(b.like_count) || 0) - (Number(a.like_count) || 0);
+    });
+  }
+
+  return enriched.sort(
+    (a, b) => (Date.parse(b.updated_at || 0) || 0) - (Date.parse(a.updated_at || 0) || 0)
+  );
+}
+
+/**
+ * Fetches recent ratings and reviews from accounts the viewer follows.
+ */
+export async function fetchFriendsActivityFeed(viewerUserId, { limit = 30 } = {}, options = {}) {
+  if (!viewerUserId) return { status: "signed_out", items: [] };
+  const supabase = await resolveCommunitySupabase(options);
+  if (!supabase) return { status: "unconfigured", items: [] };
+
+  const { data: follows, error: followErr } = await supabase
+    .from("user_follows")
+    .select("following_id")
+    .eq("follower_id", viewerUserId);
+
+  if (followErr) {
+    return { status: "error", error: followErr.message, items: [] };
+  }
+  const followingIds = (follows || []).map((f) => f.following_id).filter(Boolean);
+  if (followingIds.length === 0) {
+    return { status: "ok", items: [] };
+  }
+
+  const { data: items, error: feedErr } = await supabase
+    .from("community_ratings")
+    .select("id, user_id, username, display_name, movie_key, tmdb_id, imdb_id, title, year, poster, user_rating, user_note, contains_spoilers, like_count, watched_at, updated_at")
+    .in("user_id", followingIds)
+    .order("updated_at", { ascending: false })
+    .limit(Math.max(1, Math.min(80, Number(limit) || 30)));
+
+  if (feedErr) {
+    return { status: "error", error: feedErr.message, items: [] };
+  }
+
+  return {
+    status: "ok",
+    items: Array.isArray(items) ? items : []
+  };
+}
+
+/**
+ * Queries public CinemaVault member profiles and scores each against `viewerVector` when available.
+ */
+export async function fetchCommunityDirectory(
+  { query = "", viewerVector = null, limit = 24 } = {},
+  options = {}
+) {
+  const supabase = await resolveCommunitySupabase(options);
+  if (!supabase) return { status: "unconfigured", profiles: [] };
+
+  const safeQ = sanitizePostgrestSearch(query);
+  let req = supabase
+    .from("public_profiles")
+    .select("user_id, username, display_name, bio, favorite_movie_keys, taste_vector, watched_count, updated_at");
+
+  if (safeQ) {
+    req = req.or(`username.ilike.%${safeQ}%,display_name.ilike.%${safeQ}%`);
+  }
+
+  const { data, error } = await req
+    .order("watched_count", { ascending: false })
+    .limit(Math.max(1, Math.min(60, Number(limit) || 24)));
+
+  if (error) {
+    return { status: "error", error: error.message, profiles: [] };
+  }
+
+  const scored = (data || []).map((prof) => {
+    const twin = viewerVector && Array.isArray(prof.taste_vector)
+      ? computeTasteTwinCompatibility(viewerVector, prof.taste_vector)
+      : null;
+    return {
+      ...prof,
+      tasteTwin: twin
+    };
+  });
+
+  if (viewerVector) {
+    scored.sort(
+      (a, b) =>
+        (b.tasteTwin?.matchPct ?? -1) - (a.tasteTwin?.matchPct ?? -1) ||
+        (Number(b.watched_count) || 0) - (Number(a.watched_count) || 0)
+    );
+  }
+
+  return {
+    status: "ok",
+    profiles: scored
+  };
+}
+
+/**
+ * Toggles a like on a public community review for the authenticated user.
+ */
+export async function toggleReviewLike(
+  { userId, ratingId, currentlyLiked = false } = {},
+  options = {}
+) {
+  if (!userId || !ratingId) {
+    return { ok: false, error: "Sign in to like community reviews." };
+  }
+  const supabase = await resolveCommunitySupabase(options);
+  if (!supabase) return { ok: false, error: "Cloud service unavailable." };
+
+  if (currentlyLiked) {
+    const { error } = await supabase
+      .from("community_review_likes")
+      .delete()
+      .eq("user_id", userId)
+      .eq("rating_id", ratingId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, isLiked: false };
+  }
+
+  const { error } = await supabase
+    .from("community_review_likes")
+    .insert({ user_id: userId, rating_id: ratingId });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, isLiked: true };
 }
 
 /**

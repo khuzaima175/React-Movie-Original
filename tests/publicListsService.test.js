@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   fetchPublicListBySlug,
   fetchPublicListsByUsername,
-  toggleBookmarkPublicList
+  toggleBookmarkPublicList,
+  fetchPublicListsDirectory
 } from "../src/services/publicListsService.js";
 
 test("fetchPublicListBySlug returns not_found when missing or unconfigured gracefully", async () => {
@@ -151,4 +152,43 @@ test("toggleBookmarkPublicList inserts and deletes cleanly", async () => {
 test("fetchPublicListsByUsername returns empty array gracefully when unconfigured", async () => {
   const rows = await fetchPublicListsByUsername("noirfan", { supabaseClient: null });
   assert.deepEqual(rows, []);
+});
+
+test("fetchPublicListsDirectory queries only public non-deleted lists and attaches curator handles", async () => {
+  const fakeSupabase = {
+    from(table) {
+      if (table === "user_lists") {
+        const chain = {
+          eq() { return chain; },
+          is() { return chain; },
+          ilike() { return chain; },
+          order() { return chain; },
+          limit: async () => ({
+            data: [
+              { id: "l1", user_id: "u1", name: "Noir Nights", description: "Rain", slug: "noir-nights-abc123", items: [{ title: "Se7en" }], bookmark_count: 7, updated_at: "2026-11-25" }
+            ],
+            error: null
+          })
+        };
+        return { select: () => chain };
+      }
+      if (table === "public_profiles") {
+        return {
+          select() {
+            return {
+              in: async () => ({
+                data: [{ user_id: "u1", username: "alex", display_name: "Alex" }],
+                error: null
+              })
+            };
+          }
+        };
+      }
+      throw new Error(`Unexpected table ${table}`);
+    }
+  };
+  const res = await fetchPublicListsDirectory({ query: "noir", sort: "popular", limit: 12 }, { supabaseClient: fakeSupabase });
+  assert.equal(res.status, "ok");
+  assert.equal(res.lists.length, 1);
+  assert.equal(res.lists[0].curatorUsername, "alex");
 });
