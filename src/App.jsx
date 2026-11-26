@@ -29,6 +29,7 @@ const loadAccountPage = () => import("./pages/AccountPage");
 const loadPublicProfilePage = () => import("./pages/PublicProfilePage");
 const loadPublicListPage = () => import("./pages/PublicListPage");
 const loadWatchTogetherPage = () => import("./pages/WatchTogetherPage");
+const loadCommunityPage = () => import("./pages/CommunityPage");
 
 const ExplorePage = lazy(loadExplorePage);
 const ComparePage = lazy(loadComparePage);
@@ -41,13 +42,15 @@ const AccountPage = lazy(loadAccountPage);
 const PublicProfilePage = lazy(loadPublicProfilePage);
 const PublicListPage = lazy(loadPublicListPage);
 const WatchTogetherPage = lazy(loadWatchTogetherPage);
+const CommunityPage = lazy(loadCommunityPage);
 
 const PREFETCH_BY_PATH = {
   "/explore": loadExplorePage,
   "/vault": loadVaultPage,
   "/ai": loadAIPage,
   "/compare": loadComparePage,
-  "/together": loadWatchTogetherPage
+  "/together": loadWatchTogetherPage,
+  "/community": loadCommunityPage
 };
 
 function prefetchRoute(path) {
@@ -316,6 +319,7 @@ function AppContent() {
           <Route path="/list/:slug" element={<PublicListPage />} />
           <Route path="/together" element={<WatchTogetherPage />} />
           <Route path="/together/:code" element={<WatchTogetherPage />} />
+          <Route path="/community" element={<CommunityPage />} />
           <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>

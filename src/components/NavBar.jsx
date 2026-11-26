@@ -219,6 +219,9 @@ export default function NavBar({
                 </Menu.Trigger>
                 <Menu.Panel align="right">
                   <Menu.Label>Library Tools</Menu.Label>
+                  <Menu.Item icon={Users} onClick={() => navigate("/community")}>
+                    Community &amp; Taste Twins
+                  </Menu.Item>
                   <Menu.Item icon={Users} onClick={() => navigate("/together")}>
                     Watch Together
                   </Menu.Item>
