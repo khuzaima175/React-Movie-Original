@@ -256,7 +256,8 @@ test("gameRankerService penalizes low-acclaim flops (e.g. Gollum 4.3), deduplica
   const ranked = rankGameCandidates(
     [
       { igdbId: 777777, title: "The Lord of the Rings: Gollum", year: 2023, rating10: 4.3, ratingCount: 140, genres: ["Adventure"], themes: ["Fantasy"] },
-      { igdbId: 888888, title: "Acclaimed Fantasy RPG", year: 2023, rating10: 9.0, ratingCount: 400, genres: ["Role-playing (RPG)", "Adventure"], themes: ["Fantasy"] }
+      { igdbId: 888888, title: "Acclaimed Fantasy RPG", year: 2023, rating10: 9.0, ratingCount: 400, genres: ["Role-playing (RPG)", "Adventure"], themes: ["Fantasy"] },
+      { igdbId: 999999, title: "Unreleased Future Fantasy", year: new Date().getUTCFullYear() + 2, rating10: 0, ratingCount: 0, genres: ["Role-playing (RPG)", "Adventure"], themes: ["Fantasy"] }
     ],
     played,
     [],
@@ -264,8 +265,10 @@ test("gameRankerService penalizes low-acclaim flops (e.g. Gollum 4.3), deduplica
   );
   const gollum = ranked.find((g) => g.igdbId === 777777);
   const good = ranked.find((g) => g.igdbId === 888888);
+  const unreleased = ranked.find((g) => g.igdbId === 999999);
   assert.ok(gollum.matchScore <= 68, `Expected Gollum (4.3/10 flop) <= 68% match, got ${gollum.matchScore}%`);
   assert.ok(good.matchScore > gollum.matchScore + 15, `Expected acclaimed RPG (${good.matchScore}%) well above flop (${gollum.matchScore}%)`);
+  assert.ok(good.matchScore > unreleased.matchScore + 12, `Expected released RPG (${good.matchScore}%) well above unreleased future 0-vote game (${unreleased.matchScore}%)`);
 
   // Predicted rating calibration
   const est = predictGameRating(94, played);

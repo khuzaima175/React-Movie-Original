@@ -3,7 +3,7 @@
 **Last Updated:** November 28, 2026 (`v6.2` + GameVault Phase 2)  
 **Status:** Production-ready · Verified by the full offline service & API test suite (`npm test`) and production Vite build (`npm run build`).
 
-If you want to understand **what our local ML models actually are**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English. For the full living benchmark table and ongoing accuracy experiments, see **[MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)**.
+If you want to understand **what our local ML models actually are**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English. For the full living benchmark table and ongoing accuracy experiments, see **[MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)**. For the dedicated deep-dive on **GameVault's separate game ML models, math, cold-start Tag-Dropout Ridge, and rig awareness**, see **[GAMEVAULT_ML_GUIDE.md](./GAMEVAULT_ML_GUIDE.md)**.
 
 ---
 

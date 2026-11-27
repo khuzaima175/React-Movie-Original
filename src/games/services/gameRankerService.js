@@ -206,10 +206,28 @@ export function extractGameTasteProfile(played = []) {
   };
 }
 
+let simMapMemo = { key: "", value: null };
+
+function buildVaultSimSignature(played = [], backlog = [], models = {}) {
+  const pKey = (Array.isArray(played) ? played : [])
+    .map((g) => `${g?.igdbId}:${g?.userRating || 0}:${g?.hoursPlayed || 0}:${g?.status || ""}`)
+    .join(",");
+  const bKey = (Array.isArray(backlog) ? backlog : [])
+    .map((g) => `${g?.igdbId}`)
+    .join(",");
+  const mKey = `${models?.easeIndex?.count || 0}:${models?.collabIndex?.count || 0}:${models?.contentIndex?.count || 0}`;
+  return `${mKey}|${pKey}|${bKey}`;
+}
+
 /**
- * Computes full-catalog similarity maps once across all 24,439 games in < 45 ms.
+ * Computes full-catalog similarity maps once across all 24,439 games (memoized across route changes for <0.1ms reuse).
  */
 export function computeGameSimilarityMaps(played = [], backlog = [], models = {}) {
+  const sig = buildVaultSimSignature(played, backlog, models);
+  if (simMapMemo.key === sig && simMapMemo.value) {
+    return simMapMemo.value;
+  }
+
   const { easeIndex = null, collabIndex = null, contentIndex = null, weights = null } = models || {};
   const weighted = buildWeightedGameRatings(played);
   const backlogEntries = (Array.isArray(backlog) ? backlog : [])
@@ -234,7 +252,7 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
   });
   const catalogMax = getCollabCatalogMax(collabSimMap);
 
-  return {
+  const computed = {
     weighted,
     easeSimMap,
     spectralSimMap,
@@ -243,6 +261,8 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
     contentSimMap,
     catalogMax: catalogMax !== null ? Math.max(0.05, catalogMax) : null
   };
+  simMapMemo = { key: sig, value: computed };
+  return computed;
 }
 
 /**
@@ -346,39 +366,55 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
     const themeOverlap = themes.length > 0 ? matchedThemes.length / Math.min(3, themes.length) : 0;
     const devMatch = matchedDev ? 1 : 0;
 
-    // Bayesian acclaim in [0, 1] + strict low-acclaim flop penalty (so 4.3/10 disasters never score 97%!)
+    // Bayesian acclaim in [0, 1] + progressive quality penalty (crushes 4.3 flops, demotes 6.9-7.4 mediocrities & unreleased vaporware)
     const r10 = Number(game?.rating10 ?? 0);
     const votes = Math.max(0, Number(game?.ratingCount ?? 0));
+    const currentYear = new Date().getUTCFullYear();
     const bayes = r10 > 0 ? (votes * r10 + 40 * 7.2) / (votes + 40) : 7.2;
     const acclaimNorm = clamp((bayes - 5.5) / 4.0, 0, 1);
     const voteConf = votes > 0 ? clamp(votes / 25, 0.35, 1.0) : 0;
-    const flopPenalty = r10 > 0 && r10 < 6.5 ? (6.5 - r10) * 2.65 * voteConf : 0;
+    const mediocrePenalty = r10 > 0 && r10 < 7.5 ? (7.5 - r10) * 1.15 * voteConf : 0;
+    const flopPenalty = r10 > 0 && r10 < 6.5 ? (6.5 - r10) * 2.15 * voteConf : 0;
+    const unreleasedPenalty = Number(game?.year) > currentYear && votes < 15 ? 2.2 : 0;
+    const isRedundantEdition =
+      /\b(anniversary|definitive|enhanced|remastered|goty|game of the year|complete edition|ultimate edition|special edition|hd collection)\b/i.test(
+        String(game?.title || "")
+      ) && !(r10 >= 8.7 && votes >= 400);
+    const editionPenalty = isRedundantEdition ? 0.65 : 0;
 
     // Calibrated logit combining warm collaborative + cold-start BGE-large alignment
     let logit;
     if (hasCollab && collabNorm > 0.02) {
       logit =
-        -0.95 +
-        3.25 * collabNorm +
-        0.95 * Math.max(0, contentNorm) +
+        -1.0 +
+        3.35 * collabNorm +
+        0.92 * Math.max(0, contentNorm) +
         0.48 * genreOverlap +
         0.35 * themeOverlap +
         0.55 * devMatch +
-        0.95 * acclaimNorm -
+        1.35 * acclaimNorm -
         1.45 * repulsion -
-        flopPenalty;
+        mediocrePenalty -
+        flopPenalty -
+        editionPenalty -
+        unreleasedPenalty;
     } else {
-      // Cold-start (console exclusives & 2024-2026 releases): calibrate 0.72 cosine -> 1.0 parity with catalog-max collab
-      const coldContentCal = clamp(Math.max(0, contentNorm) / 0.72, 0, 1);
+      // Cold-start (console exclusives & 2024-2026 releases): acclaimed >= 8.2 keeps full warm parity;
+      // mediocre < 8.2 cold games cap at 0.78 so warm 9.0+ classics outrank 7.3 cold titles
+      const coldCap = r10 >= 8.2 ? 1.0 : 0.78;
+      const coldContentCal = clamp(Math.max(0, contentNorm) / 0.72, 0, coldCap);
       logit =
-        -0.95 +
-        3.85 * coldContentCal +
-        0.65 * genreOverlap +
-        0.45 * themeOverlap +
-        0.65 * devMatch +
-        1.05 * acclaimNorm -
+        -1.05 +
+        3.65 * coldContentCal +
+        0.55 * genreOverlap +
+        0.38 * themeOverlap +
+        0.62 * devMatch +
+        1.35 * acclaimNorm -
         1.2 * repulsion -
-        flopPenalty;
+        mediocrePenalty -
+        flopPenalty -
+        editionPenalty -
+        unreleasedPenalty;
     }
 
     const matchScore = computeGameDisplayMatchScore(logit);

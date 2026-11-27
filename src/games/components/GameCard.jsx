@@ -1,13 +1,11 @@
+import { memo } from "react";
 import { Link } from "react-router-dom";
-import { motion, useReducedMotion } from "framer-motion";
 import { Bookmark, Check, Gamepad2, Star, Trophy } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
 import { flyToVault } from "../../services/flyToVault";
-import { EASE } from "../../motion";
 
-export default function GameCard({ game, showMatch = true, index = 0, enableLayout = false }) {
+const GameCard = memo(function GameCard({ game, showMatch = true, index = 0 }) {
   const { playedById, backlogIds, setRateTarget, toggleBacklogGame } = useGameVault();
-  const prefersReducedMotion = useReducedMotion();
   if (!game?.igdbId) return null;
 
   const logged = playedById.get(game.igdbId);
@@ -16,15 +14,10 @@ export default function GameCard({ game, showMatch = true, index = 0, enableLayo
     ? game.matchReasons[0]
     : "";
 
-  const staggerDelay = Math.min(index, 12) * 0.03;
-
   return (
-    <motion.article
-      layout={enableLayout && !prefersReducedMotion ? "position" : false}
+    <article
       className="gv-card"
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.34, delay: staggerDelay, ease: EASE }}
+      style={{ "--gv-stagger": `${Math.min(index, 10) * 24}ms` }}
     >
       <Link to={`/game/${game.igdbId}`} className="gv-card-cover-wrap">
         {game.coverUrl ? (
@@ -32,11 +25,12 @@ export default function GameCard({ game, showMatch = true, index = 0, enableLayo
             src={game.coverUrl}
             alt={game.title}
             loading="lazy"
+            decoding="async"
             className="gv-card-cover"
           />
         ) : (
           <div className="gv-card-placeholder">
-            <Gamepad2 size={28} aria-hidden="true" />
+            <Gamepad2 size={24} aria-hidden="true" />
             <span>{game.title}</span>
           </div>
         )}
@@ -102,7 +96,7 @@ export default function GameCard({ game, showMatch = true, index = 0, enableLayo
             className={`gv-card-action ${logged ? "is-active" : ""}`}
             onClick={() => setRateTarget({ ...game, ...(logged || {}) })}
           >
-            <Star size={13} aria-hidden="true" />
+            <Star size={12} aria-hidden="true" />
             <span>{logged?.userRating ? `${logged.userRating}/10` : logged ? "Edit" : "Rate"}</span>
           </button>
 
@@ -117,12 +111,14 @@ export default function GameCard({ game, showMatch = true, index = 0, enableLayo
               title={inBacklog ? "Remove from Backlog" : "Save to Backlog"}
               aria-label={inBacklog ? "Remove from Backlog" : "Save to Backlog"}
             >
-              {inBacklog ? <Check size={13} aria-hidden="true" /> : <Bookmark size={13} aria-hidden="true" />}
+              {inBacklog ? <Check size={12} aria-hidden="true" /> : <Bookmark size={12} aria-hidden="true" />}
               <span>{inBacklog ? "Saved" : "Backlog"}</span>
             </button>
           )}
         </div>
       </div>
-    </motion.article>
+    </article>
   );
-}
+});
+
+export default GameCard;

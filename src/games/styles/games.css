@@ -12,16 +12,16 @@
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.09);
   background: var(--surface-1);
-  min-height: 44rem;
+  min-height: 35.5rem;
   display: flex;
   align-items: flex-end;
-  margin-bottom: 3.6rem;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), var(--sh-3);
+  margin-bottom: 3rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--sh-3);
 }
 
 .gv-billboard-bg-wrap {
   position: absolute;
-  inset: -4%;
+  inset: 0;
   overflow: hidden;
   pointer-events: none;
 }
@@ -31,19 +31,8 @@
   height: 100%;
   object-fit: cover;
   object-position: center 22%;
-  opacity: 0.56;
-  filter: saturate(1.12);
-  animation: gvKenBurns 18s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-.gv-billboard-bg.is-paused {
-  animation-play-state: paused;
-}
-
-@keyframes gvKenBurns {
-  0% { transform: scale(1.0) translate3d(0, 0, 0); }
-  100% { transform: scale(1.08) translate3d(-1.2%, -0.8%, 0); }
+  opacity: 0.54;
+  filter: saturate(1.1);
 }
 
 .gv-billboard-scrim {
@@ -211,26 +200,25 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.9rem;
-  margin-top: 0.4rem;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
 }
 
 .gv-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.6rem;
-  padding: 0.95rem 1.7rem;
+  gap: 0.55rem;
+  padding: 0.82rem 1.45rem;
   border-radius: var(--r-sm);
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
   border: 1px solid var(--hairline-strong);
-  background: rgba(28, 29, 34, 0.86);
-  backdrop-filter: blur(8px);
+  background: rgba(24, 25, 30, 0.92);
   color: var(--text-1);
-  transition: transform 0.15s var(--ease-out), background 0.15s ease, border-color 0.15s ease;
+  transition: transform 0.14s var(--ease-out), background 0.14s ease, border-color 0.14s ease;
   text-decoration: none;
 }
 
@@ -306,10 +294,12 @@
 }
 
 .gv-carousel-section {
-  margin-bottom: 4.2rem;
+  margin-bottom: 3.6rem;
   opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+  transform: translateY(14px);
+  transition: opacity 0.42s var(--ease-out), transform 0.42s var(--ease-out);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 34rem;
 }
 
 .gv-carousel-section.is-revealed {
@@ -417,14 +407,20 @@
 .gv-carousel-track {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: calc((100% - 5 * 1.8rem) / 6);
-  gap: 1.8rem;
+  grid-auto-columns: calc((100% - 6 * 1.4rem) / 7);
+  gap: 1.4rem;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
-  padding: 0.4rem 0.2rem 1rem;
+  padding: 0.35rem 0.15rem 0.9rem;
   scrollbar-width: none;
   cursor: grab;
+}
+
+@media (min-width: 1620px) {
+  .gv-carousel-track {
+    grid-auto-columns: calc((100% - 7 * 1.4rem) / 8);
+  }
 }
 
 .gv-carousel-track::-webkit-scrollbar {
@@ -441,17 +437,22 @@
   scroll-snap-align: start;
 }
 
-/* ── Grids & Specular Editorial Game Cards ────────────────────────────────── */
+/* ── Grids & Specular Editorial Game Cards (Compact Crisp Proportions) ───── */
 .gv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
-  gap: 1.8rem;
+  grid-template-columns: repeat(auto-fill, minmax(15.2rem, 1fr));
+  gap: 1.45rem;
 }
 
 .gv-grid-compact {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15.2rem, 1fr));
-  gap: 1.4rem;
+  grid-template-columns: repeat(auto-fill, minmax(14.4rem, 1fr));
+  gap: 1.25rem;
+}
+
+@keyframes gvCardIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .gv-card {
@@ -462,7 +463,8 @@
   background: var(--surface-1);
   border: 1px solid var(--hairline);
   overflow: hidden;
-  transition: transform 0.24s var(--ease-out), border-color 0.22s ease, box-shadow 0.24s ease;
+  animation: gvCardIn 0.28s var(--ease-out) var(--gv-stagger, 0ms) both;
+  transition: transform 0.2s var(--ease-out), border-color 0.18s ease, box-shadow 0.2s ease;
 }
 
 .gv-card:hover {
@@ -552,14 +554,13 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.22rem 0.55rem;
+  padding: 0.2rem 0.5rem;
   border-radius: 5px;
-  font-size: 1.02rem;
+  font-size: 1rem;
   font-weight: 700;
-  background: rgba(10, 12, 14, 0.85);
+  background: rgba(10, 12, 14, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: var(--text-2);
-  backdrop-filter: blur(6px);
 }
 
 .gv-mini-status.is-platinum {
@@ -573,40 +574,38 @@
 }
 
 .gv-badge-match {
-  padding: 0.28rem 0.65rem;
-  border-radius: 6px;
-  font-size: 1.12rem;
+  padding: 0.24rem 0.58rem;
+  border-radius: 5px;
+  font-size: 1.06rem;
   font-weight: 700;
-  background: rgba(10, 12, 14, 0.86);
+  background: rgba(10, 12, 14, 0.9);
   border: 1px solid rgba(70, 211, 105, 0.45);
   color: var(--match);
-  backdrop-filter: blur(8px);
 }
 
 .gv-badge-rating {
-  padding: 0.28rem 0.6rem;
-  border-radius: 6px;
-  font-size: 1.12rem;
+  padding: 0.24rem 0.52rem;
+  border-radius: 5px;
+  font-size: 1.06rem;
   font-weight: 700;
-  background: rgba(10, 12, 14, 0.86);
+  background: rgba(10, 12, 14, 0.9);
   border: 1px solid rgba(226, 177, 60, 0.45);
   color: var(--accent);
-  backdrop-filter: blur(8px);
 }
 
 .gv-card-body {
-  padding: 1.15rem;
+  padding: 0.95rem 1rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.38rem;
   flex: 1;
 }
 
 .gv-card-title {
-  font-size: 1.4rem;
+  font-size: 1.32rem;
   font-weight: 650;
   color: var(--text-1);
-  line-height: 1.25;
+  line-height: 1.24;
   text-decoration: none;
   display: -webkit-box;
   -webkit-line-clamp: 2;
