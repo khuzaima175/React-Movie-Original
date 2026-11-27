@@ -9,7 +9,8 @@ import {
   formatDocumentTitle,
   resolveMenuAlignment,
   getAccountNavState,
-  getPrimaryNavDestinations
+  getPrimaryNavDestinations,
+  isGamesRoute
 } from "../src/services/navHelpers.js";
 
 test("getSearchShortcutHint adapts shortcut glyph to OS platform", () => {
@@ -105,4 +106,30 @@ test("getAccountNavState returns guest sign-in state when signed out and user in
 test("getPrimaryNavDestinations includes Watch Together at top level alongside Discover, Explore, Vault, and Oracle", () => {
   const links = getPrimaryNavDestinations();
   assert.deepEqual(links.map((l) => l.to), ["/", "/explore", "/vault", "/ai", "/together"]);
+});
+
+test("isGamesRoute detects GameVault routes accurately without matching movie routes", () => {
+  assert.equal(isGamesRoute("/games"), true);
+  assert.equal(isGamesRoute("/games/explore"), true);
+  assert.equal(isGamesRoute("/games/vault"), true);
+  assert.equal(isGamesRoute("/games/oracle"), true);
+  assert.equal(isGamesRoute("/game/119133"), true);
+  assert.equal(isGamesRoute("/"), false);
+  assert.equal(isGamesRoute("/explore"), false);
+  assert.equal(isGamesRoute("/movie/550"), false);
+  assert.equal(isGamesRoute("/gameshow"), false);
+});
+
+test("getPrimaryNavDestinations returns GameVault destinations in games mode while preserving default movies mode", () => {
+  const movieLinks = getPrimaryNavDestinations("movies");
+  assert.deepEqual(movieLinks.map((l) => l.to), ["/", "/explore", "/vault", "/ai", "/together"]);
+
+  const gameLinks = getPrimaryNavDestinations("games");
+  assert.deepEqual(gameLinks.map((l) => l.to), [
+    "/games",
+    "/games/explore",
+    "/games/vault",
+    "/games/oracle"
+  ]);
+  assert.equal(gameLinks[0].end, true);
 });

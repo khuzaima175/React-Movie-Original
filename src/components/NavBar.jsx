@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { useApp } from "../context/AppContext";
 import {
   Film,
+  Gamepad2,
   Search,
   Compass,
   Bookmark,
@@ -22,7 +23,8 @@ import {
   getCloudSyncBadgeLabel,
   formatVaultNavCount,
   getAccountNavState,
-  getPrimaryNavDestinations
+  getPrimaryNavDestinations,
+  isGamesRoute
 } from "../services/navHelpers";
 
 function NavTab({ to, end = false, onPrefetch, children }) {
@@ -108,17 +110,48 @@ export default function NavBar({
     cloudSyncStatus
   });
 
+  const isGamesMode = isGamesRoute(location.pathname);
+  const primaryDestinations = getPrimaryNavDestinations(isGamesMode ? "games" : "movies");
+  const searchLabel = isGamesMode ? "Search games" : "Search films";
+
   return (
     <>
       <header className={`nav-bar-stream ${isScrolled ? "is-scrolled" : ""}`} aria-label="Main Navigation">
         <div className="nav-container page-rail">
           <div className="nav-brand-group">
-            <NavLink to="/" className="brand-logo" aria-label="CinemaVault Home">
-              <span>CinemaVault</span>
+            <NavLink
+              to={isGamesMode ? "/games" : "/"}
+              className="brand-logo"
+              aria-label={isGamesMode ? "GameVault Home" : "CinemaVault Home"}
+            >
+              <span>{isGamesMode ? "GameVault" : "CinemaVault"}</span>
             </NavLink>
 
+            <div className="nav-mode-switcher" role="group" aria-label="Media vault switcher">
+              <NavLink
+                to="/"
+                end
+                className={`nav-mode-pill ${!isGamesMode ? "active" : ""}`}
+                aria-current={!isGamesMode ? "page" : undefined}
+              >
+                <Film size={13} aria-hidden="true" />
+                <span>Movies</span>
+              </NavLink>
+              <NavLink
+                to="/games"
+                onMouseEnter={() => onPrefetchRoute?.("/games")}
+                onPointerDown={() => onPrefetchRoute?.("/games")}
+                onFocus={() => onPrefetchRoute?.("/games")}
+                className={`nav-mode-pill ${isGamesMode ? "active" : ""}`}
+                aria-current={isGamesMode ? "page" : undefined}
+              >
+                <Gamepad2 size={13} aria-hidden="true" />
+                <span>Games</span>
+              </NavLink>
+            </div>
+
             <nav className="nav-links-desktop" role="navigation" aria-label="Primary sections">
-              {getPrimaryNavDestinations().map((item) => (
+              {primaryDestinations.map((item) => (
                 <NavTab
                   key={item.to}
                   to={item.to}
@@ -136,36 +169,38 @@ export default function NavBar({
               type="button"
               className="stream-search-btn"
               onClick={onOpenSearch}
-              aria-label="Search films"
-              title={`Search films (${shortcutLabel} or /)`}
+              aria-label={searchLabel}
+              title={`${searchLabel} (${shortcutLabel} or /)`}
             >
               <span className="stream-search-left">
                 <Search size={15} aria-hidden="true" />
-                <span className="search-placeholder">Search films...</span>
+                <span className="search-placeholder">{searchLabel}...</span>
               </span>
               <kbd className="search-shortcut">{shortcutLabel}</kbd>
             </button>
           </div>
 
           <div className="nav-actions-group">
-            <NavLink
-              to="/together"
-              onPointerDown={() => onPrefetchRoute?.("/together")}
-              className="stream-together-mobile-btn"
-              aria-label="Watch Together"
-              title="Watch Together"
-            >
-              <Users size={16} aria-hidden="true" />
-            </NavLink>
+            {!isGamesMode && (
+              <NavLink
+                to="/together"
+                onPointerDown={() => onPrefetchRoute?.("/together")}
+                className="stream-together-mobile-btn"
+                aria-label="Watch Together"
+                title="Watch Together"
+              >
+                <Users size={16} aria-hidden="true" />
+              </NavLink>
+            )}
 
             <NavLink
-              to="/vault?tab=watchlist"
+              to={isGamesMode ? "/games/vault" : "/vault?tab=watchlist"}
               className="stream-watchlist-btn"
-              aria-label={`Watchlist (${watchlist.length} saved)`}
-              title="Watchlist"
+              aria-label={isGamesMode ? "Game Vault & Backlog" : `Watchlist (${watchlist.length} saved)`}
+              title={isGamesMode ? "Game Vault & Backlog" : "Watchlist"}
             >
               <Bookmark size={16} aria-hidden="true" />
-              {watchlistCountLabel && (
+              {!isGamesMode && watchlistCountLabel && (
                 <span className="watchlist-count tabular-num">{watchlistCountLabel}</span>
               )}
             </NavLink>
@@ -209,27 +244,43 @@ export default function NavBar({
                   <MoreHorizontal size={16} aria-hidden="true" />
                 </Menu.Trigger>
                 <Menu.Panel align="right">
-                  <Menu.Label>Library Tools</Menu.Label>
-                  <Menu.Item icon={Users} onClick={() => navigate("/community")}>
-                    Community &amp; Taste Twins
-                  </Menu.Item>
-                  <Menu.Item icon={Users} onClick={() => navigate("/together")}>
-                    Watch Together
-                  </Menu.Item>
-                  {onOpenTasteDeck && (
-                    <Menu.Item icon={SlidersHorizontal} onClick={onOpenTasteDeck}>
-                      Taste Calibration (30)
-                    </Menu.Item>
-                  )}
-                  {onOpenBackup && (
-                    <Menu.Item icon={ArrowUpDown} onClick={onOpenBackup}>
-                      Import / Export Ratings
-                    </Menu.Item>
-                  )}
-                  {(watchlist.length > 0 || watched.length > 0) && onOpenRandomPicker && (
-                    <Menu.Item icon={Dices} onClick={onOpenRandomPicker}>
-                      Pick Random Film
-                    </Menu.Item>
+                  <Menu.Label>{isGamesMode ? "GameVault Tools" : "Library Tools"}</Menu.Label>
+                  {isGamesMode ? (
+                    <>
+                      <Menu.Item icon={Film} onClick={() => navigate("/")}>
+                        Switch to CinemaVault (Movies)
+                      </Menu.Item>
+                      <Menu.Item icon={ArrowUpDown} onClick={() => navigate("/games/vault")}>
+                        Import Steam / JSON / CSV
+                      </Menu.Item>
+                    </>
+                  ) : (
+                    <>
+                      <Menu.Item icon={Gamepad2} onClick={() => navigate("/games")}>
+                        Switch to GameVault (Games)
+                      </Menu.Item>
+                      <Menu.Item icon={Users} onClick={() => navigate("/community")}>
+                        Community &amp; Taste Twins
+                      </Menu.Item>
+                      <Menu.Item icon={Users} onClick={() => navigate("/together")}>
+                        Watch Together
+                      </Menu.Item>
+                      {onOpenTasteDeck && (
+                        <Menu.Item icon={SlidersHorizontal} onClick={onOpenTasteDeck}>
+                          Taste Calibration (30)
+                        </Menu.Item>
+                      )}
+                      {onOpenBackup && (
+                        <Menu.Item icon={ArrowUpDown} onClick={onOpenBackup}>
+                          Import / Export Ratings
+                        </Menu.Item>
+                      )}
+                      {(watchlist.length > 0 || watched.length > 0) && onOpenRandomPicker && (
+                        <Menu.Item icon={Dices} onClick={onOpenRandomPicker}>
+                          Pick Random Film
+                        </Menu.Item>
+                      )}
+                    </>
                   )}
                   {onOpenCloudSync && (
                     <>
@@ -247,31 +298,57 @@ export default function NavBar({
       </header>
 
       <nav className="mobile-stream-bar" role="navigation" aria-label="Mobile Navigation">
-        <MobileTab to="/" end icon={Film} label="Discover" />
-        <MobileTab
-          to="/explore"
-          icon={SlidersHorizontal}
-          label="Explore"
-          onPrefetch={() => onPrefetchRoute?.("/explore")}
-        />
-        <MobileTab
-          to="/vault"
-          icon={Bookmark}
-          label="Vault"
-          onPrefetch={() => onPrefetchRoute?.("/vault")}
-        />
-        <MobileTab
-          to="/ai"
-          icon={Compass}
-          label="Oracle"
-          onPrefetch={() => onPrefetchRoute?.("/ai")}
-        />
+        {isGamesMode ? (
+          <>
+            <MobileTab to="/games" end icon={Gamepad2} label="Discover" />
+            <MobileTab
+              to="/games/explore"
+              icon={SlidersHorizontal}
+              label="Explore"
+              onPrefetch={() => onPrefetchRoute?.("/games/explore")}
+            />
+            <MobileTab
+              to="/games/vault"
+              icon={Bookmark}
+              label="Vault"
+              onPrefetch={() => onPrefetchRoute?.("/games/vault")}
+            />
+            <MobileTab
+              to="/games/oracle"
+              icon={Compass}
+              label="Oracle"
+              onPrefetch={() => onPrefetchRoute?.("/games/oracle")}
+            />
+          </>
+        ) : (
+          <>
+            <MobileTab to="/" end icon={Film} label="Discover" />
+            <MobileTab
+              to="/explore"
+              icon={SlidersHorizontal}
+              label="Explore"
+              onPrefetch={() => onPrefetchRoute?.("/explore")}
+            />
+            <MobileTab
+              to="/vault"
+              icon={Bookmark}
+              label="Vault"
+              onPrefetch={() => onPrefetchRoute?.("/vault")}
+            />
+            <MobileTab
+              to="/ai"
+              icon={Compass}
+              label="Oracle"
+              onPrefetch={() => onPrefetchRoute?.("/ai")}
+            />
+          </>
+        )}
 
         <button
           type="button"
           className="mobile-tab"
           onClick={onOpenSearch}
-          aria-label="Search"
+          aria-label={searchLabel}
         >
           <Search size={18} aria-hidden="true" />
           <span>Search</span>

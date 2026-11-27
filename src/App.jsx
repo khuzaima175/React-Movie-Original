@@ -11,6 +11,7 @@ import DashboardPage from "./pages/DashboardPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 const SearchModal = lazy(() => import("./components/SearchModal"));
+const GameSearchModal = lazy(() => import("./games/components/GameSearchModal"));
 const RandomPicker = lazy(() => import("./components/RandomPicker"));
 const BackupManagerModal = lazy(() => import("./components/BackupManagerModal"));
 const QuickRateModal = lazy(() => import("./components/QuickRateModal"));
@@ -30,6 +31,12 @@ const loadPublicProfilePage = () => import("./pages/PublicProfilePage");
 const loadPublicListPage = () => import("./pages/PublicListPage");
 const loadWatchTogetherPage = () => import("./pages/WatchTogetherPage");
 const loadCommunityPage = () => import("./pages/CommunityPage");
+const loadGameVaultApp = () => import("./games/GameVaultApp");
+const loadGamesDiscoverPage = () => import("./games/pages/GamesDiscoverPage");
+const loadGamesExplorePage = () => import("./games/pages/GamesExplorePage");
+const loadGamesVaultPage = () => import("./games/pages/GamesVaultPage");
+const loadGamesOraclePage = () => import("./games/pages/GamesOraclePage");
+const loadGameDetailsPage = () => import("./games/pages/GameDetailsPage");
 
 const ExplorePage = lazy(loadExplorePage);
 const ComparePage = lazy(loadComparePage);
@@ -43,6 +50,12 @@ const PublicProfilePage = lazy(loadPublicProfilePage);
 const PublicListPage = lazy(loadPublicListPage);
 const WatchTogetherPage = lazy(loadWatchTogetherPage);
 const CommunityPage = lazy(loadCommunityPage);
+const GameVaultApp = lazy(loadGameVaultApp);
+const GamesDiscoverPage = lazy(loadGamesDiscoverPage);
+const GamesExplorePage = lazy(loadGamesExplorePage);
+const GamesVaultPage = lazy(loadGamesVaultPage);
+const GamesOraclePage = lazy(loadGamesOraclePage);
+const GameDetailsPage = lazy(loadGameDetailsPage);
 
 const PREFETCH_BY_PATH = {
   "/explore": loadExplorePage,
@@ -50,7 +63,11 @@ const PREFETCH_BY_PATH = {
   "/ai": loadAIPage,
   "/compare": loadComparePage,
   "/together": loadWatchTogetherPage,
-  "/community": loadCommunityPage
+  "/community": loadCommunityPage,
+  "/games": () => Promise.all([loadGameVaultApp(), loadGamesDiscoverPage()]),
+  "/games/explore": () => Promise.all([loadGameVaultApp(), loadGamesExplorePage()]),
+  "/games/vault": () => Promise.all([loadGameVaultApp(), loadGamesVaultPage()]),
+  "/games/oracle": () => Promise.all([loadGameVaultApp(), loadGamesOraclePage()])
 };
 
 function prefetchRoute(path) {
@@ -66,6 +83,7 @@ import {
 } from "./services/tasteDeckService";
 import { buildExploreRoute } from "./services/exploreService";
 import { syncDebugFlagFromSearch } from "./services/debugFlags";
+import { isGamesRoute } from "./services/navHelpers";
 import { motion, MotionConfig, useScroll, useSpring } from "framer-motion";
 
 /** Thin reading-progress line pinned above the navbar (disabled on mobile/reduced motion). */
@@ -128,6 +146,7 @@ function AppContent() {
   const [quickRateTarget, setQuickRateTarget] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const isGamesMode = isGamesRoute(location.pathname);
 
   useEffect(() => {
     scrollToTop();
@@ -223,15 +242,18 @@ function AppContent() {
       />
 
       <Suspense fallback={null}>
-        {isSearchOpen && (
-          <SearchModal
-            isOpen={isSearchOpen}
-            onClose={() => setIsSearchOpen(false)}
-            onSelectMovie={handleSelectMovie}
-            onQuickRate={(movie) => setQuickRateTarget(movie)}
-            onExploreQuery={handleExploreQuery}
-          />
-        )}
+        {isSearchOpen &&
+          (isGamesMode ? (
+            <GameSearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+          ) : (
+            <SearchModal
+              isOpen={isSearchOpen}
+              onClose={() => setIsSearchOpen(false)}
+              onSelectMovie={handleSelectMovie}
+              onQuickRate={(movie) => setQuickRateTarget(movie)}
+              onExploreQuery={handleExploreQuery}
+            />
+          ))}
 
         {isRandomPickerOpen && (
           <RandomPicker
@@ -342,6 +364,13 @@ function AppContent() {
           <Route path="/together" element={<WatchTogetherPage />} />
           <Route path="/together/:code" element={<WatchTogetherPage />} />
           <Route path="/community" element={<CommunityPage />} />
+          <Route element={<GameVaultApp />}>
+            <Route path="/games" element={<GamesDiscoverPage />} />
+            <Route path="/games/explore" element={<GamesExplorePage />} />
+            <Route path="/games/vault" element={<GamesVaultPage />} />
+            <Route path="/games/oracle" element={<GamesOraclePage />} />
+            <Route path="/game/:id" element={<GameDetailsPage />} />
+          </Route>
           <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
@@ -352,13 +381,19 @@ function AppContent() {
       <footer className="w-full border-t border-hairline bg-surface-1/30 pt-8 pb-28 min-[901px]:pb-8 mt-16">
         <div className="page-rail flex flex-col sm:flex-row items-center justify-between gap-4 text-[1.25rem] text-text-3">
           <div className="flex items-center gap-2.5">
-            <span className="font-semibold text-text-2 tracking-tight">CinemaVault</span>
+            <span className="font-semibold text-text-2 tracking-tight">
+              {isGamesMode ? "GameVault" : "CinemaVault"}
+            </span>
             <span aria-hidden="true">·</span>
-            <span>Personal Film Log &amp; Recommendations</span>
+            <span>
+              {isGamesMode
+                ? "Personal Game Log & Neural Recommendations"
+                : "Personal Film Log & Recommendations"}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
-            <span>Data from TMDB, OMDb &amp; Gemini</span>
+            <span>Data from TMDB, OMDb, IGDB &amp; Gemini</span>
             <span className="hidden sm:inline" aria-hidden="true">·</span>
             <span className="text-text-2 font-medium">Built by Khuzaima</span>
           </div>

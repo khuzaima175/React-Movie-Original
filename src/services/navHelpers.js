@@ -114,7 +114,20 @@ export function getAccountNavState({
   };
 }
 
-export function getPrimaryNavDestinations() {
+export function isGamesRoute(pathname = "") {
+  const path = String(pathname || "").trim();
+  return path === "/games" || path.startsWith("/games/") || path.startsWith("/game/");
+}
+
+export function getPrimaryNavDestinations(mode = "movies") {
+  if (mode === "games") {
+    return [
+      { to: "/games", label: "Discover", end: true },
+      { to: "/games/explore", label: "Explore", end: false },
+      { to: "/games/vault", label: "Vault", end: false },
+      { to: "/games/oracle", label: "Oracle", end: false }
+    ];
+  }
   return [
     { to: "/", label: "Discover", end: true },
     { to: "/explore", label: "Explore", end: false },

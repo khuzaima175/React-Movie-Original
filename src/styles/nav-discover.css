@@ -26,7 +26,44 @@
 .nav-brand-group {
   display: flex;
   align-items: center;
-  gap: 3.2rem;
+  gap: 2rem;
+}
+
+.nav-mode-switcher {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+
+.nav-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 2.7rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.nav-mode-pill:hover {
+  color: var(--text-1);
+}
+
+.nav-mode-pill.active {
+  background: var(--surface-3, rgba(255, 255, 255, 0.12));
+  color: var(--text-1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .brand-logo {
@@ -224,6 +261,29 @@
   display: none;
 }
 
+@media (max-width: 1180px) and (min-width: 901px) {
+  .nav-container {
+    grid-template-columns: auto minmax(12rem, 1fr) auto;
+    gap: 1.4rem;
+  }
+
+  .nav-brand-group {
+    gap: 1.2rem;
+  }
+
+  .nav-links-desktop {
+    gap: 1.25rem;
+  }
+
+  .nav-mode-pill {
+    padding: 0 0.8rem;
+  }
+
+  .stream-search-btn .search-shortcut {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   .nav-bar-stream {
     background: var(--bg);
@@ -238,11 +298,17 @@
 
   .nav-brand-group {
     min-width: 0;
-    gap: 0;
+    gap: 0.85rem;
+  }
+
+  .nav-mode-pill {
+    height: 2.5rem;
+    padding: 0 0.8rem;
+    font-size: 1.15rem;
   }
 
   .brand-logo {
-    font-size: 1.65rem;
+    font-size: 1.55rem;
     white-space: nowrap;
   }
 

@@ -1,0 +1,92 @@
+{
+  "_source": "colab-gpu-validated-v1.1",
+  "dataset": "antonkozyriev/game-recommendations-on-steam + FronkonGames/atalaydenknalbant 2026 + IGDB v4",
+  "collab_model": "spectral_ease",
+  "ease_k": 80,
+  "ease_lambda": 5000.0,
+  "ease_pop_alpha": 0.3,
+  "ease_neg_weight": -0.35,
+  "content_model": "BAAI/bge-large-en-v1.5",
+  "content_align_gamma": 3.0,
+  "content_align_weight": 0.75,
+  "blend": {
+    "ease": 0.6452,
+    "collab": 0.1075,
+    "content": 0.2151,
+    "popularityPrior": 0.0323
+  },
+  "metrics": {
+    "devUsers": 500,
+    "untouchedTestUsers": 500,
+    "dev": {
+      "popularity": {
+        "ndcg10": 0.021824107416742566,
+        "ndcg20": 0.030605213778876494,
+        "recall20": 0.05011180097680098,
+        "coverage20": 0.0023881004366812226
+      },
+      "easeOnly": {
+        "ndcg10": 0.06682535731333758,
+        "ndcg20": 0.09145597271076193,
+        "recall20": 0.13678465423465422,
+        "coverage20": 0.11728984716157205
+      },
+      "fusion": {
+        "ndcg10": 0.06669401406291203,
+        "ndcg20": 0.09168315438706028,
+        "recall20": 0.13819344544344545,
+        "coverage20": 0.11476528384279476
+      }
+    },
+    "untouchedTest": {
+      "popularity": {
+        "ndcg10": 0.022061641619622607,
+        "ndcg20": 0.030714454945705308,
+        "recall20": 0.04831996015381397,
+        "coverage20": 0.0025245633187772924
+      },
+      "easeOnly": {
+        "ndcg10": 0.06149802348817852,
+        "ndcg20": 0.08215702456111419,
+        "recall20": 0.11980771766934495,
+        "coverage20": 0.11647106986899564
+      },
+      "fusion": {
+        "ndcg10": 0.0616200772058785,
+        "ndcg20": 0.08262720882163598,
+        "recall20": 0.1190743843360116,
+        "coverage20": 0.11421943231441048
+      },
+      "bootstrapFusionMinusPopNdcg20": {
+        "meanDiff": 0.05191,
+        "ci95": [
+          0.04066,
+          0.0632
+        ],
+        "significantPositive": true
+      },
+      "bootstrapFusionMinusEaseNdcg20": {
+        "meanDiff": 0.00047,
+        "ci95": [
+          -0.00079,
+          0.00188
+        ],
+        "significantPositive": false
+      }
+    },
+    "trueColdStart": {
+      "heldoutColdGames": 2199,
+      "pureBgePcaNdcg20": 0.0516,
+      "alignedHybridNdcg20": 0.0535,
+      "alignedHybridRecall20": 0.1145,
+      "relativeLiftPct": 3.68,
+      "relativeRecallLiftPct": 9.05
+    }
+  },
+  "catalog_counts": {
+    "ease": 14656,
+    "collab": 14656,
+    "content": 24439,
+    "steamCrosswalk": 18144
+  }
+}
