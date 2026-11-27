@@ -92,10 +92,13 @@ export async function curateGamesWithOracle({
   vibe = "",
   platformFamily = "all",
   count = 12,
+  excludeIds = [],
   useGemini = true,
   geminiCaller = null
 } = {}) {
+  const excluded = new Set((Array.isArray(excludeIds) ? excludeIds : []).map(Number));
   const filtered = (Array.isArray(candidates) ? candidates : []).filter((g) => {
+    if (excluded.has(Number(g?.igdbId))) return false;
     if (platformFamily && platformFamily !== "all") {
       return Array.isArray(g.platformFamilies) && g.platformFamilies.includes(platformFamily);
     }
@@ -180,8 +183,81 @@ export async function curateGamesWithOracle({
       });
     }
 
-    return { source: "gemini", picks: merged.slice(0, count) };
+    const finalPicks = merged
+      .slice(0, count)
+      .sort((a, b) => (Number(b.matchScore) || 0) - (Number(a.matchScore) || 0));
+
+    return { source: "gemini", picks: finalPicks };
   } catch {
     return buildFallback();
   }
+}
+
+/**
+ * Interactive Game Companion Chat powered by `/api/gemini` with optional pinned game dossier & spoiler safety.
+ */
+export async function askGameCompanionChat({
+  message = "",
+  history = [],
+  played = [],
+  backlog = [],
+  pinnedGame = null,
+  allowSpoilers = false,
+  geminiCaller = null
+} = {}) {
+  const cleanMsg = String(message || "").trim();
+  if (!cleanMsg) return "";
+
+  const topLoved = (Array.isArray(played) ? played : [])
+    .filter((g) => Number(g?.userRating ?? 0) >= 8)
+    .sort((a, b) => (Number(b.userRating || 0) - Number(a.userRating || 0)) || (Number(b.hoursPlayed || 0) - Number(a.hoursPlayed || 0)))
+    .slice(0, 12);
+
+  const systemLines = [
+    "You are GameVault Companion, an expert, concise video-game critic and recommender.",
+    allowSpoilers
+      ? "Spoilers are explicitly allowed for this conversation."
+      : "STRICT SPOILER-SAFE MODE: Never spoil story twists, late-game bosses, or endings.",
+    `Player's top rated games: ${topLoved.map((g) => `${g.title} (${g.userRating}/10${g.hoursPlayed ? `, ${g.hoursPlayed}h` : ""})`).join(", ") || "None yet"}.`,
+    backlog.length > 0 ? `Player's backlog: ${backlog.slice(0, 8).map((g) => g.title).join(", ")}.` : "",
+    pinnedGame
+      ? `Currently discussing pinned game: "${pinnedGame.title}" (${pinnedGame.year || "?"}) · Genres: ${(pinnedGame.genres || []).join(", ")} · Developers: ${(pinnedGame.developers || []).join(", ")} · Summary: ${(pinnedGame.summary || "").slice(0, 260)}`
+      : "",
+    "Keep replies sharp, structured, and grounded in real games (2-4 tight paragraphs or bullet points). Stay focused on video games."
+  ].filter(Boolean);
+
+  const recentTurns = (Array.isArray(history) ? history : [])
+    .slice(-6)
+    .map((m) => `${m.role === "assistant" ? "Companion" : "Player"}: ${String(m.text || "").slice(0, 450)}`);
+
+  const fullPrompt = [
+    ...systemLines,
+    "",
+    ...recentTurns,
+    `Player: ${cleanMsg}`,
+    "Companion:"
+  ].join("\n");
+
+  const caller = typeof geminiCaller === "function"
+    ? geminiCaller
+    : async (prompt) => {
+        const userKey = resolveGeminiKey();
+        const res = await fetch("/api/gemini", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(userKey ? { "x-user-gemini-key": userKey } : {})
+          },
+          body: JSON.stringify({
+            model: "gemini-3.5-flash-lite",
+            contents: prompt
+          })
+        });
+        if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
+        const data = await res.json();
+        return data?.text || data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      };
+
+  const reply = await caller(fullPrompt);
+  return String(reply || "").trim();
 }

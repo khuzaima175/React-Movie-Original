@@ -8,9 +8,12 @@ import { compactGameRecord } from "./gameVaultStorage.js";
 export function mapLocalGameToDbRow(userId, game = {}, bucket = "played") {
   const clean = compactGameRecord(game);
   if (!clean || !userId) return null;
+  const isPlatinum = clean.status === "platinum";
   const status = bucket === "backlog"
     ? "backlog"
-    : (["completed", "playing", "dropped", "played"].includes(clean.status) ? clean.status : "completed");
+    : (isPlatinum
+        ? "completed"
+        : (["completed", "playing", "dropped", "played"].includes(clean.status) ? clean.status : "completed"));
 
   return {
     user_id: userId,
@@ -32,7 +35,10 @@ export function mapLocalGameToDbRow(userId, game = {}, bucket = "played") {
       themes: clean.themes,
       platforms: clean.platforms,
       platformFamilies: clean.platformFamilies,
-      developers: clean.developers
+      developers: clean.developers,
+      ...(isPlatinum ? { subStatus: "platinum" } : {}),
+      ...(clean.ratingBreakdown ? { ratingBreakdown: clean.ratingBreakdown } : {}),
+      ...(clean.quickTags?.length ? { quickTags: clean.quickTags } : {})
     },
     updated_at: clean.updatedAt || new Date().toISOString()
   };
@@ -57,9 +63,11 @@ export function mapDbRowToLocalGame(row = {}) {
     developers: Array.isArray(meta.developers) ? meta.developers : [],
     userRating: Number(row.user_rating ?? 0) || 0,
     hoursPlayed: Number(row.hours_played ?? 0) || 0,
-    status: row.status || "completed",
+    status: meta.subStatus === "platinum" ? "platinum" : (row.status || "completed"),
     platformPlayed: row.platform_played || "",
     userNote: row.user_note || "",
+    ...(meta.ratingBreakdown ? { ratingBreakdown: meta.ratingBreakdown } : {}),
+    ...(Array.isArray(meta.quickTags) ? { quickTags: meta.quickTags } : {}),
     datePlayed: row.date_played || "",
     updatedAt: row.updated_at || new Date().toISOString()
   });

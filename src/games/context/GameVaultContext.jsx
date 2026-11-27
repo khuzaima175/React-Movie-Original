@@ -15,11 +15,24 @@ import { fetchGamesBatch } from "../services/igdbService";
 import { deleteCloudGame, pullAndSyncGameVault, upsertCloudGame } from "../services/gameSyncService";
 
 const GameVaultContext = createContext(null);
+const DISMISSED_STORAGE_KEY = "gamevault_dismissed_v1";
+
+function loadDismissedIds() {
+  try {
+    if (typeof localStorage === "undefined") return [];
+    const raw = localStorage.getItem(DISMISSED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(Number).filter((n) => Number.isInteger(n) && n > 0) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function GameVaultProvider({ children }) {
   const { cloudUser = null } = useApp();
   const [played, setPlayed] = useState([]);
   const [backlog, setBacklog] = useState([]);
+  const [dismissedIds, setDismissedIds] = useState(() => new Set(loadDismissedIds()));
   const [isHydrated, setIsHydrated] = useState(false);
   const [models, setModels] = useState({
     easeIndex: null,
@@ -31,6 +44,7 @@ export function GameVaultProvider({ children }) {
   const [modelsLoading, setModelsLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [rateTarget, setRateTarget] = useState(null);
+  const [rouletteState, setRouletteState] = useState({ open: false, extraCandidates: [] });
   const syncedUserRef = useRef(null);
 
   // 1. Hydrate local IndexedDB game vault + lazily load /models/games/* binaries once
@@ -201,6 +215,29 @@ export function GameVaultProvider({ children }) {
     URL.revokeObjectURL(url);
   }, [played, backlog]);
 
+  const dismissGame = useCallback((igdbId) => {
+    const id = Number(igdbId);
+    if (!Number.isInteger(id) || id <= 0) return;
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      try {
+        localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...next].slice(-200)));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  const openRoulette = useCallback((extraCandidates = []) => {
+    setRouletteState({ open: true, extraCandidates: Array.isArray(extraCandidates) ? extraCandidates : [] });
+  }, []);
+
+  const closeRoulette = useCallback(() => {
+    setRouletteState((prev) => ({ ...prev, open: false }));
+  }, []);
+
   const playedById = useMemo(() => new Map(played.map((g) => [g.igdbId, g])), [played]);
   const backlogIds = useMemo(() => new Set(backlog.map((g) => g.igdbId)), [backlog]);
 
@@ -210,12 +247,17 @@ export function GameVaultProvider({ children }) {
       backlog,
       playedById,
       backlogIds,
+      dismissedIds,
+      dismissGame,
       isHydrated,
       models,
       modelsLoading,
       syncStatus,
       rateTarget,
       setRateTarget,
+      rouletteState,
+      openRoulette,
+      closeRoulette,
       savePlayedGame,
       removePlayedGame,
       toggleBacklogGame,
@@ -227,11 +269,16 @@ export function GameVaultProvider({ children }) {
       backlog,
       playedById,
       backlogIds,
+      dismissedIds,
+      dismissGame,
       isHydrated,
       models,
       modelsLoading,
       syncStatus,
       rateTarget,
+      rouletteState,
+      openRoulette,
+      closeRoulette,
       savePlayedGame,
       removePlayedGame,
       toggleBacklogGame,

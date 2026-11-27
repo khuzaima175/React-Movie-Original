@@ -1,0 +1,324 @@
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChevronDown, ChevronUp, Clock, Gamepad2, Sparkles, Trash2, Trophy } from "lucide-react";
+import StarRatingStage from "../../components/StarRatingStage";
+import {
+  GAME_CRAFT_ASPECTS,
+  GAME_QUICK_TAGS,
+  GAME_STATUS_OPTIONS,
+  computeGameVaultCalibration
+} from "../services/gameVaultStorage";
+import { EASE } from "../../motion";
+
+const HOUR_PRESETS = [5, 15, 30, 60, 100];
+
+export default function GameRatingStage({
+  game,
+  existing = null,
+  played = [],
+  compact = false,
+  onSave,
+  onRemove,
+  onAfterSave
+}) {
+  const navigate = useNavigate();
+  const [selectedScore, setSelectedScore] = useState(Number(existing?.userRating ?? 0) || 0);
+  const [hoverScore, setHoverScore] = useState(0);
+  const [status, setStatus] = useState(existing?.status || "completed");
+  const [hours, setHours] = useState(
+    existing?.hoursPlayed > 0 ? String(existing.hoursPlayed) : ""
+  );
+  const [platformPlayed, setPlatformPlayed] = useState(
+    existing?.platformPlayed || game?.platforms?.[0] || "PC"
+  );
+  const [craft, setCraft] = useState(() => ({ ...(existing?.ratingBreakdown || {}) }));
+  const [quickTags, setQuickTags] = useState(() =>
+    Array.isArray(existing?.quickTags) ? [...existing.quickTags] : []
+  );
+  const [userNote, setUserNote] = useState(existing?.userNote || "");
+  const [showDetails, setShowDetails] = useState(
+    Boolean(existing?.userNote || existing?.ratingBreakdown || existing?.quickTags?.length)
+  );
+  const [saving, setSaving] = useState(false);
+  const [savedPulse, setSavedPulse] = useState(false);
+
+  const previewScore = hoverScore || selectedScore;
+  const calibration = useMemo(
+    () => computeGameVaultCalibration(played, previewScore, game?.igdbId),
+    [played, previewScore, game?.igdbId]
+  );
+
+  const platformChoices = useMemo(() => {
+    const raw = [...(game?.platforms || []), "PC", "PS5", "Switch", "Xbox Series X|S"];
+    return [...new Set(raw.filter(Boolean))].slice(0, 6);
+  }, [game?.platforms]);
+
+  function toggleTag(tag) {
+    setQuickTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : prev.length < 6 ? [...prev, tag] : prev
+    );
+  }
+
+  function setCraftScore(aspectId, val) {
+    setCraft((prev) => {
+      const next = { ...prev };
+      if (next[aspectId] === val) delete next[aspectId];
+      else next[aspectId] = val;
+      return next;
+    });
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!game || selectedScore < 1) return;
+    setSaving(true);
+    try {
+      const numHours = Number(hours);
+      await onSave?.(game, {
+        userRating: selectedScore,
+        status,
+        hoursPlayed: Number.isFinite(numHours) && numHours >= 0 ? numHours : 0,
+        platformPlayed: platformPlayed.trim(),
+        ratingBreakdown: Object.keys(craft).length > 0 ? craft : null,
+        quickTags,
+        userNote: userNote.trim()
+      });
+      setSavedPulse(true);
+      window.setTimeout(() => setSavedPulse(false), 1800);
+      onAfterSave?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const craftCount = Object.keys(craft).length;
+
+  return (
+    <form onSubmit={handleSubmit} className={`gv-rating-studio ${compact ? "is-compact" : ""}`}>
+      <StarRatingStage
+        value={selectedScore}
+        hoverValue={hoverScore}
+        onChange={setSelectedScore}
+        onHoverChange={setHoverScore}
+        calibration={calibration}
+        compact={compact}
+        titleLabel="Game Rating Studio"
+        mediaNoun="game"
+        ariaLabel={`Rate ${game?.title || "this game"} from 1 to 10`}
+        onSelectAnchor={(anchor) => {
+          if (anchor?.igdbId) navigate(`/game/${anchor.igdbId}`);
+        }}
+      />
+
+      {/* Status + Playtime + Platform Strip */}
+      <div className="gv-studio-controls">
+        <div className="gv-studio-row">
+          <span className="gv-studio-label">
+            <Trophy size={13} aria-hidden="true" /> Play Status
+          </span>
+          <div className="gv-chip-group">
+            {GAME_STATUS_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className={`gv-chip gv-chip-sm ${status === opt.id ? "is-active" : ""}`}
+                onClick={() => setStatus(opt.id)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="gv-studio-two-col">
+          <div className="gv-studio-field">
+            <label htmlFor={`gv-hours-${game?.igdbId}`} className="gv-studio-label">
+              <Clock size={13} aria-hidden="true" /> Playtime (hours)
+            </label>
+            <div className="gv-hours-row">
+              <input
+                id={`gv-hours-${game?.igdbId}`}
+                type="number"
+                min="0"
+                max="20000"
+                step="0.5"
+                placeholder="e.g. 42"
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+                className="gv-input gv-hours-input"
+              />
+              <div className="gv-hours-presets">
+                {HOUR_PRESETS.map((h) => (
+                  <button
+                    key={h}
+                    type="button"
+                    className={`gv-hour-pill ${Number(hours) === h ? "is-active" : ""}`}
+                    onClick={() => setHours(String(h))}
+                  >
+                    {h}h
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="gv-studio-field">
+            <label htmlFor={`gv-plat-${game?.igdbId}`} className="gv-studio-label">
+              <Gamepad2 size={13} aria-hidden="true" /> Platform Played
+            </label>
+            <div className="gv-hours-row">
+              <input
+                id={`gv-plat-${game?.igdbId}`}
+                type="text"
+                placeholder="PC / PS5 / Switch"
+                value={platformPlayed}
+                onChange={(e) => setPlatformPlayed(e.target.value)}
+                className="gv-input gv-hours-input"
+              />
+              <div className="gv-hours-presets">
+                {platformChoices.slice(0, 3).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`gv-hour-pill ${platformPlayed === p ? "is-active" : ""}`}
+                    onClick={() => setPlatformPlayed(p)}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progressive Disclosure: Craft Breakdown, Quick Tags & Review Note */}
+        <button
+          type="button"
+          className="gv-studio-drawer-toggle"
+          onClick={() => setShowDetails((v) => !v)}
+          aria-expanded={showDetails}
+        >
+          <span>
+            <Sparkles size={13} aria-hidden="true" />
+            {showDetails
+              ? "Hide craft breakdown, tags & note"
+              : `+ Add craft breakdown, tags & review note${
+                  craftCount + quickTags.length > 0
+                    ? ` (${craftCount + quickTags.length} set)`
+                    : ""
+                }`}
+          </span>
+          {showDetails ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </button>
+
+        <AnimatePresence initial={false}>
+          {showDetails && (
+            <motion.div
+              key="details-drawer"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.24, ease: EASE }}
+              style={{ overflow: "hidden" }}
+            >
+              <div className="gv-studio-drawer">
+                <div>
+                  <span className="gv-studio-label mb-2">5-Aspect Game Craft Breakdown (1–5)</span>
+                  <div className="gv-craft-grid">
+                    {GAME_CRAFT_ASPECTS.map((aspect) => {
+                      const cur = Number(craft[aspect.id] || 0);
+                      return (
+                        <div key={aspect.id} className="gv-craft-row">
+                          <span className="gv-craft-name">{aspect.label}</span>
+                          <div className="gv-craft-dots" role="group" aria-label={aspect.label}>
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                className={`gv-craft-dot ${cur >= n ? "is-filled" : ""}`}
+                                onClick={() => setCraftScore(aspect.id, n)}
+                                aria-label={`${aspect.label} ${n} of 5`}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="gv-studio-label mb-2">Quick Gaming Tags</span>
+                  <div className="gv-chip-group">
+                    {GAME_QUICK_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        className={`gv-tag-pill ${quickTags.includes(tag) ? "is-active" : ""}`}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor={`gv-note-${game?.igdbId}`} className="gv-studio-label mb-2">
+                    Personal Review Note
+                  </label>
+                  <textarea
+                    id={`gv-note-${game?.igdbId}`}
+                    value={userNote}
+                    onChange={(e) => setUserNote(e.target.value)}
+                    placeholder="Boss design, world-building, combat feel, favorite moment..."
+                    className="gv-textarea"
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Commit Action Bar */}
+        <div className="gv-studio-actions">
+          {existing && onRemove ? (
+            <button
+              type="button"
+              className="gv-btn gv-btn-sm gv-btn-danger-ghost"
+              onClick={async () => {
+                await onRemove(game.igdbId);
+                onAfterSave?.();
+              }}
+            >
+              <Trash2 size={14} /> Remove from Vault
+            </button>
+          ) : (
+            <span className="text-[1.2rem] text-text-3">
+              {selectedScore > 0
+                ? "Feeds your local EASE^R + 128-D neural taste profile immediately."
+                : "Click any bar (1–10) above to lock your score."}
+            </span>
+          )}
+
+          <button
+            type="submit"
+            disabled={saving || selectedScore < 1}
+            className="gv-btn gv-btn-primary"
+          >
+            {savedPulse
+              ? `Saved ${selectedScore}/10 to Vault`
+              : selectedScore > 0
+                ? existing
+                  ? `Update ${selectedScore}/10 Entry`
+                  : `Save ${selectedScore}/10 to Vault`
+                : "Select Rating (1–10)"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}

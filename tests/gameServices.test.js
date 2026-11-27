@@ -209,3 +209,117 @@ test("gameSyncService maps local games <-> Supabase user_games rows and merges c
   assert.equal(merged.length, 2);
   assert.equal(merged.find((g) => g.igdbId === 119133).userRating, 10);
 });
+
+test("gameRankerService penalizes low-acclaim flops (e.g. Gollum 4.3), deduplicates sibling editions, and calibrates Est. rating", async () => {
+  const {
+    rankGameCandidates,
+    normalizeGameBaseTitle,
+    filterDuplicateGameEditions,
+    predictGameRating,
+    rankBacklogForNextPlay
+  } = await import("../src/games/services/gameRankerService.js");
+
+  // Edition normalization & deduplication
+  assert.equal(
+    normalizeGameBaseTitle("Divinity: Original Sin II - Definitive Edition"),
+    normalizeGameBaseTitle("Divinity: Original Sin II")
+  );
+  assert.equal(
+    normalizeGameBaseTitle("The Elder Scrolls V: Skyrim - Anniversary Edition"),
+    normalizeGameBaseTitle("The Elder Scrolls V: Skyrim")
+  );
+
+  const played = [
+    { igdbId: 1942, title: "The Witcher 3: Wild Hunt", userRating: 10, genres: ["Role-playing (RPG)", "Adventure"], themes: ["Fantasy"], developers: ["CD Projekt RED"] },
+    { igdbId: 20001, title: "Divinity: Original Sin II", userRating: 10, genres: ["Role-playing (RPG)", "Strategy"], themes: ["Fantasy"], developers: ["Larian Studios"] },
+    { igdbId: 119171, title: "Baldur's Gate III", userRating: 9, genres: ["Role-playing (RPG)"], themes: ["Fantasy"], developers: ["Larian Studios"] }
+  ];
+
+  const deduped = filterDuplicateGameEditions(
+    [
+      { igdbId: 99901, title: "Divinity: Original Sin II - Definitive Edition", ratingCount: 500 },
+      { igdbId: 11133, title: "Dark Souls III", ratingCount: 1600 },
+      { igdbId: 11134, title: "Dark Souls III: The Fire Fades Edition", ratingCount: 120 }
+    ],
+    played
+  );
+  assert.deepEqual(deduped.map((g) => g.igdbId), [11133]);
+
+  // Low-acclaim flop penalty: Gollum (4.3/10) must NOT score high even with matching Adventure/Fantasy metadata
+  const mockContentIndex = {
+    count: 2,
+    dim: 2,
+    ids: new Uint32Array([1942, 777777]),
+    idToIndex: new Map([[1942, 0], [777777, 1]]),
+    vectors: new Float32Array([1, 0, 0.72, 0.69]) // high cosine similarity for flop 777777
+  };
+  const ranked = rankGameCandidates(
+    [
+      { igdbId: 777777, title: "The Lord of the Rings: Gollum", year: 2023, rating10: 4.3, ratingCount: 140, genres: ["Adventure"], themes: ["Fantasy"] },
+      { igdbId: 888888, title: "Acclaimed Fantasy RPG", year: 2023, rating10: 9.0, ratingCount: 400, genres: ["Role-playing (RPG)", "Adventure"], themes: ["Fantasy"] }
+    ],
+    played,
+    [],
+    { contentIndex: mockContentIndex }
+  );
+  const gollum = ranked.find((g) => g.igdbId === 777777);
+  const good = ranked.find((g) => g.igdbId === 888888);
+  assert.ok(gollum.matchScore <= 68, `Expected Gollum (4.3/10 flop) <= 68% match, got ${gollum.matchScore}%`);
+  assert.ok(good.matchScore > gollum.matchScore + 15, `Expected acclaimed RPG (${good.matchScore}%) well above flop (${gollum.matchScore}%)`);
+
+  // Predicted rating calibration
+  const est = predictGameRating(94, played);
+  assert.ok(est >= 8.5 && est <= 10.0, `Expected high Est. rating, got ${est}`);
+
+  // Backlog Play Next ranker
+  const backlogRanked = rankBacklogForNextPlay(
+    [
+      { igdbId: 888888, title: "Acclaimed Fantasy RPG", year: 2023, rating10: 9.0, ratingCount: 400, genres: ["Role-playing (RPG)"], themes: ["Fantasy"] },
+      { igdbId: 777777, title: "Gollum", year: 2023, rating10: 4.3, ratingCount: 140, genres: ["Adventure"] }
+    ],
+    played,
+    { contentIndex: mockContentIndex }
+  );
+  assert.equal(backlogRanked[0].igdbId, 888888);
+});
+
+test("gameVaultStorage computes vault stats, calibration anchors, and preserves game craft breakdown + tags", async () => {
+  const {
+    compactGameRecord,
+    computeGameVaultStats,
+    computeGameVaultCalibration
+  } = await import("../src/games/services/gameVaultStorage.js");
+
+  const rec = compactGameRecord({
+    igdbId: 119133,
+    title: "Elden Ring",
+    userRating: 10,
+    hoursPlayed: 140,
+    status: "platinum",
+    ratingBreakdown: { gameplay: 5, story: 4, visuals: 5, audio: 5, replayability: 5 },
+    quickTags: ["#PeakBossFights", "#Masterpiece"]
+  });
+  assert.equal(rec.status, "platinum");
+  assert.equal(rec.ratingBreakdown.gameplay, 5);
+  assert.deepEqual(rec.quickTags, ["#PeakBossFights", "#Masterpiece"]);
+
+  const played = [
+    rec,
+    compactGameRecord({ igdbId: 1942, title: "The Witcher 3", userRating: 10, hoursPlayed: 95, status: "completed", genres: ["RPG"], platformPlayed: "PC" }),
+    compactGameRecord({ igdbId: 14593, title: "Hollow Knight", userRating: 9, hoursPlayed: 45, status: "completed", genres: ["Metroidvania", "Indie"], platformPlayed: "PC" }),
+    compactGameRecord({ igdbId: 7334, title: "Bloodborne", userRating: 8, hoursPlayed: 60, status: "playing", genres: ["RPG"], platformPlayed: "PS4" })
+  ];
+
+  const stats = computeGameVaultStats(played, [{ igdbId: 11133, title: "Dark Souls III" }]);
+  assert.equal(stats.totalLogged, 4);
+  assert.equal(stats.totalHours, 340);
+  assert.equal(stats.platinumCount, 1);
+  assert.equal(stats.completedCount, 3); // completed + platinum
+  assert.equal(stats.histogram[10], 2);
+  assert.equal(stats.histogram[9], 1);
+
+  const cal = computeGameVaultCalibration(played, 10, 119133);
+  assert.equal(cal.ratedCount, 3);
+  assert.equal(cal.anchorMovies.length, 1);
+  assert.equal(cal.anchorMovies[0].title, "The Witcher 3");
+});

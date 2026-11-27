@@ -29,6 +29,83 @@ function clamp(v, lo, hi) {
 }
 
 /**
+ * Strips edition/remaster/GOTY suffixes so sibling editions (e.g. "Divinity: Original Sin II - Definitive Edition"
+ * vs "Divinity: Original Sin II") can be deduplicated cleanly against the user's vault and candidate pool.
+ */
+export function normalizeGameBaseTitle(title = "") {
+  let s = String(title || "").toLowerCase().trim();
+  if (!s) return "";
+  s = s.replace(/\s*[-:–—]\s*(definitive|anniversary|enhanced|complete|ultimate|collector'?s?|deluxe|director'?s?\s*cut|game of the year|goty|gold|royal|special|the fire fades|scholar of the first sin|remastered|hd|next[- ]?gen|expanded)\b.*$/i, "");
+  s = s.replace(/\s*\((definitive|anniversary|enhanced|complete|ultimate|goty|remastered|hd|20\d\d|19\d\d)[^)]*\)\s*$/i, "");
+  s = s.replace(/\b(definitive|anniversary|enhanced|complete|ultimate|goty|remastered|hd)\s+edition\b/gi, "");
+  s = s.replace(/\b(remastered|enhanced|definitive)\b$/gi, "");
+  s = s.replace(/[^a-z0-9]+/g, " ").trim();
+  return s;
+}
+
+/**
+ * Removes candidate games that duplicate an edition already in `played` (or duplicate another higher-rated
+ * edition already present in the candidate list).
+ */
+export function filterDuplicateGameEditions(candidates = [], played = []) {
+  const playedIds = new Set();
+  const playedTitles = new Set();
+  for (const g of Array.isArray(played) ? played : []) {
+    const id = Number(g?.igdbId ?? g?.id ?? 0);
+    if (id > 0) playedIds.add(id);
+    const norm = normalizeGameBaseTitle(g?.title || g?.name);
+    if (norm.length >= 4) playedTitles.add(norm);
+  }
+
+  // Prefer higher-rated/more-reviewed edition when two editions appear in the same candidate list
+  const bestByBase = new Map();
+  for (const c of Array.isArray(candidates) ? candidates : []) {
+    const id = Number(c?.igdbId ?? c?.id ?? 0);
+    if (id <= 0 || playedIds.has(id)) continue;
+    const norm = normalizeGameBaseTitle(c?.title || c?.name);
+    if (norm.length >= 4 && playedTitles.has(norm)) continue;
+    if (!norm) {
+      bestByBase.set(`id:${id}`, c);
+      continue;
+    }
+    const existing = bestByBase.get(norm);
+    if (!existing) {
+      bestByBase.set(norm, c);
+    } else {
+      const cScore = (Number(c?.ratingCount) || 0) + (Number(c?.matchScore) || 0) * 5;
+      const eScore = (Number(existing?.ratingCount) || 0) + (Number(existing?.matchScore) || 0) * 5;
+      if (cScore > eScore) bestByBase.set(norm, c);
+    }
+  }
+  return [...bestByBase.values()];
+}
+
+function computeGameDisplayMatchScore(logit) {
+  // Wider tau=1.85 spreads top games realistically across 62%-97% instead of saturating at 98%
+  const scaled = (Number(logit) - 0.35) / 1.85;
+  const prob = 1 / (1 + Math.exp(-scaled));
+  return Math.round(clamp(50 + prob * 48, 50, 98));
+}
+
+/**
+ * Predicts a personal 1-10 rating calibrated to the player's own rating distribution.
+ */
+export function predictGameRating(matchScore, played = []) {
+  const ms = Number(matchScore);
+  if (!Number.isFinite(ms)) return null;
+  const rated = (Array.isArray(played) ? played : [])
+    .map((g) => Number(g?.userRating ?? 0))
+    .filter((r) => Number.isFinite(r) && r >= 1 && r <= 10);
+  const mean = rated.length >= 3 ? rated.reduce((a, b) => a + b, 0) / rated.length : 8.0;
+  const std = rated.length >= 3
+    ? Math.max(0.65, Math.sqrt(rated.reduce((s, r) => s + (r - mean) ** 2, 0) / rated.length))
+    : 1.05;
+  const norm = clamp((ms - 74) / 22, -1.6, 1.4);
+  const est = clamp(mean + norm * std * 0.95, 4.5, 9.9);
+  return Math.round(est * 10) / 10;
+}
+
+/**
  * Converts a player's logged games (1-10 rating + hoursPlayed + status) into weighted preference entries
  * compatible with CinemaVault's EASE^R, Spectral-EASE, and 128-D Content engines.
  */
@@ -269,60 +346,65 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
     const themeOverlap = themes.length > 0 ? matchedThemes.length / Math.min(3, themes.length) : 0;
     const devMatch = matchedDev ? 1 : 0;
 
-    // Bayesian acclaim in [0, 1]
+    // Bayesian acclaim in [0, 1] + strict low-acclaim flop penalty (so 4.3/10 disasters never score 97%!)
     const r10 = Number(game?.rating10 ?? 0);
     const votes = Math.max(0, Number(game?.ratingCount ?? 0));
     const bayes = r10 > 0 ? (votes * r10 + 40 * 7.2) / (votes + 40) : 7.2;
     const acclaimNorm = clamp((bayes - 5.5) / 4.0, 0, 1);
+    const voteConf = votes > 0 ? clamp(votes / 25, 0.35, 1.0) : 0;
+    const flopPenalty = r10 > 0 && r10 < 6.5 ? (6.5 - r10) * 2.65 * voteConf : 0;
 
     // Calibrated logit combining warm collaborative + cold-start BGE-large alignment
     let logit;
     if (hasCollab && collabNorm > 0.02) {
       logit =
-        -1.05 +
-        3.8 * collabNorm +
-        1.1 * Math.max(0, contentNorm) +
-        0.55 * genreOverlap +
-        0.4 * themeOverlap +
-        0.65 * devMatch +
-        1.0 * acclaimNorm -
-        1.45 * repulsion;
+        -0.95 +
+        3.25 * collabNorm +
+        0.95 * Math.max(0, contentNorm) +
+        0.48 * genreOverlap +
+        0.35 * themeOverlap +
+        0.55 * devMatch +
+        0.95 * acclaimNorm -
+        1.45 * repulsion -
+        flopPenalty;
     } else {
       // Cold-start (console exclusives & 2024-2026 releases): calibrate 0.72 cosine -> 1.0 parity with catalog-max collab
       const coldContentCal = clamp(Math.max(0, contentNorm) / 0.72, 0, 1);
       logit =
-        -1.05 +
-        4.45 * coldContentCal +
-        0.75 * genreOverlap +
-        0.55 * themeOverlap +
-        0.75 * devMatch +
+        -0.95 +
+        3.85 * coldContentCal +
+        0.65 * genreOverlap +
+        0.45 * themeOverlap +
+        0.65 * devMatch +
         1.05 * acclaimNorm -
-        1.2 * repulsion;
+        1.2 * repulsion -
+        flopPenalty;
     }
 
-    const matchScore = computeDisplayMatchScore(logit);
+    const matchScore = computeGameDisplayMatchScore(logit);
+    const estRating = predictGameRating(matchScore, played);
     const matchReasons = [];
     if (hasCollab && collabNorm >= 0.45) {
       matchReasons.push("Strong Taste Match");
     } else if (!hasCollab && contentNorm >= 0.42) {
       if ((game?.year || 0) >= 2024) {
-        matchReasons.push("2024–2026 Cold-Start Match");
+        matchReasons.push("2024–2026 Cold-Start");
       } else if (game?.isExclusive) {
-        matchReasons.push("Console Exclusive Match");
+        matchReasons.push("Console Exclusive");
       } else {
-        matchReasons.push("Semantic Taste Match");
+        matchReasons.push("Semantic Match");
       }
     }
     if (matchedDev) {
       matchReasons.push(`Studio: ${matchedDev}`);
     }
-    if (matchedGenres.length > 0 && matchReasons.length < 3) {
-      matchReasons.push(matchedGenres.slice(0, 2).join(" · "));
-    } else if (matchedThemes.length > 0 && matchReasons.length < 3) {
-      matchReasons.push(matchedThemes.slice(0, 2).join(" · "));
-    }
-    if (r10 >= 8.5 && votes >= 150 && matchReasons.length < 3) {
+    if (r10 >= 8.6 && votes >= 150 && matchReasons.length < 2) {
       matchReasons.push("Critically Acclaimed");
+    }
+    if (matchedGenres.length > 0 && matchReasons.length < 2) {
+      matchReasons.push(matchedGenres[0]);
+    } else if (matchedThemes.length > 0 && matchReasons.length < 2) {
+      matchReasons.push(matchedThemes[0]);
     }
     if (matchReasons.length === 0) {
       matchReasons.push(hasCollab ? "Collaborative Pick" : "Catalog Discovery");
@@ -331,6 +413,7 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
     return {
       ...game,
       matchScore,
+      estRating,
       rankerLogit: Number(logit.toFixed(4)),
       collabSim: Number(collabNorm.toFixed(4)),
       contentSim: Number(contentNorm.toFixed(4)),
@@ -418,7 +501,7 @@ export function applyGameTuner(items = [], tunerState = DEFAULT_GAME_TUNER_STATE
     const nextLogit = baseLogit + delta;
     return {
       ...item,
-      matchScore: computeDisplayMatchScore(nextLogit),
+      matchScore: computeGameDisplayMatchScore(nextLogit),
       tunerDelta: Number(delta.toFixed(3)),
       _sortKey: nextLogit,
       _origIdx: origIdx
@@ -497,4 +580,15 @@ export function findSimilarGameIds(igdbId, models = {}, { limit = 12, fallbackId
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
     .map(([tid]) => tid);
+}
+
+/**
+ * Ranks the player's own Backlog queue locally ($0.00 API cost) so they always know what to install next.
+ */
+export function rankBacklogForNextPlay(backlog = [], played = [], models = {}) {
+  if (!Array.isArray(backlog) || backlog.length === 0) return [];
+  if (!Array.isArray(played) || played.length === 0) {
+    return [...backlog].sort((a, b) => (Number(b.rating10) || 0) - (Number(a.rating10) || 0));
+  }
+  return rankGameCandidates(backlog, played, [], models);
 }

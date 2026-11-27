@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { SlidersHorizontal, RotateCcw, Sparkles } from "lucide-react";
+import { motion } from "framer-motion";
+import { Dices, RotateCcw, Search, Shuffle, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
 import {
   GAME_GENRES,
@@ -11,36 +12,63 @@ import {
   DEFAULT_GAME_TUNER_STATE,
   applyGameTuner,
   buildGameRecommendationIds,
+  filterDuplicateGameEditions,
   rankGameCandidates
 } from "../services/gameRankerService";
+import { Select } from "../../components/ui/Select";
+import ScrollRevealSection from "../../components/ScrollRevealSection";
 import GameCard from "../components/GameCard";
+import { springSnappy } from "../../motion";
+
+const TUNER_PRESETS = [
+  { id: "dark-challenge", label: "Dark Challenge", state: { pacing: 0.8, tone: -0.8, era: 0, familiarity: 0, antiBubble: false } },
+  { id: "cozy", label: "Cozy Night", state: { pacing: -0.8, tone: 0.8, era: 0, familiarity: 0.2, antiBubble: false } },
+  { id: "hidden", label: "Hidden Gems", state: { pacing: 0, tone: 0, era: 0, familiarity: 0.9, antiBubble: true } },
+  { id: "fresh", label: "2024–2026 Fresh", state: { pacing: 0, tone: 0, era: 1.0, familiarity: 0, antiBubble: false } }
+];
+
+const GENRE_OPTIONS = [
+  { value: "", label: "All Genres" },
+  ...GAME_GENRES.map((g) => ({ value: String(g.id), label: g.name }))
+];
+
+const SORT_OPTIONS = [
+  { value: "rating", label: "Highest Rated" },
+  { value: "recent", label: "Newest Releases" },
+  { value: "hypes", label: "Most Hyped" }
+];
 
 export default function GamesExplorePage() {
-  const { played, backlog, models, modelsLoading } = useGameVault();
+  const { played, backlog, dismissedIds, models, modelsLoading, openRoulette } = useGameVault();
   const [mode, setMode] = useState(() => (played.length > 0 ? "for-you" : "catalog"));
   const [platformFamily, setPlatformFamily] = useState("all");
   const [genreId, setGenreId] = useState("");
   const [sort, setSort] = useState("rating");
+  const [page, setPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [shuffleSeed, setShuffleSeed] = useState(0);
   const [tuner, setTuner] = useState(DEFAULT_GAME_TUNER_STATE);
   const [forYouPool, setForYouPool] = useState([]);
   const [catalogItems, setCatalogItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     document.title = "Explore Games | GameVault";
   }, []);
 
-  // Load For-You ML pool (60 games: warm + cold-start)
+  // Load For-You ML pool (deduplicated against played editions & dismissed games)
   useEffect(() => {
-    if (mode !== "for-you") return;
-    if (modelsLoading || played.length === 0) return;
+    if (mode !== "for-you") return undefined;
+    if (modelsLoading || played.length === 0) return undefined;
     let active = true;
     setLoading(true);
-    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, { warmLimit: 42, coldLimit: 18 });
+    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, { warmLimit: 54, coldLimit: 22 });
     fetchGamesBatch(allIds)
       .then((hydrated) => {
         if (!active) return;
-        const ranked = rankGameCandidates(hydrated, played, backlog, models, maps);
+        const deduped = filterDuplicateGameEditions(hydrated, played).filter((g) => !dismissedIds.has(g.igdbId));
+        const ranked = rankGameCandidates(deduped, played, backlog, models, maps);
         setForYouPool(ranked);
       })
       .finally(() => {
@@ -49,18 +77,26 @@ export default function GamesExplorePage() {
     return () => {
       active = false;
     };
-  }, [mode, played, backlog, models, modelsLoading]);
+  }, [mode, played, backlog, dismissedIds, models, modelsLoading]);
+
+  // Reset page when catalog filters change
+  useEffect(() => {
+    setPage(1);
+  }, [platformFamily, genreId, sort, mode]);
 
   // Load IGDB Catalog when in catalog mode
   useEffect(() => {
-    if (mode !== "catalog") return;
+    if (mode !== "catalog") return undefined;
     let active = true;
-    setLoading(true);
+    if (page === 1) setLoading(true);
+    else setLoadingMore(true);
+
     discoverGames({
       preset: "catalog",
       platformFamily,
       genreId: genreId ? Number(genreId) : null,
       sort,
+      page,
       limit: 36
     })
       .then((items) => {
@@ -68,43 +104,62 @@ export default function GamesExplorePage() {
         const enriched = played.length > 0 && (models.easeIndex || models.contentIndex)
           ? rankGameCandidates(items, played, backlog, models)
           : items;
-        setCatalogItems(enriched);
+        setCatalogItems((prev) => {
+          if (page === 1) return enriched;
+          const seen = new Set(prev.map((x) => x.igdbId));
+          return [...prev, ...enriched.filter((x) => !seen.has(x.igdbId))];
+        });
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       });
     return () => {
       active = false;
     };
-  }, [mode, platformFamily, genreId, sort, played, backlog, models]);
+  }, [mode, platformFamily, genreId, sort, page, played, backlog, models]);
 
   const displayedItems = useMemo(() => {
     const base = mode === "for-you" ? forYouPool : catalogItems;
+    const cleanQ = searchTerm.trim().toLowerCase();
     const filtered = base.filter((g) => {
       if (mode === "for-you") {
         if (platformFamily !== "all" && !(g.platformFamilies || []).includes(platformFamily)) return false;
         if (genreId && !(g.genreIds || []).includes(Number(genreId))) return false;
       }
+      if (cleanQ) {
+        const hay = `${g.title || ""} ${(g.genres || []).join(" ")} ${(g.developers || []).join(" ")}`.toLowerCase();
+        if (!hay.includes(cleanQ)) return false;
+      }
       return true;
     });
-    return applyGameTuner(filtered, tuner, {
+    const tuned = applyGameTuner(filtered, tuner, {
       contentIndex: models.contentIndex,
       tunerAxes: models.tunerAxes,
       played
     });
-  }, [mode, forYouPool, catalogItems, platformFamily, genreId, tuner, models, played]);
+    if (shuffleSeed === 0) return tuned;
+    // Deterministic quality-weighted shuffle preserving strong picks near the top
+    return [...tuned].sort((a, b) => {
+      const ha = Math.sin((a.igdbId + shuffleSeed * 97) * 12.9898) * 43758.5453;
+      const hb = Math.sin((b.igdbId + shuffleSeed * 97) * 12.9898) * 43758.5453;
+      return (ha - Math.floor(ha)) - (hb - Math.floor(hb));
+    });
+  }, [mode, forYouPool, catalogItems, platformFamily, genreId, searchTerm, tuner, models, played, shuffleSeed]);
 
   const tunerIsNeutral =
     tuner.era === 0 && tuner.familiarity === 0 && tuner.pacing === 0 && tuner.tone === 0 && !tuner.antiBubble;
 
   return (
     <div className="gv-page page-rail">
-      <div className="gv-section-header">
+      <ScrollRevealSection className="gv-section-header">
         <div>
           <span className="gv-kicker">
             <SlidersHorizontal size={13} /> Game Explore Workbench
           </span>
-          <h1 className="gv-hero-title" style={{ fontSize: "clamp(2.4rem, 3.4vw, 3.4rem)" }}>
+          <h1 className="gv-hero-title" style={{ fontSize: "clamp(2.4rem, 3.4vw, 3.6rem)" }}>
             {mode === "for-you" ? "Games Matched To Your Taste" : "Explore IGDB Catalog"}
           </h1>
           <p className="gv-section-sub">
@@ -112,27 +167,42 @@ export default function GamesExplorePage() {
           </p>
         </div>
 
-        <div className="gv-chip-group">
-          <button
-            type="button"
-            className={`gv-chip ${mode === "for-you" ? "is-active" : ""}`}
-            onClick={() => setMode("for-you")}
-          >
-            <Sparkles size={13} style={{ display: "inline", marginRight: "0.4rem" }} />
-            For You ({played.length > 0 ? forYouPool.length || "ML" : "Rate 1+"})
-          </button>
-          <button
-            type="button"
-            className={`gv-chip ${mode === "catalog" ? "is-active" : ""}`}
-            onClick={() => setMode("catalog")}
-          >
-            IGDB Catalog
-          </button>
+        {/* Spring Sliding Segmented Toggle */}
+        <div className="gv-segmented-bar" role="tablist" aria-label="Explore mode">
+          {[
+            { id: "for-you", label: `For You (${played.length > 0 ? forYouPool.length || "ML" : "Rate 1+"})`, icon: Sparkles },
+            { id: "catalog", label: "IGDB Catalog", icon: null }
+          ].map((tab) => {
+            const active = mode === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`gv-segmented-btn ${active ? "is-active" : ""}`}
+                onClick={() => setMode(tab.id)}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="gv-explore-mode-pill"
+                    className="gv-segmented-bg"
+                    transition={springSnappy}
+                  />
+                )}
+                <span className="gv-segmented-label">
+                  {Icon && <Icon size={13} aria-hidden="true" />}
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      </div>
+      </ScrollRevealSection>
 
-      {/* Platform + Genre + Sort Filter Bar */}
-      <div className="gv-filter-bar">
+      {/* Platform + Portaled Editorial Select + Instant Search + Shuffle Toolbar */}
+      <ScrollRevealSection className="gv-filter-bar" delay={0.04}>
         <div className="gv-chip-group">
           {GAME_PLATFORM_FAMILIES.map((pf) => (
             <button
@@ -146,58 +216,96 @@ export default function GamesExplorePage() {
           ))}
         </div>
 
-        <select
-          aria-label="Filter by genre"
-          value={genreId}
-          onChange={(e) => setGenreId(e.target.value)}
-          className="gv-input"
-          style={{ width: "auto", minWidth: "16rem" }}
-        >
-          <option value="">All Genres</option>
-          {GAME_GENRES.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-3 ml-auto">
+          <div className="gv-inline-search">
+            <Search size={14} className="text-text-3 shrink-0" aria-hidden="true" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Filter titles or studios..."
+              aria-label="Filter displayed games"
+            />
+          </div>
 
-        {mode === "catalog" && (
-          <select
-            aria-label="Sort catalog"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-            className="gv-input"
-            style={{ width: "auto", minWidth: "15rem" }}
+          <Select
+            value={genreId}
+            onChange={setGenreId}
+            options={GENRE_OPTIONS}
+            ariaLabel="Filter by genre"
+            size="sm"
+          />
+
+          {mode === "catalog" && (
+            <Select
+              value={sort}
+              onChange={setSort}
+              options={SORT_OPTIONS}
+              ariaLabel="Sort catalog"
+              size="sm"
+            />
+          )}
+
+          <button
+            type="button"
+            className="gv-btn gv-btn-sm"
+            onClick={() => setShuffleSeed((s) => s + 1)}
+            title="Shuffle current games"
           >
-            <option value="rating">Highest Rated</option>
-            <option value="recent">Newest Releases</option>
-            <option value="hypes">Most Hyped</option>
-          </select>
-        )}
-      </div>
+            <Shuffle size={13} /> Shuffle
+          </button>
 
-      {/* Live <1ms Taste Tuner Panel */}
-      <section className="gv-panel">
+          {displayedItems.length > 0 && (
+            <button
+              type="button"
+              className="gv-btn gv-btn-sm"
+              onClick={() => openRoulette(displayedItems.slice(0, 20))}
+              title="Pick a random game from these matches"
+            >
+              <Dices size={13} /> Roulette
+            </button>
+          )}
+        </div>
+      </ScrollRevealSection>
+
+      {/* Live <1ms Neural Taste Tuner Panel */}
+      <ScrollRevealSection className="gv-panel" delay={0.07}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-[1.6rem] font-semibold text-text-1">Live Neural Taste Tuner</h2>
             <p className="text-[1.2rem] text-text-3">
-              Adjust dials to steer picks in &lt;1 ms using your 128-D Intensity (AUC 0.968) &amp; Tone (AUC 0.996) vectors.
+              Adjust dials or tap a quick preset to steer picks in &lt;1 ms using 128-D Intensity (AUC 0.968) &amp; Tone (AUC 0.996).
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {TUNER_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="gv-hour-pill"
+                onClick={() => {
+                  setShuffleSeed(0);
+                  setTuner(p.state);
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
             <button
               type="button"
-              className={`gv-chip ${tuner.antiBubble ? "is-active" : ""}`}
+              className={`gv-chip gv-chip-sm ${tuner.antiBubble ? "is-active" : ""}`}
               onClick={() => setTuner((prev) => ({ ...prev, antiBubble: !prev.antiBubble }))}
             >
               Break My Bubble
             </button>
-            {!tunerIsNeutral && (
+            {(!tunerIsNeutral || shuffleSeed > 0) && (
               <button
                 type="button"
                 className="gv-btn gv-btn-sm"
-                onClick={() => setTuner(DEFAULT_GAME_TUNER_STATE)}
+                onClick={() => {
+                  setShuffleSeed(0);
+                  setTuner(DEFAULT_GAME_TUNER_STATE);
+                }}
               >
                 <RotateCcw size={13} /> Reset
               </button>
@@ -217,7 +325,10 @@ export default function GamesExplorePage() {
               max="1"
               step="0.2"
               value={tuner.pacing}
-              onChange={(e) => setTuner((p) => ({ ...p, pacing: Number(e.target.value) }))}
+              onChange={(e) => {
+                setShuffleSeed(0);
+                setTuner((p) => ({ ...p, pacing: Number(e.target.value) }));
+              }}
               className="gv-range"
             />
             <div className="gv-slider-labels">
@@ -237,7 +348,10 @@ export default function GamesExplorePage() {
               max="1"
               step="0.2"
               value={tuner.tone}
-              onChange={(e) => setTuner((p) => ({ ...p, tone: Number(e.target.value) }))}
+              onChange={(e) => {
+                setShuffleSeed(0);
+                setTuner((p) => ({ ...p, tone: Number(e.target.value) }));
+              }}
               className="gv-range"
             />
             <div className="gv-slider-labels">
@@ -257,7 +371,10 @@ export default function GamesExplorePage() {
               max="1"
               step="0.2"
               value={tuner.era}
-              onChange={(e) => setTuner((p) => ({ ...p, era: Number(e.target.value) }))}
+              onChange={(e) => {
+                setShuffleSeed(0);
+                setTuner((p) => ({ ...p, era: Number(e.target.value) }));
+              }}
               className="gv-range"
             />
             <div className="gv-slider-labels">
@@ -277,7 +394,10 @@ export default function GamesExplorePage() {
               max="1"
               step="0.2"
               value={tuner.familiarity}
-              onChange={(e) => setTuner((p) => ({ ...p, familiarity: Number(e.target.value) }))}
+              onChange={(e) => {
+                setShuffleSeed(0);
+                setTuner((p) => ({ ...p, familiarity: Number(e.target.value) }));
+              }}
               className="gv-range"
             />
             <div className="gv-slider-labels">
@@ -286,9 +406,9 @@ export default function GamesExplorePage() {
             </div>
           </div>
         </div>
-      </section>
+      </ScrollRevealSection>
 
-      {/* Results Grid */}
+      {/* Results Grid with Smooth Layout Re-Ordering */}
       {mode === "for-you" && played.length === 0 ? (
         <div className="gv-panel text-center py-12">
           <h3 className="text-[1.8rem] font-semibold text-text-1 mb-2">Rate at least 1 game to unlock For You</h3>
@@ -307,14 +427,29 @@ export default function GamesExplorePage() {
         </div>
       ) : displayedItems.length === 0 ? (
         <div className="gv-panel text-center py-10">
-          <p className="text-[1.45rem] text-text-2">No games matched those exact filters. Try clearing Genre or Platform.</p>
+          <p className="text-[1.45rem] text-text-2">No games matched those exact filters. Try clearing Genre, Platform, or search.</p>
         </div>
       ) : (
-        <div className="gv-grid">
-          {displayedItems.map((game) => (
-            <GameCard key={game.igdbId} game={game} showMatch={played.length > 0} />
-          ))}
-        </div>
+        <>
+          <div className="gv-grid">
+            {displayedItems.map((game, idx) => (
+              <GameCard key={game.igdbId} game={game} showMatch={played.length > 0} index={idx} enableLayout />
+            ))}
+          </div>
+
+          {mode === "catalog" && (
+            <div className="flex justify-center mt-10">
+              <button
+                type="button"
+                disabled={loadingMore}
+                className="gv-btn"
+                onClick={() => setPage((p) => p + 1)}
+              >
+                {loadingMore ? "Loading more games..." : "Load More Games"}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

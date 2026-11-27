@@ -99,7 +99,8 @@ const StarRatingStage = memo(function StarRatingStage({
   onSelectAnchor = null,
   compact = false,
   titleLabel = "Rating Studio",
-  ariaLabel = "Rate this film from 1 to 10"
+  ariaLabel = "Rate this film from 1 to 10",
+  mediaNoun = "film"
 }) {
   const liteMotion = useLiteMotion();
   const [justPickedScore, setJustPickedScore] = useState(0);
@@ -120,7 +121,22 @@ const StarRatingStage = memo(function StarRatingStage({
 
   const metrics = computeStarStageMetrics(value, hoverValue);
   const { activeScore, fillPercent, isHovering, stars } = metrics;
-  const activeTier = getRatingTier(activeScore);
+  const activeTierRaw = getRatingTier(activeScore);
+  const activeTier =
+    mediaNoun === "game"
+      ? {
+          ...activeTierRaw,
+          label: activeTierRaw.label
+            .replace(/Anchor Film/i, "Anchor Game")
+            .replace(/Cinema/i, "Game")
+            .replace(/Film/i, "Game")
+            .replace(/Watch/i, "Play"),
+          desc: activeTierRaw.desc
+            .replace(/Cinematic zenith/i, "All-time gaming zenith")
+            .replace(/Essential viewing/i, "Essential playthrough")
+            .replace(/Watchable/i, "Playable")
+        }
+      : activeTierRaw;
   const palette = getEditorialScorePalette(activeScore);
 
   const prevScoreRef = useRef(activeScore);
@@ -494,8 +510,8 @@ const StarRatingStage = memo(function StarRatingStage({
           ) : (
             <div className="star-stage-anchors-placeholder">
               {activeScore > 0
-                ? `Your first film at ${activeScore}/10 in this Vault`
-                : `Scrub 1–10 to benchmark against your ${calibration.ratedCount} rated films`}
+                ? `Your first ${mediaNoun} at ${activeScore}/10 in this Vault`
+                : `Scrub 1–10 to benchmark against your ${calibration.ratedCount} rated ${mediaNoun}s`}
             </div>
           )}
         </div>

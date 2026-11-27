@@ -10,9 +10,31 @@ export const GAME_BACKLOG_STORAGE_KEY = "gamevault_backlog_v1";
 
 export const GAME_STATUS_OPTIONS = Object.freeze([
   { id: "completed", label: "Completed" },
+  { id: "platinum", label: "100% Platinum" },
   { id: "playing", label: "Playing" },
-  { id: "dropped", label: "Dropped" },
-  { id: "played", label: "Played" }
+  { id: "played", label: "Played" },
+  { id: "dropped", label: "Dropped" }
+]);
+
+export const GAME_CRAFT_ASPECTS = Object.freeze([
+  { id: "gameplay", label: "Gameplay & Combat" },
+  { id: "story", label: "Story & World" },
+  { id: "visuals", label: "Visuals & Art" },
+  { id: "audio", label: "Sound & OST" },
+  { id: "replayability", label: "Replayability" }
+]);
+
+export const GAME_QUICK_TAGS = Object.freeze([
+  "#Masterpiece",
+  "#PeakBossFights",
+  "#AddictiveLoop",
+  "#DeepStory",
+  "#UnforgettableOST",
+  "#CozyVibes",
+  "#Atmospheric",
+  "#GreatCoop",
+  "#TooGrindy",
+  "#Janky"
 ]);
 
 function openGameDb() {
@@ -84,11 +106,29 @@ function writeLocalFallback(key, list) {
   }
 }
 
+function sanitizeCraftBreakdown(raw = null) {
+  if (!raw || typeof raw !== "object") return null;
+  const out = {};
+  let count = 0;
+  for (const a of GAME_CRAFT_ASPECTS) {
+    const v = Number(raw[a.id]);
+    if (Number.isFinite(v) && v >= 1 && v <= 5) {
+      out[a.id] = Math.round(v);
+      count++;
+    }
+  }
+  return count > 0 ? out : null;
+}
+
 export function compactGameRecord(game = {}) {
   const igdbId = Number(game?.igdbId ?? game?.id ?? 0);
   if (!Number.isInteger(igdbId) || igdbId <= 0) return null;
   const rating = Number(game?.userRating ?? 0);
   const hours = Number(game?.hoursPlayed ?? 0);
+  const breakdown = sanitizeCraftBreakdown(game?.ratingBreakdown);
+  const quickTags = Array.isArray(game?.quickTags)
+    ? [...new Set(game.quickTags.map((t) => String(t || "").trim()).filter(Boolean))].slice(0, 8)
+    : [];
   return {
     igdbId,
     title: String(game?.title || game?.name || "Untitled Game").trim(),
@@ -97,7 +137,9 @@ export function compactGameRecord(game = {}) {
     backdropUrl: String(game?.backdropUrl || "").trim(),
     rating10: Number.isFinite(Number(game?.rating10)) ? Number(game.rating10) : null,
     ratingCount: Number(game?.ratingCount ?? 0) || 0,
-    genres: Array.isArray(game?.genres) ? game.genres.slice(0, 6) : [],
+    genres: Array.isArray(game?.genres) && game.genres.length > 0
+      ? game.genres.slice(0, 6)
+      : (game?.primaryGenre ? [String(game.primaryGenre).trim()] : []),
     themes: Array.isArray(game?.themes) ? game.themes.slice(0, 6) : [],
     platforms: Array.isArray(game?.platforms) ? game.platforms.slice(0, 6) : [],
     platformFamilies: Array.isArray(game?.platformFamilies) ? game.platformFamilies : [],
@@ -107,8 +149,129 @@ export function compactGameRecord(game = {}) {
     status: String(game?.status || "completed").toLowerCase(),
     platformPlayed: String(game?.platformPlayed || "").trim(),
     userNote: String(game?.userNote || "").trim().slice(0, 1200),
+    ...(breakdown ? { ratingBreakdown: breakdown } : {}),
+    ...(quickTags.length > 0 ? { quickTags } : {}),
     datePlayed: game?.datePlayed || new Date().toISOString().slice(0, 10),
     updatedAt: game?.updatedAt || new Date().toISOString()
+  };
+}
+
+/**
+ * Computes rich GameVault analytics for the Editorial Gaming DNA Banner (1-10 histogram, top genres,
+ * platforms, playtime, completion & platinum rates).
+ */
+export function computeGameVaultStats(played = [], backlog = []) {
+  const list = Array.isArray(played) ? played : [];
+  const histogram = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
+  const genreCounts = new Map();
+  const platformCounts = new Map();
+  let ratingSum = 0;
+  let ratedCount = 0;
+  let totalHours = 0;
+  let completedCount = 0;
+  let platinumCount = 0;
+  let playingCount = 0;
+
+  for (const g of list) {
+    const r = Number(g?.userRating ?? 0);
+    if (Number.isFinite(r) && r >= 1 && r <= 10) {
+      const bucket = Math.round(r);
+      histogram[bucket] = (histogram[bucket] || 0) + 1;
+      ratingSum += r;
+      ratedCount++;
+    }
+    totalHours += Math.max(0, Number(g?.hoursPlayed ?? 0) || 0);
+    const st = String(g?.status || "completed").toLowerCase();
+    if (st === "platinum") {
+      platinumCount++;
+      completedCount++;
+    } else if (st === "completed") {
+      completedCount++;
+    } else if (st === "playing") {
+      playingCount++;
+    }
+    for (const genre of g?.genres || []) {
+      const k = String(genre).trim();
+      if (k) genreCounts.set(k, (genreCounts.get(k) || 0) + 1);
+    }
+    const plat = String(g?.platformPlayed || g?.platforms?.[0] || "").trim();
+    if (plat) platformCounts.set(plat, (platformCounts.get(plat) || 0) + 1);
+  }
+
+  const maxHistCount = Math.max(1, ...Object.values(histogram));
+  const topGenres = [...genreCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count, pct: list.length > 0 ? Math.round((count / list.length) * 100) : 0 }));
+  const topPlatforms = [...platformCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([name, count]) => ({ name, count }));
+
+  return {
+    totalLogged: list.length,
+    backlogCount: Array.isArray(backlog) ? backlog.length : 0,
+    ratedCount,
+    avgRating: ratedCount > 0 ? Math.round((ratingSum / ratedCount) * 10) / 10 : null,
+    totalHours: Math.round(totalHours * 10) / 10,
+    completedCount,
+    platinumCount,
+    playingCount,
+    completionRate: list.length > 0 ? Math.round((completedCount / list.length) * 100) : 0,
+    histogram,
+    maxHistCount,
+    topGenres,
+    topPlatforms
+  };
+}
+
+/**
+ * Computes live percentile & same-tier anchor games for StarRatingStage calibration strip.
+ */
+export function computeGameVaultCalibration(played = [], targetScore = 0, excludeIgdbId = null) {
+  const exclude = Number(excludeIgdbId);
+  const rated = (Array.isArray(played) ? played : []).filter((g) => {
+    const r = Number(g?.userRating ?? 0);
+    return Number.isFinite(r) && r >= 1 && r <= 10 && Number(g?.igdbId) !== exclude;
+  });
+  const ratedCount = rated.length;
+  const score = Number(targetScore);
+
+  if (ratedCount === 0) {
+    return { ratedCount: 0, topPercentile: null, summaryText: "", anchorMovies: [] };
+  }
+  if (!Number.isFinite(score) || score < 1) {
+    return {
+      ratedCount,
+      topPercentile: null,
+      summaryText: `Scrub 1–10 to benchmark against your ${ratedCount} rated games`,
+      anchorMovies: []
+    };
+  }
+
+  const strictlyHigher = rated.filter((g) => Number(g.userRating) > score).length;
+  const topPercentile = Math.max(1, Math.min(99, Math.round(((strictlyHigher + 1) / (ratedCount + 1)) * 100)));
+
+  const sameTier = rated
+    .filter((g) => Math.round(Number(g.userRating)) === Math.round(score))
+    .slice(0, 2);
+  const anchors = (sameTier.length > 0
+    ? sameTier
+    : [...rated]
+        .sort((a, b) => Math.abs(Number(a.userRating) - score) - Math.abs(Number(b.userRating) - score))
+        .slice(0, 2)
+  ).map((g) => ({
+    imdbID: String(g.igdbId),
+    igdbId: g.igdbId,
+    title: g.title,
+    userRating: g.userRating
+  }));
+
+  return {
+    ratedCount,
+    topPercentile,
+    summaryText: `Ranks in the top ${topPercentile}% of your ${ratedCount} rated games`,
+    anchorMovies: anchors
   };
 }
 
