@@ -22,6 +22,7 @@ import {
   rankBacklogForNextPlay,
   rankGameCandidates
 } from "../services/gameRankerService";
+import { getDefaultPlatformFocus, isGameCompatibleWithRig } from "../services/gameRigService";
 import {
   GAME_ORACLE_MOODS,
   askGameCompanionChat,
@@ -55,6 +56,7 @@ export default function GamesOraclePage() {
     dismissGame,
     models,
     modelsLoading,
+    rigProfile,
     setRateTarget,
     toggleBacklogGame
   } = useGameVault();
@@ -65,7 +67,7 @@ export default function GamesOraclePage() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedMood, setSelectedMood] = useState("any");
   const [customVibe, setCustomVibe] = useState("");
-  const [platformFamily, setPlatformFamily] = useState("all");
+  const [platformFamily, setPlatformFamily] = useState(() => getDefaultPlatformFocus(rigProfile));
   const [picks, setPicks] = useState([]);
   const [shownIds, setShownIds] = useState(() => new Set());
   const [source, setSource] = useState("");
@@ -125,7 +127,11 @@ export default function GamesOraclePage() {
         excludeBacklog: false
       });
       const hydrated = await fetchGamesBatch(allIds);
-      const deduped = filterDuplicateGameEditions(hydrated, played);
+      let deduped = filterDuplicateGameEditions(hydrated, played);
+      if (rigProfile?.completed && rigProfile?.respectRigLimits) {
+        const rigFiltered = deduped.filter((g) => isGameCompatibleWithRig(g, rigProfile).compatible);
+        if (rigFiltered.length >= 12) deduped = rigFiltered;
+      }
       const excludeList = [...dismissedIds, ...(refresh ? [...shownIds] : [])];
       const ranked = rankGameCandidates(deduped, played, backlog, models, maps);
       const moodObj = GAME_ORACLE_MOODS.find((m) => m.id === selectedMood);

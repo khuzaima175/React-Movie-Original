@@ -174,27 +174,29 @@ export function buildIgdbQuery(payload = {}) {
     const ts2024 = Math.floor(Date.UTC(2024, 0, 1) / 1000);
     let sortClause = "sort total_rating_count desc;";
 
-    if (preset === "top_rated") {
-      where.push("total_rating >= 82", "total_rating_count >= 120");
+    if (preset === "popular") {
+      where.push("total_rating_count >= 250", "total_rating >= 70");
+      sortClause = "sort total_rating_count desc;";
+    } else if (preset === "top_rated") {
+      where.push("total_rating >= 82", "total_rating_count >= 220");
       sortClause = "sort total_rating desc;";
     } else if (preset === "recent_hits") {
-      where.push(`first_release_date >= ${ts2024}`, `first_release_date <= ${nowSec + 86400 * 30}`, "total_rating_count >= 12");
+      where.push(`first_release_date >= ${ts2024}`, `first_release_date <= ${nowSec + 86400 * 30}`, "total_rating_count >= 35", "total_rating >= 68");
       sortClause = "sort total_rating_count desc;";
     } else if (preset === "exclusives") {
-      where.push("platforms = (167,48,130,508,9,41,5)", "platforms != (6)", "total_rating_count >= 40");
+      where.push("platforms = (167,48,130,508,9,41,5)", "platforms != (6)", "total_rating_count >= 80");
       sortClause = "sort total_rating_count desc;";
     } else if (preset === "indie_gems") {
-      where.push("genres = (32)", "total_rating >= 80", "total_rating_count >= 25");
+      where.push("genres = (32)", "total_rating >= 80", "total_rating_count >= 60");
       sortClause = "sort total_rating_count desc;";
     } else if (preset === "upcoming") {
-      where.push(`first_release_date >= ${nowSec}`, "hypes >= 15");
+      where.push(`first_release_date >= ${nowSec}`, "hypes >= 25");
       sortClause = "sort hypes desc;";
-    } else {
-      where.push("total_rating_count >= 10");
     }
 
     const genreId = Number(payload.genreId);
-    if (Number.isInteger(genreId) && genreId > 0) {
+    const hasGenre = Number.isInteger(genreId) && genreId > 0;
+    if (hasGenre) {
       where.push(`genres = (${genreId})`);
     }
 
@@ -215,13 +217,17 @@ export function buildIgdbQuery(payload = {}) {
 
     const sortPref = String(payload.sort || "").trim().toLowerCase();
     if (sortPref === "rating") {
-      where.push("total_rating != null");
+      where.push("total_rating >= 72", `total_rating_count >= ${hasGenre ? 90 : 180}`);
       sortClause = "sort total_rating desc;";
     } else if (sortPref === "recent") {
-      where.push(`first_release_date >= ${ts2023}`, `first_release_date <= ${nowSec + 86400 * 30}`);
+      where.push(`first_release_date >= ${ts2023}`, `first_release_date <= ${nowSec + 86400 * 30}`, `total_rating_count >= ${hasGenre ? 15 : 30}`);
       sortClause = "sort first_release_date desc;";
     } else if (sortPref === "hypes") {
+      where.push("hypes >= 15");
       sortClause = "sort hypes desc;";
+    } else if (sortPref === "popular" || preset === "catalog") {
+      where.push(`total_rating_count >= ${hasGenre ? 50 : 120}`);
+      sortClause = "sort total_rating_count desc;";
     }
 
     const body = `fields ${CARD_FIELDS}; where ${where.join(" & ")}; ${sortClause} limit ${limit}; offset ${offset};`;

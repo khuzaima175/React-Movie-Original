@@ -15,6 +15,7 @@ import {
 import { useGameVault } from "../context/GameVaultContext";
 import { fetchGameDetails, fetchGamesBatch } from "../services/igdbService";
 import { findSimilarGameIds, rankGameCandidates } from "../services/gameRankerService";
+import { isGameCompatibleWithRig } from "../services/gameRigService";
 import { buildTrailerEmbedUrl } from "../../services/navHelpers";
 import { flyToVault } from "../../services/flyToVault";
 import ScrollRevealSection from "../../components/ScrollRevealSection";
@@ -31,6 +32,7 @@ export default function GameDetailsPage() {
     playedById,
     backlogIds,
     models,
+    rigProfile,
     savePlayedGame,
     removePlayedGame,
     toggleBacklogGame
@@ -39,6 +41,7 @@ export default function GameDetailsPage() {
   const [similarGames, setSimilarGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showTrailer, setShowTrailer] = useState(false);
+  const [showFullStory, setShowFullStory] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState(-1);
 
   const igdbId = Number(id);
@@ -109,6 +112,7 @@ export default function GameDetailsPage() {
   const logged = game ? playedById.get(game.igdbId) : null;
   const inBacklog = game ? backlogIds.has(game.igdbId) : false;
   const trailerUrl = game?.trailerKey ? buildTrailerEmbedUrl(game.trailerKey) : null;
+  const rigCheck = useMemo(() => (game ? isGameCompatibleWithRig(game, rigProfile) : null), [game, rigProfile]);
 
   if (loading) {
     return (
@@ -199,6 +203,11 @@ export default function GameDetailsPage() {
                 )}
                 {game.year && <span className="gv-pill tabular-num">{game.year}</span>}
                 {game.isExclusive && <span className="gv-pill">Console Exclusive</span>}
+                {rigCheck?.badgeLabel && (
+                  <span className={`gv-pill ${rigCheck.compatible ? "gv-pill-match" : "gv-pill-accent"}`}>
+                    {rigCheck.badgeLabel}
+                  </span>
+                )}
               </div>
 
               <h1 className="gv-hero-title">{game.title}</h1>
@@ -231,9 +240,28 @@ export default function GameDetailsPage() {
               </div>
             )}
 
-            {game.summary && <p className="text-[1.5rem] leading-relaxed text-text-2">{game.summary}</p>}
+            {game.summary && (
+              <p className="text-[1.48rem] leading-relaxed text-text-2">
+                {game.summary.length > 420 && !showFullStory
+                  ? `${game.summary.slice(0, 420).trimEnd()}…`
+                  : game.summary}
+              </p>
+            )}
             {game.storyline && game.storyline !== game.summary && (
-              <p className="text-[1.38rem] leading-relaxed text-text-3">{game.storyline}</p>
+              <div>
+                <button
+                  type="button"
+                  className="gv-story-toggle"
+                  onClick={() => setShowFullStory((v) => !v)}
+                >
+                  {showFullStory ? "Hide full storyline ↑" : "Read full storyline →"}
+                </button>
+                {showFullStory && (
+                  <p className="text-[1.35rem] leading-relaxed text-text-3 mt-2.5">
+                    {game.storyline}
+                  </p>
+                )}
+              </div>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-hairline text-[1.3rem]">

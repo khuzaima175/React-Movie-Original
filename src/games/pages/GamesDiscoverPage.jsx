@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles } from "lucide-react";
+import { Cpu, Sparkles } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
 import { discoverGames, fetchGamesBatch } from "../services/igdbService";
 import {
@@ -9,6 +9,12 @@ import {
   filterDuplicateGameEditions,
   rankGameCandidates
 } from "../services/gameRankerService";
+import {
+  PC_SPEC_TIERS,
+  RIG_PLATFORM_CHOICES,
+  getRigPlatformFamilies,
+  isGameCompatibleWithRig
+} from "../services/gameRigService";
 import { STARTER_CALIBRATION_GAMES } from "../services/gameOracleService";
 import ScrollRevealSection from "../../components/ScrollRevealSection";
 import GameHeroBillboard from "../components/GameHeroBillboard";
@@ -27,8 +33,11 @@ export default function GamesDiscoverPage() {
     savePlayedGame,
     toggleBacklogGame,
     setRateTarget,
-    openRoulette
+    openRoulette,
+    rigProfile,
+    setOnboardingOpen
   } = useGameVault();
+  const [popularHits, setPopularHits] = useState([]);
   const [recentHits, setRecentHits] = useState([]);
   const [exclusives, setExclusives] = useState([]);
   const [topRated, setTopRated] = useState([]);
@@ -44,12 +53,14 @@ export default function GamesDiscoverPage() {
     setLoadingCatalog(true);
     setError("");
     Promise.all([
+      discoverGames({ preset: "popular", limit: 18 }),
       discoverGames({ preset: "recent_hits", limit: 16 }),
       discoverGames({ preset: "exclusives", limit: 16 }),
       discoverGames({ preset: "top_rated", limit: 16 })
     ])
-      .then(([recent, excl, top]) => {
+      .then(([pop, recent, excl, top]) => {
         if (!active) return;
+        setPopularHits(pop);
         setRecentHits(recent);
         setExclusives(excl);
         setTopRated(top);
@@ -65,7 +76,7 @@ export default function GamesDiscoverPage() {
     };
   }, []);
 
-  // Personalized local ML picks (deduped against played editions + dismissed games)
+  // Personalized local ML picks (deduped against played editions + dismissed games + optional rig spec filter)
   useEffect(() => {
     if (modelsLoading || played.length === 0 || (!models.easeIndex && !models.contentIndex)) {
       setForYouPicks([]);
@@ -73,11 +84,15 @@ export default function GamesDiscoverPage() {
     }
     let active = true;
     setLoadingForYou(true);
-    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, { warmLimit: 32, coldLimit: 14 });
-    fetchGamesBatch(allIds.slice(0, 28))
+    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, { warmLimit: 40, coldLimit: 16 });
+    fetchGamesBatch(allIds.slice(0, 36))
       .then((hydrated) => {
         if (!active) return;
-        const clean = filterDuplicateGameEditions(hydrated, played).filter((g) => !dismissedIds.has(g.igdbId));
+        let clean = filterDuplicateGameEditions(hydrated, played).filter((g) => !dismissedIds.has(g.igdbId));
+        if (rigProfile?.completed && rigProfile?.respectRigLimits) {
+          const rigFiltered = clean.filter((g) => isGameCompatibleWithRig(g, rigProfile).compatible);
+          if (rigFiltered.length >= 6) clean = rigFiltered;
+        }
         const ranked = rankGameCandidates(clean, played, backlog, models, maps);
         setForYouPicks(ranked.slice(0, 16));
       })
@@ -88,17 +103,39 @@ export default function GamesDiscoverPage() {
     return () => {
       active = false;
     };
-  }, [played, backlog, dismissedIds, models, modelsLoading]);
+  }, [played, backlog, dismissedIds, rigProfile, models, modelsLoading]);
 
   const starterCards = useMemo(() => {
-    return STARTER_CALIBRATION_GAMES.filter((g) => !playedById.has(g.igdbId) && !skippedIds.has(g.igdbId)).slice(0, 8);
-  }, [playedById, skippedIds]);
+    const fams = getRigPlatformFamilies(rigProfile);
+    return STARTER_CALIBRATION_GAMES.filter((g) => {
+      if (playedById.has(g.igdbId) || skippedIds.has(g.igdbId)) return false;
+      if (fams.length > 0 && Array.isArray(g.platformFamilies) && !g.platformFamilies.some((f) => fams.includes(f))) {
+        return false;
+      }
+      if (rigProfile?.completed && rigProfile?.respectRigLimits && !isGameCompatibleWithRig(g, rigProfile).compatible) {
+        return false;
+      }
+      return true;
+    }).slice(0, 12);
+  }, [playedById, skippedIds, rigProfile]);
 
   const heroSlides = useMemo(() => {
     if (forYouPicks.length > 0) return forYouPicks.slice(0, 5);
+    if (popularHits.length > 0) return popularHits.slice(0, 5);
     if (recentHits.length > 0) return recentHits.slice(0, 5);
     return topRated.slice(0, 5);
-  }, [forYouPicks, recentHits, topRated]);
+  }, [forYouPicks, popularHits, recentHits, topRated]);
+
+  const rigSummary = useMemo(() => {
+    if (!rigProfile?.completed) return "Tell GameVault your PC specs or console to tailor recommendations";
+    const plats = (rigProfile.platforms || [])
+      .map((id) => RIG_PLATFORM_CHOICES.find((p) => p.id === id)?.short || id)
+      .join(" · ");
+    const tierObj = PC_SPEC_TIERS.find((t) => t.id === rigProfile.pcSpecTier);
+    return rigProfile.platforms?.includes("pc") && tierObj
+      ? `${plats} — ${tierObj.label}${rigProfile.respectRigLimits ? " (Rig filter active)" : ""}`
+      : plats;
+  }, [rigProfile]);
 
   return (
     <div className="gv-page page-rail">
@@ -107,6 +144,21 @@ export default function GamesDiscoverPage() {
           <p className="text-[1.4rem] text-danger">{error}</p>
         </div>
       )}
+
+      {/* Compact PC / Console Rig Strip */}
+      <div className="gv-rig-strip">
+        <div className="flex items-center gap-3 min-w-0">
+          <Cpu size={15} className="text-accent shrink-0" aria-hidden="true" />
+          <span className="text-[1.25rem] text-text-2 truncate">{rigSummary}</span>
+        </div>
+        <button
+          type="button"
+          className="gv-btn gv-btn-sm shrink-0"
+          onClick={() => setOnboardingOpen(true)}
+        >
+          {rigProfile?.completed ? "Edit My Rig & Taste Deck" : "Set Up My Rig & Taste"}
+        </button>
+      </div>
 
       {/* Multi-Slide Rotating Editorial Hero Billboard with Ken Burns + Scroll Parallax */}
       <GameHeroBillboard
@@ -200,6 +252,16 @@ export default function GamesDiscoverPage() {
           seeAllLabel="Open Taste Tuner"
         />
       )}
+
+      <GameCarouselRow
+        title="Popular Blockbusters"
+        subtitle="The most-played franchises and flagship AAA hits across PC, PlayStation, Xbox & Nintendo."
+        games={popularHits}
+        showMatch={false}
+        loading={loadingCatalog}
+        seeAllTo="/games/explore"
+        seeAllLabel="Browse Popular"
+      />
 
       <GameCarouselRow
         title="2024–2026 Standouts"

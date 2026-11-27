@@ -4,6 +4,7 @@ import RouteFallback from "../components/RouteFallback";
 import { GameVaultProvider, useGameVault } from "./context/GameVaultContext";
 import GameRateModal from "./components/GameRateModal";
 import GameRouletteModal from "./components/GameRouletteModal";
+import GameOnboardingModal from "./components/GameOnboardingModal";
 import "./styles/games.css";
 
 function GameVaultShell() {
@@ -17,7 +18,11 @@ function GameVaultShell() {
     savePlayedGame,
     removePlayedGame,
     rouletteState,
-    closeRoulette
+    closeRoulette,
+    rigProfile,
+    updateRigProfile,
+    onboardingOpen,
+    setOnboardingOpen
   } = useGameVault();
 
   return (
@@ -42,6 +47,15 @@ function GameVaultShell() {
         backlog={backlog}
         models={models}
         extraCandidates={rouletteState.extraCandidates}
+      />
+
+      <GameOnboardingModal
+        isOpen={onboardingOpen}
+        onClose={() => setOnboardingOpen(false)}
+        rigProfile={rigProfile}
+        onSaveRig={updateRigProfile}
+        playedById={playedById}
+        onRateStarter={savePlayedGame}
       />
     </>
   );

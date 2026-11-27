@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Dices, RotateCcw, Search, Shuffle, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Cpu, Dices, EyeOff, RotateCcw, Search, Shuffle, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
 import {
   GAME_GENRES,
@@ -15,6 +15,7 @@ import {
   filterDuplicateGameEditions,
   rankGameCandidates
 } from "../services/gameRankerService";
+import { getDefaultPlatformFocus, isGameCompatibleWithRig } from "../services/gameRigService";
 import { Select } from "../../components/ui/Select";
 import ScrollRevealSection from "../../components/ScrollRevealSection";
 import GameCard from "../components/GameCard";
@@ -33,17 +34,30 @@ const GENRE_OPTIONS = [
 ];
 
 const SORT_OPTIONS = [
-  { value: "rating", label: "Highest Rated" },
+  { value: "popular", label: "Most Popular" },
+  { value: "rating", label: "Highest Rated (180+ votes)" },
   { value: "recent", label: "Newest Releases" },
   { value: "hypes", label: "Most Hyped" }
 ];
 
 export default function GamesExplorePage() {
-  const { played, backlog, dismissedIds, models, modelsLoading, openRoulette } = useGameVault();
+  const {
+    played,
+    backlog,
+    playedById,
+    dismissedIds,
+    models,
+    modelsLoading,
+    openRoulette,
+    rigProfile,
+    setOnboardingOpen
+  } = useGameVault();
   const [mode, setMode] = useState(() => (played.length > 0 ? "for-you" : "catalog"));
-  const [platformFamily, setPlatformFamily] = useState("all");
+  const [platformFamily, setPlatformFamily] = useState(() => getDefaultPlatformFocus(rigProfile));
   const [genreId, setGenreId] = useState("");
-  const [sort, setSort] = useState("rating");
+  const [sort, setSort] = useState("popular");
+  const [hidePlayed, setHidePlayed] = useState(false);
+  const [rigOnly, setRigOnly] = useState(() => Boolean(rigProfile?.completed && rigProfile?.respectRigLimits && rigProfile?.pcSpecTier === "entry"));
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [shuffleSeed, setShuffleSeed] = useState(0);
@@ -125,6 +139,8 @@ export default function GamesExplorePage() {
     const base = mode === "for-you" ? forYouPool : catalogItems;
     const cleanQ = searchTerm.trim().toLowerCase();
     const filtered = base.filter((g) => {
+      if (hidePlayed && playedById.has(g.igdbId)) return false;
+      if (rigOnly && rigProfile?.completed && !isGameCompatibleWithRig(g, rigProfile).compatible) return false;
       if (mode === "for-you") {
         if (platformFamily !== "all" && !(g.platformFamilies || []).includes(platformFamily)) return false;
         if (genreId && !(g.genreIds || []).includes(Number(genreId))) return false;
@@ -141,13 +157,12 @@ export default function GamesExplorePage() {
       played
     });
     if (shuffleSeed === 0) return tuned;
-    // Deterministic quality-weighted shuffle preserving strong picks near the top
     return [...tuned].sort((a, b) => {
       const ha = Math.sin((a.igdbId + shuffleSeed * 97) * 12.9898) * 43758.5453;
       const hb = Math.sin((b.igdbId + shuffleSeed * 97) * 12.9898) * 43758.5453;
       return (ha - Math.floor(ha)) - (hb - Math.floor(hb));
     });
-  }, [mode, forYouPool, catalogItems, platformFamily, genreId, searchTerm, tuner, models, played, shuffleSeed]);
+  }, [mode, forYouPool, catalogItems, platformFamily, genreId, searchTerm, hidePlayed, playedById, rigOnly, rigProfile, tuner, models, played, shuffleSeed]);
 
   const tunerIsNeutral =
     tuner.era === 0 && tuner.familiarity === 0 && tuner.pacing === 0 && tuner.tone === 0 && !tuner.antiBubble;
@@ -237,14 +252,47 @@ export default function GamesExplorePage() {
           />
 
           {mode === "catalog" && (
-            <Select
-              value={sort}
-              onChange={setSort}
-              options={SORT_OPTIONS}
-              ariaLabel="Sort catalog"
-              size="sm"
-            />
+            <>
+              <Select
+                value={sort}
+                onChange={setSort}
+                options={SORT_OPTIONS}
+                ariaLabel="Sort catalog"
+                size="sm"
+              />
+              {played.length > 0 && (
+                <button
+                  type="button"
+                  className={`gv-chip gv-chip-sm ${hidePlayed ? "is-active" : ""}`}
+                  onClick={() => setHidePlayed((v) => !v)}
+                >
+                  <EyeOff size={12} style={{ display: "inline", marginRight: "0.35rem" }} />
+                  Hide Played
+                </button>
+              )}
+            </>
           )}
+
+          {rigProfile?.completed && rigProfile?.pcSpecTier === "entry" && (
+            <button
+              type="button"
+              className={`gv-chip gv-chip-sm ${rigOnly ? "is-active" : ""}`}
+              onClick={() => setRigOnly((v) => !v)}
+              title="Filter out heavy modern AAA games for Entry PCs"
+            >
+              <Cpu size={12} style={{ display: "inline", marginRight: "0.35rem" }} />
+              Runs on My PC
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="gv-btn gv-btn-sm"
+            onClick={() => setOnboardingOpen(true)}
+            title="Configure your PC specs or consoles"
+          >
+            <Cpu size={13} /> My Rig
+          </button>
 
           <button
             type="button"

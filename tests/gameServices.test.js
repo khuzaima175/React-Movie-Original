@@ -323,3 +323,32 @@ test("gameVaultStorage computes vault stats, calibration anchors, and preserves 
   assert.equal(cal.anchorMovies.length, 1);
   assert.equal(cal.anchorMovies[0].title, "The Witcher 3");
 });
+
+test("gameRigService classifies GPUs (GTX 750 Ti -> entry, RTX 4080 -> high) and filters heavy modern AAAs for entry PCs", async () => {
+  const {
+    classifyGpuRenderer,
+    estimateGameSpecTier,
+    isGameCompatibleWithRig,
+    getDefaultPlatformFocus
+  } = await import("../src/games/services/gameRigService.js");
+
+  assert.equal(classifyGpuRenderer("ANGLE (NVIDIA, NVIDIA GeForce GTX 750 Ti Direct3D11)"), "entry");
+  assert.equal(classifyGpuRenderer("Intel(R) UHD Graphics 630"), "entry");
+  assert.equal(classifyGpuRenderer("NVIDIA GeForce RTX 3060"), "mid");
+  assert.equal(classifyGpuRenderer("NVIDIA GeForce RTX 4080"), "high");
+
+  const entryPcRig = { completed: true, platforms: ["pc"], pcSpecTier: "entry", respectRigLimits: true };
+  assert.equal(getDefaultPlatformFocus(entryPcRig), "pc");
+
+  const heavy2025 = { title: "Kingdom Come: Deliverance II", year: 2025, genres: ["Role-playing (RPG)", "Simulator"] };
+  const indie2024 = { title: "Balatro", year: 2024, genres: ["Card & Board Game", "Indie"] };
+  const classic2013 = { title: "Grand Theft Auto V", year: 2013, genres: ["Shooter", "Adventure"] };
+
+  assert.equal(estimateGameSpecTier(heavy2025), "high");
+  assert.equal(estimateGameSpecTier(indie2024), "entry");
+  assert.equal(estimateGameSpecTier(classic2013), "entry");
+
+  assert.equal(isGameCompatibleWithRig(heavy2025, entryPcRig).compatible, false);
+  assert.equal(isGameCompatibleWithRig(indie2024, entryPcRig).compatible, true);
+  assert.equal(isGameCompatibleWithRig(classic2013, entryPcRig).compatible, true);
+});

@@ -1455,6 +1455,161 @@
   background: var(--surface-2);
   color: var(--text-1);
   font-size: 1.35rem;
+  color-scheme: dark;
+}
+
+.gv-input[type="number"]::-webkit-inner-spin-button,
+.gv-input[type="number"]::-webkit-outer-spin-button,
+.gv-stepper-input::-webkit-inner-spin-button,
+.gv-stepper-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.gv-input[type="number"],
+.gv-stepper-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Dark Custom Playtime Stepper (zero white OS spinner) */
+.gv-stepper {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+  overflow: hidden;
+  height: 3.6rem;
+}
+
+.gv-stepper-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.gv-stepper-btn:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.gv-stepper-input {
+  width: 5.4rem;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-inline: 1px solid var(--hairline);
+  color: var(--text-1);
+  text-align: center;
+  font-size: 1.32rem;
+  font-weight: 600;
+  outline: none;
+}
+
+/* First-Time Rig & Spec Setup Cards */
+.gv-rig-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 1.2rem;
+}
+
+.gv-rig-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 1.4rem 1.5rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.gv-rig-card:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-2px);
+}
+
+.gv-rig-card.is-active {
+  border-color: var(--accent);
+  background: rgba(226, 177, 60, 0.1);
+}
+
+.gv-rig-check {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0d0d0f;
+}
+
+.gv-rig-check.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.gv-onboard-game {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.gv-onboard-game.is-logged {
+  border-color: rgba(226, 177, 60, 0.55);
+}
+
+.gv-onboard-cover {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  display: block;
+}
+
+.gv-rig-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  margin-bottom: 2rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline);
+  background: rgba(20, 20, 24, 0.72);
+}
+
+.gv-story-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gv-story-toggle:hover {
+  text-decoration: underline;
 }
 
 .gv-textarea {

@@ -204,3 +204,19 @@ test("api/igdb redacts client secret from upstream error messages", async () => 
     if (origSec === undefined) delete process.env.IGDB_CLIENT_SECRET; else process.env.IGDB_CLIENT_SECRET = origSec;
   }
 });
+
+test("buildIgdbQuery enforces high review-count floors on popular & rating catalog queries to block 10-vote shovelware", async () => {
+  const { buildIgdbQuery } = await import("../api/igdb.js");
+
+  const pop = buildIgdbQuery({ action: "discover", preset: "popular", limit: 16 });
+  assert.match(pop.body, /total_rating_count >= 250/);
+  assert.match(pop.body, /sort total_rating_count desc;/);
+
+  const rated = buildIgdbQuery({ action: "discover", preset: "catalog", sort: "rating", limit: 36 });
+  assert.match(rated.body, /total_rating_count >= 180/);
+  assert.match(rated.body, /total_rating >= 72/);
+
+  const catDefault = buildIgdbQuery({ action: "discover", preset: "catalog", sort: "popular", limit: 36 });
+  assert.match(catDefault.body, /total_rating_count >= 120/);
+  assert.match(catDefault.body, /sort total_rating_count desc;/);
+});

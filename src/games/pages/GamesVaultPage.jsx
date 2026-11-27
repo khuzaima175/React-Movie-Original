@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Cloud, Dices, Download, Gamepad2, Search, Sparkles, Trophy, Upload } from "lucide-react";
+import { Cloud, Cpu, Dices, Download, Gamepad2, Search, Sparkles, Trophy, Upload } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
 import { computeGameVaultStats } from "../services/gameVaultStorage";
-import { rankBacklogForNextPlay } from "../services/gameRankerService";
+import { normalizeGameBaseTitle, rankBacklogForNextPlay } from "../services/gameRankerService";
 import { Select } from "../../components/ui/Select";
 import ScrollRevealSection from "../../components/ScrollRevealSection";
 import GameCard from "../components/GameCard";
@@ -33,7 +33,9 @@ export default function GamesVaultPage() {
     syncStatus,
     exportVaultJson,
     importGamesFromText,
-    openRoulette
+    openRoulette,
+    removePlayedGame,
+    setOnboardingOpen
   } = useGameVault();
   const [tab, setTab] = useState("played");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -49,6 +51,32 @@ export default function GamesVaultPage() {
   }, []);
 
   const stats = useMemo(() => computeGameVaultStats(played, backlog), [played, backlog]);
+
+  // Detect duplicate sibling editions (e.g. Divinity: Original Sin II + Definitive Edition)
+  const duplicateEditionPairs = useMemo(() => {
+    const groups = new Map();
+    for (const g of played) {
+      const base = normalizeGameBaseTitle(g.title);
+      if (base.length < 4) continue;
+      if (!groups.has(base)) groups.set(base, []);
+      groups.get(base).push(g);
+    }
+    return [...groups.values()].filter((arr) => arr.length > 1);
+  }, [played]);
+
+  async function handleMergeDuplicates() {
+    for (const group of duplicateEditionPairs) {
+      const sorted = [...group].sort(
+        (a, b) =>
+          (Number(b.userRating || 0) - Number(a.userRating || 0)) ||
+          (Number(b.hoursPlayed || 0) - Number(a.hoursPlayed || 0)) ||
+          (Number(b.ratingCount || 0) - Number(a.ratingCount || 0))
+      );
+      for (const dup of sorted.slice(1)) {
+        await removePlayedGame(dup.igdbId);
+      }
+    }
+  }
 
   const filteredPlayed = useMemo(() => {
     const cleanQ = searchQuery.trim().toLowerCase();
@@ -126,11 +154,26 @@ export default function GamesVaultPage() {
               <Dices size={14} /> Spin Roulette
             </button>
           )}
+          <button type="button" className="gv-btn gv-btn-sm" onClick={() => setOnboardingOpen(true)}>
+            <Cpu size={14} /> My Rig &amp; Setup
+          </button>
           <button type="button" className="gv-btn gv-btn-sm" onClick={exportVaultJson}>
             <Download size={14} /> Export JSON
           </button>
         </div>
       </ScrollRevealSection>
+
+      {duplicateEditionPairs.length > 0 && (
+        <div className="gv-rig-strip" style={{ borderColor: "rgba(226, 177, 60, 0.35)" }}>
+          <span className="text-[1.25rem] text-text-2">
+            Found <strong>{duplicateEditionPairs.length}</strong> duplicate edition pair(s) in your Vault (e.g.{" "}
+            {duplicateEditionPairs[0].map((g) => g.title).join(" & ")}).
+          </span>
+          <button type="button" className="gv-btn gv-btn-sm" onClick={handleMergeDuplicates}>
+            Clean Up Duplicate Editions
+          </button>
+        </div>
+      )}
 
       {/* Editorial Gaming DNA Banner with Animated Rating Spread & Genre Bars */}
       <ScrollRevealSection className="gv-dna-banner" delay={0.04}>

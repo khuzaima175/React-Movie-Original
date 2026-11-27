@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp, Clock, Gamepad2, Sparkles, Trash2, Trophy } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock, Gamepad2, Minus, Plus, Sparkles, Trash2, Trophy } from "lucide-react";
 import StarRatingStage from "../../components/StarRatingStage";
+import { Select } from "../../components/ui/Select";
+import { useGameVault } from "../context/GameVaultContext";
+import { getDefaultPlatformLabel } from "../services/gameRigService";
 import {
   GAME_CRAFT_ASPECTS,
   GAME_QUICK_TAGS,
@@ -23,6 +26,7 @@ export default function GameRatingStage({
   onAfterSave
 }) {
   const navigate = useNavigate();
+  const { rigProfile } = useGameVault();
   const [selectedScore, setSelectedScore] = useState(Number(existing?.userRating ?? 0) || 0);
   const [hoverScore, setHoverScore] = useState(0);
   const [status, setStatus] = useState(existing?.status || "completed");
@@ -30,7 +34,7 @@ export default function GameRatingStage({
     existing?.hoursPlayed > 0 ? String(existing.hoursPlayed) : ""
   );
   const [platformPlayed, setPlatformPlayed] = useState(
-    existing?.platformPlayed || game?.platforms?.[0] || "PC"
+    existing?.platformPlayed || getDefaultPlatformLabel(rigProfile) || game?.platforms?.[0] || "PC"
   );
   const [craft, setCraft] = useState(() => ({ ...(existing?.ratingBreakdown || {}) }));
   const [quickTags, setQuickTags] = useState(() =>
@@ -49,10 +53,28 @@ export default function GameRatingStage({
     [played, previewScore, game?.igdbId]
   );
 
-  const platformChoices = useMemo(() => {
-    const raw = [...(game?.platforms || []), "PC", "PS5", "Switch", "Xbox Series X|S"];
-    return [...new Set(raw.filter(Boolean))].slice(0, 6);
-  }, [game?.platforms]);
+  const platformOptions = useMemo(() => {
+    const raw = [
+      ...(game?.platforms || []),
+      "PC",
+      "PlayStation 5",
+      "PlayStation 4",
+      "Xbox Series X|S",
+      "Xbox One",
+      "Nintendo Switch",
+      "Steam Deck",
+      "Mobile"
+    ];
+    const dedup = [...new Set(raw.map((p) => String(p || "").trim()).filter(Boolean))];
+    if (platformPlayed && !dedup.includes(platformPlayed)) dedup.unshift(platformPlayed);
+    return dedup.map((p) => ({ value: p, label: p }));
+  }, [game?.platforms, platformPlayed]);
+
+  function adjustHours(delta) {
+    const cur = Number(hours) || 0;
+    const next = Math.max(0, Math.round((cur + delta) * 10) / 10);
+    setHours(next > 0 ? String(next) : "");
+  }
 
   function toggleTag(tag) {
     setQuickTags((prev) =>
@@ -137,17 +159,36 @@ export default function GameRatingStage({
               <Clock size={13} aria-hidden="true" /> Playtime (hours)
             </label>
             <div className="gv-hours-row">
-              <input
-                id={`gv-hours-${game?.igdbId}`}
-                type="number"
-                min="0"
-                max="20000"
-                step="0.5"
-                placeholder="e.g. 42"
-                value={hours}
-                onChange={(e) => setHours(e.target.value)}
-                className="gv-input gv-hours-input"
-              />
+              <div className="gv-stepper">
+                <button
+                  type="button"
+                  className="gv-stepper-btn"
+                  onClick={() => adjustHours(-5)}
+                  aria-label="Decrease playtime by 5 hours"
+                >
+                  <Minus size={13} />
+                </button>
+                <input
+                  id={`gv-hours-${game?.igdbId}`}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="20000"
+                  step="0.5"
+                  placeholder="0"
+                  value={hours}
+                  onChange={(e) => setHours(e.target.value)}
+                  className="gv-stepper-input tabular-num"
+                />
+                <button
+                  type="button"
+                  className="gv-stepper-btn"
+                  onClick={() => adjustHours(5)}
+                  aria-label="Increase playtime by 5 hours"
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
               <div className="gv-hours-presets">
                 {HOUR_PRESETS.map((h) => (
                   <button
@@ -164,31 +205,16 @@ export default function GameRatingStage({
           </div>
 
           <div className="gv-studio-field">
-            <label htmlFor={`gv-plat-${game?.igdbId}`} className="gv-studio-label">
+            <span className="gv-studio-label">
               <Gamepad2 size={13} aria-hidden="true" /> Platform Played
-            </label>
-            <div className="gv-hours-row">
-              <input
-                id={`gv-plat-${game?.igdbId}`}
-                type="text"
-                placeholder="PC / PS5 / Switch"
-                value={platformPlayed}
-                onChange={(e) => setPlatformPlayed(e.target.value)}
-                className="gv-input gv-hours-input"
-              />
-              <div className="gv-hours-presets">
-                {platformChoices.slice(0, 3).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className={`gv-hour-pill ${platformPlayed === p ? "is-active" : ""}`}
-                    onClick={() => setPlatformPlayed(p)}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
+            </span>
+            <Select
+              value={platformPlayed}
+              onChange={setPlatformPlayed}
+              options={platformOptions}
+              ariaLabel="Platform Played"
+              fullWidth
+            />
           </div>
         </div>
 

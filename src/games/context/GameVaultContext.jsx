@@ -13,6 +13,7 @@ import {
 import { loadGameModelBundle, loadSteamCrosswalk } from "../services/gameModelService";
 import { fetchGamesBatch } from "../services/igdbService";
 import { deleteCloudGame, pullAndSyncGameVault, upsertCloudGame } from "../services/gameSyncService";
+import { loadRigProfile, saveRigProfileToStorage } from "../services/gameRigService";
 
 const GameVaultContext = createContext(null);
 const DISMISSED_STORAGE_KEY = "gamevault_dismissed_v1";
@@ -45,7 +46,25 @@ export function GameVaultProvider({ children }) {
   const [syncStatus, setSyncStatus] = useState("idle");
   const [rateTarget, setRateTarget] = useState(null);
   const [rouletteState, setRouletteState] = useState({ open: false, extraCandidates: [] });
+  const [rigProfile, setRigProfile] = useState(() => loadRigProfile());
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const syncedUserRef = useRef(null);
+  const onboardingCheckedRef = useRef(false);
+
+  // Auto-open First-Time Rig & Taste Setup Wizard once for brand-new GameVault visitors
+  useEffect(() => {
+    if (!isHydrated || onboardingCheckedRef.current) return;
+    onboardingCheckedRef.current = true;
+    if (!rigProfile.completed && played.length === 0) {
+      setOnboardingOpen(true);
+    }
+  }, [isHydrated, rigProfile.completed, played.length]);
+
+  const updateRigProfile = useCallback((nextProfile) => {
+    const saved = saveRigProfileToStorage(nextProfile);
+    setRigProfile(saved);
+    return saved;
+  }, []);
 
   // 1. Hydrate local IndexedDB game vault + lazily load /models/games/* binaries once
   useEffect(() => {
@@ -258,6 +277,10 @@ export function GameVaultProvider({ children }) {
       rouletteState,
       openRoulette,
       closeRoulette,
+      rigProfile,
+      updateRigProfile,
+      onboardingOpen,
+      setOnboardingOpen,
       savePlayedGame,
       removePlayedGame,
       toggleBacklogGame,
@@ -279,6 +302,10 @@ export function GameVaultProvider({ children }) {
       rouletteState,
       openRoulette,
       closeRoulette,
+      rigProfile,
+      updateRigProfile,
+      onboardingOpen,
+      setOnboardingOpen,
       savePlayedGame,
       removePlayedGame,
       toggleBacklogGame,
