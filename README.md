@@ -4,7 +4,7 @@
 
 ![CinemaVault Preview](assets/screenshots/discover.png)
 
-A local-first film tracker and recommender. It combines an on-device taste model, multi-bucket TMDB retrieval, and Gemini-based curation, with optional Supabase sync.
+A local-first film & game tracker and recommender (**CinemaVault ⇄ GameVault**). It combines on-device taste models (`EASE^R`, `SVD`, and neural cold-start embeddings), multi-bucket TMDB & IGDB v4 retrieval, and Gemini-based curation, with optional Supabase sync.
 
 [![React 18](https://img.shields.io/badge/React-18.3-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Vite 5](https://img.shields.io/badge/Vite-5.4-646cff?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -53,7 +53,8 @@ CinemaVault keeps your film log in your browser by default. It uses your ratings
 | Community & Public Profiles | Privacy-first opt-in Community Mode in `/account` (private by default) unlocking shareable `/u/:username` profiles (Top 4 Showcase, Watch Diary, Spoiler-Safe Reviews, Follows, **64-D Taste Twin %**, and *"Films They Loved You Haven't Seen"*) plus Community ratings & reviews on Movie Detail pages. |
 | Compare | Two to three films side by side, with shared cast, genres, and taste similarity. |
 | Sync & Accounts | Optional `/auth` (Email + Password, Magic Link, Password Reset) and `/account` dashboard backed by Supabase Auth + Postgres row-level security, syncing ratings, watchlist, streaming preferences, taste rules, and your 250-film Explore For You cache while keeping Guest Mode 100% unlocked. |
-| Security | Serverless `/api/*` proxies keep API keys out of the browser bundle, bound prompt payloads, and support optional Upstash Redis daily caps. |
+| Security | Serverless `/api/*` proxies (`gemini`, `tmdb`, `tmdb-batch`, `omdb`, `igdb`) keep API keys out of the browser bundle, bound prompt payloads, and support optional Upstash Redis daily caps. |
+| **GameVault (`Movies ⇄ Games`)** | Switch seamlessly via the header pill to `/games` (`Discover`, `Explore`, `Vault`, `Oracle`, `/game/:id`): on-device **Exact Sparse EASE^R (`14,656 × K=80`)**, **`64-D` Spectral-EASE**, and **`24,439 × 128-D` Tag-Dropout `BGE-large`** embeddings, live `<1 ms` **Neural Taste Tuner** (`Intensity` AUC `0.968`, `Tone` AUC `0.996`, `Era`, `Familiarity`), **IGDB v4** unified catalog across PC/PlayStation/Nintendo/Xbox, **Steam AppID** (`18,144` games) / CSV / JSON portability, isolated `gamevault_vault_v1` IndexedDB, and optional `public.user_games` Supabase RLS sync. See [ARCHITECTURE.md](./ARCHITECTURE.md#29-gamevault-phase-2--unified-movies--games-engine) and [2026-11-27-gamevault-phase2-design.md](./docs/superpowers/specs/2026-11-27-gamevault-phase2-design.md). |
 
 > *\* Statistically significant (`p < 0.05` via 1,000-resample paired bootstrap 95% CI) on both `Dev-150` and untouched `Holdout-150` against the `v5.6` SVD-64 / lexical baseline — see [MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md).*
 
@@ -322,8 +323,8 @@ If you do not want vault content sent to Gemini, do not use the AI features (Ora
 | Cloud sync (optional) | Supabase Auth and Postgres 15+ with row-level security | Email sign-in. |
 | Styling | Tailwind CSS v4 + editorial CSS variables | Minimal dark theme. |
 | Motion | Framer Motion 12 | Respects reduced-motion settings. |
-| Movie data | TMDB API v3, OMDb API | |
-| Storage | `localStorage`, `sessionStorage` (compare tray), IndexedDB (TMDB detail cache & Explore For You pool) | Guest vault stays in the browser. |
+| Movie & game data | TMDB API v3, OMDb API, IGDB v4 (Twitch OAuth via `/api/igdb`) | |
+| Storage | `localStorage`, `sessionStorage` (compare tray), IndexedDB (TMDB/IGDB detail caches, Explore For You pool, & `gamevault_vault_v1`) | Guest vaults stay in the browser. |
 | Tests | `node --test`, `scripts/run_eval.mjs` | Offline suites and a rolling evaluation harness. |
 
 ---
@@ -343,10 +344,12 @@ npm install
 Create `.env.local` in the project root (see [.env.example](./.env.example)):
 
 ```env
-# Server-side secrets for the /api/* proxies (vercel dev or production)
+# Server-side secrets for the /api/* proxies (vercel dev, vite local IGDB middleware, or production)
 GEMINI_API_KEY=your_gemini_api_key_here
 TMDB_API_KEY=your_tmdb_api_key_here
 OMDB_API_KEY=your_omdb_api_key_here
+IGDB_CLIENT_ID=your_twitch_igdb_client_id_here
+IGDB_CLIENT_SECRET=your_twitch_igdb_client_secret_here
 
 # Optional shared Upstash Redis daily caps for /api/gemini
 # UPSTASH_REDIS_REST_URL=https://your-upstash-url.upstash.io
@@ -379,7 +382,7 @@ These are the points most likely to cause problems on first run:
 - **Production rejects requests without a browser origin.** When deployed, requests with no `Origin` header and no `Sec-Fetch-Site: same-origin` (or `same-site`) get a 403. This means `curl` against a deployed copy will fail. Test with a browser, or call the proxies from the same site.
 - **`ALLOWED_ORIGIN` is optional.** Set it to a comma-separated list if you serve the app from a domain other than the default Vercel host.
 - **`gemini-4-argon` is blocked by default.** It returns 403 unless `ENABLE_ARGON` is set to `"true"` on the server.
-- **Supabase sync & community features need two things before they work:** all SQL migrations in `supabase/migrations/` applied in chronological order (core schema `20261114000000_init_cinemavault_schema.sql`, Explore cache `20261120000000_explore_for_you_cache.sql`, profile prefs `20261120121725_profile_prefs_and_for_you_cap.sql`, community profiles/sync/RLS `20261120140144`–`20261120142349`, Watch Together `20261124000001`, public lists `20261124000002`, watchlist alerts `20261124000003`, and social feed/likes `20261126000001`), and Email Auth / Redirect URLs configured in the Supabase Auth dashboard.
+- **Supabase sync & community features need two things before they work:** all SQL migrations in `supabase/migrations/` applied in chronological order (core schema `20261114000000_init_cinemavault_schema.sql`, Explore cache `20261120000000_explore_for_you_cache.sql`, profile prefs `20261120121725_profile_prefs_and_for_you_cap.sql`, community profiles/sync/RLS `20261120140144`–`20261120142349`, Watch Together `20261124000001`, public lists `20261124000002`, watchlist alerts `20261124000003`, social feed/likes `20261126000001`, and GameVault `public.user_games` schema `20261127000001`), and Email Auth / Redirect URLs configured in the Supabase Auth dashboard.
 
 ### 4. Run, test, and build
 
@@ -427,8 +430,9 @@ npm run serve                # Preview the production build
 **License.** Application source code is [MIT licensed](./LICENSE).
 
 **Data and third-party notices:**
-- This product uses the TMDB API but is not endorsed or certified by TMDB.
+- This product uses the TMDB API and IGDB API v4, and is not endorsed or certified by TMDB or IGDB/Twitch.
 - Movie metadata from [OMDb](http://www.omdbapi.com/).
 - AI features use [Google Gemini](https://ai.google.dev/).
-- The bundled collaborative model files (`item_ease_k64.cvea` and `item_embeddings_f16.bin`) are derived from the MovieLens 32M dataset by [GroupLens Research](https://grouplens.org/datasets/movielens/32m/) and are distributed for non-commercial research and educational use under the MovieLens terms; if you deploy this app commercially, check those terms or replace those files.
-- The bundled cold-start semantic index (`content_embeddings_f16.bin`) is generated from TMDB text metadata using [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (Apache 2.0).
+- The bundled movie collaborative model files (`item_ease_k64.cvea` and `item_embeddings_f16.bin`) are derived from the MovieLens 32M dataset by [GroupLens Research](https://grouplens.org/datasets/movielens/32m/) and are distributed for non-commercial research and educational use under the MovieLens terms; if you deploy this app commercially, check those terms or replace those files.
+- The bundled cold-start movie semantic index (`content_embeddings_f16.bin`) is generated from TMDB text metadata using [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (Apache 2.0).
+- The bundled GameVault models (`public/models/games/*`) combine canonical [IGDB v4](https://www.igdb.com/) catalog metadata, Steam collaborative interactions (`antonkozyriev/game-recommendations-on-steam` + `FronkonGames`/`atalaydenknalbant` tags), and Ridge-aligned [`BAAI/bge-large-en-v1.5`](https://huggingface.co/BAAI/bge-large-en-v1.5) (MIT) text embeddings.

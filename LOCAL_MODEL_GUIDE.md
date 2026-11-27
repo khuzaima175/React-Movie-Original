@@ -1,7 +1,7 @@
 # CinemaVault Local Model & Engineering Troubleshooting Guide (EZ Edition)
 
-**Last Updated:** November 24, 2026 (`v6.2`)  
-**Status:** Production-ready · Verified by **479 / 479** offline service & API unit tests (`npm test`) and production Vite build (`npm run build`).
+**Last Updated:** November 28, 2026 (`v6.2` + GameVault Phase 2)  
+**Status:** Production-ready · Verified by the full offline service & API test suite (`npm test`) and production Vite build (`npm run build`).
 
 If you want to understand **what our local ML models actually are**, **what work and offline experiments we ran step by step**, **every bug/error we ran into**, **how we fixed each one**, and **how to check that everything is healthy with simple copy-paste commands**, everything is explained here in plain, easy-to-follow English. For the full living benchmark table and ongoing accuracy experiments, see **[MODEL_REFINEMENT_LOG.md](./MODEL_REFINEMENT_LOG.md)**.
 
@@ -56,9 +56,15 @@ An early question we checked carefully: *"Did the quick `ml-latest-small` test f
 
 | File Path | Exact Size | Origin | Items / Dim | Status in App |
 | :--- | :---: | :--- | :---: | :--- |
-| [public/models/item_ease_k64.cvea](./public/models/item_ease_k64.cvea) | `3,640,016 B` (`3.47 MB`) | Local exact Cholesky EASE^R (`λ=800`, `γ=0.12`) on MovieLens 32M | `14,000` × `64` (`CVEA v1`) | **ACTIVE IN APP** |
-| [public/models/item_embeddings_f16.bin](./public/models/item_embeddings_f16.bin) | `3,300,016 B` (`3.15 MB`) | **Your Google Colab training run** on MovieLens 32M | `25,000` × `64` (`CVEM v1`) | **ACTIVE IN APP** |
-| [public/models/content_embeddings_f16.bin](./public/models/content_embeddings_f16.bin) | `2,890,956 B` (`2.76 MB`) | Local `all-MiniLM-L6-v2` PCA (`1,499` `2024–2026` + `9,620` catalog) | `11,119` × `128` (`CVEM v1`) | **ACTIVE IN APP (`coldOnly`)** |
+| [public/models/item_ease_k64.cvea](./public/models/item_ease_k64.cvea) | `3,640,016 B` (`3.47 MB`) | Local exact Cholesky EASE^R (`λ=800`, `γ=0.12`) on MovieLens 32M | `14,000` × `64` (`CVEA v1`) | **ACTIVE IN APP (Movies)** |
+| [public/models/item_embeddings_f16.bin](./public/models/item_embeddings_f16.bin) | `3,300,016 B` (`3.15 MB`) | **Your Google Colab training run** on MovieLens 32M | `25,000` × `64` (`CVEM v1`) | **ACTIVE IN APP (Movies)** |
+| [public/models/content_embeddings_f16.bin](./public/models/content_embeddings_f16.bin) | `2,890,956 B` (`2.76 MB`) | Local `all-MiniLM-L6-v2` PCA (`1,499` `2024–2026` + `9,620` catalog) | `11,119` × `128` (`CVEM v1`) | **ACTIVE IN APP (Movies `coldOnly`)** |
+| [public/models/games/game_ease_k80.cvea](./public/models/games/game_ease_k80.cvea) | `4,748,560 B` (`4.53 MB`) | Google Colab T4 Exact EASE^R (`λ=5000`, `α=0.30`, `neg_w=-0.35`) via `scripts/games/train_games_colab.ipynb` | `14,656` × `80` (`CVEA v1`) | **ACTIVE IN APP (Games)** |
+| [public/models/games/game_embeddings_f16.bin](./public/models/games/game_embeddings_f16.bin) | `1,934,608 B` (`1.84 MB`) | Google Colab T4 Spectral-EASE (`eigh`) on Steam interactions mapped to IGDB IDs | `14,656` × `64` (`CVEM v1`) | **ACTIVE IN APP (Games)** |
+| [public/models/games/game_content_f16.bin](./public/models/games/game_content_f16.bin) | `6,354,156 B` (`6.06 MB`) | Tag-Dropout Ridge-aligned `BAAI/bge-large-en-v1.5` (`w=0.75`) covering Steam + console exclusives + 2024–2026 releases | `24,439` × `128` (`CVEM v1`) | **ACTIVE IN APP (Games)** |
+| [public/models/games/game_tuner_axes.json](./public/models/games/game_tuner_axes.json) | `3,303 B` (`3.2 KB`) | Popularity-decorrelated neural tuner probes (`Intensity` AUC `0.968`, `Tone` AUC `0.996`) | `128-D` JSON | **ACTIVE IN APP (Games)** |
+| [public/models/games/game_steam_to_igdb.json](./public/models/games/game_steam_to_igdb.json) | `284,040 B` (`277 KB`) | Canonical Steam AppID → IGDB ID crosswalk (`version_parent`-resolved) | `18,144` entries | **ACTIVE IN APP (Games Import)** |
+| [public/models/games/game_ranker_weights.json](./public/models/games/game_ranker_weights.json) | `2,578 B` (`2.5 KB`) | Synced GameVault hybrid blend weights & 500-user Dev/Test evaluation summary | JSON | **ACTIVE IN APP (Games)** |
 | `.data/small_ref.bin` | `1,275,268 B` (`1.22 MB`) | Local quick test on `ml-latest-small` (`100k` ratings) | `9,734` × `64` | Archived in `.data/` (never loaded by app) |
 | `.data/item_embeddings_clean_f16.bin` | `3,300,016 B` (`3.15 MB`) | Clean 32M retrain stripping all benchmark test holdout rows | `25,000` × `64` | Benchmark-only leakage verification in `.data/` |
 
@@ -287,7 +293,7 @@ Run any of these from the project root (`g:\Important Projects\movie-ratings`):
 npm test
 ```
 **What "healthy" looks like:**
-- Exits `0` with all `479 / 479` service and API test assertions passing (`fail 0`, `skipped 0`), covering:
+- Exits `0` with all service and API test assertions passing (`fail 0`, `skipped 0`), including GameVault API & ML service suites (`tests/igdbApi.test.js`, `tests/gameServices.test.js`) and:
   - `tests/aiSpendTracker.test.js`
   - `tests/apiProxy.test.js`
   - `tests/appStorage.test.js`
@@ -359,13 +365,16 @@ npm run build
 
 ### Check 3: Inspect the Active `.bin` & `.cvea` Model Headers & Exact Byte Counts
 ```bash
-node -e "import('node:fs').then(fs=>{for(const f of ['public/models/item_embeddings_f16.bin','public/models/item_ease_k64.cvea','public/models/content_embeddings_f16.bin']){const b=fs.readFileSync(f),d=new DataView(b.buffer,b.byteOffset,b.byteLength);console.log(f,{bytes:b.length,magic:b.slice(0,4).toString(),ver:d.getUint32(4,true),count:d.getUint32(8,true),dimOrK:d.getUint32(12,true)});}})"
+node -e "import('node:fs').then(fs=>{for(const f of ['public/models/item_embeddings_f16.bin','public/models/item_ease_k64.cvea','public/models/content_embeddings_f16.bin','public/models/games/game_ease_k80.cvea','public/models/games/game_embeddings_f16.bin','public/models/games/game_content_f16.bin']){const b=fs.readFileSync(f),d=new DataView(b.buffer,b.byteOffset,b.byteLength);console.log(f,{bytes:b.length,magic:b.slice(0,4).toString(),ver:d.getUint32(4,true),count:d.getUint32(8,true),dimOrK:d.getUint32(12,true)});}})"
 ```
 **Expected exact output:**
 ```text
-public/models/item_embeddings_f16.bin    { bytes: 3300016, magic: 'CVEM', ver: 1, count: 25000, dimOrK: 64 }
-public/models/item_ease_k64.cvea         { bytes: 3640016, magic: 'CVEA', ver: 1, count: 14000, dimOrK: 64 }
-public/models/content_embeddings_f16.bin { bytes: 2890956, magic: 'CVEM', ver: 1, count: 11119, dimOrK: 128 }
+public/models/item_embeddings_f16.bin       { bytes: 3300016, magic: 'CVEM', ver: 1, count: 25000, dimOrK: 64 }
+public/models/item_ease_k64.cvea            { bytes: 3640016, magic: 'CVEA', ver: 1, count: 14000, dimOrK: 64 }
+public/models/content_embeddings_f16.bin    { bytes: 2890956, magic: 'CVEM', ver: 1, count: 11119, dimOrK: 128 }
+public/models/games/game_ease_k80.cvea      { bytes: 4748560, magic: 'CVEA', ver: 1, count: 14656, dimOrK: 80 }
+public/models/games/game_embeddings_f16.bin { bytes: 1934608, magic: 'CVEM', ver: 1, count: 14656, dimOrK: 64 }
+public/models/games/game_content_f16.bin    { bytes: 6354156, magic: 'CVEM', ver: 1, count: 24439, dimOrK: 128 }
 ```
 
 ### Check 4: Run the Local Evaluation Harness (`scripts/run_eval.mjs`)
