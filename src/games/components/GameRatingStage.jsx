@@ -375,7 +375,7 @@ export default function GameRatingStage({
             ) : !existing ? (
               <span className="text-[1.2rem] text-text-3">
                 {selectedScore > 0
-                  ? "Feeds your local EASE^R + 128-D neural taste profile immediately."
+                  ? "Updates your personal taste profile right away."
                   : status === "tried_bored"
                     ? "Logged neutrally — won't penalize this genre in case you give it another shot later!"
                     : canSaveWithoutScore

@@ -1989,7 +1989,7 @@
 
 .gv-craft-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(28rem, 100%), 1fr));
   gap: 0.9rem;
 }
 
@@ -1998,6 +1998,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
   padding: 0.85rem 1.1rem;
   border-radius: var(--r-sm);
   background: rgba(255, 255, 255, 0.025);
@@ -2005,6 +2007,8 @@
 }
 
 .gv-craft-name {
+  min-width: 0;
+  line-height: 1.25;
   font-size: 1.22rem;
   font-weight: 500;
   color: var(--text-2);
@@ -2148,7 +2152,7 @@
 }
 
 .gv-modal-wide {
-  max-width: 68rem;
+  max-width: 72rem;
 }
 
 .gv-sheet-backdrop {
@@ -2357,12 +2361,6 @@
   .gv-explore-layout {
     grid-template-columns: 24rem minmax(0, 1fr);
     gap: 2.2rem;
-  }
-}
-
-@media (max-width: 1080px) {
-  .gv-craft-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2585,6 +2583,14 @@
     padding: 1.5rem;
     max-height: calc(100dvh - 1.6rem);
     border-radius: var(--r-lg) var(--r-lg) var(--r-md) var(--r-md);
+  }
+}
+
+@media (max-width: 380px) {
+  .gv-craft-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
   }
 }
 
