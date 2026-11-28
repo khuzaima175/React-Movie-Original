@@ -655,3 +655,94 @@ test("gameSyncService v1.4: keyset pagination (>1,000 rows), strict page-error a
   assert.equal(failedRes.status, "error");
   assert.equal(failedRes.played.length, 1, "aborted sync must return untouched local vault");
 });
+
+test("gameRankerService v1.5: CVGM v2 typicalHours relative playtime, recency tilt, 5-aspect craft DNA & quick tags", async () => {
+  const { parseGameCatalogMetaBinary } = await import("../src/games/services/gameModelService.js");
+  const { parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+  const {
+    buildWeightedGameRatings,
+    extractGameCraftAndTagProfile,
+    lookupCatalogTypicalHours,
+    rankGameCandidates
+  } = await import("../src/games/services/gameRankerService.js");
+  const { curateGamesWithOracle } = await import("../src/games/services/gameOracleService.js");
+
+  const modelsDir = path.join(process.cwd(), "public/models/games");
+  const toAb = (file) => {
+    const b = fs.readFileSync(path.join(modelsDir, file));
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  };
+  const catalogMeta = parseGameCatalogMetaBinary(toAb("game_catalog_meta.bin"));
+  assert.equal(catalogMeta.version, 2, "game_catalog_meta.bin should be CVGM v2");
+  const portalHrs = lookupCatalogTypicalHours(72, catalogMeta);
+  const eldenHrs = lookupCatalogTypicalHours(119133, catalogMeta);
+  assert.ok(portalHrs >= 5 && portalHrs <= 20, `Expected Portal 2 typical hours ~10h, got ${portalHrs}`);
+  assert.ok(eldenHrs >= 60 && eldenHrs <= 160, `Expected Elden Ring typical hours ~117h, got ${eldenHrs}`);
+
+  // 1. Relative playtime: 15h in Portal 2 (~10h game -> 1.5x length!) weighs MORE than 15h in Elden Ring (~117h game -> 0.13x!)
+  const relWeights = buildWeightedGameRatings(
+    [
+      { igdbId: 72, title: "Portal 2", userRating: 9, hoursPlayed: 15, status: "completed" },
+      { igdbId: 119133, title: "Elden Ring", userRating: 9, hoursPlayed: 15, status: "completed" }
+    ],
+    { catalogMeta }
+  );
+  assert.ok(relWeights[0].weight > relWeights[1].weight, `15h in Portal 2 (${relWeights[0].weight}) should outweigh 15h in Elden Ring (${relWeights[1].weight})`);
+
+  // 2. Gentle recency tilt: game played this week outweighs identical game played 3 years ago
+  const nowMs = Date.parse("2026-11-28T00:00:00Z");
+  const recWeights = buildWeightedGameRatings(
+    [
+      { igdbId: 72, title: "Portal 2", userRating: 9, status: "completed", datePlayed: "2026-11-25" },
+      { igdbId: 71, title: "Portal", userRating: 9, status: "completed", datePlayed: "2023-05-01" }
+    ],
+    { nowMs }
+  );
+  assert.ok(recWeights[0].weight > recWeights[1].weight * 1.15, "Recent game should receive gentle recency tilt over 3-year-old game");
+
+  // 3. Craft Breakdown + Quick Tags profile steers candidate tie-breaks and flows into Oracle prompts
+  const cozyPlayed = [
+    {
+      igdbId: 17000,
+      title: "Stardew Valley",
+      userRating: 10,
+      status: "completed",
+      genres: ["Simulator", "Indie"],
+      ratingBreakdown: { gameplay: 4, story: 5, visuals: 5, audio: 5, replayability: 5 },
+      quickTags: ["#CozyVibes", "#DeepStory", "#Masterpiece"]
+    }
+  ];
+  const dna = extractGameCraftAndTagProfile(cozyPlayed);
+  assert.equal(dna.hasSignals, true);
+  assert.ok(dna.implicitToneBias > 0, "CozyVibes should create positive warm tone bias");
+  assert.ok(dna.implicitPacingBias < 0, "CozyVibes + DeepStory should create lower intensity bias");
+  assert.ok(dna.topCraftLabels.length >= 2);
+  assert.ok(dna.topTags.includes("#CozyVibes"));
+
+  const contentIndex = parseEmbeddingBinary(toAb("game_content_f16.bin"));
+  const tunerAxes = JSON.parse(fs.readFileSync(path.join(modelsDir, "game_tuner_axes.json"), "utf8"));
+  const rankedWithDna = rankGameCandidates(
+    [
+      { igdbId: 11133, title: "Dark Souls III", year: 2016, rating10: 8.8, ratingCount: 1500, genres: ["Hack and slash/Beat 'em up"] },
+      { igdbId: 17001, title: "Cozy Story Sim", year: 2022, rating10: 8.8, ratingCount: 1500, genres: ["Simulator", "Adventure"] }
+    ],
+    cozyPlayed,
+    [],
+    { contentIndex, tunerAxes, catalogMeta }
+  );
+  assert.equal(rankedWithDna[0].igdbId, 17001, "Cozy + Story craft/tag DNA should lift matching cozy story sim");
+
+  // Oracle prompt includes craft DNA and vault quick tags
+  let capturedPrompt = "";
+  await curateGamesWithOracle({
+    played: cozyPlayed,
+    candidates: [{ igdbId: 17001, title: "Cozy Story Sim", year: 2022, matchScore: 90, matchReasons: ["Story-Driven Fit"] }],
+    useGemini: true,
+    geminiCaller: async (p) => {
+      capturedPrompt = p;
+      return JSON.stringify({ picks: [{ igdbId: 17001, anchorTitles: ["Stardew Valley"], pitch: "Warm and relaxing." }] });
+    }
+  });
+  assert.match(capturedPrompt, /#CozyVibes/);
+  assert.match(capturedPrompt, /Story & World/);
+});

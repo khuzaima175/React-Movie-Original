@@ -22,7 +22,17 @@ export const CATALOG_GENRE_BIT_IDS = Object.freeze([12, 31, 5, 32, 15, 8, 25, 9,
 export const CATALOG_TBA_RELEASE_DAY = -32768;
 
 /**
- * Parses `game_catalog_meta.bin` (CVGM v1, 12 bytes/game) into dense TypedArrays + O(1) id lookup.
+ * Decodes log2-packed typical playtime byte (`Math.round(Math.log2(1 + hours) * 30)`) into hours.
+ */
+export function decodeCatalogTypicalHours(byteVal) {
+  const b = Number(byteVal);
+  if (!Number.isFinite(b) || b <= 0) return 0;
+  return Math.max(0, Math.pow(2, b / 30) - 1);
+}
+
+/**
+ * Parses `game_catalog_meta.bin` (CVGM v1 12 B/game or CVGM v2 14 B/game with typical playtime hours)
+ * into dense TypedArrays + O(1) id lookup.
  * Note: `releaseDay` is days since 2000-01-01 UTC (-32768 = TBA), evaluated dynamically against today at runtime.
  */
 export function parseGameCatalogMetaBinary(arrayBuffer) {
@@ -38,7 +48,9 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
   const version = view.getUint32(4, true);
   const count = view.getUint32(8, true);
   const recordBytes = view.getUint32(12, true);
-  if (version !== 1 || recordBytes !== 12 || count === 0) return null;
+  const validV1 = version === 1 && recordBytes === 12;
+  const validV2 = version === 2 && recordBytes >= 14;
+  if ((!validV1 && !validV2) || count === 0) return null;
   if (arrayBuffer.byteLength < 16 + count * recordBytes) return null;
 
   const ids = new Uint32Array(count);
@@ -48,6 +60,8 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
   const platformMask = new Uint8Array(count);
   const specAndFlags = new Uint8Array(count);
   const genreMask = new Uint16Array(count);
+  const typicalHours = new Float32Array(count);
+  const hasVerifiedTtb = new Uint8Array(count);
   const idToIndex = new Map();
 
   for (let i = 0; i < count; i++) {
@@ -60,6 +74,10 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
     platformMask[i] = view.getUint8(off + 8);
     specAndFlags[i] = view.getUint8(off + 9);
     genreMask[i] = view.getUint16(off + 10, true);
+    if (validV2) {
+      typicalHours[i] = decodeCatalogTypicalHours(view.getUint8(off + 12));
+      hasVerifiedTtb[i] = view.getUint8(off + 13) & 0x01;
+    }
     idToIndex.set(id, i);
   }
 
@@ -73,6 +91,8 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
     platformMask,
     specAndFlags,
     genreMask,
+    typicalHours,
+    hasVerifiedTtb,
     idToIndex
   };
 }

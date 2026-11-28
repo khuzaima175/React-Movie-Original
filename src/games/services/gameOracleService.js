@@ -4,6 +4,7 @@
  */
 
 import { hasGeminiBackend, resolveGeminiKey } from "../../services/apiTransport.js";
+import { extractGameCraftAndTagProfile } from "./gameRankerService.js";
 
 /**
  * 32 diverse, iconic multi-platform starter games with live IGDB-verified IDs, covers, genres & spec tiers.
@@ -196,9 +197,12 @@ export async function curateGamesWithOracle({
     return buildFallback();
   }
 
+  const craftTag = extractGameCraftAndTagProfile(played);
   const promptLines = [
     "You are GameVault Oracle, an expert video game curator.",
     `Player's top loved games: ${topLoved.map((g) => `${g.title}${g.userRating ? ` (${g.userRating}/10)` : ""}${g.hoursPlayed ? ` [${g.hoursPlayed}h]` : ""}`).join(", ") || "New player"}.`,
+    craftTag.topCraftLabels.length > 0 ? `Player's highest craft priorities: ${craftTag.topCraftLabels.join(", ")}.` : "",
+    craftTag.topTags.length > 0 ? `Player's frequent taste tags: ${craftTag.topTags.join(", ")}.` : "",
     vibe ? `Requested vibe/mood: "${vibe}".` : "Requested vibe: Best overall personal taste match.",
     platformFamily !== "all" ? `Preferred platform: ${platformFamily.toUpperCase()}.` : "",
     `Select the best ${Math.min(count, pool.length)} diverse games ONLY from the candidate list below. Return strict JSON: {"picks":[{"igdbId":123,"anchorTitles":["Game A"],"pitch":"2 concise editorial sentences explaining why this player will love it without mentioning scores or algorithms."}]}.`,
@@ -283,12 +287,15 @@ export async function askGameCompanionChat({
     .sort((a, b) => (Number(b.userRating || 0) - Number(a.userRating || 0)) || (Number(b.hoursPlayed || 0) - Number(a.hoursPlayed || 0)))
     .slice(0, 12);
 
+  const craftTag = extractGameCraftAndTagProfile(played);
   const systemLines = [
     "You are GameVault Companion, an expert, concise video-game critic and recommender.",
     allowSpoilers
       ? "Spoilers are explicitly allowed for this conversation."
       : "STRICT SPOILER-SAFE MODE: Never spoil story twists, late-game bosses, or endings.",
     `Player's top rated games: ${topLoved.map((g) => `${g.title} (${g.userRating}/10${g.hoursPlayed ? `, ${g.hoursPlayed}h` : ""})`).join(", ") || "None yet"}.`,
+    craftTag.topCraftLabels.length > 0 ? `Player prizes: ${craftTag.topCraftLabels.join(", ")}.` : "",
+    craftTag.topTags.length > 0 ? `Player's vault tags: ${craftTag.topTags.join(", ")}.` : "",
     backlog.length > 0 ? `Player's backlog: ${backlog.slice(0, 8).map((g) => g.title).join(", ")}.` : "",
     pinnedGame
       ? `Currently discussing pinned game: "${pinnedGame.title}" (${pinnedGame.year || "?"}) · Genres: ${(pinnedGame.genres || []).join(", ")} · Developers: ${(pinnedGame.developers || []).join(", ")} · Summary: ${(pinnedGame.summary || "").slice(0, 260)}`

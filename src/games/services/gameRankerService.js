@@ -66,6 +66,20 @@ export function getTodayCatalogDay(nowMs = Date.now()) {
 }
 
 /**
+ * Looks up a game's typical playthrough hours from `game_catalog_meta.bin` (CVGM v2)
+ * using either its raw IGDB ID or canonical warm edition alias.
+ */
+export function lookupCatalogTypicalHours(igdbId, catalogMeta = null, editionAliases = null) {
+  if (!catalogMeta || !catalogMeta.idToIndex || !catalogMeta.typicalHours) return 0;
+  const id = Number(igdbId);
+  if (!Number.isInteger(id) || id <= 0) return 0;
+  const idx = catalogMeta.idToIndex.get(id) ?? catalogMeta.idToIndex.get(resolveWarmGameId(id, editionAliases));
+  if (idx === undefined) return 0;
+  const hrs = Number(catalogMeta.typicalHours[idx] || 0);
+  return Number.isFinite(hrs) && hrs > 0 ? hrs : 0;
+}
+
+/**
  * Evaluates whether a game ID in `game_catalog_meta.bin` passes dynamic release-date, flop,
  * platform-family, hardware-rig, and genre pre-retrieval filters before IGDB hydration.
  */
@@ -326,10 +340,14 @@ export function predictGameRating(matchScore, played = []) {
 }
 
 /**
- * Converts a player's logged games (1-10 rating + hoursPlayed + status) AND dismissed games
- * into weighted preference entries compatible with EASE^R, Spectral-EASE, and 128-D Content engines.
+ * Converts a player's logged games (1-10 rating + relative hoursPlayed + status + craft breakdown +
+ * quick tags + recency) AND dismissed games into weighted preference entries compatible with
+ * EASE^R, Spectral-EASE, and 128-D Content engines.
  */
-export function buildWeightedGameRatings(played = [], { editionAliases = null, dismissedIds = null } = {}) {
+export function buildWeightedGameRatings(
+  played = [],
+  { editionAliases = null, dismissedIds = null, catalogMeta = null, nowMs = Date.now() } = {}
+) {
   const list = Array.isArray(played) ? played : [];
   const validRatings = list
     .map((g) => Number(g?.userRating ?? 0))
@@ -352,13 +370,26 @@ export function buildWeightedGameRatings(played = [], { editionAliases = null, d
     const rating = Number(g?.userRating ?? 0);
     const hours = Math.max(0, Number(g?.hoursPlayed ?? 0) || 0);
     const status = String(g?.status || "completed").toLowerCase();
+    const typicalHours = lookupCatalogTypicalHours(igdbId, catalogMeta, editionAliases);
 
-    // Playtime multiplier: completed/platinum short masterpieces NEVER get penalized below 1.00
-    const playBoost = hours > 0
-      ? (status === "completed" || status === "platinum"
+    // Relative playtime boost when typical game hours are known (e.g. 15h in 10h Portal 2 > 15h in 115h Elden Ring)
+    let playBoost = 1.0;
+    if (hours > 0) {
+      if (typicalHours > 0) {
+        const relRatio = hours / Math.max(2, typicalHours);
+        playBoost = (status === "completed" || status === "platinum")
+          ? clamp(1.0 + 0.22 * Math.log2(1 + relRatio), 1.0, 1.32)
+          : clamp(0.92 + 0.24 * Math.log2(1 + relRatio), 0.92, 1.32);
+      } else {
+        playBoost = (status === "completed" || status === "platinum")
           ? clamp(1.0 + 0.12 * Math.log10(1 + hours / 4), 1.0, 1.25)
-          : clamp(0.92 + 0.14 * Math.log10(1 + hours), 0.92, 1.25))
-      : 1.0;
+          : clamp(0.92 + 0.14 * Math.log10(1 + hours), 0.92, 1.25);
+      }
+    }
+
+    // Relative salty-veteran guard: high hours relative to a game's length soften dislike repulsion
+    const saltyThreshold = typicalHours > 0 ? clamp(1.35 * typicalHours, 15, 80) : 60;
+    const dropSaltyThreshold = typicalHours > 0 ? clamp(1.1 * typicalHours, 12, 50) : 50;
 
     let weight = 0;
     if (Number.isFinite(rating) && rating > 0) {
@@ -368,18 +399,47 @@ export function buildWeightedGameRatings(played = [], { editionAliases = null, d
       } else if (rating >= 6) {
         weight = 0.28 * playBoost;
       } else if (rating <= 4) {
-        // Salty high-hour negative review guard: don't strongly repulse a 100h love-hate game
-        weight = hours >= 60 ? -0.15 : -0.75 * (1 + (4 - rating) * 0.2);
+        weight = hours >= saltyThreshold ? -0.15 : -0.75 * (1 + (4 - rating) * 0.2);
       } else {
         weight = -0.15;
       }
     } else if (status === "completed" || status === "playing" || status === "platinum") {
       weight = 0.9 * playBoost;
     } else if (status === "dropped") {
-      weight = hours >= 50 ? 0.0 : -0.45;
+      weight = hours >= dropSaltyThreshold ? 0.0 : -0.45;
     }
 
     if ((status === "completed" || status === "platinum") && weight > 0) weight *= 1.08;
+
+    // 5-Aspect Craft Breakdown conviction modifier (centered at 3.0 -> [0.88 .. 1.12])
+    if (weight > 0 && g?.ratingBreakdown && typeof g.ratingBreakdown === "object") {
+      const vals = ["gameplay", "story", "visuals", "audio", "replayability"]
+        .map((k) => Number(g.ratingBreakdown[k]))
+        .filter((v) => Number.isFinite(v) && v >= 1 && v <= 5);
+      if (vals.length > 0) {
+        const craftMean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        weight *= clamp(1.0 + (craftMean - 3.0) * 0.06, 0.88, 1.12);
+      }
+    }
+
+    // Quick Tags conviction nudges (#Masterpiece boosts; #TooGrindy / #Janky temper non-9+ scores)
+    if (weight > 0 && Array.isArray(g?.quickTags) && g.quickTags.length > 0) {
+      const tagSet = new Set(g.quickTags.map((t) => String(t || "").toLowerCase()));
+      if (tagSet.has("#masterpiece")) weight *= 1.1;
+      if (tagSet.has("#toogrindy") && rating < 9) weight *= 0.92;
+      if (tagSet.has("#janky") && rating < 9) weight *= 0.94;
+    }
+
+    // Gentle recency tilt (+/-12%) when datePlayed is present so recent gaming phases steer recommendations
+    if (weight > 0 && g?.datePlayed) {
+      const playedMs = Date.parse(String(g.datePlayed));
+      if (Number.isFinite(playedMs) && playedMs > 0) {
+        const ageDays = Math.max(0, (nowMs - playedMs) / 86_400_000);
+        const recencyMult = 0.88 + 0.24 * Math.exp(-ageDays / 365);
+        weight *= recencyMult;
+      }
+    }
+
     if (Math.abs(weight) < 1e-6) continue;
 
     out.push({
@@ -407,6 +467,127 @@ export function buildWeightedGameRatings(played = [], { editionAliases = null, d
   }
 
   return out;
+}
+
+const CRAFT_ASPECT_LABELS = {
+  gameplay: "Gameplay & Combat",
+  story: "Story & World",
+  visuals: "Visuals & Art",
+  audio: "Sound & OST",
+  replayability: "Replayability"
+};
+
+/**
+ * Extracts a player's Craft DNA (5-aspect breakdown averages) & Quick Tag affinities
+ * to sharpen neural Intensity/Tone steering, genre tie-breaks, and Game Oracle prompts.
+ */
+export function extractGameCraftAndTagProfile(played = []) {
+  const sums = { gameplay: 0, story: 0, visuals: 0, audio: 0, replayability: 0 };
+  const counts = { gameplay: 0, story: 0, visuals: 0, audio: 0, replayability: 0 };
+  const tagCounts = new Map();
+  let totalTaggedGames = 0;
+  let totalCraftGames = 0;
+
+  for (const g of Array.isArray(played) ? played : []) {
+    const r = Number(g?.userRating ?? 0);
+    const isPos = r >= 7 || (r === 0 && ["completed", "platinum", "playing"].includes(String(g?.status || "").toLowerCase()));
+
+    if (isPos && g?.ratingBreakdown && typeof g.ratingBreakdown === "object") {
+      let anyAspect = false;
+      for (const key of Object.keys(sums)) {
+        const v = Number(g.ratingBreakdown[key]);
+        if (Number.isFinite(v) && v >= 1 && v <= 5) {
+          sums[key] += v;
+          counts[key] += 1;
+          anyAspect = true;
+        }
+      }
+      if (anyAspect) totalCraftGames += 1;
+    }
+
+    if (Array.isArray(g?.quickTags) && g.quickTags.length > 0) {
+      totalTaggedGames += 1;
+      for (const rawTag of g.quickTags) {
+        const clean = String(rawTag || "").trim();
+        if (!clean) continue;
+        // #TooGrindy / #Janky matter on any game; positive taste tags count on liked games
+        const lower = clean.toLowerCase();
+        if (lower === "#toogrindy" || lower === "#janky" || isPos) {
+          tagCounts.set(clean, (tagCounts.get(clean) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  const craftAverages = {};
+  for (const key of Object.keys(sums)) {
+    craftAverages[key] = counts[key] > 0 ? Math.round((sums[key] / counts[key]) * 100) / 100 : null;
+  }
+
+  const prefOf = (k) => (craftAverages[k] !== null ? clamp((craftAverages[k] - 3.0) / 2.0, -1, 1) : 0);
+  const storyPref = prefOf("story");
+  const gameplayPref = prefOf("gameplay");
+  const replayPref = prefOf("replayability");
+  const audioVisualPref = (prefOf("visuals") + prefOf("audio")) / 2;
+
+  const getTagN = (target) => {
+    let n = 0;
+    for (const [k, c] of tagCounts.entries()) {
+      if (k.toLowerCase() === target) n += c;
+    }
+    return n;
+  };
+
+  const nBoss = getTagN("#peakbossfights");
+  const nCozy = getTagN("#cozyvibes");
+  const nStoryTag = getTagN("#deepstory");
+  const nLoop = getTagN("#addictiveloop");
+  const nAtmos = getTagN("#atmospheric") + getTagN("#unforgettableost");
+  const nCoop = getTagN("#greatcoop");
+  const nGrindy = getTagN("#toogrindy");
+
+  const implicitPacingBias = clamp(
+    0.22 * (gameplayPref - storyPref) +
+      0.18 * Math.min(2, nBoss) -
+      0.22 * Math.min(2, nCozy) -
+      0.08 * Math.min(2, nStoryTag),
+    -0.55,
+    0.55
+  );
+  const implicitToneBias = clamp(
+    0.24 * Math.min(2, nCozy) -
+      0.14 * Math.min(2, nBoss) -
+      0.10 * Math.min(2, nAtmos),
+    -0.55,
+    0.55
+  );
+
+  const topCraftLabels = Object.entries(craftAverages)
+    .filter(([, avg]) => avg !== null && avg >= 3.8)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k, avg]) => `${CRAFT_ASPECT_LABELS[k]} (${avg.toFixed(1)}/5)`);
+
+  const topTags = [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([t]) => t);
+
+  return {
+    hasSignals: totalCraftGames > 0 || totalTaggedGames > 0,
+    craftAverages,
+    storyPref: clamp(storyPref + (nStoryTag > 0 ? 0.25 : 0), -1, 1),
+    gameplayPref: clamp(gameplayPref + (nBoss > 0 ? 0.25 : 0), -1, 1),
+    replayPref: clamp(replayPref + (nLoop > 0 ? 0.30 : 0), -1, 1),
+    audioVisualPref,
+    cozyAffinity: Math.min(1, nCozy * 0.5),
+    wantsCoop: nCoop > 0,
+    avoidGrindLevel: Math.min(2, nGrindy),
+    implicitPacingBias,
+    implicitToneBias,
+    topCraftLabels,
+    topTags
+  };
 }
 
 /**
@@ -571,14 +752,19 @@ let simMapMemo = { key: "", value: null };
 
 function buildVaultSimSignature(played = [], backlog = [], models = {}, dismissedIds = null) {
   const pKey = (Array.isArray(played) ? played : [])
-    .map((g) => `${g?.igdbId}:${g?.userRating || 0}:${g?.hoursPlayed || 0}:${g?.status || ""}`)
+    .map((g) => {
+      const rb = g?.ratingBreakdown ? Object.values(g.ratingBreakdown).join(".") : "";
+      const qt = Array.isArray(g?.quickTags) ? g.quickTags.join(".") : "";
+      return `${g?.igdbId}:${g?.userRating || 0}:${g?.hoursPlayed || 0}:${g?.status || ""}:${g?.datePlayed || ""}:${rb}:${qt}`;
+    })
     .join(",");
   const bKey = (Array.isArray(backlog) ? backlog : [])
     .map((g) => `${g?.igdbId}`)
     .join(",");
   const dKey = dismissedIds ? [...dismissedIds].map(Number).filter(Boolean).sort((a, b) => a - b).join(",") : "";
   const aliasCount = models?.editionAliases ? Object.keys(models.editionAliases).length : 0;
-  const mKey = `${models?.easeIndex?.count || 0}:${models?.collabIndex?.count || 0}:${models?.contentIndex?.count || 0}:${aliasCount}`;
+  const metaVer = models?.catalogMeta?.version || 0;
+  const mKey = `${models?.easeIndex?.count || 0}:${models?.collabIndex?.count || 0}:${models?.contentIndex?.count || 0}:${aliasCount}:${metaVer}`;
   return `${mKey}|${pKey}|${bKey}|${dKey}`;
 }
 
@@ -595,11 +781,12 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
     easeIndex = null,
     collabIndex = null,
     contentIndex = null,
+    catalogMeta = null,
     weights = null,
     editionAliases = null
   } = models || {};
 
-  const weighted = buildWeightedGameRatings(played, { editionAliases });
+  const weighted = buildWeightedGameRatings(played, { editionAliases, catalogMeta });
   // Content vectors cover original IGDB IDs directly; keep original ID whenever indexed in contentIndex
   const contentWeighted = weighted.map((entry) => ({
     ...entry,
@@ -608,7 +795,7 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
 
   // Keep UI "Not for me" dismissals strictly in repulsion space so they push away similar warm & cold
   // games without shrinking catalogMax or distorting positive EASE^R / Spectral normalization.
-  const fullNegWeighted = buildWeightedGameRatings(played, { editionAliases, dismissedIds });
+  const fullNegWeighted = buildWeightedGameRatings(played, { editionAliases, dismissedIds, catalogMeta });
   const contentNegWeighted = fullNegWeighted.map((entry) => ({
     ...entry,
     tmdbId: contentIndex?.idToIndex?.has(entry.igdbId) ? entry.igdbId : entry.tmdbId
@@ -893,8 +1080,11 @@ export function rankGameCandidates(
 ) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
   const editionAliases = models?.editionAliases || null;
+  const catalogMeta = models?.catalogMeta || null;
+  const orthAxes = orthogonalizeTunerAxes(models?.tunerAxes || null) || models?.tunerAxes || null;
   const maps = precomputedMaps || computeGameSimilarityMaps(played, backlog, models, { dismissedIds });
   const profile = extractGameTasteProfile(played);
+  const craftTagProfile = extractGameCraftAndTagProfile(played);
   const now = new Date();
   const currentYear = now.getUTCFullYear();
   const todayIso = now.toISOString().slice(0, 10);
@@ -967,6 +1157,46 @@ export function rankGameCandidates(
       ) && !(r10 >= 8.7 && votes >= 400);
     const editionPenalty = isRedundantEdition ? 0.65 : 0;
 
+    // Personal Craft DNA & Quick-Tag steering (bounded [-0.35 .. +0.42] tie-breaker)
+    let personalDnaDelta = 0;
+    let dnaReason = "";
+    if (craftTagProfile.hasSignals) {
+      const genreStr = genres.join(" ").toLowerCase();
+      const modeStr = (Array.isArray(game?.modes) ? game.modes : []).join(" ").toLowerCase();
+      const typHrs = lookupCatalogTypicalHours(id, catalogMeta, editionAliases);
+
+      if (craftTagProfile.storyPref > 0.15 && /rpg|role-playing|adventure|visual novel|point-and-click/i.test(genreStr)) {
+        personalDnaDelta += 0.20 * craftTagProfile.storyPref;
+        if (!dnaReason && craftTagProfile.storyPref >= 0.45) dnaReason = "Story-Driven Fit";
+      }
+      if (craftTagProfile.gameplayPref > 0.15 && /hack and slash|fighting|shooter|platform|tactical|action/i.test(genreStr)) {
+        personalDnaDelta += 0.20 * craftTagProfile.gameplayPref;
+        if (!dnaReason && craftTagProfile.gameplayPref >= 0.45) dnaReason = "Combat & Gameplay Fit";
+      }
+      if (craftTagProfile.replayPref > 0.15 && (/strategy|card|board|simulator|indie/i.test(genreStr) || typHrs >= 40)) {
+        personalDnaDelta += 0.18 * craftTagProfile.replayPref;
+        if (!dnaReason && craftTagProfile.replayPref >= 0.45) dnaReason = "High-Replay Fit";
+      }
+      if (craftTagProfile.wantsCoop && /co-op|multiplayer/i.test(modeStr)) {
+        personalDnaDelta += 0.22;
+        if (!dnaReason) dnaReason = "Great Co-op Fit";
+      }
+      if (craftTagProfile.avoidGrindLevel > 0 && typHrs >= 75) {
+        personalDnaDelta -= 0.14 * craftTagProfile.avoidGrindLevel;
+      }
+
+      if (models?.contentIndex && orthAxes) {
+        const intCoord = projectGameAxis(id, models.contentIndex, orthAxes.intensityVec || orthAxes.pacingVec, editionAliases) ?? 0;
+        const toneCoord = projectGameAxis(id, models.contentIndex, orthAxes.toneVec, editionAliases) ?? 0;
+        const axisBoost = 0.28 * (craftTagProfile.implicitPacingBias * intCoord + craftTagProfile.implicitToneBias * toneCoord);
+        personalDnaDelta += axisBoost;
+        if (!dnaReason && craftTagProfile.cozyAffinity > 0 && toneCoord > 0.25 && intCoord < -0.1) {
+          dnaReason = "Cozy Vibes Fit";
+        }
+      }
+      personalDnaDelta = clamp(personalDnaDelta, -0.35, 0.42);
+    }
+
     // Calibrated logit combining warm collaborative + catalog-max normalized cold-start BGE-large alignment
     let logit;
     if (hasCollab && collabNorm > 0.02) {
@@ -977,7 +1207,8 @@ export function rankGameCandidates(
         0.48 * genreOverlap +
         0.35 * themeOverlap +
         0.55 * devMatch +
-        1.35 * acclaimNorm -
+        1.35 * acclaimNorm +
+        personalDnaDelta -
         1.55 * repulsion -
         mediocrePenalty -
         flopPenalty -
@@ -993,7 +1224,8 @@ export function rankGameCandidates(
         0.55 * genreOverlap +
         0.38 * themeOverlap +
         0.62 * devMatch +
-        1.35 * acclaimNorm -
+        1.35 * acclaimNorm +
+        personalDnaDelta -
         1.35 * repulsion -
         mediocrePenalty -
         flopPenalty -
@@ -1018,6 +1250,9 @@ export function rankGameCandidates(
       } else {
         matchReasons.push("Semantic Match");
       }
+    }
+    if (dnaReason && personalDnaDelta >= 0.14 && matchReasons.length < 2) {
+      matchReasons.push(dnaReason);
     }
     if (matchedDev) {
       matchReasons.push(`Studio: ${matchedDev}`);
