@@ -11,8 +11,6 @@ import {
   rankGameCandidates
 } from "../services/gameRankerService";
 import {
-  PC_SPEC_TIERS,
-  RIG_PLATFORM_CHOICES,
   getRigPlatformFamilies,
   isGameCompatibleWithRig
 } from "../services/gameRigService";
@@ -72,7 +70,7 @@ export default function GamesDiscoverPage() {
     };
   }, []);
 
-  // Personalized local ML picks (deduped against played editions + dismissed games + optional rig spec filter)
+  // Personalized recommendations (deduped against played editions + dismissed games + optional rig spec filter)
   useEffect(() => {
     if (modelsLoading || played.length === 0 || (!models.easeIndex && !models.contentIndex)) {
       setForYouPicks([]);
@@ -136,41 +134,15 @@ export default function GamesDiscoverPage() {
     return topRated.slice(0, 5);
   }, [forYouPicks, popularHits, recentHits, topRated]);
 
-  const rigSummary = useMemo(() => {
-    if (!rigProfile?.completed) return "Tell GameVault your PC specs or console to tailor recommendations";
-    const plats = (rigProfile.platforms || [])
-      .map((id) => RIG_PLATFORM_CHOICES.find((p) => p.id === id)?.short || id)
-      .join(" · ");
-    const tierObj = PC_SPEC_TIERS.find((t) => t.id === rigProfile.pcSpecTier);
-    return rigProfile.platforms?.includes("pc") && tierObj
-      ? `${plats} — ${tierObj.label}${rigProfile.respectRigLimits ? " (Rig filter active)" : ""}`
-      : plats;
-  }, [rigProfile]);
-
   return (
-    <div className="gv-page page-rail">
+    <div className="gv-page gv-page-discover page-rail">
       {error && (
-        <div className="gv-panel" style={{ borderColor: "var(--danger)" }}>
+        <div className="gv-panel mt-4" style={{ borderColor: "var(--danger)" }}>
           <p className="text-[1.4rem] text-danger">{error}</p>
         </div>
       )}
 
-      {/* Compact PC / Console Rig Strip */}
-      <div className="gv-rig-strip">
-        <div className="flex items-center gap-3 min-w-0">
-          <Cpu size={15} className="text-accent shrink-0" aria-hidden="true" />
-          <span className="text-[1.25rem] text-text-2 truncate">{rigSummary}</span>
-        </div>
-        <button
-          type="button"
-          className="gv-btn gv-btn-sm shrink-0"
-          onClick={() => setOnboardingOpen(true)}
-        >
-          {rigProfile?.completed ? "Edit My Rig & Taste Deck" : "Set Up My Rig & Taste"}
-        </button>
-      </div>
-
-      {/* Multi-Slide Rotating Editorial Hero Billboard with Ken Burns + Scroll Parallax */}
+      {/* Full-Bleed Mobile / Framed Desktop Rotating Spotlight */}
       <GameHeroBillboard
         slides={heroSlides}
         isPersonalized={forYouPicks.length > 0}
@@ -181,21 +153,40 @@ export default function GamesDiscoverPage() {
         onOpenRoulette={() => openRoulette(forYouPicks.length > 0 ? forYouPicks : recentHits)}
       />
 
-      {/* Animated 1-Tap Taste Calibration Strip (when < 3 games rated) */}
+      {/* Sleek Rig Onboarding Strip (shown cleanly below hero only until configured) */}
+      {!rigProfile?.completed && (
+        <div className="gv-rig-strip">
+          <div className="flex items-center gap-3 min-w-0">
+            <Cpu size={15} className="shrink-0" style={{ color: "var(--gv-accent)" }} aria-hidden="true" />
+            <span className="text-[1.3rem] text-text-2 truncate">
+              Set your PC specs or consoles to tailor playable recommendations.
+            </span>
+          </div>
+          <button
+            type="button"
+            className="gv-btn gv-btn-sm shrink-0"
+            onClick={() => setOnboardingOpen(true)}
+          >
+            Set Up My Rig
+          </button>
+        </div>
+      )}
+
+      {/* 1-Tap Starter Calibration Strip (only while < 3 games rated) */}
       {played.length < 3 && starterCards.length > 0 && (
         <ScrollRevealSection className="gv-panel" delay={0.04}>
           <div className="gv-section-header" style={{ marginBottom: "1.4rem" }}>
             <div>
               <span className="gv-kicker">
-                <Sparkles size={13} /> Instant Taste Calibration ({played.length} / 3)
+                <Sparkles size={13} /> Quick Calibration ({played.length} / 3)
               </span>
-              <h2 className="gv-section-title">Tap a few games you know to unlock local ML picks</h2>
+              <h2 className="gv-section-title">Tap a few iconic games you&apos;ve played</h2>
               <p className="gv-section-sub">
-                Runs 100% locally in your browser across 24,439 PC, PlayStation, Nintendo &amp; Xbox games.
+                Rate 3 titles to unlock tailored recommendations across PC, PlayStation, Nintendo &amp; Xbox.
               </p>
             </div>
             <Link to="/games/vault" className="gv-btn gv-btn-sm">
-              Import Steam IDs / JSON
+              Import Library
             </Link>
           </div>
 
@@ -208,7 +199,7 @@ export default function GamesDiscoverPage() {
                   initial={{ opacity: 0, scale: 0.94 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.88, y: -10 }}
-                  transition={{ duration: 0.24, ease: EASE }}
+                  transition={{ duration: 0.22, ease: EASE }}
                   className="gv-card"
                 >
                   <Link to={`/game/${g.igdbId}`} className="gv-card-cover-wrap">
@@ -217,21 +208,23 @@ export default function GamesDiscoverPage() {
                   </Link>
                   <div className="gv-card-body">
                     <div className="gv-card-title">{g.title}</div>
-                    <div className="gv-card-meta">{g.primaryGenre} · {g.year}</div>
+                    <div className="gv-card-meta-row">
+                      <span className="truncate">{g.primaryGenre} · {g.year}</span>
+                    </div>
                     <div className="gv-card-footer">
                       <button
                         type="button"
                         className="gv-card-action is-active"
                         onClick={() => savePlayedGame(g, { userRating: 9, status: "completed" })}
                       >
-                        Love (9)
+                        Love
                       </button>
                       <button
                         type="button"
                         className="gv-card-action"
                         onClick={() => savePlayedGame(g, { userRating: 7, status: "played" })}
                       >
-                        Like (7)
+                        Like
                       </button>
                       <button
                         type="button"
@@ -250,42 +243,38 @@ export default function GamesDiscoverPage() {
         </ScrollRevealSection>
       )}
 
-      {/* Opt-In Smooth Horizontal Carousels */}
       {played.length > 0 && (
         <GameCarouselRow
           title="Games You'll Love"
-          subtitle="Powered locally by EASE^R (K=80) + Spectral-EASE + Tag-Dropout BGE-large cold-start vectors."
+          subtitle="Matched to your played library."
           games={forYouPicks}
           showMatch
           loading={loadingForYou}
           seeAllTo="/games/explore"
-          seeAllLabel="Open Taste Tuner"
+          seeAllLabel="Explore all"
         />
       )}
 
       <GameCarouselRow
         title="Popular Blockbusters"
-        subtitle="The most-played franchises and flagship AAA hits across PC, PlayStation, Xbox & Nintendo."
         games={popularHits}
         showMatch={false}
         loading={loadingCatalog}
-        seeAllTo="/games/explore"
-        seeAllLabel="Browse Popular"
+        seeAllTo="/games/explore?tab=catalog"
+        seeAllLabel="See all"
       />
 
       <GameCarouselRow
-        title="2024–2026 Standouts"
-        subtitle="Recent hits covered by our 24.4k neural cold-start embedding index."
+        title="Recent Standouts"
         games={recentHits}
         showMatch={false}
         loading={loadingCatalog}
         seeAllTo="/games/explore?tab=catalog&sort=recent"
-        seeAllLabel="Explore Recent"
+        seeAllLabel="See all"
       />
 
       <GameCarouselRow
-        title="Console Exclusives & Icons"
-        subtitle="PlayStation & Nintendo classics bridged seamlessly into your taste space."
+        title="Console Icons"
         games={exclusives}
         showMatch={false}
         loading={loadingCatalog}
@@ -293,7 +282,6 @@ export default function GamesDiscoverPage() {
 
       <GameCarouselRow
         title="All-Time Acclaimed"
-        subtitle="Highest-rated canonical games across every generation."
         games={topRated}
         showMatch={false}
         loading={loadingCatalog}

@@ -26,7 +26,7 @@ function GameVaultShell() {
   } = useGameVault();
 
   return (
-    <>
+    <div className="gv-scope">
       <Suspense fallback={<RouteFallback />}>
         <Outlet />
       </Suspense>
@@ -57,7 +57,7 @@ function GameVaultShell() {
         playedById={playedById}
         onRateStarter={savePlayedGame}
       />
-    </>
+    </div>
   );
 }
 

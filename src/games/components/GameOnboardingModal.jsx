@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Check,
@@ -38,11 +39,16 @@ export default function GameOnboardingModal({
 
   useEffect(() => {
     if (!isOpen) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKey = (e) => {
       if (e.key === "Escape") handleFinish();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [isOpen, platforms, pcSpecTier, detectedGpu, respectRigLimits]);
 
   const hasPc = platforms.includes("pc");
@@ -106,11 +112,13 @@ export default function GameOnboardingModal({
     else setStep(3);
   }
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="gv-modal-backdrop"
+          className="gv-scope gv-modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label="GameVault Rig & Taste Setup"
@@ -343,6 +351,7 @@ export default function GameOnboardingModal({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

@@ -378,21 +378,21 @@ function AppContent() {
       </main>
 
       {/* Slim Editorial Footer */}
-      <footer className="w-full border-t border-hairline bg-surface-1/30 pt-8 pb-28 min-[901px]:pb-8 mt-16">
-        <div className="page-rail flex flex-col sm:flex-row items-center justify-between gap-4 text-[1.25rem] text-text-3">
-          <div className="flex items-center gap-2.5">
+      <footer className="w-full border-t border-hairline bg-surface-1/25 pt-6 pb-[8.2rem] min-[901px]:pb-8 mt-6 min-[901px]:mt-12">
+        <div className="page-rail flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left text-[1.2rem] text-text-3">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-0.5">
             <span className="font-semibold text-text-2 tracking-tight">
               {isGamesMode ? "GameVault" : "CinemaVault"}
             </span>
             <span aria-hidden="true">·</span>
             <span>
               {isGamesMode
-                ? "Personal Game Log & Neural Recommendations"
+                ? "Personal Game Log & Discovery"
                 : "Personal Film Log & Recommendations"}
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-2.5 gap-y-0.5">
             <span>Data from TMDB, OMDb, IGDB &amp; Gemini</span>
             <span className="hidden sm:inline" aria-hidden="true">·</span>
             <span className="text-text-2 font-medium">Built by Khuzaima</span>

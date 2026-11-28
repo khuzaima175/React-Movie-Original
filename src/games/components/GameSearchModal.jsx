@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, X, Gamepad2, ArrowRight } from "lucide-react";
@@ -21,6 +22,8 @@ export default function GameSearchModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (!isOpen) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     window.setTimeout(() => inputRef.current?.focus(), 40);
 
     // Lazily warm local ML models + vault so search results display instant personal Match %
@@ -41,7 +44,10 @@ export default function GameSearchModal({ isOpen, onClose }) {
       if (e.key === "Escape") onClose?.();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [isOpen, onClose]);
 
   useEffect(() => {
@@ -106,11 +112,13 @@ export default function GameSearchModal({ isOpen, onClose }) {
     }
   }
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="gv-modal-backdrop"
+          className="gv-scope gv-modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label="Search games"
@@ -205,6 +213,7 @@ export default function GameSearchModal({ isOpen, onClose }) {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

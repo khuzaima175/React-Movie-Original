@@ -4,11 +4,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Bookmark,
   Check,
-  Compass,
+  Cpu,
   MessageSquare,
   RefreshCw,
   Send,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Star,
   ThumbsDown,
@@ -17,6 +18,7 @@ import {
 import { useGameVault } from "../context/GameVaultContext";
 import { GAME_PLATFORM_FAMILIES, fetchGameDetails, fetchGamesBatch } from "../services/igdbService";
 import {
+  DEFAULT_GAME_TUNER_STATE,
   applyFranchiseDiversityCap,
   applyGameTuner,
   buildGameRecommendationIds,
@@ -31,13 +33,19 @@ import {
   curateGamesWithOracle
 } from "../services/gameOracleService";
 import { Select } from "../../components/ui/Select";
-import ScrollRevealSection from "../../components/ScrollRevealSection";
+import { Tabs } from "../../components/ui/Tabs";
+import GameTasteTunerBar from "../components/GameTasteTunerBar";
 import { flyToVault } from "../../services/flyToVault";
-import { EASE, springSnappy } from "../../motion";
+import { EASE } from "../../motion";
 
 const PLATFORM_OPTIONS = GAME_PLATFORM_FAMILIES.map((pf) => ({
   value: pf.id,
   label: pf.label
+}));
+
+const MOOD_SELECT_OPTIONS = GAME_ORACLE_MOODS.map((m) => ({
+  value: m.id,
+  label: m.label
 }));
 
 const CHAT_STARTERS = [
@@ -59,6 +67,7 @@ export default function GamesOraclePage() {
     models,
     modelsLoading,
     rigProfile,
+    setOnboardingOpen,
     setRateTarget,
     toggleBacklogGame
   } = useGameVault();
@@ -69,12 +78,15 @@ export default function GamesOraclePage() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedMood, setSelectedMood] = useState("any");
   const [customVibe, setCustomVibe] = useState("");
+  const [promptOpen, setPromptOpen] = useState(false);
   const [platformFamily, setPlatformFamily] = useState(() => getDefaultPlatformFocus(rigProfile));
+  const [tuner, setTuner] = useState(DEFAULT_GAME_TUNER_STATE);
   const [picks, setPicks] = useState([]);
   const [shownIds, setShownIds] = useState(() => new Set());
   const [source, setSource] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const autoLoadedRef = useRef(false);
 
   // Game Companion Chat state
   const [pinnedGame, setPinnedGame] = useState(null);
@@ -117,19 +129,25 @@ export default function GamesOraclePage() {
     return m;
   }, [played]);
 
-  async function handleGenerate(e, { refresh = false } = {}) {
-    e?.preventDefault?.();
+  async function handleGenerate({
+    refresh = false,
+    useGemini = true,
+    moodOverride = selectedMood,
+    platformOverride = platformFamily,
+    vibeOverride = customVibe
+  } = {}) {
     if (played.length === 0) return;
     setLoading(true);
     setError("");
     try {
-      const moodObj = GAME_ORACLE_MOODS.find((m) => m.id === selectedMood);
+      const moodObj = GAME_ORACLE_MOODS.find((m) => m.id === moodOverride);
       const hasMoodBias = Boolean(moodObj?.tunerBias);
       const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, {
         warmLimit: hasMoodBias ? 88 : 70,
         coldLimit: hasMoodBias ? 34 : 26,
         excludeBacklog: false,
-        dismissedIds
+        dismissedIds,
+        antiBubble: tuner.antiBubble
       });
       const hydrated = await fetchGamesBatch(allIds);
       let deduped = filterDuplicateGameEditions(hydrated, played, models?.editionAliases);
@@ -148,26 +166,42 @@ export default function GamesOraclePage() {
         });
       }
       ranked = applyFranchiseDiversityCap(ranked, { maxPerFranchise: 1, headWindow: 18 });
-      const vibe = [moodObj?.prompt, customVibe.trim()].filter(Boolean).join(". ");
+      const vibe = [moodObj?.prompt, vibeOverride.trim()].filter(Boolean).join(". ");
 
       const result = await curateGamesWithOracle({
         played,
         candidates: ranked,
         vibe,
-        platformFamily,
+        platformFamily: platformOverride,
         count: 12,
         excludeIds: excludeList,
-        useGemini: true
+        useGemini
       });
       setPicks(result.picks);
       setSource(result.source);
       setShownIds((prev) => new Set([...prev, ...result.picks.map((p) => p.igdbId)]));
     } catch {
-      setError("Could not generate recommendations right now. Please try again.");
+      setError("Could not load picks right now. Please try again.");
     } finally {
       setLoading(false);
     }
   }
+
+  // Instant 0-cost initial Oracle slate on mount (matches CinemaVault's instant Oracle opening)
+  useEffect(() => {
+    if (
+      activeTab !== "picks" ||
+      autoLoadedRef.current ||
+      modelsLoading ||
+      played.length === 0 ||
+      picks.length > 0 ||
+      (!models.easeIndex && !models.contentIndex)
+    ) {
+      return;
+    }
+    autoLoadedRef.current = true;
+    handleGenerate({ refresh: false, useGemini: false });
+  }, [activeTab, modelsLoading, played.length, picks.length, models]);
 
   function handleBacklogTonight() {
     if (backlog.length === 0) return;
@@ -178,7 +212,7 @@ export default function GamesOraclePage() {
         anchorTitles: g.anchorTitles?.length > 0 ? g.anchorTitles : played.slice(0, 2).map((p) => p.title),
         pitch:
           g.summary?.slice(0, 165) ||
-          "Ranked directly from your personal Backlog queue using EASE^R + 128-D neural taste matching."
+          "Picked from your personal Backlog based on your highest-rated games."
       }))
     );
     setSource("backlog-ml");
@@ -217,7 +251,7 @@ export default function GamesOraclePage() {
         {
           id: Date.now() + 1,
           role: "assistant",
-          text: "Could not reach Gemini right now. Your local ML Discover & Explore tools still work 100% offline."
+          text: "Could not reach Gemini right now. Your on-device recommendations are still ready in Discover and Explore."
         }
       ]);
     } finally {
@@ -225,329 +259,353 @@ export default function GamesOraclePage() {
     }
   }
 
-  const spotlight = picks[0] || null;
-  const gridPicks = picks.slice(1);
+  // Live-tune the displayed Oracle slate cleanly when the user adjusts dials
+  const tunedPicks = useMemo(() => {
+    if (picks.length === 0) return [];
+    const neutral =
+      tuner.era === 0 && tuner.familiarity === 0 && tuner.pacing === 0 && tuner.tone === 0 && !tuner.antiBubble;
+    if (neutral) return picks;
+    return applyGameTuner(picks, tuner, {
+      contentIndex: models.contentIndex,
+      tunerAxes: models.tunerAxes,
+      editionAliases: models.editionAliases,
+      played
+    });
+  }, [picks, tuner, models, played]);
+
+  const spotlight = tunedPicks[0] || null;
+  const gridPicks = tunedPicks.slice(1);
 
   return (
     <div className="gv-page page-rail">
-      <ScrollRevealSection className="gv-section-header">
+      {/* Header */}
+      <div className="gv-oracle-header">
         <div>
-          <span className="gv-kicker">
-            <Compass size={13} /> Local ML + Editorial AI Curation
-          </span>
-          <h1 className="gv-hero-title" style={{ fontSize: "clamp(2.4rem, 3.6vw, 3.6rem)" }}>
-            Game Oracle
-          </h1>
-          <p className="gv-section-sub">
-            Your local EASE^R + Spectral-EASE + BGE-large models lock the mathematical match %; Gemini curates the pitch.
+          <h1 className="gv-page-title">Game Oracle</h1>
+          <p className="gv-page-subtitle">
+            Personalized picks and companion chat tuned to your played library.
           </p>
         </div>
 
-        {/* Sliding Dual-Tab Switcher: Curated Picks | Game Companion */}
-        <div className="flex flex-wrap items-center gap-3">
-          {source && activeTab === "picks" && (
-            <span className="gv-pill gv-pill-match">
-              <Sparkles size={13} />
-              {source === "gemini"
-                ? "Local ML + Gemini Curated"
-                : source === "backlog-ml"
-                  ? "Backlog Ranked ($0.00 ML)"
-                  : "Local ML Engine (Offline)"}
-            </span>
-          )}
-          <div className="gv-segmented-bar" role="tablist" aria-label="Oracle mode">
-            {[
-              { id: "picks", label: "Curated Picks", icon: Sparkles },
-              { id: "chat", label: "Game Companion", icon: MessageSquare }
-            ].map((t) => {
-              const active = activeTab === t.id;
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className={`gv-segmented-btn ${active ? "is-active" : ""}`}
-                  onClick={() => setActiveTab(t.id)}
-                >
-                  {active && (
-                    <motion.span layoutId="gv-oracle-tab-pill" className="gv-segmented-bg" transition={springSnappy} />
-                  )}
-                  <span className="gv-segmented-label">
-                    <Icon size={13} aria-hidden="true" />
-                    {t.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </ScrollRevealSection>
+        <button
+          type="button"
+          className="gv-btn gv-btn-sm"
+          onClick={() => setOnboardingOpen(true)}
+        >
+          <Cpu size={14} aria-hidden="true" />
+          Taste &amp; Rig Setup
+        </button>
+      </div>
 
-      {/* TAB 1: CURATED PICKS */}
+      {/* Editorial Underline Subnav */}
+      <div className="gv-oracle-subnav">
+        <Tabs
+          layoutIdPrefix="gv-oracle"
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          tabs={[
+            { id: "picks", label: "Picks" },
+            { id: "chat", label: "Game Companion" }
+          ]}
+        />
+      </div>
+
+      {/* TAB 1: PICKS */}
       {activeTab === "picks" && (
         <>
-          <ScrollRevealSection as="div" delay={0.04}>
-            <form onSubmit={(e) => handleGenerate(e, { refresh: false })} className="gv-panel flex flex-col gap-5">
-              <div>
-                <label className="block text-[1.2rem] font-semibold text-text-2 mb-2.5">
-                  Pick a Mood or Gameplay Vibe
-                </label>
-                <div className="gv-chip-group">
-                  {GAME_ORACLE_MOODS.map((m) => {
-                    const active = selectedMood === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        className={`gv-chip ${active ? "is-active" : ""}`}
-                        onClick={() => setSelectedMood(m.id)}
-                      >
-                        {m.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                <div className="md:col-span-2">
-                  <label htmlFor="gv-vibe-input" className="block text-[1.2rem] font-semibold text-text-2 mb-2">
-                    Optional Specific Request
-                  </label>
-                  <input
-                    id="gv-vibe-input"
-                    type="text"
-                    value={customVibe}
-                    onChange={(e) => setCustomVibe(e.target.value)}
-                    placeholder="e.g. atmospheric dark fantasy under 25 hours, or tactical roguelike for Steam Deck..."
-                    className="gv-input"
-                  />
-                </div>
-                <div>
-                  <span className="block text-[1.2rem] font-semibold text-text-2 mb-2">Platform Focus</span>
-                  <Select
-                    value={platformFamily}
-                    onChange={setPlatformFamily}
-                    options={PLATFORM_OPTIONS}
-                    ariaLabel="Platform Focus"
-                    fullWidth
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="submit"
-                  disabled={loading || modelsLoading || played.length === 0}
-                  className="gv-btn gv-btn-primary"
-                >
-                  <Sparkles size={15} />
-                  {loading ? "Consulting Local Models & Oracle..." : "Generate 12 Personalized Picks"}
-                </button>
-
-                {picks.length > 0 && (
-                  <button
-                    type="button"
-                    disabled={loading}
-                    className="gv-btn"
-                    onClick={(e) => handleGenerate(e, { refresh: true })}
-                  >
-                    <RefreshCw size={14} /> Refresh New Batch
-                  </button>
-                )}
-
-                {backlog.length > 0 && (
-                  <button
-                    type="button"
-                    className="gv-btn"
-                    onClick={handleBacklogTonight}
-                    title="Rank your own Backlog queue instantaneously ($0.00 AI)"
-                  >
-                    <Bookmark size={14} /> Pick From My Backlog ({backlog.length})
-                  </button>
-                )}
-
-                {played.length === 0 && (
-                  <span className="text-[1.3rem] text-text-3">
-                    Log at least 1 game on <Link to="/games" className="text-accent underline">Discover</Link> first.
-                  </span>
-                )}
-              </div>
-            </form>
-          </ScrollRevealSection>
-
-          {error && <p className="text-[1.4rem] text-danger mb-6">{error}</p>}
-
-          {/* #01 Top Pick Full-Bleed Spotlight Hero */}
-          {spotlight && (
-            <ScrollRevealSection className="gv-oracle-spotlight" delay={0.05}>
-              {(spotlight.backdropUrl || spotlight.coverUrl) && (
-                <img src={spotlight.backdropUrl || spotlight.coverUrl} alt="" className="gv-oracle-spotlight-bg" />
+          {/* Compact Single-Row Control Bar (Mirrors CinemaVault Film Oracle) */}
+          <div className="gv-oracle-toolbar">
+            <div className="flex items-center gap-3">
+              <h2 className="gv-section-title">Recommended for You</h2>
+              {source && (
+                <span className="gv-pill">
+                  {source === "gemini"
+                    ? "AI Curated"
+                    : source === "backlog-ml"
+                      ? "From Backlog"
+                      : "On-Device Taste Model"}
+                </span>
               )}
-              <div className="gv-oracle-spotlight-inner">
-                <Link to={`/game/${spotlight.igdbId}`}>
-                  <img src={spotlight.coverUrl} alt={spotlight.title} className="gv-oracle-spotlight-cover" />
-                </Link>
-                <div className="flex flex-col gap-3 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="gv-pill gv-pill-accent">#01 Top Pick Tonight</span>
-                    <span className="gv-badge-match tabular-num">
-                      {spotlight.matchScore}% Match
-                      {spotlight.estRating ? ` · Est. ${spotlight.estRating.toFixed(1)}` : ""}
-                    </span>
-                    {spotlight.year && <span className="gv-pill tabular-num">{spotlight.year}</span>}
-                    {spotlight.rating10 && <span className="gv-pill">IGDB {spotlight.rating10.toFixed(1)}</span>}
-                  </div>
-                  <Link to={`/game/${spotlight.igdbId}`} className="gv-hero-title" style={{ fontSize: "clamp(2.2rem, 3vw, 3.2rem)", textDecoration: "none" }}>
-                    {spotlight.title}
-                  </Link>
-                  {spotlight.anchorTitles?.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 text-[1.22rem] text-text-3">
-                      <span>Because you loved</span>
-                      {spotlight.anchorTitles.map((t) => {
-                        const aid = playedByTitle.get(t.toLowerCase());
-                        return aid ? (
-                          <Link key={t} to={`/game/${aid}`} className="gv-pill gv-pill-accent" style={{ textDecoration: "none" }}>
-                            {t}
-                          </Link>
-                        ) : (
-                          <span key={t} className="text-accent font-medium">{t}</span>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <p className="text-[1.45rem] leading-relaxed text-text-2">{spotlight.pitch}</p>
-                  <div className="flex flex-wrap gap-2.5 mt-1">
-                    <Link to={`/game/${spotlight.igdbId}`} className="gv-btn gv-btn-primary gv-btn-sm">
-                      Inspect Dossier
-                    </Link>
-                    <button
-                      type="button"
-                      className="gv-btn gv-btn-sm"
-                      onClick={() => setRateTarget({ ...spotlight, ...(playedById.get(spotlight.igdbId) || {}) })}
-                    >
-                      <Star size={13} /> Rate
-                    </button>
-                    {!playedById.has(spotlight.igdbId) && (
-                      <button
-                        type="button"
-                        className="gv-btn gv-btn-sm"
-                        onClick={(e) => {
-                          if (!backlogIds.has(spotlight.igdbId) && spotlight.coverUrl) {
-                            flyToVault(e.currentTarget, spotlight.coverUrl);
-                          }
-                          toggleBacklogGame(spotlight);
-                        }}
-                      >
-                        {backlogIds.has(spotlight.igdbId) ? <Check size={13} /> : <Bookmark size={13} />}
-                        {backlogIds.has(spotlight.igdbId) ? "Saved" : "Backlog"}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="gv-btn gv-btn-sm"
-                      onClick={() => handleDismissPick(spotlight.igdbId)}
-                      title="Hide this recommendation"
-                    >
-                      <ThumbsDown size={13} /> Not for me
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </ScrollRevealSection>
+            </div>
+
+            <div className="gv-oracle-toolbar-controls">
+              <Select
+                value={selectedMood}
+                onChange={(nextMood) => {
+                  setSelectedMood(nextMood);
+                  if (played.length > 0) {
+                    handleGenerate({ refresh: false, useGemini: false, moodOverride: nextMood });
+                  }
+                }}
+                options={MOOD_SELECT_OPTIONS}
+                ariaLabel="Mood or gameplay vibe"
+                size="sm"
+              />
+
+              <Select
+                value={platformFamily}
+                onChange={(nextPlatform) => {
+                  setPlatformFamily(nextPlatform);
+                  if (played.length > 0) {
+                    handleGenerate({ refresh: false, useGemini: false, platformOverride: nextPlatform });
+                  }
+                }}
+                options={PLATFORM_OPTIONS}
+                ariaLabel="Platform focus"
+                size="sm"
+              />
+
+              <button
+                type="button"
+                className={`gv-btn gv-btn-sm ${promptOpen || customVibe.trim() ? "gv-btn-accent" : ""}`}
+                onClick={() => setPromptOpen((v) => !v)}
+              >
+                <SlidersHorizontal size={13} aria-hidden="true" />
+                Vibe Request
+              </button>
+
+              {backlog.length > 0 && (
+                <button
+                  type="button"
+                  className="gv-btn gv-btn-sm"
+                  onClick={handleBacklogTonight}
+                  title="Rank your Backlog for tonight"
+                >
+                  <Bookmark size={13} aria-hidden="true" />
+                  Backlog ({backlog.length})
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={loading || modelsLoading || played.length === 0}
+                className="gv-btn gv-btn-sm gv-btn-primary"
+                onClick={() => handleGenerate({ refresh: picks.length > 0, useGemini: true })}
+              >
+                <RefreshCw size={13} className={loading ? "animate-spin" : ""} aria-hidden="true" />
+                {loading ? "Curating..." : picks.length > 0 ? "Refresh" : "Curate Picks"}
+              </button>
+            </div>
+          </div>
+
+          {/* Collapsible Optional Vibe Prompt */}
+          {promptOpen && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleGenerate({ refresh: false, useGemini: true });
+              }}
+              className="gv-oracle-prompt-bar"
+            >
+              <input
+                type="text"
+                value={customVibe}
+                onChange={(e) => setCustomVibe(e.target.value)}
+                placeholder="e.g. atmospheric dark fantasy under 25 hours, or tactical roguelike..."
+                className="gv-input flex-1 min-w-[20rem]"
+                aria-label="Optional specific request"
+              />
+              <button
+                type="submit"
+                disabled={loading || played.length === 0}
+                className="gv-btn gv-btn-sm gv-btn-primary"
+              >
+                <Sparkles size={13} aria-hidden="true" />
+                Curate with AI
+              </button>
+            </form>
           )}
 
-          {/* #02-#12 Animated 2-Column Editorial Grid */}
-          {gridPicks.length > 0 && (
-            <div className="gv-oracle-grid">
-              <AnimatePresence mode="popLayout">
-                {gridPicks.map((pick, idx) => {
-                  const logged = playedById.get(pick.igdbId);
-                  const inBacklog = backlogIds.has(pick.igdbId);
-                  return (
-                    <motion.article
-                      key={pick.igdbId}
-                      initial={{ opacity: 0, y: 26, scale: 0.985 }}
-                      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-                      viewport={{ once: true, amount: 0.12 }}
-                      exit={{ opacity: 0, scale: 0.94 }}
-                      transition={{ duration: 0.48, delay: (idx % 2) * 0.06, ease: EASE }}
-                      className="gv-oracle-card"
-                    >
-                      <Link to={`/game/${pick.igdbId}`}>
-                        <img src={pick.coverUrl} alt={pick.title} className="gv-oracle-cover" loading="lazy" />
+          {/* Sleek Collapsed Live Taste Tuner */}
+          <GameTasteTunerBar value={tuner} onChange={setTuner} />
+
+          {error && <p className="text-[1.35rem] text-danger mt-4">{error}</p>}
+
+          {played.length === 0 ? (
+            <div className="gv-panel text-center py-12 mt-4">
+              <h3 className="text-[1.8rem] font-semibold text-text-1 mb-2">Log at least 1 game first</h3>
+              <p className="text-[1.35rem] text-text-3 mb-5">
+                Rate a few games on Discover or import your library so Game Oracle learns your taste.
+              </p>
+              <Link to="/games" className="gv-btn gv-btn-primary">
+                Go to Discover
+              </Link>
+            </div>
+          ) : loading && picks.length === 0 ? (
+            <div className="gv-skeleton mt-5" style={{ height: "28rem" }} />
+          ) : (
+            <>
+              {/* #1 Top Pick Spotlight */}
+              {spotlight && (
+                <section className="gv-oracle-spotlight" aria-label="Top Pick Tonight">
+                  {(spotlight.backdropUrl || spotlight.coverUrl) && (
+                    <img src={spotlight.backdropUrl || spotlight.coverUrl} alt="" className="gv-oracle-spotlight-bg" />
+                  )}
+                  <div className="gv-oracle-spotlight-inner">
+                    <Link to={`/game/${spotlight.igdbId}`}>
+                      <img src={spotlight.coverUrl} alt={spotlight.title} className="gv-oracle-spotlight-cover" />
+                    </Link>
+                    <div className="flex flex-col gap-3 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="gv-pill gv-pill-accent">#1 Top Pick</span>
+                        <span className="gv-badge-match tabular-num">
+                          {spotlight.matchScore}% Match
+                          {spotlight.estRating ? ` · Est. ${spotlight.estRating.toFixed(1)}` : ""}
+                        </span>
+                        {spotlight.year && <span className="gv-pill tabular-num">{spotlight.year}</span>}
+                        {spotlight.rating10 && <span className="gv-pill">IGDB {spotlight.rating10.toFixed(1)}</span>}
+                      </div>
+
+                      <Link
+                        to={`/game/${spotlight.igdbId}`}
+                        className="gv-hero-title"
+                        style={{ fontSize: "clamp(2.2rem, 3vw, 3.2rem)", textDecoration: "none" }}
+                      >
+                        {spotlight.title}
                       </Link>
-                      <div className="flex flex-col min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <span className="text-[1.15rem] font-bold text-text-3 tabular-num">
-                            #{String(idx + 2).padStart(2, "0")}
-                          </span>
-                          <span className="gv-badge-match tabular-num">{pick.matchScore}% Match</span>
-                          {pick.isColdStart && <span className="gv-pill">Cold-Start AI</span>}
-                          {pick.year && <span className="text-[1.2rem] text-text-3 tabular-num">{pick.year}</span>}
+
+                      {spotlight.anchorTitles?.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 text-[1.22rem] text-text-3">
+                          <span>Because you rated</span>
+                          {spotlight.anchorTitles.map((t) => {
+                            const aid = playedByTitle.get(t.toLowerCase());
+                            return aid ? (
+                              <Link key={t} to={`/game/${aid}`} className="gv-pill" style={{ textDecoration: "none" }}>
+                                {t}
+                              </Link>
+                            ) : (
+                              <span key={t} className="text-text-1 font-medium">{t}</span>
+                            );
+                          })}
                         </div>
-                        <Link to={`/game/${pick.igdbId}`} className="gv-card-title" style={{ fontSize: "1.65rem" }}>
-                          {pick.title}
+                      )}
+
+                      <p className="text-[1.42rem] leading-relaxed text-text-2">{spotlight.pitch}</p>
+
+                      <div className="flex flex-wrap gap-2.5 mt-1">
+                        <Link to={`/game/${spotlight.igdbId}`} className="gv-btn gv-btn-primary gv-btn-sm">
+                          View Details
                         </Link>
-                        {pick.anchorTitles?.length > 0 && (
-                          <div className="text-[1.18rem] text-accent mt-1 truncate">
-                            Because you loved {pick.anchorTitles.join(" & ")}
-                          </div>
-                        )}
-                        <p className="gv-oracle-pitch">{pick.pitch}</p>
-                        <div className="gv-card-reasons mb-3">
-                          {(pick.matchReasons || []).slice(0, 2).map((r) => (
-                            <span key={r} className="gv-reason-chip">{r}</span>
-                          ))}
-                        </div>
-                        <div className="flex flex-wrap gap-2 mt-auto">
-                          <button
-                            type="button"
-                            className={`gv-btn gv-btn-sm ${logged ? "gv-btn-primary" : ""}`}
-                            onClick={() => setRateTarget({ ...pick, ...(logged || {}) })}
-                          >
-                            <Star size={13} /> {logged ? `Rated ${logged.userRating}/10` : "Rate"}
-                          </button>
-                          {!logged && (
-                            <button
-                              type="button"
-                              className="gv-btn gv-btn-sm"
-                              onClick={(e) => {
-                                if (!inBacklog && pick.coverUrl) flyToVault(e.currentTarget, pick.coverUrl);
-                                toggleBacklogGame(pick);
-                              }}
-                            >
-                              {inBacklog ? <Check size={13} /> : <Bookmark size={13} />}
-                              {inBacklog ? "Saved" : "Backlog"}
-                            </button>
-                          )}
+                        {!playedById.has(spotlight.igdbId) && (
                           <button
                             type="button"
                             className="gv-btn gv-btn-sm"
-                            onClick={() => handleDismissPick(pick.igdbId)}
-                            title="Not for me"
-                            aria-label={`Dismiss ${pick.title}`}
+                            onClick={(e) => {
+                              if (!backlogIds.has(spotlight.igdbId) && spotlight.coverUrl) {
+                                flyToVault(e.currentTarget, spotlight.coverUrl);
+                              }
+                              toggleBacklogGame(spotlight);
+                            }}
                           >
-                            <ThumbsDown size={13} />
+                            {backlogIds.has(spotlight.igdbId) ? <Check size={13} /> : <Bookmark size={13} />}
+                            {backlogIds.has(spotlight.igdbId) ? "In Backlog" : "Backlog"}
                           </button>
-                        </div>
+                        )}
+                        <button
+                          type="button"
+                          className="gv-btn gv-btn-sm"
+                          onClick={() => setRateTarget({ ...spotlight, ...(playedById.get(spotlight.igdbId) || {}) })}
+                        >
+                          <Star size={13} /> Rate
+                        </button>
+                        <button
+                          type="button"
+                          className="gv-btn gv-btn-sm gv-btn-ghost"
+                          onClick={() => handleDismissPick(spotlight.igdbId)}
+                        >
+                          <ThumbsDown size={13} /> Not for me
+                        </button>
                       </div>
-                    </motion.article>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* #2-#12 Editorial 2-Column Picks Grid */}
+              {gridPicks.length > 0 && (
+                <div className="gv-oracle-grid">
+                  <AnimatePresence mode="popLayout">
+                    {gridPicks.map((pick, idx) => {
+                      const logged = playedById.get(pick.igdbId);
+                      const inBacklog = backlogIds.has(pick.igdbId);
+                      return (
+                        <motion.article
+                          key={pick.igdbId}
+                          layout
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.96 }}
+                          transition={{ duration: 0.24, delay: Math.min(idx * 0.03, 0.2), ease: EASE }}
+                          className="gv-oracle-card"
+                        >
+                          <Link to={`/game/${pick.igdbId}`}>
+                            <img src={pick.coverUrl} alt={pick.title} className="gv-oracle-cover" loading="lazy" />
+                          </Link>
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className="text-[1.15rem] font-bold text-text-3 tabular-num">
+                                #{String(idx + 2).padStart(2, "0")}
+                              </span>
+                              <span className="gv-badge-match tabular-num">{pick.matchScore}% Match</span>
+                              {pick.year && <span className="text-[1.2rem] text-text-3 tabular-num">{pick.year}</span>}
+                            </div>
+                            <Link to={`/game/${pick.igdbId}`} className="gv-card-title" style={{ fontSize: "1.6rem" }}>
+                              {pick.title}
+                            </Link>
+                            {pick.anchorTitles?.length > 0 && (
+                              <div className="text-[1.18rem] mt-1 truncate" style={{ color: "var(--gv-accent)" }}>
+                                Because you liked {pick.anchorTitles.join(" & ")}
+                              </div>
+                            )}
+                            <p className="gv-oracle-pitch">{pick.pitch}</p>
+                            <div className="flex flex-wrap gap-2 mt-auto pt-1">
+                              <button
+                                type="button"
+                                className={`gv-btn gv-btn-sm ${logged ? "gv-btn-accent" : ""}`}
+                                onClick={() => setRateTarget({ ...pick, ...(logged || {}) })}
+                              >
+                                <Star size={13} /> {logged ? `${logged.userRating}/10` : "Rate"}
+                              </button>
+                              {!logged && (
+                                <button
+                                  type="button"
+                                  className="gv-btn gv-btn-sm"
+                                  onClick={(e) => {
+                                    if (!inBacklog && pick.coverUrl) flyToVault(e.currentTarget, pick.coverUrl);
+                                    toggleBacklogGame(pick);
+                                  }}
+                                >
+                                  {inBacklog ? <Check size={13} /> : <Bookmark size={13} />}
+                                  {inBacklog ? "Saved" : "Backlog"}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="gv-btn gv-btn-sm gv-btn-ghost"
+                                onClick={() => handleDismissPick(pick.igdbId)}
+                                title="Not for me"
+                                aria-label={`Dismiss ${pick.title}`}
+                              >
+                                <ThumbsDown size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        </motion.article>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
 
       {/* TAB 2: GAME COMPANION CHAT */}
       {activeTab === "chat" && (
-        <ScrollRevealSection className="gv-chat-shell">
+        <div className="gv-chat-shell">
           {pinnedGame && (
-            <div className="gv-panel flex flex-wrap items-center justify-between gap-3" style={{ marginBottom: 0, padding: "1.2rem 1.6rem" }}>
+            <div className="gv-panel flex flex-wrap items-center justify-between gap-3" style={{ marginBottom: 0, padding: "1.2rem 1.5rem" }}>
               <div className="flex items-center gap-3 min-w-0">
                 {pinnedGame.coverUrl && (
                   <img
@@ -557,7 +615,7 @@ export default function GamesOraclePage() {
                   />
                 )}
                 <div className="min-w-0">
-                  <div className="gv-kicker">Discussing Pinned Game</div>
+                  <span className="gv-eyebrow" style={{ marginBottom: 0 }}>Discussing Pinned Game</span>
                   <div className="text-[1.5rem] font-semibold text-text-1 truncate">{pinnedGame.title}</div>
                 </div>
               </div>
@@ -568,7 +626,7 @@ export default function GamesOraclePage() {
                   onClick={() => setAllowSpoilers((v) => !v)}
                 >
                   <Shield size={12} style={{ display: "inline", marginRight: "0.35rem" }} />
-                  {allowSpoilers ? "Spoilers Allowed" : "Spoiler-Safe On"}
+                  {allowSpoilers ? "Spoilers On" : "Spoiler-Safe"}
                 </button>
                 <button
                   type="button"
@@ -588,9 +646,9 @@ export default function GamesOraclePage() {
           <div className="gv-chat-feed">
             {chatMessages.length === 0 ? (
               <div className="my-auto text-center py-6">
-                <MessageSquare size={32} className="mx-auto mb-3 text-accent opacity-80" />
+                <MessageSquare size={30} className="mx-auto mb-3 opacity-80" style={{ color: "var(--gv-accent)" }} />
                 <h3 className="text-[1.8rem] font-semibold text-text-1 mb-2">
-                  {pinnedGame ? `Ask anything about ${pinnedGame.title}` : "Ask GameVault Companion"}
+                  {pinnedGame ? `Ask anything about ${pinnedGame.title}` : "Ask Game Companion"}
                 </h3>
                 <p className="text-[1.3rem] text-text-3 mb-5">
                   Grounded in your {played.length} logged game(s) &amp; {backlog.length} backlog title(s). Spoiler-safe by default.
@@ -637,14 +695,14 @@ export default function GamesOraclePage() {
               type="text"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              placeholder={pinnedGame ? `Ask about ${pinnedGame.title}...` : "Ask about builds, play length, boss difficulty, or what to play next..."}
+              placeholder={pinnedGame ? `Ask about ${pinnedGame.title}...` : "Ask about builds, length, difficulty, or what to play next..."}
               className="gv-input flex-1"
             />
             <button type="submit" disabled={chatBusy || !chatInput.trim()} className="gv-btn gv-btn-primary">
               <Send size={15} /> Ask
             </button>
           </form>
-        </ScrollRevealSection>
+        </div>
       )}
     </div>
   );

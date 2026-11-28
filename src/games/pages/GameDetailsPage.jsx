@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -68,9 +69,11 @@ export default function GameDetailsPage() {
     };
   }, [igdbId]);
 
-  // Keyboard navigation for Screenshot Lightbox
+  // Keyboard navigation + body scroll lock for Screenshot Lightbox
   useEffect(() => {
     if (lightboxIdx < 0 || !game?.screenshots?.length) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const len = game.screenshots.length;
     const onKey = (e) => {
       if (e.key === "Escape") setLightboxIdx(-1);
@@ -78,7 +81,10 @@ export default function GameDetailsPage() {
       else if (e.key === "ArrowLeft") setLightboxIdx((i) => (i - 1 + len) % len);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [lightboxIdx, game?.screenshots?.length]);
 
   // Hybrid Similar Games via EASE^R + 128-D Tag-Dropout BGE-large cold-start vectors
@@ -353,68 +359,72 @@ export default function GameDetailsPage() {
         </ScrollRevealSection>
       )}
 
-      {/* Opt-In Smooth Horizontal Carousel for Hybrid Similar Games */}
+      {/* Opt-In Smooth Horizontal Carousel for Similar Games */}
       {similarGames.length > 0 && (
         <GameCarouselRow
           title="Similar Games"
-          subtitle="Hybrid neighbors from our EASE^R (K=80) co-play graph & 128-D neural cold-start embeddings."
+          subtitle="Matches based on gameplay, themes, and player overlap."
           games={similarGames}
           showMatch={played.length > 0}
         />
       )}
 
-      {/* Screenshot Lightbox */}
-      <AnimatePresence>
-        {lightboxIdx >= 0 && game.screenshots?.[lightboxIdx] && (
-          <motion.div
-            className="gv-modal-backdrop"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Screenshot lightbox"
-            onClick={() => setLightboxIdx(-1)}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <div className="relative max-w-[92vw] max-h-[88vh] flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                className="gv-carousel-arrow"
-                onClick={() => setLightboxIdx((i) => (i - 1 + game.screenshots.length) % game.screenshots.length)}
-                aria-label="Previous screenshot"
-              >
-                <ChevronLeft size={18} />
-              </button>
-              <motion.img
-                key={game.screenshots[lightboxIdx]}
-                src={game.screenshots[lightboxIdx]}
-                alt={`${game.title} screenshot`}
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.2, ease: EASE }}
-                style={{ maxWidth: "82vw", maxHeight: "84vh", borderRadius: "var(--r-md)", border: "1px solid var(--hairline-strong)" }}
-              />
-              <button
-                type="button"
-                className="gv-carousel-arrow"
-                onClick={() => setLightboxIdx((i) => (i + 1) % game.screenshots.length)}
-                aria-label="Next screenshot"
-              >
-                <ChevronRight size={18} />
-              </button>
-              <button
-                type="button"
-                className="gv-carousel-arrow"
-                style={{ position: "absolute", top: "-4.4rem", right: 0 }}
+      {/* Screenshot Lightbox (Portaled cleanly above navbar) */}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {lightboxIdx >= 0 && game.screenshots?.[lightboxIdx] && (
+              <motion.div
+                className="gv-scope gv-modal-backdrop"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Screenshot lightbox"
                 onClick={() => setLightboxIdx(-1)}
-                aria-label="Close lightbox"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
               >
-                <X size={18} />
-              </button>
-            </div>
-          </motion.div>
+                <div className="relative max-w-[92vw] max-h-[88vh] flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="gv-carousel-arrow"
+                    onClick={() => setLightboxIdx((i) => (i - 1 + game.screenshots.length) % game.screenshots.length)}
+                    aria-label="Previous screenshot"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <motion.img
+                    key={game.screenshots[lightboxIdx]}
+                    src={game.screenshots[lightboxIdx]}
+                    alt={`${game.title} screenshot`}
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.2, ease: EASE }}
+                    style={{ maxWidth: "82vw", maxHeight: "84vh", borderRadius: "var(--r-md)", border: "1px solid var(--hairline-strong)" }}
+                  />
+                  <button
+                    type="button"
+                    className="gv-carousel-arrow"
+                    onClick={() => setLightboxIdx((i) => (i + 1) % game.screenshots.length)}
+                    aria-label="Next screenshot"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    className="gv-carousel-arrow"
+                    style={{ position: "absolute", top: "-4.4rem", right: 0 }}
+                    onClick={() => setLightboxIdx(-1)}
+                    aria-label="Close lightbox"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
     </div>
   );
 }

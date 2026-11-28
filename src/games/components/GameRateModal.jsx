@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { EASE } from "../../motion";
@@ -14,18 +15,25 @@ export default function GameRateModal({
 }) {
   useEffect(() => {
     if (!game) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKey = (e) => {
       if (e.key === "Escape") onClose?.();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [game, onClose]);
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {game && (
         <motion.div
-          className="gv-modal-backdrop"
+          className="gv-scope gv-modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label={`Rate ${game.title}`}
@@ -77,6 +85,7 @@ export default function GameRateModal({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

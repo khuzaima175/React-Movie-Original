@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dices, Gamepad2, Sparkles, Star, X } from "lucide-react";
@@ -34,11 +35,14 @@ export default function GameRouletteModal({
 
   useEffect(() => {
     if (!isOpen) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKey = (e) => {
       if (e.key === "Escape") onClose?.();
     };
     window.addEventListener("keydown", onKey);
     return () => {
+      document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKey);
       if (timerRef.current) window.clearTimeout(timerRef.current);
     };
@@ -77,11 +81,13 @@ export default function GameRouletteModal({
     step();
   }
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="gv-modal-backdrop"
+          className="gv-scope gv-modal-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label="Game Roulette — What to Play Next"
@@ -215,6 +221,7 @@ export default function GameRouletteModal({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

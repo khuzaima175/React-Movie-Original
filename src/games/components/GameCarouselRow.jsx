@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useScrollReveal } from "../../hooks/useScrollReveal";
-import { useHorizontalWheelScroll } from "../../hooks/useHorizontalWheelScroll";
 import GameCard from "./GameCard";
 
 export default function GameCarouselRow({
@@ -23,12 +22,6 @@ export default function GameCarouselRow({
     threshold: 0.05,
     eagerOffset: -30
   });
-  const {
-    containerRef: wheelScopeRef,
-    isEngaged: isWheelEngaged,
-    toggleEngaged: toggleWheelEngaged,
-    handleTrackClick
-  } = useHorizontalWheelScroll([games.length], scrollRef);
 
   const updateEdges = useCallback(() => {
     const el = scrollRef.current;
@@ -104,37 +97,18 @@ export default function GameCarouselRow({
     scrollRef.current?.scrollBy({ left: dir === "left" ? -560 : 560, behavior: "smooth" });
   }
 
-  const sectionRef = useCallback(
-    (node) => {
-      revealRef(node);
-      wheelScopeRef.current = node;
-    },
-    [revealRef, wheelScopeRef]
-  );
-
   return (
     <section
-      ref={sectionRef}
-      className={`gv-carousel-section ${isRevealed ? "is-revealed" : ""} ${isWheelEngaged ? "is-wheel-engaged" : ""}`}
+      ref={revealRef}
+      className={`gv-carousel-section ${isRevealed ? "is-revealed" : ""}`}
     >
-      <div className="gv-section-header" style={{ marginBottom: "1.4rem" }}>
+      <div className="gv-carousel-header">
         <div>
           <h2 className="gv-section-title">{title}</h2>
           {subtitle && <p className="gv-section-sub">{subtitle}</p>}
         </div>
 
         <div className="gv-carousel-header-right">
-          {canScroll && (
-            <button
-              type="button"
-              className={`gv-scroll-pill ${isWheelEngaged ? "is-active" : ""}`}
-              onClick={toggleWheelEngaged}
-              title="Toggle smooth mouse-wheel scrolling for this row (or hold Shift + Wheel)"
-            >
-              <ArrowLeftRight size={12} aria-hidden="true" />
-              <span>{isWheelEngaged ? "Wheel Active" : "Scroll row"}</span>
-            </button>
-          )}
           {seeAllTo && (
             <Link to={seeAllTo} className="gv-carousel-see-all">
               {seeAllLabel} →
@@ -167,8 +141,8 @@ export default function GameCarouselRow({
 
       {loading ? (
         <div className="gv-carousel-track">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="gv-skeleton" style={{ aspectRatio: "3/4.6" }} />
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="gv-skeleton" style={{ aspectRatio: "3/4.5" }} />
           ))}
         </div>
       ) : (
@@ -182,7 +156,6 @@ export default function GameCarouselRow({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
             onClickCapture={handleClickCapture}
-            onClick={handleTrackClick}
           >
             {games.map((game, idx) => (
               <GameCard key={game.igdbId} game={game} showMatch={showMatch} index={idx} />
