@@ -81,18 +81,21 @@ export function lookupCatalogTypicalHours(igdbId, catalogMeta = null, editionAli
 
 /**
  * Evaluates whether a game ID in `game_catalog_meta.bin` passes dynamic release-date, flop,
- * platform-family, hardware-rig, and genre pre-retrieval filters before IGDB hydration.
+ * dead-multiplayer, platform-family, play-mode, hardware-rig, and genre pre-retrieval filters
+ * before IGDB hydration.
  */
 export function matchesCatalogMetaFilter(
   igdbId,
   catalogMeta,
   {
     platformFamily = "all",
+    modeFilter = "all",
     rigProfile = null,
     genreId = null,
     todayDay = getTodayCatalogDay(),
     allowUnreleased = false,
-    allowFlops = false
+    allowFlops = false,
+    allowDeadMp = false
   } = {}
 ) {
   if (!catalogMeta || !catalogMeta.idToIndex) return true;
@@ -108,8 +111,15 @@ export function matchesCatalogMetaFilter(
     return false;
   }
 
-  // Proven low-acclaim flop pre-filter
-  if (!allowFlops && rating10 > 0 && rating10 < 5.2 && approxVotes >= 20) {
+  // Proven low-acclaim flop pre-filter (rescued if live Steam sentiment >= 80%)
+  const liveFlags = catalogMeta.liveFlags ? catalogMeta.liveFlags[idx] : 0;
+  const isRedeemed = (liveFlags & 2) !== 0;
+  if (!allowFlops && !isRedeemed && rating10 > 0 && rating10 < 5.2 && approxVotes >= 20) {
+    return false;
+  }
+
+  // Dead online-only multiplayer pre-filter (CVGM v3 live Steam CCU check)
+  if (!allowDeadMp && (liveFlags & 1) !== 0) {
     return false;
   }
 
@@ -119,6 +129,15 @@ export function matchesCatalogMetaFilter(
     if (platformFamily === "playstation" && (pMask & (1 << 3)) === 0) return false;
     if (platformFamily === "xbox" && (pMask & (1 << 4)) === 0) return false;
     if (platformFamily === "nintendo" && (pMask & (1 << 5)) === 0) return false;
+  }
+
+  if (modeFilter && modeFilter !== "all" && catalogMeta.modeMask) {
+    const mMask = catalogMeta.modeMask[idx];
+    if (mMask !== 0) {
+      if (modeFilter === "solo" && (mMask & 1) === 0) return false;
+      if (modeFilter === "multiplayer" && (mMask & 2) === 0) return false;
+      if (modeFilter === "coop" && (mMask & 4) === 0) return false;
+    }
   }
 
   if (rigProfile?.completed && rigProfile?.respectRigLimits) {
@@ -269,6 +288,178 @@ export function applyFranchiseDiversityCap(ranked = [], { maxPerFranchise = 2, h
   return [...head, ...deferred];
 }
 
+function getContentDot(idA, idB, contentIndex, editionAliases = null) {
+  if (!contentIndex?.idToIndex || !contentIndex.vectors || !contentIndex.dim) return 0;
+  const idxA = contentIndex.idToIndex.get(idA) ?? contentIndex.idToIndex.get(resolveWarmGameId(idA, editionAliases));
+  const idxB = contentIndex.idToIndex.get(idB) ?? contentIndex.idToIndex.get(resolveWarmGameId(idB, editionAliases));
+  if (idxA === undefined || idxB === undefined) return 0;
+  const dim = contentIndex.dim;
+  const baseA = idxA * dim;
+  const baseB = idxB * dim;
+  let dot = 0;
+  for (let d = 0; d < dim; d++) dot += contentIndex.vectors[baseA + d] * contentIndex.vectors[baseB + d];
+  return dot;
+}
+
+/**
+ * < 1 ms Calibrated Slate Reranker combining:
+ *   1. Soft Franchise Cap (`maxPerFranchise`)
+ *   2. 128-D Vector MMR (`cos > 0.82` soft penalty breaks up 5 identical genre-clone stacks across studios)
+ *   3. Steck KL-Divergence Calibration (matches Top-K genre mix to the user's real vault proportions;
+ *      automatically bypassed when an explicit genre filter or Taste Tuner dial is active).
+ * Never drops items from the pool and always preserves slot #1 (`ProtectTop-1`).
+ */
+export function applyCalibratedSlateRerank(
+  ranked = [],
+  played = [],
+  models = {},
+  {
+    headWindow = 24,
+    maxPerFranchise = 2,
+    mmrCosThreshold = 0.82,
+    mmrPenalty = 0.55,
+    klLambda = 0.20,
+    skipCalibration = false
+  } = {}
+) {
+  if (!Array.isArray(ranked) || ranked.length <= 2) return Array.isArray(ranked) ? ranked : [];
+
+  const contentIndex = models?.contentIndex || null;
+  const editionAliases = models?.editionAliases || null;
+  const limit = Math.min(headWindow, ranked.length);
+
+  // Build target genre distribution p(g) from positively logged vault games
+  const targetGenreWeights = new Map();
+  let targetTotal = 0;
+  if (!skipCalibration && Array.isArray(played) && played.length > 0) {
+    for (const g of played) {
+      const r = Number(g?.userRating ?? 0);
+      const st = String(g?.status || "").toLowerCase();
+      if (r > 0 && r < 7) continue;
+      if ((st === "dropped" || st === "tried_bored") && r < 7) continue;
+      const w = r >= 9 ? 1.5 : 1.0;
+      const gs = Array.isArray(g?.genres) ? g.genres.slice(0, 3) : [];
+      if (gs.length === 0) continue;
+      const share = w / gs.length;
+      for (const name of gs) {
+        const key = String(name || "").toLowerCase().trim();
+        if (!key) continue;
+        targetGenreWeights.set(key, (targetGenreWeights.get(key) || 0) + share);
+        targetTotal += share;
+      }
+    }
+  }
+  const useKl = !skipCalibration && targetGenreWeights.size >= 2 && targetTotal > 0;
+  const targetProbs = [];
+  if (useKl) {
+    for (const [key, val] of targetGenreWeights.entries()) {
+      targetProbs.push([key, val / targetTotal]);
+    }
+  }
+
+  const poolSize = Math.min(ranked.length, Math.max(limit * 3, 60));
+  const logits = ranked.slice(0, poolSize).map((item, idx) =>
+    Number.isFinite(Number(item?.rankerLogit)) ? Number(item.rankerLogit) : (poolSize - idx) * 0.1
+  );
+  const maxL = Math.max(...logits);
+  const minL = Math.min(...logits);
+  const spanL = Math.max(0.5, maxL - minL);
+
+  const selected = [];
+  const selectedMask = new Uint8Array(poolSize);
+  const franchiseCounts = new Map();
+  const slateGenreMass = new Map();
+  let slateGenreTotal = 0;
+
+  const commitIdx = (idx) => {
+    const item = ranked[idx];
+    selectedMask[idx] = 1;
+    selected.push(item);
+    const fk = extractGameFranchiseKey(item?.title || item?.name);
+    if (fk) franchiseCounts.set(fk, (franchiseCounts.get(fk) || 0) + 1);
+    const gs = Array.isArray(item?.genres) ? item.genres.slice(0, 3) : [];
+    if (gs.length > 0) {
+      const share = 1 / gs.length;
+      for (const name of gs) {
+        const key = String(name || "").toLowerCase().trim();
+        if (key) {
+          slateGenreMass.set(key, (slateGenreMass.get(key) || 0) + share);
+          slateGenreTotal += share;
+        }
+      }
+    }
+  };
+
+  // ProtectTop-1: anchor #1 pick untouched
+  commitIdx(0);
+
+  const effLambda = useKl ? klLambda : 0;
+  const alphaSmooth = 0.01;
+
+  while (selected.length < limit) {
+    let bestIdx = -1;
+    let bestObj = -Infinity;
+
+    for (let i = 1; i < poolSize; i++) {
+      if (selectedMask[i]) continue;
+      const item = ranked[i];
+      const fk = extractGameFranchiseKey(item?.title || item?.name);
+      if (fk && (franchiseCounts.get(fk) || 0) >= maxPerFranchise) continue;
+
+      const rel = (logits[i] - minL) / spanL;
+
+      // 128-D Vector MMR soft penalty for near-clones (cos > 0.82)
+      let mmrPen = 0;
+      if (contentIndex) {
+        const cid = Number(item?.igdbId ?? item?.id ?? 0);
+        let maxCos = 0;
+        for (let s = 0; s < selected.length; s++) {
+          const sid = Number(selected[s]?.igdbId ?? selected[s]?.id ?? 0);
+          const cos = getContentDot(cid, sid, contentIndex, editionAliases);
+          if (cos > maxCos) maxCos = cos;
+        }
+        if (maxCos > mmrCosThreshold) {
+          mmrPen = mmrPenalty * ((maxCos - mmrCosThreshold) / Math.max(1e-6, 1 - mmrCosThreshold));
+        }
+      }
+
+      // Steck KL-Divergence D_KL(p_vault || q_smooth)
+      let klDiv = 0;
+      if (useKl) {
+        const gs = Array.isArray(item?.genres) ? item.genres.slice(0, 3) : [];
+        const addShare = gs.length > 0 ? 1 / gs.length : 0;
+        const nextTotal = slateGenreTotal + (gs.length > 0 ? 1 : 0);
+        const candGenres = new Set(gs.map((x) => String(x || "").toLowerCase().trim()));
+        for (let t = 0; t < targetProbs.length; t++) {
+          const [gKey, pVal] = targetProbs[t];
+          const curMass = (slateGenreMass.get(gKey) || 0) + (candGenres.has(gKey) ? addShare : 0);
+          const qRaw = nextTotal > 0 ? curMass / nextTotal : 0;
+          const qSmooth = (1 - alphaSmooth) * qRaw + alphaSmooth * pVal;
+          klDiv += pVal * Math.log(pVal / Math.max(1e-9, qSmooth));
+        }
+      }
+
+      const obj = (1 - effLambda) * rel - effLambda * klDiv - mmrPen;
+      if (obj > bestObj) {
+        bestObj = obj;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx === -1) break;
+    commitIdx(bestIdx);
+  }
+
+  const tail = [];
+  for (let i = 0; i < poolSize; i++) {
+    if (!selectedMask[i]) tail.push(ranked[i]);
+  }
+  for (let i = poolSize; i < ranked.length; i++) {
+    tail.push(ranked[i]);
+  }
+  return [...selected, ...tail];
+}
+
 /**
  * Removes candidate games that duplicate an edition (or warm-aliased edition) already in `played`
  * or duplicate another higher-rated edition already present in the candidate list.
@@ -346,7 +537,7 @@ export function predictGameRating(matchScore, played = []) {
  */
 export function buildWeightedGameRatings(
   played = [],
-  { editionAliases = null, dismissedIds = null, catalogMeta = null, nowMs = Date.now() } = {}
+  { editionAliases = null, dismissedIds = null, catalogMeta = null, recentKick = false, nowMs = Date.now() } = {}
 ) {
   const list = Array.isArray(played) ? played : [];
   const validRatings = list
@@ -359,6 +550,19 @@ export function buildWeightedGameRatings(
     ? validRatings.reduce((s, r) => s + (r - meanR) ** 2, 0) / validRatings.length
     : 2.25;
   const stdR = Math.max(0.8, Math.sqrt(varR));
+
+  // Identify newest positive items for Dual-Timescale "Match My Recent Kick" mode
+  let recentTopIds = null;
+  if (recentKick && list.length > 0) {
+    const dated = list
+      .map((g, idx) => ({
+        id: Number(g?.igdbId ?? g?.id ?? 0),
+        ts: Date.parse(String(g?.datePlayed || g?.updatedAt || "")) || (nowMs - idx * 86_400_000 * 7)
+      }))
+      .filter((x) => x.id > 0)
+      .sort((a, b) => b.ts - a.ts);
+    recentTopIds = new Set(dated.slice(0, 5).map((x) => x.id));
+  }
 
   const seenOrigIds = new Set();
   const out = [];
@@ -440,10 +644,17 @@ export function buildWeightedGameRatings(
       if (tagSet.has("#janky") && rating < 9) weight *= 0.94;
     }
 
-    // Gentle recency tilt (+/-12%) when datePlayed is present so recent gaming phases steer recommendations
-    if (weight > 0 && g?.datePlayed) {
-      const playedMs = Date.parse(String(g.datePlayed));
-      if (Number.isFinite(playedMs) && playedMs > 0) {
+    // Dual-timescale recency: gentle (+/-12%) normally; 21-day half-life + top-5 focus in "Recent Kick" mode
+    if (weight > 0) {
+      const playedMs = g?.datePlayed ? Date.parse(String(g.datePlayed)) : (g?.updatedAt && recentKick ? Date.parse(String(g.updatedAt)) : NaN);
+      if (recentKick) {
+        if (Number.isFinite(playedMs) && playedMs > 0) {
+          const ageDays = Math.max(0, (nowMs - playedMs) / 86_400_000);
+          weight *= 0.25 + 2.15 * Math.exp(-ageDays / 21);
+        } else {
+          weight *= recentTopIds?.has(igdbId) ? 2.2 : 0.35;
+        }
+      } else if (Number.isFinite(playedMs) && playedMs > 0) {
         const ageDays = Math.max(0, (nowMs - playedMs) / 86_400_000);
         const recencyMult = 0.88 + 0.24 * Math.exp(-ageDays / 365);
         weight *= recencyMult;
@@ -762,7 +973,7 @@ export function buildMultiModalGameContentSimMap(
 
 let simMapMemo = { key: "", value: null };
 
-function buildVaultSimSignature(played = [], backlog = [], models = {}, dismissedIds = null) {
+function buildVaultSimSignature(played = [], backlog = [], models = {}, dismissedIds = null, recentKick = false) {
   const pKey = (Array.isArray(played) ? played : [])
     .map((g) => {
       const rb = g?.ratingBreakdown ? Object.values(g.ratingBreakdown).join(".") : "";
@@ -776,15 +987,20 @@ function buildVaultSimSignature(played = [], backlog = [], models = {}, dismisse
   const dKey = dismissedIds ? [...dismissedIds].map(Number).filter(Boolean).sort((a, b) => a - b).join(",") : "";
   const aliasCount = models?.editionAliases ? Object.keys(models.editionAliases).length : 0;
   const metaVer = models?.catalogMeta?.version || 0;
-  const mKey = `${models?.easeIndex?.count || 0}:${models?.collabIndex?.count || 0}:${models?.contentIndex?.count || 0}:${aliasCount}:${metaVer}`;
+  const mKey = `${models?.easeIndex?.count || 0}:${models?.collabIndex?.count || 0}:${models?.contentIndex?.count || 0}:${aliasCount}:${metaVer}:${recentKick ? 1 : 0}`;
   return `${mKey}|${pKey}|${bKey}|${dKey}`;
 }
 
 /**
  * Computes full-catalog similarity maps once across all 24,439 games (memoized across route changes for <0.1ms reuse).
  */
-export function computeGameSimilarityMaps(played = [], backlog = [], models = {}, { dismissedIds = null } = {}) {
-  const sig = buildVaultSimSignature(played, backlog, models, dismissedIds);
+export function computeGameSimilarityMaps(
+  played = [],
+  backlog = [],
+  models = {},
+  { dismissedIds = null, recentKick = false } = {}
+) {
+  const sig = buildVaultSimSignature(played, backlog, models, dismissedIds, recentKick);
   if (simMapMemo.key === sig && simMapMemo.value) {
     return simMapMemo.value;
   }
@@ -798,7 +1014,7 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
     editionAliases = null
   } = models || {};
 
-  const weighted = buildWeightedGameRatings(played, { editionAliases, catalogMeta });
+  const weighted = buildWeightedGameRatings(played, { editionAliases, catalogMeta, recentKick });
   // Content vectors cover original IGDB IDs directly; keep original ID whenever indexed in contentIndex
   const contentWeighted = weighted.map((entry) => ({
     ...entry,
@@ -807,7 +1023,7 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
 
   // Keep UI "Not for me" dismissals strictly in repulsion space so they push away similar warm & cold
   // games without shrinking catalogMax or distorting positive EASE^R / Spectral normalization.
-  const fullNegWeighted = buildWeightedGameRatings(played, { editionAliases, dismissedIds, catalogMeta });
+  const fullNegWeighted = buildWeightedGameRatings(played, { editionAliases, dismissedIds, catalogMeta, recentKick });
   const contentNegWeighted = fullNegWeighted.map((entry) => ({
     ...entry,
     tmdbId: contentIndex?.idToIndex?.has(entry.igdbId) ? entry.igdbId : entry.tmdbId
@@ -866,7 +1082,7 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
     contentSimMap,
     contentCatalogMax,
     catalogMax: catalogMax !== null ? Math.max(0.05, catalogMax) : null,
-    spectralCatalogMax: spectralCatalogMax !== null ? Math.max(0.25, spectralCatalogMax) : 0.65
+    spectralCatalogMax: spectralCatalogMax !== null ? Math.max(0.05, spectralCatalogMax) : 0.65
   };
   simMapMemo = { key: sig, value: computed };
   return computed;
@@ -962,9 +1178,11 @@ export function buildGameRecommendationIds(
     excludeBacklog = false,
     dismissedIds = null,
     platformFamily = "all",
+    modeFilter = "all",
     rigProfile = null,
     genreId = null,
-    antiBubble = false
+    antiBubble = false,
+    recentKick = false
   } = {}
 ) {
   const editionAliases = models?.editionAliases || null;
@@ -988,12 +1206,13 @@ export function buildGameRecommendationIds(
     for (const d of dismissedIds) addExcl(d);
   }
 
-  const maps = computeGameSimilarityMaps(played, backlog, models, { dismissedIds });
+  const maps = computeGameSimilarityMaps(played, backlog, models, { dismissedIds, recentKick });
   const domGenreMask = antiBubble && catalogMeta ? getDominantGenreMask(played) : 0;
 
   const scoreCandidates = (useRigFilter) => {
     const filterOpts = {
       platformFamily,
+      modeFilter,
       rigProfile: useRigFilter ? rigProfile : null,
       genreId,
       todayDay
@@ -1088,13 +1307,13 @@ export function rankGameCandidates(
   backlog = [],
   models = {},
   precomputedMaps = null,
-  { dismissedIds = null, pointLookup = false } = {}
+  { dismissedIds = null, pointLookup = false, recentKick = false } = {}
 ) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
   const editionAliases = models?.editionAliases || null;
   const catalogMeta = models?.catalogMeta || null;
   const orthAxes = orthogonalizeTunerAxes(models?.tunerAxes || null) || models?.tunerAxes || null;
-  const maps = precomputedMaps || computeGameSimilarityMaps(played, backlog, models, { dismissedIds });
+  const maps = precomputedMaps || computeGameSimilarityMaps(played, backlog, models, { dismissedIds, recentKick });
   const profile = extractGameTasteProfile(played);
   const craftTagProfile = extractGameCraftAndTagProfile(played);
   const now = new Date();
@@ -1122,9 +1341,9 @@ export function rankGameCandidates(
     const rawContent = maps.contentSimMap.get(id) ?? (isEditionAliased ? maps.contentSimMap.get(warmId) : undefined) ?? 0;
     const contentNorm = clamp(rawContent, -0.5, 1);
 
-    // Fix sparse-EASE top-80 cliff on single-game point lookups (/game/:id)
+    // Fix sparse-EASE top-80 cliff on single-game point lookups (/game/:id, Search, Explore Catalog)
     if (pointLookup && hasCollab && rawEase <= 0 && (rawSpectral > 0 || contentNorm > 0)) {
-      const spectralNorm = clamp(rawSpectral / Math.max(0.25, maps.spectralCatalogMax || 0.65), 0, 1);
+      const spectralNorm = clamp(rawSpectral / Math.max(0.05, maps.spectralCatalogMax || 0.65), 0, 1);
       const fallbackWarm = 0.72 * spectralNorm + 0.28 * Math.max(0, contentNorm);
       if (fallbackWarm > collabNorm) collabNorm = fallbackWarm;
     }
@@ -1146,14 +1365,24 @@ export function rankGameCandidates(
     const themeOverlap = themes.length > 0 ? matchedThemes.length / Math.min(3, themes.length) : 0;
     const devMatch = matchedDev ? 1 : 0;
 
-    // Bayesian acclaim in [0, 1] + softened quality curve (spares cult 6.8s, still crushes 4.3 flops)
-    const r10 = Number(game?.rating10 ?? 0);
+    // Bayesian acclaim in [0, 1] + CVGM v3 live Steam sentiment rescue + dead-MP guard
+    const metaIdx = catalogMeta?.idToIndex?.get(id) ?? catalogMeta?.idToIndex?.get(warmId);
+    const metaLiveFlags = metaIdx !== undefined && catalogMeta?.liveFlags ? catalogMeta.liveFlags[metaIdx] : 0;
+    const steamSentPct = metaIdx !== undefined && catalogMeta?.steamSentiment ? catalogMeta.steamSentiment[metaIdx] : 0;
+    const isSteamRedeemed = (metaLiveFlags & 2) !== 0 && steamSentPct >= 80;
+    const isDeadOnlineMp = (metaLiveFlags & 1) !== 0;
+
+    const rawR10 = Number(game?.rating10 ?? 0);
+    const r10 = isSteamRedeemed && rawR10 > 0 && rawR10 < 7.6
+      ? Math.max(rawR10, 0.40 * rawR10 + 0.60 * (steamSentPct / 10))
+      : rawR10;
     const votes = Math.max(0, Number(game?.ratingCount ?? 0));
     const bayes = r10 > 0 ? (votes * r10 + 40 * 7.2) / (votes + 40) : 7.2;
     const acclaimNorm = clamp((bayes - 5.5) / 4.0, 0, 1);
     const voteConf = votes > 0 ? clamp(votes / 25, 0.35, 1.0) : 0;
     const mediocrePenalty = r10 > 0 && r10 < 7.0 ? (7.0 - r10) * 0.65 * voteConf : 0;
     const flopPenalty = r10 > 0 && r10 < 5.8 ? (5.8 - r10) * 1.95 * voteConf : 0;
+    const deadMpPenalty = isDeadOnlineMp ? 1.35 : 0;
 
     // Full unreleased guard: future year, same-year future releaseDate, OR TBA with <15 votes
     const relDateStr = String(game?.releaseDate || "").trim().slice(0, 10);
@@ -1224,6 +1453,7 @@ export function rankGameCandidates(
         1.55 * repulsion -
         mediocrePenalty -
         flopPenalty -
+        deadMpPenalty -
         editionPenalty -
         unreleasedPenalty;
     } else {
@@ -1241,6 +1471,7 @@ export function rankGameCandidates(
         1.35 * repulsion -
         mediocrePenalty -
         flopPenalty -
+        deadMpPenalty -
         editionPenalty -
         unreleasedPenalty;
     }

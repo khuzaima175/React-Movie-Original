@@ -5,7 +5,7 @@ import { Cpu, Sparkles } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
 import { discoverHomeRows, fetchGamesBatch } from "../services/igdbService";
 import {
-  applyFranchiseDiversityCap,
+  applyCalibratedSlateRerank,
   buildGameRecommendationIds,
   filterDuplicateGameEditions,
   rankGameCandidates
@@ -98,8 +98,10 @@ export default function GamesDiscoverPage() {
           const rigFiltered = clean.filter((g) => isGameCompatibleWithRig(g, rigProfile).compatible);
           if (rigFiltered.length >= 6) clean = rigFiltered;
         }
-        const ranked = applyFranchiseDiversityCap(
+        const ranked = applyCalibratedSlateRerank(
           rankGameCandidates(clean, played, backlog, models, maps, { dismissedIds }),
+          played,
+          models,
           { maxPerFranchise: 1, headWindow: 16 }
         );
         setForYouPicks(ranked.slice(0, 16));

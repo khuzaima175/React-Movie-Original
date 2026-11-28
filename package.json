@@ -21,7 +21,8 @@
     "build": "vite build",
     "build:personal": "vite build --mode personal",
     "serve": "vite preview",
-    "test": "node --test"
+    "test": "node --test",
+    "games:refresh-meta": "node scripts/games/build_catalog_meta.mjs"
   },
   "browserslist": {
     "production": [

@@ -11,7 +11,7 @@ import {
 } from "../services/igdbService";
 import {
   DEFAULT_GAME_TUNER_STATE,
-  applyFranchiseDiversityCap,
+  applyCalibratedSlateRerank,
   applyGameTuner,
   buildGameRecommendationIds,
   filterDuplicateGameEditions,
@@ -35,6 +35,13 @@ const GENRE_OPTIONS = [
   ...GAME_GENRES.map((g) => ({ value: String(g.id), label: g.name }))
 ];
 
+const MODE_FILTER_OPTIONS = [
+  { id: "all", label: "All Modes" },
+  { id: "solo", label: "Solo" },
+  { id: "coop", label: "Co-op" },
+  { id: "multiplayer", label: "Multiplayer" }
+];
+
 const SORT_OPTIONS = [
   { value: "popular", label: "Most Popular" },
   { value: "rating", label: "Highest Rated (180+ votes)" },
@@ -56,6 +63,8 @@ export default function GamesExplorePage() {
   } = useGameVault();
   const [mode, setMode] = useState(() => (played.length > 0 ? "for-you" : "catalog"));
   const [platformFamily, setPlatformFamily] = useState(() => getDefaultPlatformFocus(rigProfile));
+  const [modeFilter, setModeFilter] = useState("all");
+  const [recentKick, setRecentKick] = useState(false);
   const [genreId, setGenreId] = useState("");
   const [sort, setSort] = useState("popular");
   const [hidePlayed, setHidePlayed] = useState(false);
@@ -75,7 +84,7 @@ export default function GamesExplorePage() {
     document.title = "Explore Games | GameVault";
   }, []);
 
-  // Load For-You ML pool (pre-filtered across 24.4k sidecar by platform, genre, rig & Break-My-Bubble!)
+  // Load For-You ML pool (pre-filtered across 24.4k CVGM v3 sidecar by platform, play mode, genre, rig, Recent Kick & Break-My-Bubble!)
   useEffect(() => {
     if (mode !== "for-you") return undefined;
     if (modelsLoading || played.length === 0) return undefined;
@@ -86,9 +95,11 @@ export default function GamesExplorePage() {
       coldLimit: 22,
       dismissedIds,
       platformFamily,
+      modeFilter,
       genreId: genreId ? Number(genreId) : null,
       rigProfile: rigOnly ? rigProfile : null,
-      antiBubble: tuner.antiBubble
+      antiBubble: tuner.antiBubble,
+      recentKick
     });
     fetchGamesBatch(allIds)
       .then((hydrated) => {
@@ -96,9 +107,11 @@ export default function GamesExplorePage() {
         const deduped = filterDuplicateGameEditions(hydrated, played, models?.editionAliases).filter(
           (g) => !dismissedIds.has(g.igdbId)
         );
-        const ranked = applyFranchiseDiversityCap(
-          rankGameCandidates(deduped, played, backlog, models, maps, { dismissedIds }),
-          { maxPerFranchise: 2, headWindow: 24 }
+        const ranked = applyCalibratedSlateRerank(
+          rankGameCandidates(deduped, played, backlog, models, maps, { dismissedIds, recentKick }),
+          played,
+          models,
+          { maxPerFranchise: 2, headWindow: 24, skipCalibration: Boolean(genreId || tuner.antiBubble) }
         );
         setForYouPool(ranked);
       })
@@ -108,7 +121,7 @@ export default function GamesExplorePage() {
     return () => {
       active = false;
     };
-  }, [mode, played, backlog, dismissedIds, platformFamily, genreId, rigOnly, rigProfile, tuner.antiBubble, models, modelsLoading]);
+  }, [mode, played, backlog, dismissedIds, platformFamily, modeFilter, genreId, rigOnly, rigProfile, tuner.antiBubble, recentKick, models, modelsLoading]);
 
   // Reset page when catalog filters change
   useEffect(() => {
@@ -200,6 +213,17 @@ export default function GamesExplorePage() {
         if (platformFamily !== "all" && !(g.platformFamilies || []).includes(platformFamily)) return false;
         if (genreId && !(g.genreIds || []).includes(Number(genreId))) return false;
       }
+      if (modeFilter !== "all") {
+        const metaIdx = models?.catalogMeta?.idToIndex?.get(g.igdbId);
+        if (metaIdx !== undefined && models?.catalogMeta?.modeMask) {
+          const mMask = models.catalogMeta.modeMask[metaIdx];
+          if (mMask !== 0) {
+            if (modeFilter === "solo" && (mMask & 1) === 0) return false;
+            if (modeFilter === "multiplayer" && (mMask & 2) === 0) return false;
+            if (modeFilter === "coop" && (mMask & 4) === 0) return false;
+          }
+        }
+      }
       if (cleanQ && !isCatalogLiveSearch) {
         const hay = `${g.title || ""} ${(g.genres || []).join(" ")} ${(g.developers || []).join(" ")}`.toLowerCase();
         if (!hay.includes(cleanQ)) return false;
@@ -218,7 +242,7 @@ export default function GamesExplorePage() {
       const hb = Math.sin((b.igdbId + shuffleSeed * 97) * 12.9898) * 43758.5453;
       return (ha - Math.floor(ha)) - (hb - Math.floor(hb));
     });
-  }, [mode, isCatalogLiveSearch, forYouPool, catalogItems, liveSearchItems, platformFamily, genreId, searchTerm, hidePlayed, playedById, rigOnly, rigProfile, tuner, models, played, shuffleSeed]);
+  }, [mode, isCatalogLiveSearch, forYouPool, catalogItems, liveSearchItems, platformFamily, modeFilter, genreId, searchTerm, hidePlayed, playedById, rigOnly, rigProfile, tuner, models, played, shuffleSeed]);
 
   const tunerIsNeutral =
     tuner.era === 0 && tuner.familiarity === 0 && tuner.pacing === 0 && tuner.tone === 0 && !tuner.antiBubble;
@@ -283,6 +307,19 @@ export default function GamesExplorePage() {
               onClick={() => setPlatformFamily(pf.id)}
             >
               {pf.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="gv-chip-group">
+          {MODE_FILTER_OPTIONS.map((mf) => (
+            <button
+              key={mf.id}
+              type="button"
+              className={`gv-chip gv-chip-sm ${modeFilter === mf.id ? "is-active" : ""}`}
+              onClick={() => setModeFilter(mf.id)}
+            >
+              {mf.label}
             </button>
           ))}
         </div>
@@ -395,6 +432,16 @@ export default function GamesExplorePage() {
                 {p.label}
               </button>
             ))}
+            {mode === "for-you" && played.length >= 2 && (
+              <button
+                type="button"
+                className={`gv-chip gv-chip-sm ${recentKick ? "is-active" : ""}`}
+                onClick={() => setRecentKick((v) => !v)}
+                title="Focus recommendations on your last 3-5 played games (21-day half-life)"
+              >
+                Recent Kick
+              </button>
+            )}
             <button
               type="button"
               className={`gv-chip gv-chip-sm ${tuner.antiBubble ? "is-active" : ""}`}

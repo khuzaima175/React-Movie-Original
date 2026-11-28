@@ -31,7 +31,46 @@ export function decodeCatalogTypicalHours(byteVal) {
 }
 
 /**
- * Parses `game_catalog_meta.bin` (CVGM v1 12 B/game or CVGM v2 14 B/game with typical playtime hours)
+ * Parses `game_embeddings_f16.bin` and lifts shrinkage-compressed Spectral-EASE vectors (`||e|| ≈ 0.05-0.14`)
+ * into Bayesian-shrunk `[0.25 .. 0.96]` norm space (`v' = v / (||v|| + 0.015)`) so Ridge fold-in (`lambda=20`),
+ * multi-persona mixture (`beta=20`), top-loved dot products, and `pointLookup` operate at full dynamic range.
+ * Unit-norm indexes (median norm >= 0.35) are returned unchanged.
+ */
+export function parseGameCollabBinary(arrayBuffer) {
+  const index = parseEmbeddingBinary(arrayBuffer);
+  if (!index || !index.count || !index.dim || !index.vectors) return index;
+
+  const { count, dim, vectors } = index;
+  const sampleStep = Math.max(1, Math.floor(count / 200));
+  const sampleNorms = [];
+  for (let i = 0; i < count; i += sampleStep) {
+    const base = i * dim;
+    let sumSq = 0;
+    for (let d = 0; d < dim; d++) sumSq += vectors[base + d] * vectors[base + d];
+    sampleNorms.push(Math.sqrt(sumSq));
+  }
+  sampleNorms.sort((a, b) => a - b);
+  const medianNorm = sampleNorms[Math.floor(sampleNorms.length / 2)] || 0;
+  if (medianNorm <= 1e-8 || medianNorm >= 0.35) {
+    return index;
+  }
+
+  const shrinkPrior = 0.015;
+  for (let i = 0; i < count; i++) {
+    const base = i * dim;
+    let sumSq = 0;
+    for (let d = 0; d < dim; d++) sumSq += vectors[base + d] * vectors[base + d];
+    const norm = Math.sqrt(sumSq);
+    if (norm <= 1e-10) continue;
+    const scale = 1 / (norm + shrinkPrior);
+    for (let d = 0; d < dim; d++) vectors[base + d] *= scale;
+  }
+
+  return index;
+}
+
+/**
+ * Parses `game_catalog_meta.bin` (CVGM v1 12 B, v2 14 B, or v3 18 B with IGDB CCU, Steam sentiment & game modes)
  * into dense TypedArrays + O(1) id lookup.
  * Note: `releaseDay` is days since 2000-01-01 UTC (-32768 = TBA), evaluated dynamically against today at runtime.
  */
@@ -50,7 +89,8 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
   const recordBytes = view.getUint32(12, true);
   const validV1 = version === 1 && recordBytes === 12;
   const validV2 = version === 2 && recordBytes >= 14;
-  if ((!validV1 && !validV2) || count === 0) return null;
+  const validV3 = version === 3 && recordBytes >= 18;
+  if ((!validV1 && !validV2 && !validV3) || count === 0) return null;
   if (arrayBuffer.byteLength < 16 + count * recordBytes) return null;
 
   const ids = new Uint32Array(count);
@@ -62,6 +102,10 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
   const genreMask = new Uint16Array(count);
   const typicalHours = new Float32Array(count);
   const hasVerifiedTtb = new Uint8Array(count);
+  const modeMask = new Uint8Array(count);
+  const steamCcuTier = new Uint8Array(count);
+  const steamSentiment = new Uint8Array(count);
+  const liveFlags = new Uint8Array(count);
   const idToIndex = new Map();
 
   for (let i = 0; i < count; i++) {
@@ -74,9 +118,15 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
     platformMask[i] = view.getUint8(off + 8);
     specAndFlags[i] = view.getUint8(off + 9);
     genreMask[i] = view.getUint16(off + 10, true);
-    if (validV2) {
+    if (validV2 || validV3) {
       typicalHours[i] = decodeCatalogTypicalHours(view.getUint8(off + 12));
       hasVerifiedTtb[i] = view.getUint8(off + 13) & 0x01;
+    }
+    if (validV3) {
+      modeMask[i] = view.getUint8(off + 14);
+      steamCcuTier[i] = view.getUint8(off + 15);
+      steamSentiment[i] = view.getUint8(off + 16);
+      liveFlags[i] = view.getUint8(off + 17);
     }
     idToIndex.set(id, i);
   }
@@ -93,6 +143,10 @@ export function parseGameCatalogMetaBinary(arrayBuffer) {
     genreMask,
     typicalHours,
     hasVerifiedTtb,
+    modeMask,
+    steamCcuTier,
+    steamSentiment,
+    liveFlags,
     idToIndex
   };
 }
@@ -161,7 +215,7 @@ export function orthogonalizeTunerAxes(parsed) {
 }
 
 const gameEaseLoader = createSessionBinaryIndexLoader(GAME_EASE_URL, parseEaseBinary);
-const gameCollabLoader = createSessionBinaryIndexLoader(GAME_COLLAB_URL, parseEmbeddingBinary);
+const gameCollabLoader = createSessionBinaryIndexLoader(GAME_COLLAB_URL, parseGameCollabBinary);
 const gameContentLoader = createSessionBinaryIndexLoader(GAME_CONTENT_URL, parseEmbeddingBinary);
 const gameCatalogMetaLoader = createSessionBinaryIndexLoader(GAME_CATALOG_META_URL, parseGameCatalogMetaBinary);
 

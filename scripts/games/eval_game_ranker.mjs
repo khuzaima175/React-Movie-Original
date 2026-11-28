@@ -11,7 +11,8 @@ import { parseEaseBinary } from "../../src/services/easeService.js";
 import { parseEmbeddingBinary } from "../../src/services/embeddingService.js";
 import {
   orthogonalizeTunerAxes,
-  parseGameCatalogMetaBinary
+  parseGameCatalogMetaBinary,
+  parseGameCollabBinary
 } from "../../src/games/services/gameModelService.js";
 import {
   applyFranchiseDiversityCap,
@@ -32,7 +33,7 @@ function loadModels() {
   };
   return {
     easeIndex: parseEaseBinary(toAb("game_ease_k80.cvea")),
-    collabIndex: parseEmbeddingBinary(toAb("game_embeddings_f16.bin")),
+    collabIndex: parseGameCollabBinary(toAb("game_embeddings_f16.bin")),
     contentIndex: parseEmbeddingBinary(toAb("game_content_f16.bin")),
     catalogMeta: parseGameCatalogMetaBinary(toAb("game_catalog_meta.bin")),
     tunerAxes: orthogonalizeTunerAxes(JSON.parse(fs.readFileSync(path.join(dir, "game_tuner_axes.json"), "utf8"))),

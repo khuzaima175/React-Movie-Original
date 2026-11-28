@@ -673,7 +673,7 @@ test("gameRankerService v1.5: CVGM v2 typicalHours relative playtime, recency ti
     return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
   };
   const catalogMeta = parseGameCatalogMetaBinary(toAb("game_catalog_meta.bin"));
-  assert.equal(catalogMeta.version, 2, "game_catalog_meta.bin should be CVGM v2");
+  assert.ok(catalogMeta.version >= 2, "game_catalog_meta.bin should be CVGM v2+");
   const portalHrs = lookupCatalogTypicalHours(72, catalogMeta);
   const eldenHrs = lookupCatalogTypicalHours(119133, catalogMeta);
   assert.ok(portalHrs >= 5 && portalHrs <= 20, `Expected Portal 2 typical hours ~10h, got ${portalHrs}`);
@@ -765,4 +765,114 @@ test("gameRankerService v1.5: CVGM v2 typicalHours relative playtime, recency ti
   assert.equal(dbHold.status, "played", "DB status must satisfy Postgres CHECK enum");
   assert.equal(dbHold.metadata.subStatus, "on_hold");
   assert.equal(mapDbRowToLocalGame(dbHold).status, "on_hold");
+});
+
+test("gameRankerService v1.6: Spectral-EASE norm rescaling, CVGM v3 live CCU/sentiment/modes, Vector MMR + Steck KL calibration & Recent Kick", async () => {
+  const {
+    parseGameCatalogMetaBinary,
+    parseGameCollabBinary
+  } = await import("../src/games/services/gameModelService.js");
+  const { buildCollabSimMapFromIndex, getCollabCatalogMax } = await import("../src/services/embeddingService.js");
+  const {
+    applyCalibratedSlateRerank,
+    buildWeightedGameRatings,
+    matchesCatalogMetaFilter,
+    rankGameCandidates
+  } = await import("../src/games/services/gameRankerService.js");
+
+  const modelsDir = path.join(process.cwd(), "public/models/games");
+  const toAb = (file) => {
+    const b = fs.readFileSync(path.join(modelsDir, file));
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  };
+
+  // 1. parseGameCollabBinary lifts ||e|| from ~0.052 to ~0.78 so Spectral-EASE uses full dynamic range
+  const collab = parseGameCollabBinary(toAb("game_embeddings_f16.bin"));
+  const specMap = buildCollabSimMapFromIndex(
+    buildWeightedGameRatings([{ igdbId: 119133, title: "Elden Ring", userRating: 10 }, { igdbId: 1942, title: "Witcher 3", userRating: 10 }]),
+    collab
+  );
+  const specMax = getCollabCatalogMax(specMap);
+  assert.ok(specMax > 0.40, `Expected rescaled Spectral-EASE catalogMax > 0.40 (was 0.1088), got ${specMax}`);
+
+  // 2. CVGM v3 sidecar parses version 3 with modeMask, steamCcuTier, steamSentiment & liveFlags
+  const catalogMeta = parseGameCatalogMetaBinary(toAb("game_catalog_meta.bin"));
+  assert.equal(catalogMeta.version, 3);
+  assert.equal(catalogMeta.count, 24439);
+  const p2Idx = catalogMeta.idToIndex.get(72); // Portal 2: Solo + Co-op, ~98% Steam sentiment
+  assert.ok((catalogMeta.modeMask[p2Idx] & 1) !== 0, "Portal 2 should have Solo mode bit");
+  assert.ok(catalogMeta.steamSentiment[p2Idx] >= 90, `Expected Portal 2 live Steam sentiment >= 90%, got ${catalogMeta.steamSentiment[p2Idx]}`);
+
+  // Dead online-only MP filtered out by default; Steam-redeemed game rescued from stale launch rating
+  const synthV3 = {
+    version: 3,
+    idToIndex: new Map([[901, 0], [902, 1]]),
+    releaseDay: new Int16Array([7000, 7000]),
+    ratingByte: new Uint8Array([72, 68]),
+    voteTier: new Uint8Array([140, 140]),
+    platformMask: new Uint8Array([1, 1]),
+    specAndFlags: new Uint8Array([1, 1]),
+    genreMask: new Uint16Array([1, 1]),
+    typicalHours: new Float32Array([20, 40]),
+    modeMask: new Uint8Array([0b1010, 0b0001]), // 901=online-only MP, 902=Solo
+    steamCcuTier: new Uint8Array([10, 130]),
+    steamSentiment: new Uint8Array([55, 86]),
+    liveFlags: new Uint8Array([1, 2]) // 901=deadMP, 902=steamRedeemed
+  };
+  assert.equal(matchesCatalogMetaFilter(901, synthV3, { todayDay: 9800 }), false, "Dead online-only MP should be excluded");
+  assert.equal(matchesCatalogMetaFilter(902, synthV3, { todayDay: 9800, modeFilter: "solo" }), true);
+  assert.equal(matchesCatalogMetaFilter(902, synthV3, { todayDay: 9800, modeFilter: "multiplayer" }), false);
+
+  const rescued = rankGameCandidates(
+    [
+      { igdbId: 901, title: "Dead MP Shooter", year: 2019, rating10: 7.2, ratingCount: 200, genres: ["Shooter"] },
+      { igdbId: 902, title: "Redeemed Space Sim", year: 2019, rating10: 6.8, ratingCount: 200, genres: ["Adventure"] }
+    ],
+    [{ igdbId: 1942, title: "The Witcher 3", userRating: 10, genres: ["Role-playing (RPG)"] }],
+    [],
+    { catalogMeta: synthV3 }
+  );
+  assert.equal(rescued[0].igdbId, 902, "Steam-redeemed game should rank well above dead online-only MP");
+
+  // 3. Steck KL Calibration + 128-D Vector MMR breaks up single-genre clone stacks while preserving ProtectTop-1
+  const multiVault = [
+    { igdbId: 1, title: "RPG A", userRating: 10, genres: ["Role-playing (RPG)"] },
+    { igdbId: 2, title: "Horror A", userRating: 10, genres: ["Horror"] }
+  ];
+  const mockContent = {
+    count: 4,
+    dim: 2,
+    ids: new Uint32Array([10, 11, 12, 13]),
+    idToIndex: new Map([[10, 0], [11, 1], [12, 2], [13, 3]]),
+    vectors: new Float32Array([
+      1.0, 0.0,   // 10: RPG #1
+      0.99, 0.14, // 11: RPG clone (cos = 0.99 with 10!)
+      0.98, 0.20, // 12: RPG clone #2 (cos = 0.98 with 10!)
+      0.0, 1.0    // 13: Horror pick (orthogonal)
+    ])
+  };
+  const calibrated = applyCalibratedSlateRerank(
+    [
+      { igdbId: 10, title: "Soulslike A", rankerLogit: 3.0, genres: ["Role-playing (RPG)"] },
+      { igdbId: 11, title: "Soulslike Clone B", rankerLogit: 2.95, genres: ["Role-playing (RPG)"] },
+      { igdbId: 12, title: "Soulslike Clone C", rankerLogit: 2.90, genres: ["Role-playing (RPG)"] },
+      { igdbId: 13, title: "Horror Gem D", rankerLogit: 2.60, genres: ["Horror"] }
+    ],
+    multiVault,
+    { contentIndex: mockContent },
+    { headWindow: 4, maxPerFranchise: 2, klLambda: 0.25 }
+  );
+  assert.equal(calibrated[0].igdbId, 10, "ProtectTop-1 must preserve slot #1");
+  assert.equal(calibrated[1].igdbId, 13, "Vector MMR + Steck KL should lift orthogonal underrepresented Horror pick into slot #2");
+
+  // 4. Dual-Timescale "Match My Recent Kick" amplifies last-week games strongly over 1-year-old games
+  const nowMs = Date.parse("2026-11-28T00:00:00Z");
+  const kickWeights = buildWeightedGameRatings(
+    [
+      { igdbId: 72, title: "Portal 2", userRating: 9, datePlayed: "2026-11-26" },
+      { igdbId: 1942, title: "Witcher 3", userRating: 9, datePlayed: "2025-01-01" }
+    ],
+    { recentKick: true, nowMs }
+  );
+  assert.ok(kickWeights[0].weight > kickWeights[1].weight * 5, "Recent Kick should strongly focus on last-week games (>5x ratio vs 1yr+ old)");
 });
