@@ -45,14 +45,46 @@ export const STARTER_CALIBRATION_GAMES = Object.freeze([
 ]);
 
 export const GAME_ORACLE_MOODS = Object.freeze([
-  { id: "any", label: "Best Overall Match", prompt: "" },
-  { id: "atmospheric", label: "Dark & Atmospheric", prompt: "moody, dark, atmospheric world-building" },
-  { id: "cozy", label: "Cozy & Relaxing", prompt: "cozy, low-stress, heartwarming, relaxing pacing" },
-  { id: "challenge", label: "High-Skill Challenge", prompt: "tight combat, high mechanical skill ceiling, rewarding mastery" },
-  { id: "story", label: "Deep Story & Choices", prompt: "narrative masterpiece, unforgettable characters, meaningful choices" },
-  { id: "short", label: "Tight 5–15h Gem", prompt: "focused, unforgettable shorter experience without open-world bloat" },
-  { id: "replayable", label: "Endless Replayability", prompt: "roguelike, deckbuilder, strategy, or deep build-crafting loop" }
+  { id: "any", label: "Best Overall Match", prompt: "", tunerBias: null },
+  {
+    id: "atmospheric",
+    label: "Dark & Atmospheric",
+    prompt: "moody, dark, atmospheric world-building",
+    tunerBias: { pacing: 0.25, tone: -0.9, era: 0, familiarity: 0.1, antiBubble: false }
+  },
+  {
+    id: "cozy",
+    label: "Cozy & Relaxing",
+    prompt: "cozy, low-stress, heartwarming, relaxing pacing",
+    tunerBias: { pacing: -0.95, tone: 0.85, era: 0, familiarity: 0.15, antiBubble: false }
+  },
+  {
+    id: "challenge",
+    label: "High-Skill Challenge",
+    prompt: "tight combat, high mechanical skill ceiling, rewarding mastery",
+    tunerBias: { pacing: 0.9, tone: -0.45, era: 0, familiarity: 0, antiBubble: false }
+  },
+  {
+    id: "story",
+    label: "Deep Story & Choices",
+    prompt: "narrative masterpiece, unforgettable characters, meaningful choices",
+    tunerBias: { pacing: -0.35, tone: -0.2, era: 0, familiarity: 0, antiBubble: false }
+  },
+  {
+    id: "short",
+    label: "Tight 5–15h Gem",
+    prompt: "focused, unforgettable shorter experience without open-world bloat",
+    tunerBias: { pacing: -0.2, tone: 0.1, era: 0, familiarity: 0.55, antiBubble: false }
+  },
+  {
+    id: "replayable",
+    label: "Endless Replayability",
+    prompt: "roguelike, deckbuilder, strategy, or deep build-crafting loop",
+    tunerBias: { pacing: 0.45, tone: 0.1, era: 0, familiarity: 0.35, antiBubble: true }
+  }
 ]);
+
+const GAME_GEMINI_CASCADE = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash"];
 
 function extractJsonBlock(rawText = "") {
   const s = String(rawText || "").trim();
@@ -80,23 +112,35 @@ function buildOfflinePitch(game, anchorTitles = []) {
   return pieces.join(" ") || "High-affinity match from your local collaborative & semantic game taste model.";
 }
 
-async function defaultCallGeminiProxy(prompt) {
+async function defaultCallGeminiProxy(prompt, config = null) {
   const userKey = resolveGeminiKey();
-  const res = await fetch("/api/gemini", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(userKey ? { "x-user-gemini-key": userKey } : {})
-    },
-    body: JSON.stringify({
-      model: "gemini-3.5-flash-lite",
-      contents: prompt,
-      config: { responseMimeType: "application/json" }
-    })
-  });
-  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
-  const data = await res.json();
-  return data?.text || data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  let lastErr = null;
+  for (const model of GAME_GEMINI_CASCADE) {
+    try {
+      const res = await fetch("/api/gemini", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(userKey ? { "x-user-gemini-key": userKey } : {})
+        },
+        body: JSON.stringify({
+          model,
+          contents: prompt,
+          ...(config ? { config } : {})
+        })
+      });
+      if (!res.ok) {
+        lastErr = new Error(`Gemini HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const text = data?.text || data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      if (text) return text;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("All Gemini models unavailable");
 }
 
 /**
@@ -129,13 +173,18 @@ export async function curateGamesWithOracle({
     .slice(0, 10);
 
   const fallbackAnchors = topLoved.slice(0, 2).map((g) => g.title).filter(Boolean);
+  const pickAnchors = (base) =>
+    (Array.isArray(base?.anchorTitles) && base.anchorTitles.length > 0 ? base.anchorTitles : fallbackAnchors);
   const buildFallback = () => ({
     source: "local-ml",
-    picks: pool.slice(0, count).map((g) => ({
-      ...g,
-      anchorTitles: fallbackAnchors,
-      pitch: buildOfflinePitch(g, fallbackAnchors)
-    }))
+    picks: pool.slice(0, count).map((g) => {
+      const anchors = pickAnchors(g);
+      return {
+        ...g,
+        anchorTitles: anchors,
+        pitch: buildOfflinePitch(g, anchors)
+      };
+    })
   });
 
   if (pool.length === 0) {
@@ -158,7 +207,9 @@ export async function curateGamesWithOracle({
   ].filter(Boolean);
 
   try {
-    const caller = typeof geminiCaller === "function" ? geminiCaller : defaultCallGeminiProxy;
+    const caller = typeof geminiCaller === "function"
+      ? geminiCaller
+      : (p) => defaultCallGeminiProxy(p, { responseMimeType: "application/json" });
     const rawResp = await caller(promptLines.join("\n"));
     const parsed = extractJsonBlock(rawResp);
     const aiPicks = Array.isArray(parsed?.picks) ? parsed.picks : [];
@@ -178,13 +229,14 @@ export async function curateGamesWithOracle({
         .map((t) => String(t || "").trim())
         .filter((t) => t && (lovedTitleSet.size === 0 || lovedTitleSet.has(t.toLowerCase())))
         .slice(0, 2);
+      const resolvedAnchors = anchors.length > 0 ? anchors : pickAnchors(base);
       merged.push({
         ...base,
         // Strictly lock mathematical matchScore & matchReasons!
         matchScore: base.matchScore,
         matchReasons: base.matchReasons,
-        anchorTitles: anchors.length > 0 ? anchors : fallbackAnchors,
-        pitch: String(p?.pitch || "").trim() || buildOfflinePitch(base, anchors.length ? anchors : fallbackAnchors)
+        anchorTitles: resolvedAnchors,
+        pitch: String(p?.pitch || "").trim() || buildOfflinePitch(base, resolvedAnchors)
       });
     }
 
@@ -193,10 +245,11 @@ export async function curateGamesWithOracle({
       if (merged.length >= count) break;
       if (usedIds.has(base.igdbId)) continue;
       usedIds.add(base.igdbId);
+      const anchors = pickAnchors(base);
       merged.push({
         ...base,
-        anchorTitles: fallbackAnchors,
-        pitch: buildOfflinePitch(base, fallbackAnchors)
+        anchorTitles: anchors,
+        pitch: buildOfflinePitch(base, anchors)
       });
     }
 
@@ -257,23 +310,7 @@ export async function askGameCompanionChat({
 
   const caller = typeof geminiCaller === "function"
     ? geminiCaller
-    : async (prompt) => {
-        const userKey = resolveGeminiKey();
-        const res = await fetch("/api/gemini", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(userKey ? { "x-user-gemini-key": userKey } : {})
-          },
-          body: JSON.stringify({
-            model: "gemini-3.5-flash-lite",
-            contents: prompt
-          })
-        });
-        if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
-        const data = await res.json();
-        return data?.text || data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      };
+    : (prompt) => defaultCallGeminiProxy(prompt);
 
   const reply = await caller(fullPrompt);
   return String(reply || "").trim();

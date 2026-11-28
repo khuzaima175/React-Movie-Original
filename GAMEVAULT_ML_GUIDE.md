@@ -1,7 +1,7 @@
 # GameVault — Local ML Architecture, Math & Engineering Guide
 
-**Last Updated:** November 28, 2026 (`GameVault v1.2`)  
-**Status:** Production-ready · Verified by `npm test`, `npm run build`, and live IGDB + browser verification.
+**Last Updated:** November 28, 2026 (`GameVault v1.3`)  
+**Status:** Production-ready · Verified by `npm test`, `npm run build`, `node scripts/games/eval_game_ranker.mjs`, and live IGDB data checks.
 
 This document is the complete standalone technical reference for **GameVault** — how its local client-side machine learning models were built and trained separately from CinemaVault's movie models, every mathematical formula running in the browser, how it handles console exclusives and `2024–2026` cold-start releases, how PC rig/hardware awareness works, and every ML and product bug we caught and fixed along the way.
 
@@ -147,7 +147,13 @@ Every candidate is then scored with a calibrated logit that pairs **warm collabo
      Acclaimed cold-start hits (`>= 8.2`, e.g. *God of War Ragnarök*, *Hades II*, *Shadow of the Colossus*) achieve full parity with warm classics, while `< 8.2` cold games cap at `0.78` so warm `9.0+` classics win cleanly.
 6. **Realistic Display Match Spread & Personal `Est. X.X/10`:**
    - `computeGameDisplayMatchScore(logit)` uses temperature **`τ = 1.85`** (`50 + 48 * σ((logit - 0.35) / 1.85)`) so top recommendations span a meaningful `62%–97%` gradient instead of saturating every top card at `98%`.
-   - `predictGameRating(matchScore, played)` calibrates an estimated `4.5–9.9` personal score against the player's own vault mean and standard deviation.
+   - `predictGameRating(matchScore, played)` blends the user's mean rating (`0.55`) with a `7.6` midpoint anchor (`0.45`) and wider spread (`max(1.05, std * 1.15)`), ensuring even `9.2`-avg high raters get a meaningful `~7.4–9.5` predicted score spread instead of compressed `9.3–9.9` scores.
+7. **`v1.3` Edition Alias Resolution, Dismissal Repulsion, Franchise Diversity & Anchor Attribution:**
+   - **IGDB Edition Alias Map (`game_edition_aliases.json`, `1,034` mappings):** Built by [scripts/games/build_edition_aliases.mjs](./scripts/games/build_edition_aliases.mjs), `resolveWarmGameId` bridges split originals/remasters/editions where IGDB uses `parent_game` / `remasters` / `expanded_games` rather than `version_parent` (`472 Skyrim → 19457`, `2155 Dark Souls → 81085`, `478 Witcher 2 → 20740`, `19564 Death Stranding → 152063`, `103337 Divinity OS2 Definitive → 11800`, `59849 L.A. Noire Remaster → 109`).
+   - **Isolated Dismissal Repulsion:** UI `"Not for me"` dismissals feed negative vectors into repulsion maps across **both** `collabIndex` (`14,656` warm) AND `contentIndex` (`24,439` warm + cold exclusives) without shrinking `catalogMax` normalization on positive EASE^R / Spectral scores.
+   - **Per-Game Vault Anchors (`findTopVaultAnchorsForGame`):** Extracts each candidate's true top 1–2 driving vault games (`"Because you loved ..."` chips on Discover/Explore/Details and Oracle fallback anchors).
+   - **Soft Franchise Diversity Cap (`applyFranchiseDiversityCap`):** Caps sequels per franchise (`maxPerFranchise = 1` on Discover & Oracle, `2` on Explore) in the head window without removing candidates from the pool.
+   - **Neural Oracle Mood Steering & Cascade (`gameOracleService.js`, `GamesOraclePage.jsx`):** Clicking any Oracle mood (`Cozy & Relaxing`, `Dark & Atmospheric`, `High-Skill Challenge`, etc.) pre-steers candidates using `Intensity` / `Tone` `tunerBias` before Gemini curates via a multi-model cascade (`gemini-3.5-flash-lite` → `3.1-flash-lite` → `2.5-flash`).
 
 ### 4.5 Live `< 1 ms` Neural Taste Tuner (`applyGameTuner`)
 Adjusting any of the 5 controls on `/games/explore` re-ranks the pool client-side with zero network calls:
@@ -179,6 +185,7 @@ First-time visitors complete a 3-step onboarding wizard (`GameOnboardingModal.js
 | `game_content_f16.bin` | `6,354,156 B` (`6.06 MB`) | `CVEM v1` | `24,439 × 128-D` | Tag-Dropout Ridge BGE-large (warm + cold exclusives) |
 | `game_tuner_axes.json` | `3,303 B` | JSON | `128-D × 2` | Decorrelated `Intensity` & `Tone` Taste Tuner axes |
 | `game_steam_to_igdb.json` | `284,040 B` | JSON | `18,144` keys | Steam `app_id → canonical igdb_id` import crosswalk |
+| `game_edition_aliases.json` | Generated JSON | JSON | `1,034` aliases | Cold IGDB split edition → warm EASE/Collab ID bridge |
 | `game_ranker_weights.json` | `2,578 B` | JSON | Metadata | Verified Colab v1.1 blend weights & benchmark summary |
 
 ### Quick Verification Commands
@@ -186,8 +193,9 @@ First-time visitors complete a 3-step onboarding wizard (`GameOnboardingModal.js
 # 1. Inspect exact headers & byte counts of all GameVault binaries
 node -e "import('node:fs').then(fs=>{for(const f of ['public/models/games/game_ease_k80.cvea','public/models/games/game_embeddings_f16.bin','public/models/games/game_content_f16.bin']){const b=fs.readFileSync(f),d=new DataView(b.buffer,b.byteOffset,b.byteLength);console.log(f,{bytes:b.length,magic:b.slice(0,4).toString(),ver:d.getUint32(4,true),count:d.getUint32(8,true),dimOrK:d.getUint32(12,true)});}})"
 
-# 2. Run GameVault unit & live-binary ML tests
+# 2. Run GameVault unit & live-binary ML tests + offline JS ranker harness
 node --test tests/gameServices.test.js tests/igdbApi.test.js
+node scripts/games/eval_game_ranker.mjs
 
 # 3. Run full CinemaVault + GameVault test suite & production build
 npm test && npm run build

@@ -17,6 +17,8 @@ import {
 import { useGameVault } from "../context/GameVaultContext";
 import { GAME_PLATFORM_FAMILIES, fetchGameDetails, fetchGamesBatch } from "../services/igdbService";
 import {
+  applyFranchiseDiversityCap,
+  applyGameTuner,
   buildGameRecommendationIds,
   filterDuplicateGameEditions,
   rankBacklogForNextPlay,
@@ -121,20 +123,31 @@ export default function GamesOraclePage() {
     setLoading(true);
     setError("");
     try {
+      const moodObj = GAME_ORACLE_MOODS.find((m) => m.id === selectedMood);
+      const hasMoodBias = Boolean(moodObj?.tunerBias);
       const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, {
-        warmLimit: 70,
-        coldLimit: 26,
-        excludeBacklog: false
+        warmLimit: hasMoodBias ? 88 : 70,
+        coldLimit: hasMoodBias ? 34 : 26,
+        excludeBacklog: false,
+        dismissedIds
       });
       const hydrated = await fetchGamesBatch(allIds);
-      let deduped = filterDuplicateGameEditions(hydrated, played);
+      let deduped = filterDuplicateGameEditions(hydrated, played, models?.editionAliases);
       if (rigProfile?.completed && rigProfile?.respectRigLimits) {
         const rigFiltered = deduped.filter((g) => isGameCompatibleWithRig(g, rigProfile).compatible);
         if (rigFiltered.length >= 12) deduped = rigFiltered;
       }
       const excludeList = [...dismissedIds, ...(refresh ? [...shownIds] : [])];
-      const ranked = rankGameCandidates(deduped, played, backlog, models, maps);
-      const moodObj = GAME_ORACLE_MOODS.find((m) => m.id === selectedMood);
+      let ranked = rankGameCandidates(deduped, played, backlog, models, maps, { dismissedIds });
+      if (hasMoodBias) {
+        ranked = applyGameTuner(ranked, moodObj.tunerBias, {
+          contentIndex: models.contentIndex,
+          tunerAxes: models.tunerAxes,
+          editionAliases: models.editionAliases,
+          played
+        });
+      }
+      ranked = applyFranchiseDiversityCap(ranked, { maxPerFranchise: 1, headWindow: 18 });
       const vibe = [moodObj?.prompt, customVibe.trim()].filter(Boolean).join(". ");
 
       const result = await curateGamesWithOracle({
@@ -158,11 +171,11 @@ export default function GamesOraclePage() {
 
   function handleBacklogTonight() {
     if (backlog.length === 0) return;
-    const ranked = rankBacklogForNextPlay(backlog, played, models);
+    const ranked = rankBacklogForNextPlay(backlog, played, models, { dismissedIds });
     setPicks(
       ranked.slice(0, 12).map((g) => ({
         ...g,
-        anchorTitles: played.slice(0, 2).map((p) => p.title),
+        anchorTitles: g.anchorTitles?.length > 0 ? g.anchorTitles : played.slice(0, 2).map((p) => p.title),
         pitch:
           g.summary?.slice(0, 165) ||
           "Ranked directly from your personal Backlog queue using EASE^R + 128-D neural taste matching."

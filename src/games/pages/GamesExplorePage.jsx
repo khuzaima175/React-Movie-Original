@@ -10,6 +10,7 @@ import {
 } from "../services/igdbService";
 import {
   DEFAULT_GAME_TUNER_STATE,
+  applyFranchiseDiversityCap,
   applyGameTuner,
   buildGameRecommendationIds,
   filterDuplicateGameEditions,
@@ -77,12 +78,21 @@ export default function GamesExplorePage() {
     if (modelsLoading || played.length === 0) return undefined;
     let active = true;
     setLoading(true);
-    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, { warmLimit: 54, coldLimit: 22 });
+    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, {
+      warmLimit: 54,
+      coldLimit: 22,
+      dismissedIds
+    });
     fetchGamesBatch(allIds)
       .then((hydrated) => {
         if (!active) return;
-        const deduped = filterDuplicateGameEditions(hydrated, played).filter((g) => !dismissedIds.has(g.igdbId));
-        const ranked = rankGameCandidates(deduped, played, backlog, models, maps);
+        const deduped = filterDuplicateGameEditions(hydrated, played, models?.editionAliases).filter(
+          (g) => !dismissedIds.has(g.igdbId)
+        );
+        const ranked = applyFranchiseDiversityCap(
+          rankGameCandidates(deduped, played, backlog, models, maps, { dismissedIds }),
+          { maxPerFranchise: 2, headWindow: 24 }
+        );
         setForYouPool(ranked);
       })
       .finally(() => {
@@ -116,7 +126,7 @@ export default function GamesExplorePage() {
       .then((items) => {
         if (!active) return;
         const enriched = played.length > 0 && (models.easeIndex || models.contentIndex)
-          ? rankGameCandidates(items, played, backlog, models)
+          ? rankGameCandidates(items, played, backlog, models, null, { dismissedIds })
           : items;
         setCatalogItems((prev) => {
           if (page === 1) return enriched;
@@ -154,6 +164,7 @@ export default function GamesExplorePage() {
     const tuned = applyGameTuner(filtered, tuner, {
       contentIndex: models.contentIndex,
       tunerAxes: models.tunerAxes,
+      editionAliases: models.editionAliases,
       played
     });
     if (shuffleSeed === 0) return tuned;

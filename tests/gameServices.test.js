@@ -270,9 +270,11 @@ test("gameRankerService penalizes low-acclaim flops (e.g. Gollum 4.3), deduplica
   assert.ok(good.matchScore > gollum.matchScore + 15, `Expected acclaimed RPG (${good.matchScore}%) well above flop (${gollum.matchScore}%)`);
   assert.ok(good.matchScore > unreleased.matchScore + 12, `Expected released RPG (${good.matchScore}%) well above unreleased future 0-vote game (${unreleased.matchScore}%)`);
 
-  // Predicted rating calibration
-  const est = predictGameRating(94, played);
-  assert.ok(est >= 8.5 && est <= 10.0, `Expected high Est. rating, got ${est}`);
+  // Calibration spread for high raters (~9.2 avg): 60% Est should be well below 95% Est
+  const highVault = [10, 10, 10, 10, 9, 9, 9, 9, 9, 8, 8, 8].map((r) => ({ userRating: r }));
+  const estLow = predictGameRating(60, highVault);
+  const estHigh = predictGameRating(95, highVault);
+  assert.ok(estHigh - estLow >= 2.0, `Expected meaningful Est. rating spread (>=2.0), got ${estLow}..${estHigh}`);
 
   // Backlog Play Next ranker
   const backlogRanked = rankBacklogForNextPlay(
@@ -284,6 +286,103 @@ test("gameRankerService penalizes low-acclaim flops (e.g. Gollum 4.3), deduplica
     { contentIndex: mockContentIndex }
   );
   assert.equal(backlogRanked[0].igdbId, 888888);
+});
+
+test("gameRankerService v1.3: edition aliases, dismissal repulsion, franchise diversity cap, vault anchors & neural Oracle mood steering", async () => {
+  const { parseEaseBinary } = await import("../src/services/easeService.js");
+  const { parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+  const {
+    resolveWarmGameId,
+    applyFranchiseDiversityCap,
+    extractGameFranchiseKey,
+    findTopVaultAnchorsForGame,
+    findSimilarGameIds,
+    rankGameCandidates,
+    applyGameTuner
+  } = await import("../src/games/services/gameRankerService.js");
+  const { GAME_ORACLE_MOODS } = await import("../src/games/services/gameOracleService.js");
+
+  const modelsDir = path.join(process.cwd(), "public/models/games");
+  const toAb = (file) => {
+    const b = fs.readFileSync(path.join(modelsDir, file));
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  };
+  const models = {
+    easeIndex: parseEaseBinary(toAb("game_ease_k80.cvea")),
+    collabIndex: parseEmbeddingBinary(toAb("game_embeddings_f16.bin")),
+    contentIndex: parseEmbeddingBinary(toAb("game_content_f16.bin")),
+    tunerAxes: JSON.parse(fs.readFileSync(path.join(modelsDir, "game_tuner_axes.json"), "utf8")),
+    weights: JSON.parse(fs.readFileSync(path.join(modelsDir, "game_ranker_weights.json"), "utf8")),
+    editionAliases: JSON.parse(fs.readFileSync(path.join(modelsDir, "game_edition_aliases.json"), "utf8"))
+  };
+
+  // 1. Edition Alias Resolution maps split originals/definitive editions to warm graph IDs
+  assert.equal(resolveWarmGameId(472, models.editionAliases), 19457);
+  assert.equal(resolveWarmGameId(2155, models.editionAliases), 81085);
+  assert.equal(resolveWarmGameId(19564, models.editionAliases), 152063);
+  assert.equal(resolveWarmGameId(103337, models.editionAliases), 11800);
+
+  // Ranking a cold split edition (Divinity OS2 Definitive = 103337) resolves to warm collab neighbors
+  const playedSouls = [
+    { igdbId: 1942, title: "The Witcher 3: Wild Hunt", userRating: 10, genres: ["Role-playing (RPG)"] },
+    { igdbId: 119171, title: "Baldur's Gate III", userRating: 10, genres: ["Role-playing (RPG)"] },
+    { igdbId: 472, title: "The Elder Scrolls V: Skyrim", userRating: 9, genres: ["Role-playing (RPG)"] }
+  ];
+  const dosRanked = rankGameCandidates(
+    [{ igdbId: 103337, title: "Divinity: Original Sin II - Definitive Edition", year: 2018, rating10: 9.3, ratingCount: 159, genres: ["Role-playing (RPG)"] }],
+    playedSouls,
+    [],
+    models
+  );
+  assert.ok(dosRanked[0].collabSim > 0, "Expected aliased Divinity OS2 Definitive to receive warm collabSim");
+  assert.equal(dosRanked[0].isColdStart, false);
+
+  // findSimilarGameIds uses edition alias EASE neighbors cleanly
+  const skyrimSims = findSimilarGameIds(472, models, { limit: 6 });
+  assert.equal(skyrimSims.length, 6);
+  assert.equal(skyrimSims.includes(472) || skyrimSims.includes(19457), false);
+
+  // 2. Dismissal repulsion lowers candidate logit when closely related games are dismissed
+  const cand = [{ igdbId: 11133, title: "Dark Souls III", year: 2016, rating10: 8.7, ratingCount: 2027, genres: ["Role-playing (RPG)"] }];
+  const baselineLogit = rankGameCandidates(cand, playedSouls, [], models)[0].rankerLogit;
+  const afterDismissLogit = rankGameCandidates(cand, playedSouls, [], models, null, {
+    dismissedIds: new Set([119133, 76882, 81085, 2368])
+  })[0].rankerLogit;
+  assert.ok(afterDismissLogit < baselineLogit, `Expected dismissal repulsion to reduce logit (${afterDismissLogit} < ${baselineLogit})`);
+
+  // 3. Vault Anchor attribution finds real driving games ("Because you loved ...")
+  const ds3Anchors = findTopVaultAnchorsForGame(11133, [
+    { igdbId: 119133, title: "Elden Ring", userRating: 10 },
+    { igdbId: 17000, title: "Stardew Valley", userRating: 9 }
+  ], models, 1);
+  assert.deepEqual(ds3Anchors, ["Elden Ring"]);
+
+  // 4. Soft franchise diversity cap limits same-series crowding without dropping items
+  const capped = applyFranchiseDiversityCap([
+    { igdbId: 1, title: "Assassin's Creed Odyssey" },
+    { igdbId: 2, title: "Assassin's Creed Shadows" },
+    { igdbId: 3, title: "Assassin's Creed Mirage" },
+    { igdbId: 4, title: "Dark Souls III" },
+    { igdbId: 5, title: "The Witcher 3: Wild Hunt" }
+  ], { maxPerFranchise: 1, headWindow: 3 });
+  assert.equal(capped.length, 5);
+  assert.equal(extractGameFranchiseKey("Assassin's Creed Mirage"), "assassin s creed");
+  assert.equal(capped.slice(0, 3).filter((g) => extractGameFranchiseKey(g.title) === "assassin s creed").length, 1);
+
+  // 5. Neural Oracle Mood tunerBias lifts Cozy games over intense Souls under "cozy"
+  const cozyMood = GAME_ORACLE_MOODS.find((m) => m.id === "cozy");
+  assert.ok(cozyMood?.tunerBias, "cozy mood should include neural tunerBias");
+  const mixed = [
+    { igdbId: 11133, title: "Dark Souls III", year: 2016, rating10: 8.7, ratingCount: 2027, matchScore: 90, rankerLogit: 1.5, genres: ["Role-playing (RPG)"] },
+    { igdbId: 17000, title: "Stardew Valley", year: 2016, rating10: 8.9, ratingCount: 1400, matchScore: 90, rankerLogit: 1.5, genres: ["Simulator", "Indie"] }
+  ];
+  const cozySteered = applyGameTuner(mixed, cozyMood.tunerBias, {
+    contentIndex: models.contentIndex,
+    tunerAxes: models.tunerAxes,
+    editionAliases: models.editionAliases,
+    played: playedSouls
+  });
+  assert.equal(cozySteered[0].igdbId, 17000, "Cozy mood neural bias should lift Stardew Valley above Dark Souls III");
 });
 
 test("gameVaultStorage computes vault stats, calibration anchors, and preserves game craft breakdown + tags", async () => {

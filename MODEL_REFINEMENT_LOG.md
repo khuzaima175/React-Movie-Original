@@ -391,20 +391,21 @@ Every offline ML hypothesis in `v6.2` followed the strict **4-Part Hard Ship Gat
 
 ---
 
-## GameVault `v1.1–v1.2` Training, Client Calibration & Offline Verification Log (Nov 27–28, 2026)
+## GameVault `v1.1–v1.3` Training, Client Calibration & Offline Verification Log (Nov 27–28, 2026)
 
 > For the complete standalone breakdown of GameVault's local ML math, Colab training fixes, Movies-vs-Games differences, and PC rig tier engine, see **[GAMEVAULT_ML_GUIDE.md](./GAMEVAULT_ML_GUIDE.md)**.
 
-- **Notebook & Canonical Dataset:** [scripts/games/train_games_colab.ipynb](./scripts/games/train_games_colab.ipynb) executed on Google Colab Tesla T4 High-RAM, merging Steam collaborative histories (`antonkozyriev/game-recommendations-on-steam`) + `FronkonGames`/`atalaydenknalbant` 2026 community tags + canonical **IGDB v4** catalog (`version_parent = null`, `18,144` Steam-to-IGDB mappings in `public/models/games/game_steam_to_igdb.json`).
+- **Notebook & Canonical Dataset:** [scripts/games/train_games_colab.ipynb](./scripts/games/train_games_colab.ipynb) executed on Google Colab Tesla T4 High-RAM, merging Steam collaborative histories (`antonkozyriev/game-recommendations-on-steam`) + `FronkonGames`/`atalaydenknalbant` 2026 community tags + canonical **IGDB v4** catalog (`version_parent = null`, `18,144` Steam-to-IGDB mappings in `public/models/games/game_steam_to_igdb.json`, plus `1,034` IGDB edition aliases in `public/models/games/game_edition_aliases.json`).
 - **Artifacts Shipped in `public/models/games/`:**
   - `game_ease_k80.cvea` (`4,748,560 B`): Exact Sparse EASE^R (`14,656` games × `K=80`, `lam=5000`, `pop_alpha=0.30`, `neg_w=-0.35`, with source-side `D^-alpha` scaling fixed prior to `CVEA v1` export).
   - `game_embeddings_f16.bin` (`1,934,608 B`): `14,656 × 64-D` Spectral-EASE (`eigh`) collaborative index (`CVEM v1`).
   - `game_content_f16.bin` (`6,354,156 B`): `24,439 × 128-D` Ridge-aligned [`BAAI/bge-large-en-v1.5`](https://huggingface.co/BAAI/bge-large-en-v1.5) (`Tag-Dropout Ridge`, `gamma=3.0`, `w=0.75`) eliminating domain shift for non-Steam console exclusives and 2024–2026 titles.
   - `game_tuner_axes.json` (`3,303 B`): Popularity-decorrelated linear probes (`Intensity` AUC `0.968`, `Tone` AUC `0.996`, `corr = 0.0000`).
+  - `game_edition_aliases.json` (`1,034` cold→warm edition aliases built via [scripts/games/build_edition_aliases.mjs](./scripts/games/build_edition_aliases.mjs)): Bridges split IGDB originals/remasters/expanded editions (`Skyrim 472→19457`, `Dark Souls 2155→81085`, `Witcher 2 478→20740`, `Death Stranding 19564→152063`, `Divinity OS2 Def 103337→11800`, `L.A. Noire Remaster 59849→109`) onto their warm graph IDs.
   - `game_ranker_weights.json` (`2,578 B`): Production blend (`ease: 0.6452`, `collab: 0.1075`, `content: 0.2151`, `popularityPrior: 0.0323`) & metrics snapshot.
-- **v1.2 Client Ranker & Catalog Quality Upgrades (`gameRankerService.js`, `api/igdb.js`, `gameRigService.js`):**
-  - Added memoized vault-signature similarity maps (`< 0.1 ms` route-switch reuse), `τ = 1.85` Match `%` calibration + personal `Est. X.X/10`, sibling-edition dedupe (`normalizeGameBaseTitle`), progressive mediocre (`< 7.5`), steep flop (`< 6.5`), redundant edition (`-0.65`), and unreleased future vaporware (`year > currentYear && votes < 15`, `-2.2`) penalties, plus acclaimed cold-start parity (`coldCap = 1.0` for `>= 8.2` vs `0.78` below `8.2`).
-  - Hardened IGDB discovery endpoints with strict `total_rating_count` floors (`>= 250` Popular, `>= 180` Top Rated, `>= 120` Critics' Choice, `>= 35` Recent Hits) eliminating low-vote shovelware, and added hardware-aware PC GPU spec tier detection (`entry`/`mid`/`high`).
+- **`v1.2–v1.3` Client Ranker, Oracle & Catalog Upgrades (`gameRankerService.js`, `gameOracleService.js`, `api/igdb.js`, `gameRigService.js`):**
+  - **v1.2:** Added memoized vault-signature similarity maps (`< 0.1 ms` route-switch reuse), `τ = 1.85` Match `%` calibration, sibling-edition dedupe (`normalizeGameBaseTitle`), progressive mediocre (`< 7.5`), steep flop (`< 6.5`), redundant edition (`-0.65`), and unreleased future vaporware (`-2.2`) penalties, strict IGDB `total_rating_count` floors, and hardware-aware PC GPU spec tier detection (`entry`/`mid`/`high`).
+  - **v1.3:** Wired `game_edition_aliases.json` across `gameRankerService.js` + `findSimilarGameIds`, isolated UI `"Not for me"` `dismissedIds` into dual warm (`collabIndex`) + cold (`contentIndex`) repulsion maps without distorting `catalogMax`, added soft franchise diversity capping (`applyFranchiseDiversityCap`), surfaced per-game vault anchors (`findTopVaultAnchorsForGame`), widened `predictGameRating` spread (`7.4–9.5` for a `9.2`-avg vault across `60%–96%`), wired `Intensity`/`Tone` `tunerBias` + 3-model Gemini cascade (`3.5-flash-lite` → `3.1-flash-lite` → `2.5-flash`) into Game Oracle moods, and added the offline JS ranker verification harness ([scripts/games/eval_game_ranker.mjs](./scripts/games/eval_game_ranker.mjs): `6/6` split editions resolved, `HR@20 = 46.4%` leave-one-out across 4 archetypes, monotonic `-0.047` cold dismissal repulsion).
 
 | Split / Evaluation (`500` Dev, `500` Untouched Test) | Popularity `NDCG@20` | `EASE-80` `NDCG@20` | Hybrid Fusion `NDCG@20` | Fusion `Recall@20` | Bootstrap `Fusion − Pop` `95%` CI |
 | :--- | :---: | :---: | :---: | :---: | :--- |

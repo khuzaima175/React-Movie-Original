@@ -5,6 +5,7 @@ import { Cpu, Sparkles } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
 import { discoverGames, fetchGamesBatch } from "../services/igdbService";
 import {
+  applyFranchiseDiversityCap,
   buildGameRecommendationIds,
   filterDuplicateGameEditions,
   rankGameCandidates
@@ -84,16 +85,25 @@ export default function GamesDiscoverPage() {
     }
     let active = true;
     setLoadingForYou(true);
-    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, { warmLimit: 40, coldLimit: 16 });
-    fetchGamesBatch(allIds.slice(0, 36))
+    const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, {
+      warmLimit: 44,
+      coldLimit: 18,
+      dismissedIds
+    });
+    fetchGamesBatch(allIds.slice(0, 42))
       .then((hydrated) => {
         if (!active) return;
-        let clean = filterDuplicateGameEditions(hydrated, played).filter((g) => !dismissedIds.has(g.igdbId));
+        let clean = filterDuplicateGameEditions(hydrated, played, models?.editionAliases).filter(
+          (g) => !dismissedIds.has(g.igdbId)
+        );
         if (rigProfile?.completed && rigProfile?.respectRigLimits) {
           const rigFiltered = clean.filter((g) => isGameCompatibleWithRig(g, rigProfile).compatible);
           if (rigFiltered.length >= 6) clean = rigFiltered;
         }
-        const ranked = rankGameCandidates(clean, played, backlog, models, maps);
+        const ranked = applyFranchiseDiversityCap(
+          rankGameCandidates(clean, played, backlog, models, maps, { dismissedIds }),
+          { maxPerFranchise: 1, headWindow: 16 }
+        );
         setForYouPicks(ranked.slice(0, 16));
       })
       .catch(() => {})

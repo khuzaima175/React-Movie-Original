@@ -5,6 +5,7 @@
  *   - game_embeddings_f16.bin (14,656 x 64-D Spectral EASE-64)
  *   - game_content_f16.bin (24,439 x 128-D Tag-Dropout BGE-large cold-start vectors)
  *   - game_tuner_axes.json (popularity-decorrelated Intensity & Tone 128-D axes)
+ *   - game_edition_aliases.json (cold IGDB sibling edition -> canonical warm EASE ID map)
  */
 
 import { buildEaseSimMapFromIndex, blendEaseAndCollabSimMaps } from "../../services/easeService.js";
@@ -14,7 +15,6 @@ import {
   getCollabCatalogMax
 } from "../../services/embeddingService.js";
 import { buildContentSimMap, retrieveColdContentNeighbors } from "../../services/contentSimService.js";
-import { computeDisplayMatchScore } from "../../services/rankerService.js";
 
 export const DEFAULT_GAME_TUNER_STATE = Object.freeze({
   era: 0,
@@ -26,6 +26,18 @@ export const DEFAULT_GAME_TUNER_STATE = Object.freeze({
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * Maps cold IGDB sibling IDs (Originals, Remasters, Definitive, Special, Enhanced, Director's Cut)
+ * onto their canonical warm EASE^R / Spectral-EASE ID when present in `editionAliases`.
+ */
+export function resolveWarmGameId(igdbId, editionAliases = null) {
+  const id = Number(igdbId);
+  if (!Number.isInteger(id) || id <= 0) return 0;
+  if (!editionAliases || typeof editionAliases !== "object") return id;
+  const mapped = Number(editionAliases[String(id)]);
+  return Number.isInteger(mapped) && mapped > 0 ? mapped : id;
 }
 
 /**
@@ -43,25 +55,127 @@ export function normalizeGameBaseTitle(title = "") {
   return s;
 }
 
+const KNOWN_FRANCHISE_PREFIXES = [
+  "assassin s creed",
+  "grand theft auto",
+  "red dead",
+  "elder scrolls",
+  "witcher",
+  "dark souls",
+  "god of war",
+  "divinity original sin",
+  "baldur s gate",
+  "call of duty",
+  "battlefield",
+  "mass effect",
+  "dragon age",
+  "final fantasy",
+  "resident evil",
+  "metal gear",
+  "watch dogs",
+  "far cry",
+  "tomb raider",
+  "uncharted",
+  "last of us",
+  "horizon",
+  "spider man",
+  "marvel s spider man",
+  "batman arkham",
+  "persona",
+  "fallout",
+  "bioshock",
+  "dishonored",
+  "borderlands",
+  "diablo",
+  "civilization",
+  "sid meier s civilization",
+  "monster hunter",
+  "devil may cry",
+  "kingdom come",
+  "kingdom hearts",
+  "legend of zelda",
+  "super mario",
+  "pokemon",
+  "ori and the",
+  "hades",
+  "death stranding",
+  "lords of the fallen"
+];
+
 /**
- * Removes candidate games that duplicate an edition already in `played` (or duplicate another higher-rated
- * edition already present in the candidate list).
+ * Extracts a normalized franchise/series stem so `For You` keeps diverse series in the top rows.
  */
-export function filterDuplicateGameEditions(candidates = [], played = []) {
+export function extractGameFranchiseKey(title = "") {
+  const base = normalizeGameBaseTitle(title).replace(/^the\s+/, "");
+  if (!base) return "";
+  for (const prefix of KNOWN_FRANCHISE_PREFIXES) {
+    if (base === prefix || base.startsWith(`${prefix} `)) {
+      return prefix;
+    }
+  }
+  const colonIdx = String(title || "").search(/\s*[:–—]\s+/);
+  let stem = colonIdx > 3 ? String(title).slice(0, colonIdx) : String(title || "");
+  stem = normalizeGameBaseTitle(stem).replace(/^the\s+/, "");
+  stem = stem
+    .replace(/\b(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b$/g, "")
+    .replace(/\b(part|vol|volume|chapter)\s*\d+\b$/g, "")
+    .replace(/\b\d+\b$/g, "")
+    .trim();
+  return stem.length >= 4 ? stem : base;
+}
+
+/**
+ * Soft two-pass diversity reorder capping sequels per franchise within `headWindow`
+ * (without ever dropping items from the pool).
+ */
+export function applyFranchiseDiversityCap(ranked = [], { maxPerFranchise = 2, headWindow = 24 } = {}) {
+  if (!Array.isArray(ranked) || ranked.length <= 2) return Array.isArray(ranked) ? ranked : [];
+  const counts = new Map();
+  const head = [];
+  const deferred = [];
+
+  for (const item of ranked) {
+    if (head.length < headWindow) {
+      const fKey = extractGameFranchiseKey(item?.title || item?.name);
+      const seen = fKey ? (counts.get(fKey) || 0) : 0;
+      if (fKey && seen >= maxPerFranchise) {
+        deferred.push(item);
+        continue;
+      }
+      if (fKey) counts.set(fKey, seen + 1);
+      head.push(item);
+    } else {
+      deferred.push(item);
+    }
+  }
+
+  return [...head, ...deferred];
+}
+
+/**
+ * Removes candidate games that duplicate an edition (or warm-aliased edition) already in `played`
+ * or duplicate another higher-rated edition already present in the candidate list.
+ */
+export function filterDuplicateGameEditions(candidates = [], played = [], editionAliases = null) {
   const playedIds = new Set();
   const playedTitles = new Set();
   for (const g of Array.isArray(played) ? played : []) {
     const id = Number(g?.igdbId ?? g?.id ?? 0);
-    if (id > 0) playedIds.add(id);
+    if (id > 0) {
+      playedIds.add(id);
+      const warm = resolveWarmGameId(id, editionAliases);
+      if (warm > 0) playedIds.add(warm);
+    }
     const norm = normalizeGameBaseTitle(g?.title || g?.name);
     if (norm.length >= 4) playedTitles.add(norm);
   }
 
-  // Prefer higher-rated/more-reviewed edition when two editions appear in the same candidate list
   const bestByBase = new Map();
   for (const c of Array.isArray(candidates) ? candidates : []) {
     const id = Number(c?.igdbId ?? c?.id ?? 0);
     if (id <= 0 || playedIds.has(id)) continue;
+    const warm = resolveWarmGameId(id, editionAliases);
+    if (warm > 0 && playedIds.has(warm)) continue;
     const norm = normalizeGameBaseTitle(c?.title || c?.name);
     if (norm.length >= 4 && playedTitles.has(norm)) continue;
     if (!norm) {
@@ -88,7 +202,8 @@ function computeGameDisplayMatchScore(logit) {
 }
 
 /**
- * Predicts a personal 1-10 rating calibrated to the player's own rating distribution.
+ * Predicts a meaningful 4.5-9.8 personal rating spread calibrated against both the player's
+ * distribution and a 7.6 midpoint anchor (so 9.2-avg players don't see Est. 9.3 on every 65% match).
  */
 export function predictGameRating(matchScore, played = []) {
   const ms = Number(matchScore);
@@ -96,22 +211,24 @@ export function predictGameRating(matchScore, played = []) {
   const rated = (Array.isArray(played) ? played : [])
     .map((g) => Number(g?.userRating ?? 0))
     .filter((r) => Number.isFinite(r) && r >= 1 && r <= 10);
-  const mean = rated.length >= 3 ? rated.reduce((a, b) => a + b, 0) / rated.length : 8.0;
+  const mean = rated.length >= 3 ? rated.reduce((a, b) => a + b, 0) / rated.length : 7.8;
   const std = rated.length >= 3
-    ? Math.max(0.65, Math.sqrt(rated.reduce((s, r) => s + (r - mean) ** 2, 0) / rated.length))
+    ? Math.sqrt(rated.reduce((s, r) => s + (r - mean) ** 2, 0) / rated.length)
     : 1.05;
-  const norm = clamp((ms - 74) / 22, -1.6, 1.4);
-  const est = clamp(mean + norm * std * 0.95, 4.5, 9.9);
+  const anchorMean = rated.length >= 3 ? 0.55 * mean + 0.45 * 7.6 : 7.8;
+  const effectiveStd = Math.max(1.05, std * 1.15);
+  const norm = clamp((ms - 78) / 18, -1.8, 1.3);
+  const est = clamp(anchorMean + norm * effectiveStd, 4.5, 9.8);
   return Math.round(est * 10) / 10;
 }
 
 /**
- * Converts a player's logged games (1-10 rating + hoursPlayed + status) into weighted preference entries
- * compatible with CinemaVault's EASE^R, Spectral-EASE, and 128-D Content engines.
+ * Converts a player's logged games (1-10 rating + hoursPlayed + status) AND dismissed games
+ * into weighted preference entries compatible with EASE^R, Spectral-EASE, and 128-D Content engines.
  */
-export function buildWeightedGameRatings(played = []) {
-  if (!Array.isArray(played) || played.length === 0) return [];
-  const validRatings = played
+export function buildWeightedGameRatings(played = [], { editionAliases = null, dismissedIds = null } = {}) {
+  const list = Array.isArray(played) ? played : [];
+  const validRatings = list
     .map((g) => Number(g?.userRating ?? 0))
     .filter((r) => Number.isFinite(r) && r > 0);
   const meanR = validRatings.length >= 2
@@ -122,10 +239,12 @@ export function buildWeightedGameRatings(played = []) {
     : 2.25;
   const stdR = Math.max(0.8, Math.sqrt(varR));
 
+  const seenOrigIds = new Set();
   const out = [];
-  for (const g of played) {
+  for (const g of list) {
     const igdbId = Number(g?.igdbId ?? g?.id ?? 0);
     if (!Number.isInteger(igdbId) || igdbId <= 0) continue;
+    seenOrigIds.add(igdbId);
 
     const rating = Number(g?.userRating ?? 0);
     const hours = Math.max(0, Number(g?.hoursPlayed ?? 0) || 0);
@@ -147,23 +266,39 @@ export function buildWeightedGameRatings(played = []) {
       } else {
         weight = -0.15;
       }
-    } else if (status === "completed" || status === "playing") {
+    } else if (status === "completed" || status === "playing" || status === "platinum") {
       weight = 0.9 * playBoost;
     } else if (status === "dropped") {
       weight = hours >= 50 ? 0.0 : -0.45;
     }
 
-    if (status === "completed" && weight > 0) weight *= 1.08;
+    if ((status === "completed" || status === "platinum") && weight > 0) weight *= 1.08;
     if (Math.abs(weight) < 1e-6) continue;
 
     out.push({
-      tmdbId: igdbId, // shared key consumed by easeService/embeddingService/contentSimService
+      tmdbId: resolveWarmGameId(igdbId, editionAliases),
       igdbId,
       rating: Number.isFinite(rating) && rating > 0 ? rating : (weight > 0 ? 8 : 4),
       weight,
       game: g
     });
   }
+
+  // Feed explicit "Not for me" dismissals into ML repulsion
+  const dismissedIter = dismissedIds instanceof Set || Array.isArray(dismissedIds) ? dismissedIds : [];
+  for (const rawId of dismissedIter) {
+    const did = Number(rawId);
+    if (!Number.isInteger(did) || did <= 0 || seenOrigIds.has(did)) continue;
+    seenOrigIds.add(did);
+    out.push({
+      tmdbId: resolveWarmGameId(did, editionAliases),
+      igdbId: did,
+      rating: 3,
+      weight: -0.55,
+      isDismissed: true
+    });
+  }
+
   return out;
 }
 
@@ -208,30 +343,59 @@ export function extractGameTasteProfile(played = []) {
 
 let simMapMemo = { key: "", value: null };
 
-function buildVaultSimSignature(played = [], backlog = [], models = {}) {
+function buildVaultSimSignature(played = [], backlog = [], models = {}, dismissedIds = null) {
   const pKey = (Array.isArray(played) ? played : [])
     .map((g) => `${g?.igdbId}:${g?.userRating || 0}:${g?.hoursPlayed || 0}:${g?.status || ""}`)
     .join(",");
   const bKey = (Array.isArray(backlog) ? backlog : [])
     .map((g) => `${g?.igdbId}`)
     .join(",");
-  const mKey = `${models?.easeIndex?.count || 0}:${models?.collabIndex?.count || 0}:${models?.contentIndex?.count || 0}`;
-  return `${mKey}|${pKey}|${bKey}`;
+  const dKey = dismissedIds ? [...dismissedIds].map(Number).filter(Boolean).sort((a, b) => a - b).join(",") : "";
+  const aliasCount = models?.editionAliases ? Object.keys(models.editionAliases).length : 0;
+  const mKey = `${models?.easeIndex?.count || 0}:${models?.collabIndex?.count || 0}:${models?.contentIndex?.count || 0}:${aliasCount}`;
+  return `${mKey}|${pKey}|${bKey}|${dKey}`;
 }
 
 /**
  * Computes full-catalog similarity maps once across all 24,439 games (memoized across route changes for <0.1ms reuse).
  */
-export function computeGameSimilarityMaps(played = [], backlog = [], models = {}) {
-  const sig = buildVaultSimSignature(played, backlog, models);
+export function computeGameSimilarityMaps(played = [], backlog = [], models = {}, { dismissedIds = null } = {}) {
+  const sig = buildVaultSimSignature(played, backlog, models, dismissedIds);
   if (simMapMemo.key === sig && simMapMemo.value) {
     return simMapMemo.value;
   }
 
-  const { easeIndex = null, collabIndex = null, contentIndex = null, weights = null } = models || {};
-  const weighted = buildWeightedGameRatings(played);
+  const {
+    easeIndex = null,
+    collabIndex = null,
+    contentIndex = null,
+    weights = null,
+    editionAliases = null
+  } = models || {};
+
+  const weighted = buildWeightedGameRatings(played, { editionAliases });
+  // Content vectors cover original IGDB IDs directly; keep original ID whenever indexed in contentIndex
+  const contentWeighted = weighted.map((entry) => ({
+    ...entry,
+    tmdbId: contentIndex?.idToIndex?.has(entry.igdbId) ? entry.igdbId : entry.tmdbId
+  }));
+
+  // Keep UI "Not for me" dismissals strictly in repulsion space so they push away similar warm & cold
+  // games without shrinking catalogMax or distorting positive EASE^R / Spectral normalization.
+  const fullNegWeighted = buildWeightedGameRatings(played, { editionAliases, dismissedIds });
+  const contentNegWeighted = fullNegWeighted.map((entry) => ({
+    ...entry,
+    tmdbId: contentIndex?.idToIndex?.has(entry.igdbId) ? entry.igdbId : entry.tmdbId
+  }));
+
   const backlogEntries = (Array.isArray(backlog) ? backlog : [])
-    .map((g) => ({ tmdbId: Number(g?.igdbId ?? g?.id ?? 0), updatedAt: g?.updatedAt || g?.dateAdded || 0 }))
+    .map((g) => {
+      const rawId = Number(g?.igdbId ?? g?.id ?? 0);
+      return {
+        tmdbId: resolveWarmGameId(rawId, editionAliases),
+        updatedAt: g?.updatedAt || g?.dateAdded || 0
+      };
+    })
     .filter((x) => x.tmdbId > 0);
 
   const easeWeight = Number(weights?.blend?.ease) > 0 && Number(weights?.blend?.collab) >= 0
@@ -245,8 +409,19 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
   });
   const spectralSimMap = buildCollabSimMapFromIndex(weighted, collabIndex);
   const collabSimMap = blendEaseAndCollabSimMaps(easeSimMap, spectralSimMap, easeIndex, { easeWeight });
-  const repulsionMap = buildRepulsionMapFromIndex(weighted, collabIndex);
-  const contentSimMap = buildContentSimMap(weighted, contentIndex, [], {
+
+  const warmRepulsionMap = buildRepulsionMapFromIndex(fullNegWeighted, collabIndex);
+  const contentRepulsionMap = buildRepulsionMapFromIndex(contentNegWeighted, contentIndex, {
+    threshold: 0.52,
+    exponent: 2
+  });
+  const repulsionMap = new Map(warmRepulsionMap);
+  for (const [cid, cpen] of contentRepulsionMap.entries()) {
+    const prev = repulsionMap.get(cid) || 0;
+    if (cpen > prev) repulsionMap.set(cid, cpen);
+  }
+
+  const contentSimMap = buildContentSimMap(contentWeighted, contentIndex, [], {
     coldOnly: false,
     minPositiveRating: 7
   });
@@ -254,6 +429,7 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
 
   const computed = {
     weighted,
+    contentWeighted,
     easeSimMap,
     spectralSimMap,
     collabSimMap,
@@ -266,6 +442,70 @@ export function computeGameSimilarityMaps(played = [], backlog = [], models = {}
 }
 
 /**
+ * Finds the top 1-2 games in the player's own vault driving a recommendation (`Because you loved ...`).
+ */
+export function findTopVaultAnchorsForGame(igdbId, played = [], models = {}, maxAnchors = 2) {
+  const id = Number(igdbId);
+  if (!Number.isInteger(id) || id <= 0 || !Array.isArray(played) || played.length === 0) return [];
+  const { easeIndex = null, contentIndex = null, editionAliases = null } = models || {};
+  const candWarm = resolveWarmGameId(id, editionAliases);
+  const candContentId = contentIndex?.idToIndex?.has(id) ? id : candWarm;
+  const candCIdx = contentIndex?.idToIndex?.get(candContentId);
+
+  const scoredAnchors = [];
+  for (const g of played) {
+    const pid = Number(g?.igdbId ?? g?.id ?? 0);
+    if (!Number.isInteger(pid) || pid <= 0 || pid === id || !g?.title) continue;
+    const r = Number(g?.userRating ?? 0);
+    const status = String(g?.status || "").toLowerCase();
+    if (r > 0 && r < 7) continue;
+    if (r === 0 && !["completed", "platinum", "playing"].includes(status)) continue;
+    const prefScale = r >= 9 ? 1.15 : r >= 7 ? 1.0 : 0.85;
+
+    let contrib = 0;
+    const pWarm = resolveWarmGameId(pid, editionAliases);
+
+    // 1. Direct EASE^R co-play contribution (played -> candidate)
+    if (easeIndex?.idToIndex?.has(pWarm) && candWarm > 0) {
+      const pIdx = easeIndex.idToIndex.get(pWarm);
+      const base = pIdx * easeIndex.K;
+      let maxW = 0;
+      let hitW = 0;
+      for (let k = 0; k < easeIndex.K; k++) {
+        const w = easeIndex.nbrW[base + k];
+        if (w > maxW) maxW = w;
+        const tid = easeIndex.ids[easeIndex.nbrIdx[base + k]];
+        if (tid === candWarm && w > hitW) hitW = w;
+      }
+      if (maxW > 1e-6 && hitW > 0) {
+        contrib += 1.15 * (hitW / maxW);
+      }
+    }
+
+    // 2. 128-D Tag-Dropout BGE-large semantic affinity
+    if (candCIdx !== undefined && contentIndex?.vectors) {
+      const pContentId = contentIndex.idToIndex.has(pid) ? pid : pWarm;
+      const pCIdx = contentIndex.idToIndex.get(pContentId);
+      if (pCIdx !== undefined) {
+        const dim = contentIndex.dim;
+        const pBase = pCIdx * dim;
+        const cBase = candCIdx * dim;
+        let dot = 0;
+        for (let d = 0; d < dim; d++) dot += contentIndex.vectors[pBase + d] * contentIndex.vectors[cBase + d];
+        if (dot > 0.25) contrib += 0.55 * dot;
+      }
+    }
+
+    if (contrib > 0.14) {
+      scoredAnchors.push({ title: g.title, score: contrib * prefScale });
+    }
+  }
+
+  scoredAnchors.sort((a, b) => b.score - a.score);
+  return scoredAnchors.slice(0, maxAnchors).map((a) => a.title);
+}
+
+/**
  * Retrieves interleaved top unseen IGDB IDs from BOTH warm collaborative space (EASE^R + Spectral-EASE)
  * and cold-start 128-D BGE-large space (PS/Nintendo exclusives & 2024-2026 hits).
  */
@@ -273,34 +513,40 @@ export function buildGameRecommendationIds(
   played = [],
   backlog = [],
   models = {},
-  { warmLimit = 48, coldLimit = 18, excludeBacklog = false } = {}
+  { warmLimit = 48, coldLimit = 18, excludeBacklog = false, dismissedIds = null } = {}
 ) {
+  const editionAliases = models?.editionAliases || null;
   const excludeIds = new Set();
-  for (const g of played || []) {
-    const id = Number(g?.igdbId ?? g?.id ?? 0);
-    if (id > 0) excludeIds.add(id);
-  }
-  if (excludeBacklog) {
-    for (const g of backlog || []) {
-      const id = Number(g?.igdbId ?? g?.id ?? 0);
-      if (id > 0) excludeIds.add(id);
+  const addExcl = (rawId) => {
+    const id = Number(rawId);
+    if (id > 0) {
+      excludeIds.add(id);
+      const warm = resolveWarmGameId(id, editionAliases);
+      if (warm > 0) excludeIds.add(warm);
     }
+  };
+  for (const g of played || []) addExcl(g?.igdbId ?? g?.id);
+  if (excludeBacklog) {
+    for (const g of backlog || []) addExcl(g?.igdbId ?? g?.id);
+  }
+  if (dismissedIds) {
+    for (const d of dismissedIds) addExcl(d);
   }
 
-  const maps = computeGameSimilarityMaps(played, backlog, models);
+  const maps = computeGameSimilarityMaps(played, backlog, models, { dismissedIds });
   const warmScored = [];
   for (const [id, rawSim] of maps.collabSimMap.entries()) {
     if (excludeIds.has(id)) continue;
     const normSim = rawSim > 0 && maps.catalogMax ? Math.min(1, rawSim / maps.catalogMax) : rawSim;
     const rep = maps.repulsionMap.get(id) || 0;
     const cnt = maps.contentSimMap.get(id) || 0;
-    const score = normSim + 0.18 * Math.max(0, cnt) - 0.25 * rep;
+    const score = normSim + 0.18 * Math.max(0, cnt) - 0.28 * rep;
     warmScored.push({ id, score });
   }
   warmScored.sort((a, b) => b.score - a.score);
   const warmIds = warmScored.slice(0, warmLimit).map((x) => x.id);
 
-  const coldNeighbors = retrieveColdContentNeighbors(maps.weighted, models?.contentIndex || null, excludeIds, {
+  const coldNeighbors = retrieveColdContentNeighbors(maps.contentWeighted || maps.weighted, models?.contentIndex || null, excludeIds, {
     collabIndex: models?.collabIndex || null,
     collabSimMap: maps.collabSimMap,
     repulsionMap: maps.repulsionMap,
@@ -334,25 +580,45 @@ export function buildGameRecommendationIds(
 }
 
 /**
- * Ranks hydrated IGDB game candidates using our local ML models + metadata overlap,
- * locking calibrated `50-99%` matchScore and up to 3 deterministic `matchReasons`.
+ * Ranks hydrated IGDB game candidates using our local ML models + edition aliases + metadata overlap,
+ * locking calibrated `50-98%` matchScore, deterministic `anchorTitles`, and up to 3 `matchReasons`.
  */
-export function rankGameCandidates(candidates = [], played = [], backlog = [], models = {}, precomputedMaps = null) {
+export function rankGameCandidates(
+  candidates = [],
+  played = [],
+  backlog = [],
+  models = {},
+  precomputedMaps = null,
+  { dismissedIds = null } = {}
+) {
   if (!Array.isArray(candidates) || candidates.length === 0) return [];
-  const maps = precomputedMaps || computeGameSimilarityMaps(played, backlog, models);
+  const editionAliases = models?.editionAliases || null;
+  const maps = precomputedMaps || computeGameSimilarityMaps(played, backlog, models, { dismissedIds });
   const profile = extractGameTasteProfile(played);
+  const currentYear = new Date().getUTCFullYear();
 
   const scored = candidates.map((game) => {
     const id = Number(game?.igdbId ?? game?.id ?? 0);
-    const hasCollab = Boolean(models?.collabIndex?.idToIndex?.has(id) || maps.collabSimMap.has(id));
-    const rawCollab = maps.collabSimMap.get(id) ?? 0;
+    const warmId = resolveWarmGameId(id, editionAliases);
+    const isEditionAliased = warmId > 0 && warmId !== id;
+
+    const hasCollab = Boolean(
+      models?.collabIndex?.idToIndex?.has(id) ||
+      maps.collabSimMap.has(id) ||
+      (isEditionAliased && (models?.collabIndex?.idToIndex?.has(warmId) || maps.collabSimMap.has(warmId)))
+    );
+
+    const rawCollab = maps.collabSimMap.get(id) ?? (isEditionAliased ? maps.collabSimMap.get(warmId) : undefined) ?? 0;
     const collabNorm = rawCollab > 0 && maps.catalogMax
       ? clamp(rawCollab / maps.catalogMax, 0, 1)
       : clamp(rawCollab, -0.5, 1);
 
-    const rawContent = maps.contentSimMap.get(id) ?? 0;
+    const rawContent = maps.contentSimMap.get(id) ?? (isEditionAliased ? maps.contentSimMap.get(warmId) : undefined) ?? 0;
     const contentNorm = clamp(rawContent, -0.5, 1);
-    const repulsion = maps.repulsionMap.get(id) ?? 0;
+    const repulsion = Math.max(
+      maps.repulsionMap.get(id) ?? 0,
+      isEditionAliased ? (maps.repulsionMap.get(warmId) ?? 0) : 0
+    );
 
     const genres = Array.isArray(game?.genres) ? game.genres : [];
     const themes = Array.isArray(game?.themes) ? game.themes : [];
@@ -366,10 +632,9 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
     const themeOverlap = themes.length > 0 ? matchedThemes.length / Math.min(3, themes.length) : 0;
     const devMatch = matchedDev ? 1 : 0;
 
-    // Bayesian acclaim in [0, 1] + progressive quality penalty (crushes 4.3 flops, demotes 6.9-7.4 mediocrities & unreleased vaporware)
+    // Bayesian acclaim in [0, 1] + progressive quality penalty (crushes 4.3 flops, demotes mediocrities & vaporware)
     const r10 = Number(game?.rating10 ?? 0);
     const votes = Math.max(0, Number(game?.ratingCount ?? 0));
-    const currentYear = new Date().getUTCFullYear();
     const bayes = r10 > 0 ? (votes * r10 + 40 * 7.2) / (votes + 40) : 7.2;
     const acclaimNorm = clamp((bayes - 5.5) / 4.0, 0, 1);
     const voteConf = votes > 0 ? clamp(votes / 25, 0.35, 1.0) : 0;
@@ -393,14 +658,12 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
         0.35 * themeOverlap +
         0.55 * devMatch +
         1.35 * acclaimNorm -
-        1.45 * repulsion -
+        1.55 * repulsion -
         mediocrePenalty -
         flopPenalty -
         editionPenalty -
         unreleasedPenalty;
     } else {
-      // Cold-start (console exclusives & 2024-2026 releases): acclaimed >= 8.2 keeps full warm parity;
-      // mediocre < 8.2 cold games cap at 0.78 so warm 9.0+ classics outrank 7.3 cold titles
       const coldCap = r10 >= 8.2 ? 1.0 : 0.78;
       const coldContentCal = clamp(Math.max(0, contentNorm) / 0.72, 0, coldCap);
       logit =
@@ -410,7 +673,7 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
         0.38 * themeOverlap +
         0.62 * devMatch +
         1.35 * acclaimNorm -
-        1.2 * repulsion -
+        1.35 * repulsion -
         mediocrePenalty -
         flopPenalty -
         editionPenalty -
@@ -419,8 +682,12 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
 
     const matchScore = computeGameDisplayMatchScore(logit);
     const estRating = predictGameRating(matchScore, played);
+    const anchorTitles = findTopVaultAnchorsForGame(id, played, models, 2);
+
     const matchReasons = [];
-    if (hasCollab && collabNorm >= 0.45) {
+    if (anchorTitles.length > 0 && logit >= 1.2) {
+      matchReasons.push(`Because you loved ${anchorTitles[0]}`);
+    } else if (hasCollab && collabNorm >= 0.45) {
       matchReasons.push("Strong Taste Match");
     } else if (!hasCollab && contentNorm >= 0.42) {
       if ((game?.year || 0) >= 2024) {
@@ -450,6 +717,7 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
       ...game,
       matchScore,
       estRating,
+      anchorTitles,
       rankerLogit: Number(logit.toFixed(4)),
       collabSim: Number(collabNorm.toFixed(4)),
       contentSim: Number(contentNorm.toFixed(4)),
@@ -462,9 +730,10 @@ export function rankGameCandidates(candidates = [], played = [], backlog = [], m
   return scored;
 }
 
-function projectGameAxis(igdbId, contentIndex, axisVec) {
+function projectGameAxis(igdbId, contentIndex, axisVec, editionAliases = null) {
   if (!contentIndex || !Array.isArray(axisVec) || !contentIndex.idToIndex) return null;
-  const idx = contentIndex.idToIndex.get(Number(igdbId));
+  const id = Number(igdbId);
+  const idx = contentIndex.idToIndex.get(id) ?? contentIndex.idToIndex.get(resolveWarmGameId(id, editionAliases));
   if (idx === undefined) return null;
   const dim = contentIndex.dim;
   if (!dim || axisVec.length !== dim) return null;
@@ -498,6 +767,7 @@ export function applyGameTuner(items = [], tunerState = DEFAULT_GAME_TUNER_STATE
 
   const contentIndex = context?.contentIndex || null;
   const tunerAxes = context?.tunerAxes || null;
+  const editionAliases = context?.editionAliases || null;
   const intensityVec = tunerAxes?.intensityVec || tunerAxes?.pacingVec || null;
   const toneVec = tunerAxes?.toneVec || null;
   const dominantGenres = new Set(
@@ -515,8 +785,8 @@ export function applyGameTuner(items = [], tunerState = DEFAULT_GAME_TUNER_STATE
     const votes = Number(item?.ratingCount ?? 0);
     const famCoord = votes > 0 ? clamp((2.7 - Math.log10(Math.max(10, votes))) / 1.1, -1, 1) : 0;
 
-    const intCoord = projectGameAxis(item?.igdbId, contentIndex, intensityVec) ?? 0;
-    const toneCoord = projectGameAxis(item?.igdbId, contentIndex, toneVec) ?? 0;
+    const intCoord = projectGameAxis(item?.igdbId, contentIndex, intensityVec, editionAliases) ?? 0;
+    const toneCoord = projectGameAxis(item?.igdbId, contentIndex, toneVec, editionAliases) ?? 0;
 
     let delta =
       eraW * eraCoord * 1.25 +
@@ -549,18 +819,22 @@ export function applyGameTuner(items = [], tunerState = DEFAULT_GAME_TUNER_STATE
 }
 
 /**
- * Finds top hybrid similar IGDB IDs for a single game (works on BOTH warm Steam titles and 100%-cold exclusives!).
+ * Finds top hybrid similar IGDB IDs for a single game (works on warm titles, aliased editions, & cold exclusives).
  */
 export function findSimilarGameIds(igdbId, models = {}, { limit = 12, fallbackIds = [] } = {}) {
   const id = Number(igdbId);
   if (!Number.isInteger(id) || id <= 0) return [];
 
   const scoreMap = new Map();
-  const { easeIndex = null, collabIndex = null, contentIndex = null } = models || {};
+  const { easeIndex = null, contentIndex = null, editionAliases = null } = models || {};
+  const warmId = resolveWarmGameId(id, editionAliases);
 
-  // 1. Exact EASE^R outgoing neighbors (sharpest warm co-play signal)
-  if (easeIndex?.idToIndex?.has(id)) {
-    const idx = easeIndex.idToIndex.get(id);
+  // 1. Exact EASE^R outgoing neighbors (sharpest warm co-play signal, via id or aliased edition)
+  const easeLookupId = easeIndex?.idToIndex?.has(id)
+    ? id
+    : (easeIndex?.idToIndex?.has(warmId) ? warmId : 0);
+  if (easeLookupId > 0) {
+    const idx = easeIndex.idToIndex.get(easeLookupId);
     const base = idx * easeIndex.K;
     let maxW = 0;
     for (let k = 0; k < easeIndex.K; k++) {
@@ -573,7 +847,7 @@ export function findSimilarGameIds(igdbId, models = {}, { limit = 12, fallbackId
         const w = easeIndex.nbrW[base + k];
         if (targetIdx < easeIndex.count && w > 0) {
           const tid = easeIndex.ids[targetIdx];
-          if (tid !== id) {
+          if (tid !== id && tid !== warmId) {
             scoreMap.set(tid, (scoreMap.get(tid) || 0) + 0.65 * (w / maxW));
           }
         }
@@ -581,15 +855,18 @@ export function findSimilarGameIds(igdbId, models = {}, { limit = 12, fallbackId
     }
   }
 
-  // 2. 128-D Tag-Dropout BGE-large semantic + collab-aligned neighbors (covers 24,439 games incl. PS/Nintendo exclusives!)
-  if (contentIndex?.idToIndex?.has(id)) {
-    const srcIdx = contentIndex.idToIndex.get(id);
+  // 2. 128-D Tag-Dropout BGE-large semantic + collab-aligned neighbors (covers 24,439 games)
+  const contentLookupId = contentIndex?.idToIndex?.has(id)
+    ? id
+    : (contentIndex?.idToIndex?.has(warmId) ? warmId : 0);
+  if (contentLookupId > 0) {
+    const srcIdx = contentIndex.idToIndex.get(contentLookupId);
     const { count, dim, ids, vectors } = contentIndex;
     const srcBase = srcIdx * dim;
     const sims = [];
     for (let i = 0; i < count; i++) {
       const tid = ids[i];
-      if (tid === id) continue;
+      if (tid === id || tid === warmId) continue;
       const base = i * dim;
       let dot = 0;
       for (let d = 0; d < dim; d++) dot += vectors[srcBase + d] * vectors[base + d];
@@ -606,7 +883,7 @@ export function findSimilarGameIds(igdbId, models = {}, { limit = 12, fallbackId
   if (scoreMap.size < limit && Array.isArray(fallbackIds)) {
     for (const raw of fallbackIds) {
       const tid = Number(raw);
-      if (Number.isInteger(tid) && tid > 0 && tid !== id && !scoreMap.has(tid)) {
+      if (Number.isInteger(tid) && tid > 0 && tid !== id && tid !== warmId && !scoreMap.has(tid)) {
         scoreMap.set(tid, 0.25);
       }
     }
@@ -621,10 +898,10 @@ export function findSimilarGameIds(igdbId, models = {}, { limit = 12, fallbackId
 /**
  * Ranks the player's own Backlog queue locally ($0.00 API cost) so they always know what to install next.
  */
-export function rankBacklogForNextPlay(backlog = [], played = [], models = {}) {
+export function rankBacklogForNextPlay(backlog = [], played = [], models = {}, options = {}) {
   if (!Array.isArray(backlog) || backlog.length === 0) return [];
   if (!Array.isArray(played) || played.length === 0) {
     return [...backlog].sort((a, b) => (Number(b.rating10) || 0) - (Number(a.rating10) || 0));
   }
-  return rankGameCandidates(backlog, played, [], models);
+  return rankGameCandidates(backlog, played, [], models, null, options);
 }

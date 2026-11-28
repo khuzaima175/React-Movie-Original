@@ -31,6 +31,7 @@ export default function GameDetailsPage() {
     backlog,
     playedById,
     backlogIds,
+    dismissedIds,
     models,
     rigProfile,
     savePlayedGame,
@@ -95,19 +96,19 @@ export default function GameDetailsPage() {
     fetchGamesBatch(simIds)
       .then((items) => {
         if (!active) return;
-        const ranked = played.length > 0 ? rankGameCandidates(items, played, backlog, models) : items;
+        const ranked = played.length > 0 ? rankGameCandidates(items, played, backlog, models, null, { dismissedIds }) : items;
         setSimilarGames(ranked);
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [game, models, played, backlog]);
+  }, [game, models, played, backlog, dismissedIds]);
 
   const personalMatch = useMemo(() => {
     if (!game || played.length === 0 || (!models.easeIndex && !models.contentIndex)) return null;
-    return rankGameCandidates([game], played, backlog, models)[0] || null;
-  }, [game, played, backlog, models]);
+    return rankGameCandidates([game], played, backlog, models, null, { dismissedIds })[0] || null;
+  }, [game, played, backlog, models, dismissedIds]);
 
   const logged = game ? playedById.get(game.igdbId) : null;
   const inBacklog = game ? backlogIds.has(game.igdbId) : false;
@@ -221,6 +222,11 @@ export default function GameDetailsPage() {
                   <div className="text-[2.2rem] font-bold text-match leading-none tabular-num">
                     {personalMatch.matchScore}% Match
                   </div>
+                  {personalMatch.anchorTitles?.length > 0 && (
+                    <div className="text-[1.15rem] text-accent mt-1">
+                      Because you loved {personalMatch.anchorTitles.join(" & ")}
+                    </div>
+                  )}
                 </div>
                 {personalMatch.estRating && (
                   <div className="pl-4 border-l border-hairline">

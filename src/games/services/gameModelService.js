@@ -15,6 +15,7 @@ export const GAME_CONTENT_URL = "/models/games/game_content_f16.bin";
 export const GAME_TUNER_URL = "/models/games/game_tuner_axes.json";
 export const GAME_WEIGHTS_URL = "/models/games/game_ranker_weights.json";
 export const GAME_STEAM_MAP_URL = "/models/games/game_steam_to_igdb.json";
+export const GAME_EDITION_ALIASES_URL = "/models/games/game_edition_aliases.json";
 
 const gameEaseLoader = createSessionBinaryIndexLoader(GAME_EASE_URL, parseEaseBinary);
 const gameCollabLoader = createSessionBinaryIndexLoader(GAME_COLLAB_URL, parseEmbeddingBinary);
@@ -23,6 +24,7 @@ const gameContentLoader = createSessionBinaryIndexLoader(GAME_CONTENT_URL, parse
 let tunerAxesPromise = null;
 let weightsPromise = null;
 let steamMapPromise = null;
+let editionAliasesPromise = null;
 
 async function fetchJsonSafe(url, customFetch = null) {
   const fetchFn = typeof customFetch === "function"
@@ -82,18 +84,26 @@ export function loadSteamCrosswalk(url = GAME_STEAM_MAP_URL, customFetch = null)
   return steamMapPromise;
 }
 
+export function loadGameEditionAliases(url = GAME_EDITION_ALIASES_URL, customFetch = null) {
+  if (!editionAliasesPromise) {
+    editionAliasesPromise = fetchJsonSafe(url, customFetch);
+  }
+  return editionAliasesPromise;
+}
+
 /**
- * Loads all 5 core recommendation models concurrently on first entry into Games mode.
+ * Loads all 6 core recommendation assets concurrently on first entry into Games mode.
  */
 export async function loadGameModelBundle(customFetch = null) {
-  const [easeIndex, collabIndex, contentIndex, tunerAxes, weights] = await Promise.all([
+  const [easeIndex, collabIndex, contentIndex, tunerAxes, weights, editionAliases] = await Promise.all([
     loadGameEaseIndex(GAME_EASE_URL, customFetch),
     loadGameCollabIndex(GAME_COLLAB_URL, customFetch),
     loadGameContentIndex(GAME_CONTENT_URL, customFetch),
     loadGameTunerAxes(GAME_TUNER_URL, customFetch),
-    loadGameRankerWeights(GAME_WEIGHTS_URL, customFetch)
+    loadGameRankerWeights(GAME_WEIGHTS_URL, customFetch),
+    loadGameEditionAliases(GAME_EDITION_ALIASES_URL, customFetch)
   ]);
-  return { easeIndex, collabIndex, contentIndex, tunerAxes, weights };
+  return { easeIndex, collabIndex, contentIndex, tunerAxes, weights, editionAliases };
 }
 
 export function resetGameModelCaches() {
@@ -103,4 +113,5 @@ export function resetGameModelCaches() {
   tunerAxesPromise = null;
   weightsPromise = null;
   steamMapPromise = null;
+  editionAliasesPromise = null;
 }

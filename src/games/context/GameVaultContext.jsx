@@ -40,7 +40,8 @@ export function GameVaultProvider({ children }) {
     collabIndex: null,
     contentIndex: null,
     tunerAxes: null,
-    weights: null
+    weights: null,
+    editionAliases: null
   });
   const [modelsLoading, setModelsLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState("idle");
