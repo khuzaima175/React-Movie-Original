@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 const sharedObserverPool = new Map();
 
-function getSharedRevealObserver(rootMargin, threshold) {
-  const key = `${rootMargin}|${threshold}`;
+function getSharedRevealObserver(rootMargin, threshold, eagerOffset = 120) {
+  const key = `${rootMargin}|${threshold}|${eagerOffset}`;
   let entry = sharedObserverPool.get(key);
   if (entry) return entry;
 
@@ -13,7 +13,7 @@ function getSharedRevealObserver(rootMargin, threshold) {
       for (const item of entries) {
         if (
           item.isIntersecting ||
-          item.boundingClientRect.top <= (window.innerHeight || 900) + 120
+          item.boundingClientRect.top <= (window.innerHeight || 900) + eagerOffset
         ) {
           const cb = callbacks.get(item.target);
           callbacks.delete(item.target);
@@ -32,13 +32,14 @@ function getSharedRevealObserver(rootMargin, threshold) {
 
 /**
  * Shared-IntersectionObserver scroll-reveal hook.
- * Reuses one observer per (rootMargin, threshold) across all mounted cards so
+ * Reuses one observer per (rootMargin, threshold, eagerOffset) across all mounted cards so
  * grids with 100+ posters never allocate per-card observers or scroll listeners.
  */
 export function useScrollReveal({
   rootMargin = "160px 0px 80px 0px",
   threshold = 0,
-  disabled = false
+  disabled = false,
+  eagerOffset = 120
 } = {}) {
   const [node, setNode] = useState(null);
   const [isVisible, setIsVisible] = useState(() => {
@@ -65,7 +66,7 @@ export function useScrollReveal({
     }
 
     const rect = node.getBoundingClientRect();
-    if (rect.top <= (window.innerHeight || 900) + 120) {
+    if (rect.top <= (window.innerHeight || 900) + eagerOffset) {
       setIsVisible(true);
       return undefined;
     }
@@ -75,7 +76,7 @@ export function useScrollReveal({
       return undefined;
     }
 
-    const { observer, callbacks } = getSharedRevealObserver(rootMargin, threshold);
+    const { observer, callbacks } = getSharedRevealObserver(rootMargin, threshold, eagerOffset);
     callbacks.set(node, () => setIsVisible(true));
     observer.observe(node);
 
@@ -83,7 +84,7 @@ export function useScrollReveal({
       callbacks.delete(node);
       observer.unobserve(node);
     };
-  }, [disabled, isVisible, node, rootMargin, threshold]);
+  }, [disabled, isVisible, node, rootMargin, threshold, eagerOffset]);
 
   return [ref, isVisible];
 }

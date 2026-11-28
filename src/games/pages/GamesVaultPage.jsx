@@ -351,7 +351,7 @@ export default function GamesVaultPage() {
         ) : (
           <div className="gv-grid">
             {filteredPlayed.map((game, idx) => (
-              <GameCard key={game.igdbId} game={game} showMatch={false} index={idx} />
+              <GameCard key={game.igdbId} game={game} showMatch={false} index={idx} revealIndex={idx} animateOnScroll />
             ))}
           </div>
         )
@@ -368,7 +368,14 @@ export default function GamesVaultPage() {
         ) : (
           <div className="gv-grid">
             {displayedBacklog.map((game, idx) => (
-              <GameCard key={game.igdbId} game={game} showMatch={rankBacklogMl && played.length > 0} index={idx} />
+              <GameCard
+                key={game.igdbId}
+                game={game}
+                showMatch={rankBacklogMl && played.length > 0}
+                index={idx}
+                revealIndex={idx}
+                animateOnScroll
+              />
             ))}
           </div>
         )

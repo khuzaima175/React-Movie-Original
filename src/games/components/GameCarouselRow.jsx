@@ -18,7 +18,11 @@ export default function GameCarouselRow({
   const dragRef = useRef({ active: false, startX: 0, startLeft: 0, moved: false, suppressClick: false });
   const [canScroll, setCanScroll] = useState(false);
   const [edges, setEdges] = useState({ start: false, end: true });
-  const [revealRef, isRevealed] = useScrollReveal({ rootMargin: "120px 0px 40px 0px", threshold: 0 });
+  const [revealRef, isRevealed] = useScrollReveal({
+    rootMargin: "0px 0px -36px 0px",
+    threshold: 0.05,
+    eagerOffset: -30
+  });
   const {
     containerRef: wheelScopeRef,
     isEngaged: isWheelEngaged,

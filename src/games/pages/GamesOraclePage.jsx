@@ -456,11 +456,11 @@ export default function GamesOraclePage() {
                   return (
                     <motion.article
                       key={pick.igdbId}
-                      layout
-                      initial={{ opacity: 0, y: 14 }}
-                      animate={{ opacity: 1, y: 0 }}
+                      initial={{ opacity: 0, y: 26, scale: 0.985 }}
+                      whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                      viewport={{ once: true, amount: 0.12 }}
                       exit={{ opacity: 0, scale: 0.94 }}
-                      transition={{ duration: 0.3, delay: Math.min(idx, 10) * 0.04, ease: EASE }}
+                      transition={{ duration: 0.48, delay: (idx % 2) * 0.06, ease: EASE }}
                       className="gv-oracle-card"
                     >
                       <Link to={`/game/${pick.igdbId}`}>

@@ -481,7 +481,14 @@ export default function GamesExplorePage() {
         <>
           <div className="gv-grid">
             {displayedItems.map((game, idx) => (
-              <GameCard key={game.igdbId} game={game} showMatch={played.length > 0} index={idx} enableLayout />
+              <GameCard
+                key={game.igdbId}
+                game={game}
+                showMatch={played.length > 0}
+                index={idx}
+                revealIndex={idx}
+                animateOnScroll
+              />
             ))}
           </div>
 
