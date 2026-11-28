@@ -84,7 +84,9 @@ export default function GamesOraclePage() {
   const [picks, setPicks] = useState([]);
   const [shownIds, setShownIds] = useState(() => new Set());
   const [source, setSource] = useState("");
+  const [deepNotice, setDeepNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [deepLoading, setDeepLoading] = useState(false);
   const [error, setError] = useState("");
   const autoLoadedRef = useRef(false);
 
@@ -132,19 +134,27 @@ export default function GamesOraclePage() {
   async function handleGenerate({
     refresh = false,
     useGemini = true,
+    curationMode = "standard",
     moodOverride = selectedMood,
     platformOverride = platformFamily,
-    vibeOverride = customVibe
+    vibeOverride = customVibe,
+    preserveExistingOnLoad = false
   } = {}) {
     if (played.length === 0) return;
-    setLoading(true);
+    const isDeep = curationMode === "deep";
+    if (isDeep) {
+      setDeepLoading(true);
+    } else if (!preserveExistingOnLoad) {
+      setLoading(true);
+    }
     setError("");
+    setDeepNotice("");
     try {
       const moodObj = GAME_ORACLE_MOODS.find((m) => m.id === moodOverride);
       const hasMoodBias = Boolean(moodObj?.tunerBias);
       const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, {
-        warmLimit: hasMoodBias ? 88 : 70,
-        coldLimit: hasMoodBias ? 34 : 26,
+        warmLimit: isDeep ? 90 : (hasMoodBias ? 88 : 70),
+        coldLimit: isDeep ? 36 : (hasMoodBias ? 34 : 26),
         excludeBacklog: false,
         dismissedIds,
         antiBubble: tuner.antiBubble
@@ -168,6 +178,23 @@ export default function GamesOraclePage() {
       ranked = applyFranchiseDiversityCap(ranked, { maxPerFranchise: 1, headWindow: 18 });
       const vibe = [moodObj?.prompt, vibeOverride.trim()].filter(Boolean).join(". ");
 
+      // When auto-initializing or curating standard picks without an existing slate, show instant local picks first
+      if (preserveExistingOnLoad) {
+        const instant = await curateGamesWithOracle({
+          played,
+          candidates: ranked,
+          vibe,
+          platformFamily: platformOverride,
+          count: 12,
+          excludeIds: excludeList,
+          useGemini: false
+        });
+        if (instant.picks.length > 0) {
+          setPicks(instant.picks);
+          setSource(instant.source);
+        }
+      }
+
       const result = await curateGamesWithOracle({
         played,
         candidates: ranked,
@@ -175,19 +202,30 @@ export default function GamesOraclePage() {
         platformFamily: platformOverride,
         count: 12,
         excludeIds: excludeList,
-        useGemini
+        useGemini,
+        mode: curationMode
       });
       setPicks(result.picks);
       setSource(result.source);
+      if (isDeep && result.source !== "gemini-deep") {
+        setDeepNotice(
+          result.source === "gemini"
+            ? "Hydrogen quota or timeout reached — curated with Flash Lite instead."
+            : "AI models unavailable right now — showing on-device taste picks."
+        );
+      }
       setShownIds((prev) => new Set([...prev, ...result.picks.map((p) => p.igdbId)]));
     } catch {
-      setError("Could not load picks right now. Please try again.");
+      if (!preserveExistingOnLoad) {
+        setError("Could not load picks right now. Please try again.");
+      }
     } finally {
-      setLoading(false);
+      if (isDeep) setDeepLoading(false);
+      else setLoading(false);
     }
   }
 
-  // Instant 0-cost initial Oracle slate on mount (matches CinemaVault's instant Oracle opening)
+  // Instant initial slate on mount + fast Flash-Lite upgrade in background (saves Hydrogen's 20/day quota for "More Accurate Picks")
   useEffect(() => {
     if (
       activeTab !== "picks" ||
@@ -200,7 +238,7 @@ export default function GamesOraclePage() {
       return;
     }
     autoLoadedRef.current = true;
-    handleGenerate({ refresh: false, useGemini: false });
+    handleGenerate({ refresh: false, useGemini: true, curationMode: "standard", preserveExistingOnLoad: true });
   }, [activeTab, modelsLoading, played.length, picks.length, models]);
 
   function handleBacklogTonight() {
@@ -315,15 +353,17 @@ export default function GamesOraclePage() {
         <>
           {/* Compact Single-Row Control Bar (Mirrors CinemaVault Film Oracle) */}
           <div className="gv-oracle-toolbar">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h2 className="gv-section-title">Recommended for You</h2>
               {source && (
-                <span className="gv-pill">
-                  {source === "gemini"
-                    ? "AI Curated"
-                    : source === "backlog-ml"
-                      ? "From Backlog"
-                      : "On-Device Taste Model"}
+                <span className={`gv-pill ${source === "gemini-deep" ? "gv-pill-match" : ""}`}>
+                  {source === "gemini-deep"
+                    ? "Hydrogen Deep Curated"
+                    : source === "gemini"
+                      ? "AI Curated · Flash Lite"
+                      : source === "backlog-ml"
+                        ? "From Backlog"
+                        : "On-Device Taste Model"}
                 </span>
               )}
             </div>
@@ -378,12 +418,23 @@ export default function GamesOraclePage() {
 
               <button
                 type="button"
-                disabled={loading || modelsLoading || played.length === 0}
+                disabled={loading || deepLoading || modelsLoading || played.length === 0}
                 className="gv-btn gv-btn-sm gv-btn-primary"
-                onClick={() => handleGenerate({ refresh: picks.length > 0, useGemini: true })}
+                onClick={() => handleGenerate({ refresh: picks.length > 0, useGemini: true, curationMode: "standard" })}
               >
                 <RefreshCw size={13} className={loading ? "animate-spin" : ""} aria-hidden="true" />
                 {loading ? "Curating..." : picks.length > 0 ? "Refresh" : "Curate Picks"}
+              </button>
+
+              <button
+                type="button"
+                disabled={loading || deepLoading || modelsLoading || played.length === 0}
+                className="gv-btn gv-btn-sm gv-btn-accent"
+                onClick={() => handleGenerate({ refresh: false, useGemini: true, curationMode: "deep" })}
+                title="Deep taste curation with Gemini 4 Hydrogen (High Thinking)"
+              >
+                <Sparkles size={13} className={deepLoading ? "animate-pulse" : ""} aria-hidden="true" />
+                {deepLoading ? "Thinking deeply..." : "More Accurate Picks"}
               </button>
             </div>
           </div>
@@ -418,6 +469,26 @@ export default function GamesOraclePage() {
 
           {/* Sleek Collapsed Live Taste Tuner */}
           <GameTasteTunerBar value={tuner} onChange={setTuner} />
+
+          {deepLoading && (
+            <div
+              className="mt-4 px-4 py-3 rounded-lg border flex items-center gap-3 text-[1.28rem]"
+              style={{
+                background: "var(--gv-accent-dim)",
+                borderColor: "var(--gv-accent-border)",
+                color: "var(--gv-accent)"
+              }}
+            >
+              <Sparkles size={15} className="animate-pulse shrink-0" aria-hidden="true" />
+              <span>
+                Gemini 4 Hydrogen (High Thinking) is analyzing your vault &amp; 55 candidates — current picks stay ready below.
+              </span>
+            </div>
+          )}
+
+          {deepNotice && !deepLoading && (
+            <p className="text-[1.25rem] text-text-3 mt-3">{deepNotice}</p>
+          )}
 
           {error && <p className="text-[1.35rem] text-danger mt-4">{error}</p>}
 

@@ -85,7 +85,39 @@ export const GAME_ORACLE_MOODS = Object.freeze([
   }
 ]);
 
-const GAME_GEMINI_CASCADE = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash"];
+export const GAME_GEMINI_CASCADE = Object.freeze([
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash"
+]);
+
+export const GAME_DEEP_GEMINI_CASCADE = Object.freeze([
+  "gemini-4-hydrogen",
+  "gemini-3.8-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-2.5-flash"
+]);
+
+/**
+ * Returns model-specific thinkingConfig matching `/api/gemini` and Google API spec.
+ */
+export function getGameModelThinkingConfig(modelName = "", mode = "standard") {
+  const m = String(modelName || "").toLowerCase();
+  if (m.includes("gemini-4-hydrogen")) {
+    return { thinkingLevel: mode === "deep" ? "HIGH" : "MEDIUM" };
+  }
+  if (
+    m.includes("gemini-3.8-flash") ||
+    m.includes("gemini-3.5-flash-lite") ||
+    m.includes("gemini-3.1-flash-lite")
+  ) {
+    return { thinkingLevel: "LOW" };
+  }
+  if (m.includes("gemini-2.5-flash")) {
+    return { thinkingBudget: 0 };
+  }
+  return undefined;
+}
 
 function extractJsonBlock(rawText = "") {
   const s = String(rawText || "").trim();
@@ -113,21 +145,31 @@ function buildOfflinePitch(game, anchorTitles = []) {
   return pieces.join(" ") || "High-affinity match from your local collaborative & semantic game taste model.";
 }
 
-async function defaultCallGeminiProxy(prompt, config = null) {
+async function defaultCallGeminiProxy(prompt, config = null, { mode = "standard" } = {}) {
   const userKey = resolveGeminiKey();
+  const cascade = mode === "deep" ? GAME_DEEP_GEMINI_CASCADE : GAME_GEMINI_CASCADE;
   let lastErr = null;
-  for (const model of GAME_GEMINI_CASCADE) {
+  for (const model of cascade) {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeoutMs = model.includes("hydrogen") ? 55_000 : 24_000;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
     try {
+      const thinkingConfig = getGameModelThinkingConfig(model, mode);
+      const mergedConfig = {
+        ...(config || {}),
+        ...(thinkingConfig ? { thinkingConfig } : {})
+      };
       const res = await fetch("/api/gemini", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(userKey ? { "x-user-gemini-key": userKey } : {})
         },
+        ...(ctrl ? { signal: ctrl.signal } : {}),
         body: JSON.stringify({
           model,
           contents: prompt,
-          ...(config ? { config } : {})
+          config: mergedConfig
         })
       });
       if (!res.ok) {
@@ -136,9 +178,11 @@ async function defaultCallGeminiProxy(prompt, config = null) {
       }
       const data = await res.json();
       const text = data?.text || data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      if (text) return text;
+      if (text) return { text, model };
     } catch (err) {
       lastErr = err;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
   throw lastErr || new Error("All Gemini models unavailable");
@@ -147,6 +191,7 @@ async function defaultCallGeminiProxy(prompt, config = null) {
 /**
  * Curates up to `count` game picks from pre-ranked local ML candidates, optionally using Gemini
  * for editorial reasoning + anchor title pairing while strictly locking mathematical `matchScore`.
+ * Supports `mode: "standard"` (fast Flash-Lite) and `mode: "deep"` (Gemini 4 Hydrogen HIGH thinking).
  */
 export async function curateGamesWithOracle({
   played = [],
@@ -156,8 +201,10 @@ export async function curateGamesWithOracle({
   count = 12,
   excludeIds = [],
   useGemini = true,
+  mode = "standard",
   geminiCaller = null
 } = {}) {
+  const isDeep = mode === "deep";
   const excluded = new Set((Array.isArray(excludeIds) ? excludeIds : []).map(Number));
   const filtered = (Array.isArray(candidates) ? candidates : []).filter((g) => {
     if (excluded.has(Number(g?.igdbId))) return false;
@@ -167,17 +214,27 @@ export async function curateGamesWithOracle({
     return true;
   });
 
-  const pool = filtered.slice(0, 45);
-  const topLoved = (Array.isArray(played) ? played : [])
+  const pool = filtered.slice(0, isDeep ? 55 : 40);
+  const allPlayed = Array.isArray(played) ? played : [];
+  const topLoved = allPlayed
     .filter((g) => Number(g?.userRating ?? 0) >= 8 || String(g?.status || "") === "completed")
     .sort((a, b) => (Number(b.userRating || 0) - Number(a.userRating || 0)) || (Number(b.hoursPlayed || 0) - Number(a.hoursPlayed || 0)))
-    .slice(0, 10);
+    .slice(0, isDeep ? 15 : 10);
+
+  const dislikedGames = allPlayed
+    .filter((g) => (Number(g?.userRating ?? 0) > 0 && Number(g?.userRating ?? 0) <= 4) || String(g?.status || "") === "dropped")
+    .slice(0, 6);
+
+  const boredEarlyGames = allPlayed
+    .filter((g) => String(g?.status || "") === "tried_bored" && Number(g?.userRating ?? 0) === 0)
+    .slice(0, 6);
 
   const fallbackAnchors = topLoved.slice(0, 2).map((g) => g.title).filter(Boolean);
   const pickAnchors = (base) =>
     (Array.isArray(base?.anchorTitles) && base.anchorTitles.length > 0 ? base.anchorTitles : fallbackAnchors);
   const buildFallback = () => ({
     source: "local-ml",
+    modelUsed: "",
     picks: pool.slice(0, count).map((g) => {
       const anchors = pickAnchors(g);
       return {
@@ -189,7 +246,7 @@ export async function curateGamesWithOracle({
   });
 
   if (pool.length === 0) {
-    return { source: "local-ml", picks: [] };
+    return { source: "local-ml", modelUsed: "", picks: [] };
   }
 
   const canCallAi = useGemini && (typeof geminiCaller === "function" || hasGeminiBackend());
@@ -198,23 +255,57 @@ export async function curateGamesWithOracle({
   }
 
   const craftTag = extractGameCraftAndTagProfile(played);
+  const formatLovedLine = (g) => {
+    const bits = [];
+    if (g.userRating) bits.push(`${g.userRating}/10`);
+    if (g.hoursPlayed) bits.push(`${g.hoursPlayed}h`);
+    if (isDeep && Array.isArray(g.quickTags) && g.quickTags.length > 0) {
+      bits.push(g.quickTags.slice(0, 2).join(" "));
+    }
+    return `${g.title}${bits.length ? ` (${bits.join(", ")})` : ""}`;
+  };
+
+  const targetCount = Math.min(count, pool.length);
   const promptLines = [
-    "You are GameVault Oracle, an expert video game curator.",
-    `Player's top loved games: ${topLoved.map((g) => `${g.title}${g.userRating ? ` (${g.userRating}/10)` : ""}${g.hoursPlayed ? ` [${g.hoursPlayed}h]` : ""}`).join(", ") || "New player"}.`,
+    isDeep
+      ? "You are GameVault Oracle (Deep Taste Curation), an elite video game critic optimizing for genuine gameplay-loop, pacing, and tone compatibility."
+      : "You are GameVault Oracle, an expert video game curator.",
+    `Player's top loved games: ${topLoved.map(formatLovedLine).join(", ") || "New player"}.`,
+    isDeep && dislikedGames.length > 0
+      ? `Games the player disliked or dropped (avoid similar friction/loops): ${dislikedGames.map((g) => g.title).join(", ")}.`
+      : "",
+    isDeep && boredEarlyGames.length > 0
+      ? `Tried briefly / paused early (neutral signal — do NOT blacklist genre, just avoid overly slow tutorials unless strongly justified): ${boredEarlyGames.map((g) => g.title).join(", ")}.`
+      : "",
     craftTag.topCraftLabels.length > 0 ? `Player's highest craft priorities: ${craftTag.topCraftLabels.join(", ")}.` : "",
     craftTag.topTags.length > 0 ? `Player's frequent taste tags: ${craftTag.topTags.join(", ")}.` : "",
     vibe ? `Requested vibe/mood: "${vibe}".` : "Requested vibe: Best overall personal taste match.",
     platformFamily !== "all" ? `Preferred platform: ${platformFamily.toUpperCase()}.` : "",
-    `Select the best ${Math.min(count, pool.length)} diverse games ONLY from the candidate list below. Return strict JSON: {"picks":[{"igdbId":123,"anchorTitles":["Game A"],"pitch":"2 concise editorial sentences explaining why this player will love it without mentioning scores or algorithms."}]}.`,
+    isDeep
+      ? `Analyze the ${pool.length} pre-scored candidates below carefully. Select the ${targetCount} sharpest, non-redundant games ordered strictly from #1 strongest personal fit down to #${targetCount}. Return strict JSON: {"picks":[{"igdbId":123,"anchorTitles":["Game A"],"pitch":"2 concise editorial sentences connecting specific mechanics, pacing, or tone to this player's vault without mentioning math scores."}]}.`
+      : `Select the best ${targetCount} diverse games ONLY from the candidate list below. Return strict JSON: {"picks":[{"igdbId":123,"anchorTitles":["Game A"],"pitch":"2 concise editorial sentences explaining why this player will love it without mentioning scores or algorithms."}]}.`,
     "Candidates:",
-    ...pool.map((c) => `- id=${c.igdbId} | ${c.title} (${c.year || "?"}) | ${(c.genres || []).slice(0, 3).join(", ")} | ${(c.platforms || []).slice(0, 4).join(", ")} | ${(c.summary || "").slice(0, 180)}`)
+    ...pool.map((c) => {
+      const scoreMeta = isDeep && Number.isFinite(Number(c.matchScore))
+        ? ` | affinity=${c.matchScore}%${c.estRating ? ` est=${Number(c.estRating).toFixed(1)}` : ""}${Array.isArray(c.matchReasons) && c.matchReasons.length ? ` (${c.matchReasons.slice(0, 2).join(", ")})` : ""}`
+        : "";
+      return `- id=${c.igdbId} | ${c.title} (${c.year || "?"})${scoreMeta} | ${(c.genres || []).slice(0, 3).join(", ")} | ${(c.platforms || []).slice(0, 4).join(", ")} | ${(c.summary || "").slice(0, isDeep ? 210 : 180)}`;
+    })
   ].filter(Boolean);
 
   try {
-    const caller = typeof geminiCaller === "function"
-      ? geminiCaller
-      : (p) => defaultCallGeminiProxy(p, { responseMimeType: "application/json" });
-    const rawResp = await caller(promptLines.join("\n"));
+    const targetModel = isDeep ? GAME_DEEP_GEMINI_CASCADE[0] : GAME_GEMINI_CASCADE[0];
+    const baseConfig = {
+      responseMimeType: "application/json",
+      thinkingConfig: getGameModelThinkingConfig(targetModel, mode)
+    };
+    const rawResult = typeof geminiCaller === "function"
+      ? await geminiCaller(promptLines.join("\n"), { mode, model: targetModel, config: baseConfig })
+      : await defaultCallGeminiProxy(promptLines.join("\n"), { responseMimeType: "application/json" }, { mode });
+
+    const rawResp = typeof rawResult === "string" ? rawResult : (rawResult?.text || "");
+    const modelUsed = typeof rawResult === "object" && rawResult?.model ? rawResult.model : targetModel;
+
     const parsed = extractJsonBlock(rawResp);
     const aiPicks = Array.isArray(parsed?.picks) ? parsed.picks : [];
     if (aiPicks.length === 0) return buildFallback();
@@ -257,11 +348,15 @@ export async function curateGamesWithOracle({
       });
     }
 
-    const finalPicks = merged
-      .slice(0, count)
-      .sort((a, b) => (Number(b.matchScore) || 0) - (Number(a.matchScore) || 0));
+    const finalPicks = isDeep
+      ? merged.slice(0, count)
+      : merged.slice(0, count).sort((a, b) => (Number(b.matchScore) || 0) - (Number(a.matchScore) || 0));
 
-    return { source: "gemini", picks: finalPicks };
+    const source = isDeep && String(modelUsed).toLowerCase().includes("hydrogen")
+      ? "gemini-deep"
+      : "gemini";
+
+    return { source, modelUsed, picks: finalPicks };
   } catch {
     return buildFallback();
   }
@@ -319,6 +414,7 @@ export async function askGameCompanionChat({
     ? geminiCaller
     : (prompt) => defaultCallGeminiProxy(prompt);
 
-  const reply = await caller(fullPrompt);
-  return String(reply || "").trim();
+  const rawReply = await caller(fullPrompt);
+  const text = typeof rawReply === "string" ? rawReply : (rawReply?.text || "");
+  return String(text || "").trim();
 }

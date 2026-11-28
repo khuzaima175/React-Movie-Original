@@ -887,3 +887,70 @@ test("gameRankerService v1.6: Spectral-EASE norm rescaling, CVGM v3 live CCU/sen
   const bulkKickWeights = buildWeightedGameRatings(sameDayBulk, { recentKick: true, nowMs });
   assert.ok(bulkKickWeights[0].weight > bulkKickWeights[7].weight * 4, "Recent Kick should still focus top-5 newest on same-day bulk imports");
 });
+
+test("gameOracleService supports fast Flash-Lite standard mode and Gemini 4 Hydrogen (HIGH thinking) deep mode", async () => {
+  const { curateGamesWithOracle, GAME_DEEP_GEMINI_CASCADE, GAME_GEMINI_CASCADE, getGameModelThinkingConfig } = await import("../src/games/services/gameOracleService.js");
+  assert.equal(GAME_GEMINI_CASCADE[0], "gemini-3.5-flash-lite");
+  assert.equal(GAME_DEEP_GEMINI_CASCADE[0], "gemini-4-hydrogen");
+  assert.deepEqual(getGameModelThinkingConfig("gemini-4-hydrogen", "deep"), { thinkingLevel: "HIGH" });
+  assert.deepEqual(getGameModelThinkingConfig("gemini-3.5-flash-lite", "standard"), { thinkingLevel: "LOW" });
+
+  const played = [
+    { igdbId: 1942, title: "The Witcher 3: Wild Hunt", userRating: 10, hoursPlayed: 110, quickTags: ["#DeepStory"], status: "completed" },
+    { igdbId: 545, title: "Grindfest Online", userRating: 2, status: "dropped" },
+    { igdbId: 76882, title: "SlowBurn Sim", userRating: 0, hoursPlayed: 1, status: "tried_bored" }
+  ];
+  const candidates = [
+    { igdbId: 25076, title: "Red Dead Redemption 2", year: 2018, matchScore: 95, estRating: 9.2, matchReasons: ["Story Match"], genres: ["Adventure"], platforms: ["PC"], summary: "Epic frontier tale." },
+    { igdbId: 119171, title: "Baldur's Gate III", year: 2023, matchScore: 91, estRating: 9.0, matchReasons: ["RPG Fit"], genres: ["RPG"], platforms: ["PC"], summary: "Deep reactivity RPG." }
+  ];
+
+  // Deep mode targets gemini-4-hydrogen with HIGH thinking, preserves Hydrogen ordering, and locks math matchScore
+  let deepMeta = null;
+  let deepPrompt = "";
+  const deepRes = await curateGamesWithOracle({
+    played,
+    candidates,
+    useGemini: true,
+    mode: "deep",
+    geminiCaller: async (prompt, meta) => {
+      deepPrompt = prompt;
+      deepMeta = meta;
+      return {
+        model: "gemini-4-hydrogen",
+        text: JSON.stringify({
+          picks: [
+            { igdbId: 119171, anchorTitles: ["The Witcher 3: Wild Hunt"], pitch: "Reactivity and writing match your exact tastes." },
+            { igdbId: 25076, anchorTitles: ["The Witcher 3: Wild Hunt"], pitch: "Rich frontier storytelling." }
+          ]
+        })
+      };
+    }
+  });
+  assert.equal(deepMeta.model, "gemini-4-hydrogen");
+  assert.deepEqual(deepMeta.config.thinkingConfig, { thinkingLevel: "HIGH" });
+  assert.match(deepPrompt, /Grindfest Online/);
+  assert.match(deepPrompt, /SlowBurn Sim/);
+  assert.match(deepPrompt, /affinity=91%/);
+  assert.equal(deepRes.source, "gemini-deep");
+  assert.equal(deepRes.picks[0].igdbId, 119171, "Deep mode should preserve Hydrogen's top pick order");
+  assert.equal(deepRes.picks[0].matchScore, 91, "Mathematical matchScore must remain strictly locked");
+
+  // Standard mode targets gemini-3.5-flash-lite with LOW thinking
+  let stdMeta = null;
+  const stdRes = await curateGamesWithOracle({
+    played,
+    candidates,
+    useGemini: true,
+    mode: "standard",
+    geminiCaller: async (_prompt, meta) => {
+      stdMeta = meta;
+      return JSON.stringify({
+        picks: [{ igdbId: 119171, anchorTitles: ["The Witcher 3: Wild Hunt"], pitch: "Strong RPG pick." }]
+      });
+    }
+  });
+  assert.equal(stdMeta.model, "gemini-3.5-flash-lite");
+  assert.deepEqual(stdMeta.config.thinkingConfig, { thinkingLevel: "LOW" });
+  assert.equal(stdRes.source, "gemini");
+});
