@@ -259,7 +259,7 @@ test("api/igdb v1.4 supports GET discover_home multiquery (1 IGDB call + 1h Edge
       {
         method: "GET",
         headers: { origin: "http://localhost:3000" },
-        query: { action: "discover_home" },
+        url: "/api/igdb?action=discover_home",
         fetchFn: mockFetch
       },
       res

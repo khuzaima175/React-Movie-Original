@@ -61,7 +61,7 @@ export default function GameSearchModal({ isOpen, onClose }) {
         .then((items) => {
           const ctx = mlCtxRef.current;
           if (ctx.loaded && ctx.played.length > 0 && ctx.models && items.length > 0) {
-            const ranked = rankGameCandidates(items, ctx.played, ctx.backlog, ctx.models);
+            const ranked = rankGameCandidates(items, ctx.played, ctx.backlog, ctx.models, null, { pointLookup: true });
             const scoreById = new Map(ranked.map((r) => [r.igdbId, r]));
             setResults(
               items.map((g) => ({

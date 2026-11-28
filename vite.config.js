@@ -17,7 +17,7 @@ function localIgdbApiDevPlugin(env) {
     name: "local-igdb-api-dev",
     configureServer(server) {
       server.middlewares.use("/api/igdb", async (req, res, next) => {
-        if (req.url && req.url !== "/" && !req.url.startsWith("/?")) {
+        if (req.url && req.url !== "/" && !req.url.startsWith("/?") && !req.url.startsWith("?")) {
           return next();
         }
         // Populate server-side IGDB env vars for local Vite dev (never exposed via VITE_*)

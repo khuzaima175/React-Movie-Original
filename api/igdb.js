@@ -88,7 +88,15 @@ function clampInt(val, min, max, fallback) {
 
 function parseRequestPayload(req) {
   if (req.method === "GET") {
-    const q = req.query || {};
+    let q = req.query && Object.keys(req.query).length > 0 ? req.query : null;
+    if (!q && typeof req.url === "string" && req.url.includes("?")) {
+      try {
+        q = Object.fromEntries(new URL(req.url, "http://localhost").searchParams.entries());
+      } catch {
+        q = {};
+      }
+    }
+    q = q || {};
     const idsRaw = typeof q.ids === "string"
       ? q.ids.split(",").map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0)
       : [];

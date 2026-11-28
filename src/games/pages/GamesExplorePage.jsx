@@ -130,7 +130,7 @@ export default function GamesExplorePage() {
       .then((items) => {
         if (!active) return;
         const enriched = played.length > 0 && (models.easeIndex || models.contentIndex)
-          ? rankGameCandidates(items, played, backlog, models, null, { dismissedIds })
+          ? rankGameCandidates(items, played, backlog, models, null, { dismissedIds, pointLookup: true })
           : items;
         setCatalogItems((prev) => {
           if (page === 1) return enriched;
