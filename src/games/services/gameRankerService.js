@@ -393,7 +393,10 @@ export function buildWeightedGameRatings(
 
     let weight = 0;
     if (Number.isFinite(rating) && rating > 0) {
-      if (rating >= 7) {
+      if (status === "tried_bored" && rating <= 6) {
+        // Explicit early bounce / got bored in start -> clear taste rejection signal
+        weight = hours >= saltyThreshold ? -0.15 : -0.60 * (1 + Math.max(0, 5 - rating) * 0.15);
+      } else if (rating >= 7) {
         const z = Math.max(0, (rating - Math.min(meanR, 7.5)) / stdR);
         weight = (0.75 + 0.25 * (rating - 6) + 0.35 * z) * playBoost;
       } else if (rating >= 6) {
@@ -403,13 +406,20 @@ export function buildWeightedGameRatings(
       } else {
         weight = -0.15;
       }
-    } else if (status === "completed" || status === "playing" || status === "platinum") {
+    } else if (status === "completed" || status === "playing" || status === "platinum" || status === "played") {
       weight = 0.9 * playBoost;
+    } else if (status === "on_hold") {
+      // Played a bit / unfinished without hating it: modest positive when engaged, tiny otherwise
+      weight = hours >= 3 ? 0.45 * playBoost : 0.20;
+    } else if (status === "tried_bored") {
+      // Tried briefly and got bored at the start -> clean repulsion without needing a 1/10 score
+      weight = hours >= dropSaltyThreshold ? -0.15 : -0.55;
     } else if (status === "dropped") {
       weight = hours >= dropSaltyThreshold ? 0.0 : -0.45;
     }
 
     if ((status === "completed" || status === "platinum") && weight > 0) weight *= 1.08;
+    else if (status === "on_hold" && weight > 0) weight *= 0.92;
 
     // 5-Aspect Craft Breakdown conviction modifier (centered at 3.0 -> [0.88 .. 1.12])
     if (weight > 0 && g?.ratingBreakdown && typeof g.ratingBreakdown === "object") {
@@ -600,8 +610,10 @@ export function extractGameTasteProfile(played = []) {
 
   for (const g of Array.isArray(played) ? played : []) {
     const r = Number(g?.userRating ?? 0);
+    const st = String(g?.status || "").toLowerCase();
     if (r > 0 && r < 7) continue;
-    if (String(g?.status || "").toLowerCase() === "dropped" && r === 0) continue;
+    if ((st === "dropped" || st === "tried_bored") && r < 7) continue;
+    if (st === "on_hold" && r === 0 && Number(g?.hoursPlayed ?? 0) < 5) continue;
     const w = r >= 9 ? 1.5 : 1.0;
 
     for (const genre of g?.genres || []) {

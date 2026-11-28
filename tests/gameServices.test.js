@@ -745,4 +745,24 @@ test("gameRankerService v1.5: CVGM v2 typicalHours relative playtime, recency ti
   });
   assert.match(capturedPrompt, /#CozyVibes/);
   assert.match(capturedPrompt, /Story & World/);
+
+  // 4. Tried - Got Bored & Unfinished / Paused statuses: ML weights & Supabase DB CHECK-safe round-trip
+  const { mapLocalGameToDbRow, mapDbRowToLocalGame } = await import("../src/games/services/gameSyncService.js");
+  const boredEntry = { igdbId: 545, title: "Call of Duty: Black Ops", userRating: 0, hoursPlayed: 1.5, status: "tried_bored" };
+  const holdEntry = { igdbId: 1942, title: "The Witcher 3: Wild Hunt", userRating: 0, hoursPlayed: 12, status: "on_hold" };
+  const statusWeights = buildWeightedGameRatings([boredEntry, holdEntry], { catalogMeta });
+  const boredW = statusWeights.find((w) => w.igdbId === 545);
+  const holdW = statusWeights.find((w) => w.igdbId === 1942);
+  assert.ok(boredW && boredW.weight < -0.4, `Expected tried_bored unrated weight < -0.4, got ${boredW?.weight}`);
+  assert.ok(holdW && holdW.weight > 0.3 && holdW.weight < 0.8, `Expected on_hold unrated 12h weight in (0.3, 0.8), got ${holdW?.weight}`);
+
+  const dbBored = mapLocalGameToDbRow("u1", boredEntry, "played");
+  assert.equal(dbBored.status, "dropped", "DB status must satisfy Postgres CHECK enum");
+  assert.equal(dbBored.metadata.subStatus, "tried_bored");
+  assert.equal(mapDbRowToLocalGame(dbBored).status, "tried_bored");
+
+  const dbHold = mapLocalGameToDbRow("u1", holdEntry, "played");
+  assert.equal(dbHold.status, "played", "DB status must satisfy Postgres CHECK enum");
+  assert.equal(dbHold.metadata.subStatus, "on_hold");
+  assert.equal(mapDbRowToLocalGame(dbHold).status, "on_hold");
 });

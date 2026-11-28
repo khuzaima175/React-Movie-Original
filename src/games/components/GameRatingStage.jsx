@@ -91,14 +91,19 @@ export default function GameRatingStage({
     });
   }
 
+  const STATUS_ALLOWS_UNRATED = new Set(["tried_bored", "on_hold", "playing", "dropped", "played"]);
+  const canSaveWithoutScore = STATUS_ALLOWS_UNRATED.has(status);
+  const canSubmit = Boolean(game) && (selectedScore >= 1 || canSaveWithoutScore);
+  const currentStatusLabel = GAME_STATUS_OPTIONS.find((o) => o.id === status)?.label || status;
+
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!game || selectedScore < 1) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       const numHours = Number(hours);
       await onSave?.(game, {
-        userRating: selectedScore,
+        userRating: selectedScore >= 1 ? selectedScore : 0,
         status,
         hoursPlayed: Number.isFinite(numHours) && numHours >= 0 ? numHours : 0,
         platformPlayed: platformPlayed.trim(),
@@ -326,22 +331,32 @@ export default function GameRatingStage({
             <span className="text-[1.2rem] text-text-3">
               {selectedScore > 0
                 ? "Feeds your local EASE^R + 128-D neural taste profile immediately."
-                : "Click any bar (1–10) above to lock your score."}
+                : status === "tried_bored"
+                  ? "No rating needed — teaches GameVault to dial back similar slow/boring vibes."
+                  : canSaveWithoutScore
+                    ? `You can save as "${currentStatusLabel}" with or without a 1–10 score.`
+                    : "Click any bar (1–10) above to lock your score."}
             </span>
           )}
 
           <button
             type="submit"
-            disabled={saving || selectedScore < 1}
+            disabled={saving || !canSubmit}
             className="gv-btn gv-btn-primary"
           >
             {savedPulse
-              ? `Saved ${selectedScore}/10 to Vault`
+              ? selectedScore > 0
+                ? `Saved ${selectedScore}/10 to Vault`
+                : `Saved as ${currentStatusLabel}`
               : selectedScore > 0
                 ? existing
                   ? `Update ${selectedScore}/10 Entry`
                   : `Save ${selectedScore}/10 to Vault`
-                : "Select Rating (1–10)"}
+                : canSaveWithoutScore
+                  ? existing
+                    ? `Update (${currentStatusLabel})`
+                    : `Save as ${currentStatusLabel}`
+                  : "Select Rating (1–10)"}
           </button>
         </div>
       </div>

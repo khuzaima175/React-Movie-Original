@@ -6,7 +6,8 @@ import {
   GAME_GENRES,
   GAME_PLATFORM_FAMILIES,
   discoverGames,
-  fetchGamesBatch
+  fetchGamesBatch,
+  searchGames
 } from "../services/igdbService";
 import {
   DEFAULT_GAME_TUNER_STATE,
@@ -65,6 +66,8 @@ export default function GamesExplorePage() {
   const [tuner, setTuner] = useState(DEFAULT_GAME_TUNER_STATE);
   const [forYouPool, setForYouPool] = useState([]);
   const [catalogItems, setCatalogItems] = useState([]);
+  const [liveSearchItems, setLiveSearchItems] = useState([]);
+  const [liveSearching, setLiveSearching] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -149,17 +152,55 @@ export default function GamesExplorePage() {
     };
   }, [mode, platformFamily, genreId, sort, page, played, backlog, models]);
 
+  // Live IGDB search when typing >=2 chars in Catalog mode (finds Call of Duty, Battlefield, FIFA, etc. across full IGDB!)
+  useEffect(() => {
+    const cleanQ = searchTerm.trim();
+    if (mode !== "catalog" || cleanQ.length < 2) {
+      setLiveSearchItems([]);
+      setLiveSearching(false);
+      return undefined;
+    }
+    const ctrl = new AbortController();
+    let active = true;
+    setLiveSearching(true);
+    const timer = window.setTimeout(() => {
+      searchGames(cleanQ, { limit: 32, signal: ctrl.signal })
+        .then((items) => {
+          if (!active) return;
+          const enriched = played.length > 0 && (models.easeIndex || models.contentIndex)
+            ? rankGameCandidates(items, played, backlog, models, null, { dismissedIds, pointLookup: true })
+            : items;
+          setLiveSearchItems(enriched);
+        })
+        .catch((err) => {
+          if (active && err?.name !== "AbortError") setLiveSearchItems([]);
+        })
+        .finally(() => {
+          if (active) setLiveSearching(false);
+        });
+    }, 240);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [mode, searchTerm, played, backlog, dismissedIds, models]);
+
+  const isCatalogLiveSearch = mode === "catalog" && searchTerm.trim().length >= 2;
+
   const displayedItems = useMemo(() => {
-    const base = mode === "for-you" ? forYouPool : catalogItems;
+    const base = mode === "for-you"
+      ? forYouPool
+      : (isCatalogLiveSearch ? liveSearchItems : catalogItems);
     const cleanQ = searchTerm.trim().toLowerCase();
     const filtered = base.filter((g) => {
       if (hidePlayed && playedById.has(g.igdbId)) return false;
       if (rigOnly && rigProfile?.completed && !isGameCompatibleWithRig(g, rigProfile).compatible) return false;
-      if (mode === "for-you") {
+      if (mode === "for-you" || isCatalogLiveSearch) {
         if (platformFamily !== "all" && !(g.platformFamilies || []).includes(platformFamily)) return false;
         if (genreId && !(g.genreIds || []).includes(Number(genreId))) return false;
       }
-      if (cleanQ) {
+      if (cleanQ && !isCatalogLiveSearch) {
         const hay = `${g.title || ""} ${(g.genres || []).join(" ")} ${(g.developers || []).join(" ")}`.toLowerCase();
         if (!hay.includes(cleanQ)) return false;
       }
@@ -177,7 +218,7 @@ export default function GamesExplorePage() {
       const hb = Math.sin((b.igdbId + shuffleSeed * 97) * 12.9898) * 43758.5453;
       return (ha - Math.floor(ha)) - (hb - Math.floor(hb));
     });
-  }, [mode, forYouPool, catalogItems, platformFamily, genreId, searchTerm, hidePlayed, playedById, rigOnly, rigProfile, tuner, models, played, shuffleSeed]);
+  }, [mode, isCatalogLiveSearch, forYouPool, catalogItems, liveSearchItems, platformFamily, genreId, searchTerm, hidePlayed, playedById, rigOnly, rigProfile, tuner, models, played, shuffleSeed]);
 
   const tunerIsNeutral =
     tuner.era === 0 && tuner.familiarity === 0 && tuner.pacing === 0 && tuner.tone === 0 && !tuner.antiBubble;
@@ -253,8 +294,8 @@ export default function GamesExplorePage() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Filter titles or studios..."
-              aria-label="Filter displayed games"
+              placeholder={mode === "catalog" ? "Search entire IGDB catalog (e.g. Call of Duty)..." : "Filter For You matches..."}
+              aria-label="Search or filter games"
             />
           </div>
 
@@ -482,15 +523,26 @@ export default function GamesExplorePage() {
             Browse IGDB Catalog
           </button>
         </div>
-      ) : loading ? (
+      ) : (loading || liveSearching) ? (
         <div className="gv-grid">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="gv-skeleton" style={{ aspectRatio: "3/4.8" }} />
           ))}
         </div>
       ) : displayedItems.length === 0 ? (
-        <div className="gv-panel text-center py-10">
-          <p className="text-[1.45rem] text-text-2">No games matched those exact filters. Try clearing Genre, Platform, or search.</p>
+        <div className="gv-panel text-center py-10 flex flex-col items-center gap-4">
+          <p className="text-[1.45rem] text-text-2">
+            No games matched those exact filters. Try clearing Genre, Platform, or search.
+          </p>
+          {mode === "for-you" && searchTerm.trim().length >= 2 && (
+            <button
+              type="button"
+              className="gv-btn gv-btn-primary"
+              onClick={() => setMode("catalog")}
+            >
+              Search entire IGDB catalog for &ldquo;{searchTerm.trim()}&rdquo;
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -507,7 +559,7 @@ export default function GamesExplorePage() {
             ))}
           </div>
 
-          {mode === "catalog" && (
+          {mode === "catalog" && !isCatalogLiveSearch && (
             <div className="flex justify-center mt-10">
               <button
                 type="button"

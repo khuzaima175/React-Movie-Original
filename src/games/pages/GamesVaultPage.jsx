@@ -14,8 +14,10 @@ const STATUS_FILTER_OPTIONS = [
   { value: "completed", label: "Completed" },
   { value: "platinum", label: "100% Platinum" },
   { value: "playing", label: "Playing" },
-  { value: "played", label: "Played" },
-  { value: "dropped", label: "Dropped" }
+  { value: "on_hold", label: "Unfinished / Paused" },
+  { value: "tried_bored", label: "Tried — Got Bored" },
+  { value: "dropped", label: "Dropped" },
+  { value: "played", label: "Played" }
 ];
 
 const SORT_VAULT_OPTIONS = [

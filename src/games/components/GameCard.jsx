@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Bookmark, Check, Gamepad2, Star, Trophy } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
+import { GAME_STATUS_SHORT_LABELS } from "../services/gameVaultStorage";
 import { useScrollReveal } from "../../hooks/useScrollReveal";
 import { flyToVault } from "../../services/flyToVault";
 
@@ -72,7 +73,7 @@ const GameCard = memo(function GameCard({
           ) : null}
         </div>
 
-        {(logged?.status === "platinum" || logged?.status === "playing" || logged?.hoursPlayed > 0) && (
+        {(["platinum", "playing", "on_hold", "tried_bored", "dropped"].includes(logged?.status) || logged?.hoursPlayed > 0) && (
           <div className="gv-card-bottom-strip">
             {logged.status === "platinum" && (
               <span className="gv-mini-status is-platinum">
@@ -81,6 +82,15 @@ const GameCard = memo(function GameCard({
             )}
             {logged.status === "playing" && (
               <span className="gv-mini-status is-playing">Playing</span>
+            )}
+            {logged.status === "on_hold" && (
+              <span className="gv-mini-status">Paused</span>
+            )}
+            {logged.status === "tried_bored" && (
+              <span className="gv-mini-status">Bored Early</span>
+            )}
+            {logged.status === "dropped" && (
+              <span className="gv-mini-status">Dropped</span>
             )}
             {logged.hoursPlayed > 0 && (
               <span className="gv-mini-status tabular-num">{logged.hoursPlayed}h</span>
@@ -117,7 +127,13 @@ const GameCard = memo(function GameCard({
             onClick={() => setRateTarget({ ...game, ...(logged || {}) })}
           >
             <Star size={12} aria-hidden="true" />
-            <span>{logged?.userRating ? `${logged.userRating}/10` : logged ? "Edit" : "Rate"}</span>
+            <span>
+              {logged?.userRating
+                ? `${logged.userRating}/10`
+                : logged
+                  ? (GAME_STATUS_SHORT_LABELS[logged.status] || "Edit")
+                  : "Rate"}
+            </span>
           </button>
 
           {!logged && (

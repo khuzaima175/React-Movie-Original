@@ -17,9 +17,21 @@ export const GAME_STATUS_OPTIONS = Object.freeze([
   { id: "completed", label: "Completed" },
   { id: "platinum", label: "100% Platinum" },
   { id: "playing", label: "Playing" },
-  { id: "played", label: "Played" },
-  { id: "dropped", label: "Dropped" }
+  { id: "on_hold", label: "Unfinished / Paused" },
+  { id: "tried_bored", label: "Tried — Got Bored" },
+  { id: "dropped", label: "Dropped" },
+  { id: "played", label: "Played" }
 ]);
+
+export const GAME_STATUS_SHORT_LABELS = Object.freeze({
+  completed: "Completed",
+  platinum: "100%",
+  playing: "Playing",
+  on_hold: "Paused",
+  tried_bored: "Bored Early",
+  dropped: "Dropped",
+  played: "Played"
+});
 
 export const GAME_CRAFT_ASPECTS = Object.freeze([
   { id: "gameplay", label: "Gameplay & Combat" },

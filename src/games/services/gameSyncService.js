@@ -12,12 +12,16 @@ const UPSERT_CHUNK_SIZE = 250;
 export function mapLocalGameToDbRow(userId, game = {}, bucket = "played") {
   const clean = compactGameRecord(game);
   if (!clean || !userId) return null;
-  const isPlatinum = clean.status === "platinum";
+  const subStatus = ["platinum", "on_hold", "tried_bored"].includes(clean.status) ? clean.status : "";
   const status = bucket === "backlog"
     ? "backlog"
-    : (isPlatinum
+    : (subStatus === "platinum"
         ? "completed"
-        : (["completed", "playing", "dropped", "played"].includes(clean.status) ? clean.status : "completed"));
+        : subStatus === "tried_bored"
+          ? "dropped"
+          : subStatus === "on_hold"
+            ? "played"
+            : (["completed", "playing", "dropped", "played"].includes(clean.status) ? clean.status : "completed"));
 
   return {
     user_id: userId,
@@ -40,7 +44,7 @@ export function mapLocalGameToDbRow(userId, game = {}, bucket = "played") {
       platforms: clean.platforms,
       platformFamilies: clean.platformFamilies,
       developers: clean.developers,
-      ...(isPlatinum ? { subStatus: "platinum" } : {}),
+      ...(subStatus ? { subStatus } : {}),
       ...(clean.ratingBreakdown ? { ratingBreakdown: clean.ratingBreakdown } : {}),
       ...(clean.quickTags?.length ? { quickTags: clean.quickTags } : {})
     },
@@ -52,6 +56,7 @@ export function mapDbRowToLocalGame(row = {}) {
   const igdbId = Number(row?.igdb_id ?? 0);
   if (!Number.isInteger(igdbId) || igdbId <= 0) return null;
   const meta = row?.metadata && typeof row.metadata === "object" ? row.metadata : {};
+  const resolvedSubStatus = ["platinum", "on_hold", "tried_bored"].includes(meta.subStatus) ? meta.subStatus : "";
   return compactGameRecord({
     igdbId,
     title: row.title || "Untitled Game",
@@ -67,7 +72,7 @@ export function mapDbRowToLocalGame(row = {}) {
     developers: Array.isArray(meta.developers) ? meta.developers : [],
     userRating: Number(row.user_rating ?? 0) || 0,
     hoursPlayed: Number(row.hours_played ?? 0) || 0,
-    status: meta.subStatus === "platinum" ? "platinum" : (row.status || "completed"),
+    status: resolvedSubStatus || row.status || "completed",
     platformPlayed: row.platform_played || "",
     userNote: row.user_note || "",
     ...(meta.ratingBreakdown ? { ratingBreakdown: meta.ratingBreakdown } : {}),

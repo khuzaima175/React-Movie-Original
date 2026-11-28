@@ -134,7 +134,7 @@ export function buildIgdbQuery(payload = {}) {
     if (!clean) {
       return { error: "Missing search query" };
     }
-    const limit = clampInt(payload.limit, 1, 30, 18);
+    const limit = clampInt(payload.limit, 1, 40, 20);
     const body = [
       `search "${clean}";`,
       `fields ${CARD_FIELDS};`,
