@@ -102,7 +102,7 @@ export default function GameRatingStage({
 
   function toggleTag(tag) {
     setQuickTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : prev.length < 6 ? [...prev, tag] : prev
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : prev.length < 8 ? [...prev, tag] : prev
     );
   }
 
@@ -286,7 +286,7 @@ export default function GameRatingStage({
             >
               <div className="gv-studio-drawer">
                 <div>
-                  <span className="gv-studio-label mb-2">5-Aspect Game Craft Breakdown (1–5)</span>
+                  <span className="gv-studio-label mb-2">6-Aspect Game Craft Breakdown (1–5)</span>
                   <div className="gv-craft-grid">
                     {GAME_CRAFT_ASPECTS.map((aspect) => {
                       const cur = Number(craft[aspect.id] || 0);
@@ -313,7 +313,10 @@ export default function GameRatingStage({
                 </div>
 
                 <div>
-                  <span className="gv-studio-label mb-2">Quick Gaming Tags</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="gv-studio-label">Quick Gaming Tags</span>
+                    <span className="text-[1.12rem] text-text-3 tabular-num">{quickTags.length} / 8 selected</span>
+                  </div>
                   <div className="gv-chip-group">
                     {GAME_QUICK_TAGS.map((tag) => (
                       <button

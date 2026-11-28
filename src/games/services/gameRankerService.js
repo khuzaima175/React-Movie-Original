@@ -644,9 +644,9 @@ export function buildWeightedGameRatings(
     if ((status === "completed" || status === "platinum") && weight > 0) weight *= 1.08;
     else if (status === "on_hold" && weight > 0) weight *= 0.92;
 
-    // 5-Aspect Craft Breakdown conviction modifier (centered at 3.0 -> [0.88 .. 1.12])
+    // 6-Aspect Craft Breakdown conviction modifier (centered at 3.0 -> [0.88 .. 1.12])
     if (weight > 0 && g?.ratingBreakdown && typeof g.ratingBreakdown === "object") {
-      const vals = ["gameplay", "story", "visuals", "audio", "replayability"]
+      const vals = ["gameplay", "story", "pacing", "visuals", "audio", "replayability"]
         .map((k) => Number(g.ratingBreakdown[k]))
         .filter((v) => Number.isFinite(v) && v >= 1 && v <= 5);
       if (vals.length > 0) {
@@ -655,10 +655,11 @@ export function buildWeightedGameRatings(
       }
     }
 
-    // Quick Tags conviction nudges (#Masterpiece boosts; #TooGrindy / #Janky temper non-9+ scores)
+    // Quick Tags conviction nudges (#Masterpiece/#EmotionalEnding/#PureFun boost; #TooGrindy/#Janky temper non-9+ scores)
     if (weight > 0 && Array.isArray(g?.quickTags) && g.quickTags.length > 0) {
       const tagSet = new Set(g.quickTags.map((t) => String(t || "").toLowerCase()));
       if (tagSet.has("#masterpiece")) weight *= 1.1;
+      if (tagSet.has("#emotionalending") || tagSet.has("#purefun")) weight *= 1.04;
       if (tagSet.has("#toogrindy") && rating < 9) weight *= 0.92;
       if (tagSet.has("#janky") && rating < 9) weight *= 0.94;
     }
@@ -712,18 +713,19 @@ export function buildWeightedGameRatings(
 const CRAFT_ASPECT_LABELS = {
   gameplay: "Gameplay & Combat",
   story: "Story & World",
+  pacing: "Pacing & Immersion",
   visuals: "Visuals & Art",
   audio: "Sound & OST",
   replayability: "Replayability"
 };
 
 /**
- * Extracts a player's Craft DNA (5-aspect breakdown averages) & Quick Tag affinities
+ * Extracts a player's Craft DNA (6-aspect breakdown averages) & Quick Tag affinities
  * to sharpen neural Intensity/Tone steering, genre tie-breaks, and Game Oracle prompts.
  */
 export function extractGameCraftAndTagProfile(played = []) {
-  const sums = { gameplay: 0, story: 0, visuals: 0, audio: 0, replayability: 0 };
-  const counts = { gameplay: 0, story: 0, visuals: 0, audio: 0, replayability: 0 };
+  const sums = { gameplay: 0, story: 0, pacing: 0, visuals: 0, audio: 0, replayability: 0 };
+  const counts = { gameplay: 0, story: 0, pacing: 0, visuals: 0, audio: 0, replayability: 0 };
   const tagCounts = new Map();
   let totalTaggedGames = 0;
   let totalCraftGames = 0;
@@ -750,9 +752,9 @@ export function extractGameCraftAndTagProfile(played = []) {
       for (const rawTag of g.quickTags) {
         const clean = String(rawTag || "").trim();
         if (!clean) continue;
-        // #TooGrindy / #Janky matter on any game; positive taste tags count on liked games
+        // #TooGrindy / #Janky / #SlowStart matter on any game; positive taste tags count on liked games
         const lower = clean.toLowerCase();
-        if (lower === "#toogrindy" || lower === "#janky" || isPos) {
+        if (lower === "#toogrindy" || lower === "#janky" || lower === "#slowstart" || isPos) {
           tagCounts.set(clean, (tagCounts.get(clean) || 0) + 1);
         }
       }
@@ -767,6 +769,7 @@ export function extractGameCraftAndTagProfile(played = []) {
   const prefOf = (k) => (craftAverages[k] !== null ? clamp((craftAverages[k] - 3.0) / 2.0, -1, 1) : 0);
   const storyPref = prefOf("story");
   const gameplayPref = prefOf("gameplay");
+  const pacingPref = prefOf("pacing");
   const replayPref = prefOf("replayability");
   const audioVisualPref = (prefOf("visuals") + prefOf("audio")) / 2;
 
@@ -779,16 +782,18 @@ export function extractGameCraftAndTagProfile(played = []) {
   };
 
   const nBoss = getTagN("#peakbossfights");
-  const nCozy = getTagN("#cozyvibes");
-  const nStoryTag = getTagN("#deepstory");
-  const nLoop = getTagN("#addictiveloop");
+  const nCozy = getTagN("#cozyvibes") + getTagN("#purefun") * 0.4;
+  const nStoryTag = getTagN("#deepstory") + getTagN("#choicesmatter") + getTagN("#emotionalending") + getTagN("#richopenworld") * 0.6;
+  const nLoop = getTagN("#addictiveloop") + getTagN("#tacticaldepth");
   const nAtmos = getTagN("#atmospheric") + getTagN("#unforgettableost");
+  const nTight = getTagN("#tightpacing");
   const nCoop = getTagN("#greatcoop");
   const nGrindy = getTagN("#toogrindy");
 
   const implicitPacingBias = clamp(
     0.22 * (gameplayPref - storyPref) +
-      0.18 * Math.min(2, nBoss) -
+      0.18 * Math.min(2, nBoss) +
+      0.10 * Math.min(2, nTight) -
       0.22 * Math.min(2, nCozy) -
       0.08 * Math.min(2, nStoryTag),
     -0.55,
@@ -810,14 +815,15 @@ export function extractGameCraftAndTagProfile(played = []) {
 
   const topTags = [...tagCounts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
+    .slice(0, 6)
     .map(([t]) => t);
 
   return {
     hasSignals: totalCraftGames > 0 || totalTaggedGames > 0,
     craftAverages,
-    storyPref: clamp(storyPref + (nStoryTag > 0 ? 0.25 : 0), -1, 1),
-    gameplayPref: clamp(gameplayPref + (nBoss > 0 ? 0.25 : 0), -1, 1),
+    storyPref: clamp(storyPref + (nStoryTag > 0 ? 0.25 : 0) + (pacingPref > 0.2 ? 0.10 * pacingPref : 0), -1, 1),
+    gameplayPref: clamp(gameplayPref + (nBoss > 0 || nTight > 0 ? 0.25 : 0), -1, 1),
+    pacingPref,
     replayPref: clamp(replayPref + (nLoop > 0 ? 0.30 : 0), -1, 1),
     audioVisualPref,
     cozyAffinity: Math.min(1, nCozy * 0.5),

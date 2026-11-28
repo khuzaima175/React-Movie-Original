@@ -987,8 +987,8 @@
 
 .gv-craft-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
-  gap: 0.9rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
 }
 
 .gv-craft-row {
@@ -996,33 +996,45 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.7rem 1rem;
+  padding: 0.9rem 1.2rem;
   border-radius: var(--r-sm);
-  background: var(--surface-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
   border: 1px solid var(--hairline);
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.gv-craft-row:hover {
+  border-color: var(--hairline-strong);
 }
 
 .gv-craft-name {
-  font-size: 1.2rem;
+  font-size: 1.24rem;
+  font-weight: 500;
   color: var(--text-2);
 }
 
 .gv-craft-dots {
   display: inline-flex;
-  gap: 0.35rem;
+  gap: 0.4rem;
+  flex-shrink: 0;
 }
 
 .gv-craft-dot {
-  width: 2.3rem;
-  height: 2.3rem;
-  border-radius: 5px;
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 6px;
   border: 1px solid var(--hairline-strong);
   background: var(--surface-1);
   color: var(--text-3);
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.14s ease;
+}
+
+.gv-craft-dot:hover {
+  border-color: rgba(226, 177, 60, 0.55);
+  color: var(--text-1);
 }
 
 .gv-craft-dot.is-filled {
@@ -1032,9 +1044,9 @@
 }
 
 .gv-tag-pill {
-  padding: 0.42rem 0.9rem;
+  padding: 0.5rem 1.02rem;
   border-radius: 999px;
-  font-size: 1.15rem;
+  font-size: 1.18rem;
   font-weight: 600;
   border: 1px solid var(--hairline);
   background: var(--surface-2);
@@ -1044,9 +1056,14 @@
   transition: all 0.14s ease;
 }
 
+.gv-tag-pill:hover {
+  border-color: var(--hairline-strong);
+  color: var(--text-1);
+}
+
 .gv-tag-pill.is-active {
   background: rgba(226, 177, 60, 0.18);
-  border-color: rgba(226, 177, 60, 0.5);
+  border-color: rgba(226, 177, 60, 0.55);
   color: var(--accent);
 }
 
@@ -1673,6 +1690,12 @@
   }
 }
 
+@media (max-width: 1080px) {
+  .gv-craft-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 960px) {
   .gv-carousel-track {
     grid-auto-columns: calc((100% - 3 * 1.3rem) / 4);
@@ -1690,7 +1713,8 @@
     grid-template-columns: 1fr;
   }
   .gv-details-cover {
-    max-width: 24rem;
+    max-width: 22rem;
+    margin-inline: auto;
   }
   .gv-oracle-spotlight-inner {
     grid-template-columns: 1fr;
@@ -1700,6 +1724,10 @@
 @media (max-width: 640px) {
   .gv-billboard {
     min-height: 36rem;
+  }
+  .gv-panel {
+    padding: 1.4rem;
+    margin-bottom: 1.8rem;
   }
   .gv-carousel-track {
     grid-auto-columns: calc(44vw - 6px);
@@ -1713,7 +1741,103 @@
   .gv-grid,
   .gv-grid-compact {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .gv-card-body {
+    padding: 0.75rem 0.8rem 0.85rem;
+  }
+  .gv-card-title {
+    font-size: 1.24rem;
+  }
+  .gv-card-action {
+    min-height: 3.4rem;
+    font-size: 1.12rem;
+  }
+  .gv-filter-bar {
+    gap: 0.8rem;
+  }
+  .gv-segmented-bar {
+    width: 100%;
+  }
+  .gv-segmented-btn {
+    flex: 1;
+    padding: 0.72rem 0.8rem;
+    text-align: center;
+  }
+  .gv-inline-search {
+    width: 100%;
+    height: 4rem;
+  }
+  .gv-inline-search input {
+    width: 100%;
+    flex: 1;
+    font-size: 1.35rem;
+  }
+  .gv-chip {
+    min-height: 3.4rem;
+    padding: 0.55rem 1.05rem;
+    font-size: 1.18rem;
+  }
+  .gv-studio-controls {
+    padding: 1.25rem;
     gap: 1.2rem;
+  }
+  .gv-craft-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .gv-craft-row {
+    padding: 0.85rem 1rem;
+  }
+  .gv-craft-dot {
+    width: 3.2rem;
+    height: 3.2rem;
+    font-size: 1.22rem;
+  }
+  .gv-tag-pill {
+    min-height: 3.4rem;
+    padding: 0.5rem 1.05rem;
+    font-size: 1.18rem;
+  }
+  .gv-hour-pill {
+    min-height: 3.4rem;
+    padding: 0.5rem 0.9rem;
+  }
+  .gv-stepper {
+    height: 4rem;
+  }
+  .gv-stepper-btn {
+    width: 3.6rem;
+  }
+  .gv-studio-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .gv-studio-actions > button[type="submit"] {
+    width: 100%;
+    justify-content: center;
+    min-height: 4.4rem;
+  }
+  .gv-match-tile {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 0.9rem;
+  }
+  .gv-dna-banner {
+    padding: 1.4rem;
+    gap: 1.4rem;
+  }
+  .gv-stat-val {
+    font-size: 2.1rem;
+  }
+  .gv-modal-backdrop {
+    padding: 0.8rem;
+    align-items: flex-end;
+  }
+  .gv-modal {
+    padding: 1.5rem;
+    max-height: 92dvh;
+    border-radius: var(--r-lg) var(--r-lg) var(--r-md) var(--r-md);
   }
   .gv-oracle-card {
     grid-template-columns: 8.5rem minmax(0, 1fr);
@@ -1723,7 +1847,11 @@
     width: 8.5rem;
   }
   .gv-details-grid {
-    padding: 1.8rem;
+    padding: 1.5rem;
+    gap: 1.8rem;
+  }
+  .gv-details-cover {
+    max-width: 17.5rem;
   }
 }
 

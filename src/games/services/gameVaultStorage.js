@@ -36,6 +36,7 @@ export const GAME_STATUS_SHORT_LABELS = Object.freeze({
 export const GAME_CRAFT_ASPECTS = Object.freeze([
   { id: "gameplay", label: "Gameplay & Combat" },
   { id: "story", label: "Story & World" },
+  { id: "pacing", label: "Pacing & Immersion" },
   { id: "visuals", label: "Visuals & Art" },
   { id: "audio", label: "Sound & OST" },
   { id: "replayability", label: "Replayability" }
@@ -46,10 +47,18 @@ export const GAME_QUICK_TAGS = Object.freeze([
   "#PeakBossFights",
   "#AddictiveLoop",
   "#DeepStory",
+  "#RichOpenWorld",
+  "#ChoicesMatter",
   "#UnforgettableOST",
-  "#CozyVibes",
+  "#EmotionalEnding",
   "#Atmospheric",
+  "#TightPacing",
+  "#TacticalDepth",
+  "#CozyVibes",
+  "#PureFun",
   "#GreatCoop",
+  "#HiddenGem",
+  "#SlowStart",
   "#TooGrindy",
   "#Janky"
 ]);

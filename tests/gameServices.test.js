@@ -398,12 +398,13 @@ test("gameVaultStorage computes vault stats, calibration anchors, and preserves 
     userRating: 10,
     hoursPlayed: 140,
     status: "platinum",
-    ratingBreakdown: { gameplay: 5, story: 4, visuals: 5, audio: 5, replayability: 5 },
-    quickTags: ["#PeakBossFights", "#Masterpiece"]
+    ratingBreakdown: { gameplay: 5, story: 4, pacing: 5, visuals: 5, audio: 5, replayability: 5 },
+    quickTags: ["#PeakBossFights", "#Masterpiece", "#RichOpenWorld"]
   });
   assert.equal(rec.status, "platinum");
   assert.equal(rec.ratingBreakdown.gameplay, 5);
-  assert.deepEqual(rec.quickTags, ["#PeakBossFights", "#Masterpiece"]);
+  assert.equal(rec.ratingBreakdown.pacing, 5);
+  assert.deepEqual(rec.quickTags, ["#PeakBossFights", "#Masterpiece", "#RichOpenWorld"]);
 
   const played = [
     rec,
