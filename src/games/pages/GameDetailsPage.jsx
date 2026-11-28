@@ -107,7 +107,7 @@ export default function GameDetailsPage() {
 
   const personalMatch = useMemo(() => {
     if (!game || played.length === 0 || (!models.easeIndex && !models.contentIndex)) return null;
-    return rankGameCandidates([game], played, backlog, models, null, { dismissedIds })[0] || null;
+    return rankGameCandidates([game], played, backlog, models, null, { dismissedIds, pointLookup: true })[0] || null;
   }, [game, played, backlog, models, dismissedIds]);
 
   const logged = game ? playedById.get(game.igdbId) : null;

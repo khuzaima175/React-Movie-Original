@@ -454,3 +454,204 @@ test("gameRigService classifies GPUs (GTX 750 Ti -> entry, RTX 4080 -> high) and
   assert.equal(isGameCompatibleWithRig(indie2024, entryPcRig).compatible, true);
   assert.equal(isGameCompatibleWithRig(classic2013, entryPcRig).compatible, true);
 });
+
+test("gameRankerService v1.4: CVGM sidecar pre-filtering, Lowdin orthogonalization, LogSumExp multi-persona cold bridge, short-game playBoost & pointLookup", async () => {
+  const { parseEaseBinary } = await import("../src/services/easeService.js");
+  const { parseEmbeddingBinary } = await import("../src/services/embeddingService.js");
+  const {
+    parseGameCatalogMetaBinary,
+    orthogonalizeTunerAxes
+  } = await import("../src/games/services/gameModelService.js");
+  const {
+    buildWeightedGameRatings,
+    buildGameRecommendationIds,
+    matchesCatalogMetaFilter,
+    rankGameCandidates,
+    applyGameTuner
+  } = await import("../src/games/services/gameRankerService.js");
+
+  const modelsDir = path.join(process.cwd(), "public/models/games");
+  const toAb = (file) => {
+    const b = fs.readFileSync(path.join(modelsDir, file));
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  };
+  const catalogMeta = parseGameCatalogMetaBinary(toAb("game_catalog_meta.bin"));
+  assert.ok(catalogMeta, "game_catalog_meta.bin should parse cleanly");
+  assert.equal(catalogMeta.count, 24439);
+
+  const rawAxes = JSON.parse(fs.readFileSync(path.join(modelsDir, "game_tuner_axes.json"), "utf8"));
+  const orthAxes = orthogonalizeTunerAxes(rawAxes);
+  let dotUV = 0;
+  let normU = 0;
+  let normV = 0;
+  for (let i = 0; i < orthAxes.intensityVec.length; i++) {
+    dotUV += orthAxes.intensityVec[i] * orthAxes.toneVec[i];
+    normU += orthAxes.intensityVec[i] ** 2;
+    normV += orthAxes.toneVec[i] ** 2;
+  }
+  assert.ok(Math.abs(dotUV) < 1e-4, `Expected Lowdin orthogonalized axes |cos| < 1e-4, got ${dotUV}`);
+  assert.ok(Math.abs(Math.sqrt(normU) - 1) < 1e-4 && Math.abs(Math.sqrt(normV) - 1) < 1e-4);
+
+  const models = {
+    easeIndex: parseEaseBinary(toAb("game_ease_k80.cvea")),
+    collabIndex: parseEmbeddingBinary(toAb("game_embeddings_f16.bin")),
+    contentIndex: parseEmbeddingBinary(toAb("game_content_f16.bin")),
+    catalogMeta,
+    tunerAxes: orthAxes,
+    weights: JSON.parse(fs.readFileSync(path.join(modelsDir, "game_ranker_weights.json"), "utf8")),
+    editionAliases: JSON.parse(fs.readFileSync(path.join(modelsDir, "game_edition_aliases.json"), "utf8"))
+  };
+
+  // 1. Dynamic releaseDay check (Trap B): a synthetic record released on day 9600 fails when todayDay=9500, passes when todayDay=9700
+  const syntheticMeta = {
+    idToIndex: new Map([[424242, 0]]),
+    releaseDay: new Int16Array([9600]),
+    ratingByte: new Uint8Array([85]),
+    voteTier: new Uint8Array([0]),
+    platformMask: new Uint8Array([1]),
+    specAndFlags: new Uint8Array([1]),
+    genreMask: new Uint16Array([1])
+  };
+  assert.equal(matchesCatalogMetaFilter(424242, syntheticMeta, { todayDay: 9500 }), false);
+  assert.equal(matchesCatalogMetaFilter(424242, syntheticMeta, { todayDay: 9700 }), true);
+
+  // 2. Pure console player (Bloodborne + Zelda BOTW -> zero warm Steam EASE items) auto-expands coldLimit to full pool!
+  const pureConsoleVault = [
+    { igdbId: 7334, title: "Bloodborne", userRating: 10, status: "completed", genres: ["Role-playing (RPG)"] },
+    { igdbId: 7346, title: "The Legend of Zelda: Breath of the Wild", userRating: 10, status: "completed", genres: ["Adventure"] }
+  ];
+  const consoleRecs = buildGameRecommendationIds(pureConsoleVault, [], models, {
+    warmLimit: 40,
+    coldLimit: 18,
+    platformFamily: "nintendo"
+  });
+  assert.ok(consoleRecs.coldIds.length >= 40, `Expected pure-console player cold pool auto-expanded >= 40, got ${consoleRecs.coldIds.length}`);
+  for (const cid of consoleRecs.coldIds.slice(0, 15)) {
+    const idx = catalogMeta.idToIndex.get(cid);
+    assert.ok(idx !== undefined && (catalogMeta.platformMask[idx] & (1 << 5)) !== 0, `Expected Nintendo platform bit on pre-filtered id ${cid}`);
+  }
+
+  // 3. Short completed masterpiece playBoost fix (6h completed >= 0h completed, never penalized below 1.0!)
+  const shortCompleted = buildWeightedGameRatings([
+    { igdbId: 72, title: "Portal 2", userRating: 10, hoursPlayed: 6, status: "completed" },
+    { igdbId: 71, title: "Portal", userRating: 10, hoursPlayed: 0, status: "completed" }
+  ]);
+  assert.ok(shortCompleted[0].weight >= shortCompleted[1].weight, "6h completed masterpiece must not weigh less than 0h completed");
+
+  // 4. Same-year future releaseDate & TBA unreleased guard
+  const tomorrow = new Date(Date.now() + 86_400_000 * 3).toISOString().slice(0, 10);
+  const relRanked = rankGameCandidates(
+    [
+      { igdbId: 900001, title: "Released RPG", year: 2024, releaseDate: "2024-06-01", rating10: 8.5, ratingCount: 10, genres: ["Role-playing (RPG)"] },
+      { igdbId: 900002, title: "Same-Year Future RPG", year: Number(tomorrow.slice(0, 4)), releaseDate: tomorrow, rating10: 0, ratingCount: 0, genres: ["Role-playing (RPG)"] },
+      { igdbId: 900003, title: "TBA Vaporware RPG", year: null, releaseDate: "", rating10: 0, ratingCount: 0, genres: ["Role-playing (RPG)"] }
+    ],
+    pureConsoleVault,
+    [],
+    models
+  );
+  assert.equal(relRanked[0].igdbId, 900001);
+  assert.ok(relRanked[0].rankerLogit > relRanked[1].rankerLogit + 1.5);
+  assert.ok(relRanked[0].rankerLogit > relRanked[2].rankerLogit + 1.5);
+
+  // 5. Age-normalized Familiarity slider: 2010 200-vote classic gets higher Hidden Gem delta than 2026 200-vote release
+  const famTuned = applyGameTuner(
+    [
+      { igdbId: 1, title: "2026 New Launch", year: 2026, ratingCount: 200, rankerLogit: 1.5 },
+      { igdbId: 2, title: "2010 Classic Gem", year: 2010, ratingCount: 200, rankerLogit: 1.5 }
+    ],
+    { era: 0, familiarity: 1.0, pacing: 0, tone: 0, antiBubble: false },
+    {}
+  );
+  assert.equal(famTuned[0].igdbId, 2, "Age-normalized Familiarity should lift 2010 200-vote gem over 2026 200-vote launch");
+});
+
+test("gameSyncService v1.4: keyset pagination (>1,000 rows), strict page-error abort & delete tombstones prevent resurrection", async () => {
+  const { pullAndSyncGameVault } = await import("../src/games/services/gameSyncService.js");
+
+  // 1. Keyset pagination across 2 pages (1,000 + 250 = 1,250 cloud rows) + tombstone deletes 1 cloud row
+  const allCloudRows = Array.from({ length: 1250 }, (_, i) => ({
+    id: i + 1,
+    user_id: "u1",
+    igdb_id: 10000 + i,
+    status: "completed",
+    title: `Game ${i}`,
+    user_rating: 8,
+    hours_played: 10,
+    updated_at: "2026-11-20T00:00:00.000Z",
+    metadata: {}
+  }));
+  const deletedCloudIds = [];
+  const upsertedChunks = [];
+
+  const mockSupabase = {
+    from() {
+      return {
+        select() {
+          let afterId = 0;
+          let lim = 1000;
+          const chain = {
+            eq() { return chain; },
+            order() { return chain; },
+            gt(_col, val) { afterId = val; return chain; },
+            limit(n) { lim = n; return chain; },
+            then(resolve) {
+              const page = allCloudRows.filter((r) => r.id > afterId).slice(0, lim);
+              resolve({ data: page, error: null });
+            }
+          };
+          return chain;
+        },
+        delete() {
+          let targetId = 0;
+          const chain = {
+            eq(col, val) { if (col === "igdb_id") targetId = val; return chain; },
+            then(resolve) { deletedCloudIds.push(targetId); resolve({ error: null }); }
+          };
+          return chain;
+        },
+        async upsert(rows) {
+          upsertedChunks.push(rows.length);
+          return { error: null };
+        }
+      };
+    }
+  };
+
+  const res = await pullAndSyncGameVault(mockSupabase, "u1", {
+    played: [],
+    backlog: [],
+    deletedTombstones: { "10005": "2026-11-25T00:00:00.000Z" }
+  });
+  assert.equal(res.status, "synced");
+  assert.equal(res.played.length, 1249, "1,250 cloud rows minus 1 tombstoned game = 1,249");
+  assert.equal(res.played.some((g) => g.igdbId === 10005), false, "tombstoned game must NOT resurrect");
+  assert.deepEqual(deletedCloudIds, [10005]);
+  assert.ok(upsertedChunks.every((n) => n <= 250), "upserts must be chunked <= 250 rows");
+
+  // 2. Mid-pagination error MUST abort cleanly without merging truncated page 1
+  const failingSupabase = {
+    from() {
+      return {
+        select() {
+          let afterId = 0;
+          const chain = {
+            eq() { return chain; },
+            order() { return chain; },
+            gt(_col, val) { afterId = val; return chain; },
+            limit() { return chain; },
+            then(resolve) {
+              if (afterId === 0) resolve({ data: allCloudRows.slice(0, 1000), error: null });
+              else resolve({ data: null, error: { message: "network drop on page 2" } });
+            }
+          };
+          return chain;
+        }
+      };
+    }
+  };
+  const localOriginal = [{ igdbId: 7334, title: "Bloodborne", userRating: 10 }];
+  const failedRes = await pullAndSyncGameVault(failingSupabase, "u1", { played: localOriginal, backlog: [] });
+  assert.equal(failedRes.status, "error");
+  assert.equal(failedRes.played.length, 1, "aborted sync must return untouched local vault");
+});

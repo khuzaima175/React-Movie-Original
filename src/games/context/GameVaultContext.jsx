@@ -3,20 +3,24 @@ import { useApp } from "../../context/AppContext";
 import { getSupabaseClientAsync, hasSupabaseConfig } from "../../services/supabaseClient";
 import {
   GAME_BACKLOG_STORAGE_KEY,
+  GAME_DISMISSED_STORAGE_KEY,
   GAME_PLAYED_STORAGE_KEY,
   buildGameExportPayload,
+  clearGameDeletedTombstone,
   compactGameRecord,
+  loadGameDeletedTombstones,
   loadGameVault,
   parseGameImport,
+  recordGameDeletedTombstone,
   saveGameVaultSlice
 } from "../services/gameVaultStorage";
 import { loadGameModelBundle, loadSteamCrosswalk } from "../services/gameModelService";
 import { fetchGamesBatch } from "../services/igdbService";
 import { deleteCloudGame, pullAndSyncGameVault, upsertCloudGame } from "../services/gameSyncService";
-import { loadRigProfile, saveRigProfileToStorage } from "../services/gameRigService";
+import { DEFAULT_RIG_PROFILE, loadRigProfile, saveRigProfileToStorage } from "../services/gameRigService";
 
 const GameVaultContext = createContext(null);
-const DISMISSED_STORAGE_KEY = "gamevault_dismissed_v1";
+const DISMISSED_STORAGE_KEY = GAME_DISMISSED_STORAGE_KEY;
 
 function loadDismissedIds() {
   try {
@@ -39,6 +43,7 @@ export function GameVaultProvider({ children }) {
     easeIndex: null,
     collabIndex: null,
     contentIndex: null,
+    catalogMeta: null,
     tunerAxes: null,
     weights: null,
     editionAliases: null
@@ -89,15 +94,40 @@ export function GameVaultProvider({ children }) {
     };
   }, []);
 
+  // Reset in-memory state immediately if account sign-out wipes local storage
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onCleared = () => {
+      syncedUserRef.current = null;
+      setPlayed([]);
+      setBacklog([]);
+      setDismissedIds(new Set());
+      setRigProfile({ ...DEFAULT_RIG_PROFILE });
+      setSyncStatus("idle");
+    };
+    window.addEventListener("gamevault:local-cleared", onCleared);
+    return () => window.removeEventListener("gamevault:local-cleared", onCleared);
+  }, []);
+
   // 2. Optional Supabase `public.user_games` cloud sync for signed-in users
   useEffect(() => {
-    if (!isHydrated || !cloudUser?.id || !hasSupabaseConfig()) return;
-    if (syncedUserRef.current === cloudUser.id) return;
+    if (!cloudUser?.id) {
+      syncedUserRef.current = null;
+      return undefined;
+    }
+    if (!isHydrated || !hasSupabaseConfig()) return undefined;
+    if (syncedUserRef.current === cloudUser.id) return undefined;
     syncedUserRef.current = cloudUser.id;
     let active = true;
     setSyncStatus("syncing");
     getSupabaseClientAsync()
-      .then((supabase) => pullAndSyncGameVault(supabase, cloudUser.id, { played, backlog }))
+      .then((supabase) =>
+        pullAndSyncGameVault(supabase, cloudUser.id, {
+          played,
+          backlog,
+          deletedTombstones: loadGameDeletedTombstones()
+        })
+      )
       .then(async (res) => {
         if (!active) return;
         if (res.status === "synced") {
@@ -128,6 +158,7 @@ export function GameVaultProvider({ children }) {
         updatedAt: new Date().toISOString()
       });
       if (!merged) return null;
+      clearGameDeletedTombstone(merged.igdbId);
 
       setPlayed((prev) => {
         const next = [merged, ...prev.filter((x) => x.igdbId !== merged.igdbId)];
@@ -152,6 +183,7 @@ export function GameVaultProvider({ children }) {
   const removePlayedGame = useCallback(
     async (igdbId) => {
       const id = Number(igdbId);
+      recordGameDeletedTombstone(id);
       setPlayed((prev) => {
         const next = prev.filter((x) => x.igdbId !== id);
         saveGameVaultSlice(GAME_PLAYED_STORAGE_KEY, next).catch(() => {});
@@ -172,6 +204,8 @@ export function GameVaultProvider({ children }) {
       setBacklog((prev) => {
         const exists = prev.some((x) => x.igdbId === clean.igdbId);
         added = !exists;
+        if (added) clearGameDeletedTombstone(clean.igdbId);
+        else recordGameDeletedTombstone(clean.igdbId);
         const next = exists ? prev.filter((x) => x.igdbId !== clean.igdbId) : [clean, ...prev];
         saveGameVaultSlice(GAME_BACKLOG_STORAGE_KEY, next).catch(() => {});
         return next;

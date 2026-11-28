@@ -240,14 +240,31 @@ async function idbSet(key, data) {
   }
 }
 
-async function postIgdbProxy(payload, options = {}) {
+async function requestIgdbProxy(payload, options = {}) {
   const fetchFn = typeof options.fetchFn === "function" ? options.fetchFn : fetch;
-  const res = await fetchFn("/api/igdb", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    ...(options.signal ? { signal: options.signal } : {})
-  });
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(payload || {})) {
+    if (v === undefined || v === null || v === "") continue;
+    if (k === "ids" && Array.isArray(v)) {
+      const sorted = [...new Set(v.map(Number).filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
+      if (sorted.length > 0) params.set("ids", sorted.join(","));
+    } else {
+      params.set(k, String(v));
+    }
+  }
+  const queryUrl = `/api/igdb?${params.toString()}`;
+  const useGet = queryUrl.length <= 1600;
+  const res = useGet
+    ? await fetchFn(queryUrl, {
+        method: "GET",
+        ...(options.signal ? { signal: options.signal } : {})
+      })
+    : await fetchFn("/api/igdb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        ...(options.signal ? { signal: options.signal } : {})
+      });
   if (!res || !res.ok) {
     const msg = res ? `IGDB proxy HTTP ${res.status}` : "IGDB proxy unreachable";
     throw new Error(msg);
@@ -258,7 +275,7 @@ async function postIgdbProxy(payload, options = {}) {
 export async function searchGames(query = "", { limit = 18, signal = null, fetchFn = null } = {}) {
   const clean = String(query || "").trim();
   if (!clean) return [];
-  const data = await postIgdbProxy({ action: "search", query: clean, limit }, { signal, fetchFn });
+  const data = await requestIgdbProxy({ action: "search", query: clean, limit }, { signal, fetchFn });
   const normalized = (data?.items || []).map(normalizeIgdbGame).filter(Boolean);
   const target = clean.toLowerCase();
   normalized.sort((a, b) => {
@@ -281,7 +298,7 @@ export async function fetchGameDetails(igdbId, { signal = null, fetchFn = null }
     return inflightRequests.get(cacheKey);
   }
 
-  const promise = postIgdbProxy({ action: "details", id }, { signal, fetchFn })
+  const promise = requestIgdbProxy({ action: "details", id }, { signal, fetchFn })
     .then(async (data) => {
       const game = normalizeIgdbGame(data?.item || data?.items?.[0]);
       if (game) {
@@ -317,12 +334,12 @@ export async function fetchGamesBatch(igdbIds = [], { signal = null, fetchFn = n
     }
   }
 
-  // Fetch missing IDs in parallel chunks of 60 (well within api/igdb.js 80-ID limit)
+  // Fetch missing IDs in parallel chunks of 60 (canonical sorted GET URLs hit Vercel Edge CDN)
   const chunkPromises = [];
   for (let i = 0; i < missing.length; i += 60) {
     const chunk = missing.slice(i, i + 60);
     chunkPromises.push(
-      postIgdbProxy({ action: "batch", ids: chunk }, { signal, fetchFn })
+      requestIgdbProxy({ action: "batch", ids: chunk }, { signal, fetchFn })
         .then(async (data) => {
           for (const raw of data?.items || []) {
             const game = normalizeIgdbGame(raw);
@@ -338,6 +355,49 @@ export async function fetchGamesBatch(igdbIds = [], { signal = null, fetchFn = n
   await Promise.all(chunkPromises);
 
   return cleanIds.map((id) => resultMap.get(id)).filter(Boolean);
+}
+
+/**
+ * Fetches all 4 Discover homepage rows (Popular, Recent Hits, Console Exclusives, All-Time Acclaimed)
+ * in ONE IGDB multiquery + Vercel Edge CDN-cached GET request.
+ */
+export async function discoverHomeRows({ signal = null, fetchFn = null } = {}) {
+  const cacheKey = "disc:home_bundle_v1";
+  const mem = memCache.get(cacheKey);
+  if (mem && Date.now() - mem.ts < 1000 * 60 * 15) {
+    return mem.data;
+  }
+
+  try {
+    const data = await requestIgdbProxy({ action: "discover_home" }, { signal, fetchFn });
+    if (data?.sections && typeof data.sections === "object") {
+      const normalized = {
+        popular: (data.sections.popular || []).map(normalizeIgdbGame).filter(Boolean),
+        recent_hits: (data.sections.recent_hits || []).map(normalizeIgdbGame).filter(Boolean),
+        exclusives: (data.sections.exclusives || []).map(normalizeIgdbGame).filter(Boolean),
+        top_rated: (data.sections.top_rated || []).map(normalizeIgdbGame).filter(Boolean)
+      };
+      memCache.set(cacheKey, { ts: Date.now(), data: normalized });
+      for (const list of Object.values(normalized)) {
+        for (const g of list) {
+          memCache.set(`card:${g.igdbId}`, { ts: Date.now(), data: g });
+        }
+      }
+      return normalized;
+    }
+  } catch {
+    // Fallback to individual discover calls if multiquery endpoint unavailable
+  }
+
+  const [popular, recent_hits, exclusives, top_rated] = await Promise.all([
+    discoverGames({ preset: "popular", limit: 18 }, { signal, fetchFn }),
+    discoverGames({ preset: "recent_hits", limit: 16 }, { signal, fetchFn }),
+    discoverGames({ preset: "exclusives", limit: 16 }, { signal, fetchFn }),
+    discoverGames({ preset: "top_rated", limit: 16 }, { signal, fetchFn })
+  ]);
+  const fallbackBundle = { popular, recent_hits, exclusives, top_rated };
+  memCache.set(cacheKey, { ts: Date.now(), data: fallbackBundle });
+  return fallbackBundle;
 }
 
 export async function discoverGames(
@@ -359,7 +419,7 @@ export async function discoverGames(
     return mem.data;
   }
 
-  const data = await postIgdbProxy(
+  const data = await requestIgdbProxy(
     {
       action: "discover",
       preset,

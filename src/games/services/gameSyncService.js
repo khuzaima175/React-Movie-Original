@@ -1,9 +1,13 @@
 /**
  * Supabase Cloud Sync helpers for `public.user_games` (isolated from `public.user_vault_items`).
- * Gracefully no-ops in guest mode or when Supabase is unconfigured.
+ * Features keyset pagination (>1,000 rows safe), strict page-error abort (never merges truncated cloud pages),
+ * delete tombstones (prevents deleted games from resurrecting), and chunked upserts.
  */
 
 import { compactGameRecord } from "./gameVaultStorage.js";
+
+const CLOUD_PAGE_SIZE = 1000;
+const UPSERT_CHUNK_SIZE = 250;
 
 export function mapLocalGameToDbRow(userId, game = {}, bucket = "played") {
   const clean = compactGameRecord(game);
@@ -73,19 +77,31 @@ export function mapDbRowToLocalGame(row = {}) {
   });
 }
 
-export function mergeGameListsByUpdatedAt(localList = [], cloudList = []) {
+function getTombstoneMs(deletedTombstones, igdbId) {
+  if (!deletedTombstones || typeof deletedTombstones !== "object") return 0;
+  const raw = deletedTombstones[String(igdbId)];
+  if (!raw) return 0;
+  const ms = Date.parse(String(raw));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+export function mergeGameListsByUpdatedAt(localList = [], cloudList = [], { deletedTombstones = null } = {}) {
   const map = new Map();
   const upsert = (item) => {
     const clean = compactGameRecord(item);
     if (!clean) return;
+    const itemTs = Date.parse(clean.updatedAt || "") || 0;
+    const tombTs = getTombstoneMs(deletedTombstones, clean.igdbId);
+    if (tombTs > 0 && tombTs >= itemTs) {
+      return;
+    }
     const prev = map.get(clean.igdbId);
     if (!prev) {
       map.set(clean.igdbId, clean);
       return;
     }
     const prevTs = Date.parse(prev.updatedAt || "") || 0;
-    const nextTs = Date.parse(clean.updatedAt || "") || 0;
-    if (nextTs >= prevTs) {
+    if (itemTs >= prevTs) {
       map.set(clean.igdbId, { ...prev, ...clean });
     }
   };
@@ -94,39 +110,105 @@ export function mergeGameListsByUpdatedAt(localList = [], cloudList = []) {
   return [...map.values()].sort((a, b) => (Date.parse(b.updatedAt || "") || 0) - (Date.parse(a.updatedAt || "") || 0));
 }
 
-export async function pullAndSyncGameVault(supabase, userId, { played = [], backlog = [] } = {}) {
-  if (!supabase || !userId) return { status: "skipped", played, backlog };
-  try {
-    const { data, error } = await supabase
+/**
+ * Fetches ALL rows for `userId` from `public.user_games` using keyset pagination on primary key `id`.
+ * Aborts immediately on ANY page error so sync never merges a truncated dataset.
+ */
+export async function fetchAllCloudGames(supabase, userId, pageSize = CLOUD_PAGE_SIZE) {
+  const allRows = [];
+  let lastId = 0;
+  const maxPages = 50; // hard safety cap = 50,000 games
+
+  for (let page = 0; page < maxPages; page++) {
+    let query = supabase
       .from("user_games")
       .select("*")
       .eq("user_id", userId)
-      .order("updated_at", { ascending: false });
+      .order("id", { ascending: true });
+    if (typeof query.gt === "function") {
+      query = query.gt("id", lastId);
+    }
+    if (typeof query.limit === "function") {
+      query = query.limit(pageSize);
+    }
 
+    const { data, error } = await query;
     if (error) {
-      return { status: "error", error: error.message, played, backlog };
+      return { ok: false, error: error.message || "Cloud page fetch failed", rows: [] };
+    }
+    const batch = Array.isArray(data) ? data : [];
+    if (batch.length === 0) break;
+    allRows.push(...batch);
+    if (batch.length < pageSize) break;
+
+    let maxRowId = lastId;
+    for (const row of batch) {
+      const rid = Number(row?.id);
+      if (Number.isInteger(rid) && rid > maxRowId) maxRowId = rid;
+    }
+    if (maxRowId <= lastId) break;
+    lastId = maxRowId;
+  }
+
+  return { ok: true, error: null, rows: allRows };
+}
+
+export async function pullAndSyncGameVault(
+  supabase,
+  userId,
+  { played = [], backlog = [], deletedTombstones = null } = {}
+) {
+  if (!supabase || !userId) return { status: "skipped", played, backlog };
+  try {
+    const fetched = await fetchAllCloudGames(supabase, userId, CLOUD_PAGE_SIZE);
+    if (!fetched.ok) {
+      // Strictly abort without merging or pushing when ANY page fails
+      return { status: "error", error: fetched.error, played, backlog };
     }
 
     const cloudPlayed = [];
     const cloudBacklog = [];
-    for (const row of Array.isArray(data) ? data : []) {
+    const cloudIdsToDelete = [];
+
+    for (const row of fetched.rows) {
       const g = mapDbRowToLocalGame(row);
       if (!g) continue;
+      const rowTs = Date.parse(g.updatedAt || "") || 0;
+      const tombTs = getTombstoneMs(deletedTombstones, g.igdbId);
+      if (tombTs > 0 && tombTs >= rowTs) {
+        cloudIdsToDelete.push(g.igdbId);
+        continue;
+      }
       if (row.status === "backlog") cloudBacklog.push(g);
       else cloudPlayed.push(g);
     }
 
-    const mergedPlayed = mergeGameListsByUpdatedAt(played, cloudPlayed);
+    // Propagate local deletes to cloud so removed games stay deleted across devices
+    if (cloudIdsToDelete.length > 0) {
+      for (const delId of cloudIdsToDelete) {
+        await deleteCloudGame(supabase, userId, delId);
+      }
+    }
+
+    const mergedPlayed = mergeGameListsByUpdatedAt(played, cloudPlayed, { deletedTombstones });
     const playedIds = new Set(mergedPlayed.map((g) => g.igdbId));
-    const mergedBacklog = mergeGameListsByUpdatedAt(backlog, cloudBacklog).filter((g) => !playedIds.has(g.igdbId));
+    const mergedBacklog = mergeGameListsByUpdatedAt(backlog, cloudBacklog, { deletedTombstones }).filter(
+      (g) => !playedIds.has(g.igdbId)
+    );
 
     const toUpsert = [
       ...mergedPlayed.map((g) => mapLocalGameToDbRow(userId, g, "played")),
       ...mergedBacklog.map((g) => mapLocalGameToDbRow(userId, g, "backlog"))
     ].filter(Boolean);
 
-    if (toUpsert.length > 0) {
-      await supabase.from("user_games").upsert(toUpsert, { onConflict: "user_id,igdb_id" });
+    for (let i = 0; i < toUpsert.length; i += UPSERT_CHUNK_SIZE) {
+      const chunk = toUpsert.slice(i, i + UPSERT_CHUNK_SIZE);
+      const { error: upsertErr } = await supabase
+        .from("user_games")
+        .upsert(chunk, { onConflict: "user_id,igdb_id" });
+      if (upsertErr) {
+        return { status: "error", error: upsertErr.message || "Cloud upsert failed", played, backlog };
+      }
     }
 
     return { status: "synced", played: mergedPlayed, backlog: mergedBacklog };

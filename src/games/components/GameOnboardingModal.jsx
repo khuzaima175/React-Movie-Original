@@ -61,7 +61,11 @@ export default function GameOnboardingModal({
     if (info.renderer) {
       setDetectedGpu(info.renderer);
       if (info.tier) setPcSpecTier(info.tier);
-      setDetectStatus(`Detected: ${info.renderer} → ${info.tier === "entry" ? "Entry / Older PC" : info.tier === "high" ? "High-End PC" : "Mid-Range PC"}`);
+      const isIntegrated = /intel.*(uhd|hd graphics|iris|integrated)|amd.*radeon\s*\(?tm\)?\s*graphics|vega\s*[3678]\b/i.test(info.renderer);
+      const hybridHint = isIntegrated
+        ? " — On a gaming laptop with a dedicated NVIDIA/AMD GPU? Browsers often report the integrated chip; pick Mid-Range or High-End below if so!"
+        : "";
+      setDetectStatus(`Detected: ${info.renderer} → ${info.tier === "entry" ? "Entry / Older PC" : info.tier === "high" ? "High-End PC" : "Mid-Range PC"}${hybridHint}`);
     } else {
       setDetectStatus("Browser hid GPU name — use the quick question below instead!");
     }

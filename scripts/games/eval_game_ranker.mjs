@@ -10,6 +10,10 @@ import path from "node:path";
 import { parseEaseBinary } from "../../src/services/easeService.js";
 import { parseEmbeddingBinary } from "../../src/services/embeddingService.js";
 import {
+  orthogonalizeTunerAxes,
+  parseGameCatalogMetaBinary
+} from "../../src/games/services/gameModelService.js";
+import {
   applyFranchiseDiversityCap,
   applyGameTuner,
   buildGameRecommendationIds,
@@ -30,7 +34,8 @@ function loadModels() {
     easeIndex: parseEaseBinary(toAb("game_ease_k80.cvea")),
     collabIndex: parseEmbeddingBinary(toAb("game_embeddings_f16.bin")),
     contentIndex: parseEmbeddingBinary(toAb("game_content_f16.bin")),
-    tunerAxes: JSON.parse(fs.readFileSync(path.join(dir, "game_tuner_axes.json"), "utf8")),
+    catalogMeta: parseGameCatalogMetaBinary(toAb("game_catalog_meta.bin")),
+    tunerAxes: orthogonalizeTunerAxes(JSON.parse(fs.readFileSync(path.join(dir, "game_tuner_axes.json"), "utf8"))),
     weights: JSON.parse(fs.readFileSync(path.join(dir, "game_ranker_weights.json"), "utf8")),
     editionAliases: JSON.parse(fs.readFileSync(path.join(dir, "game_edition_aliases.json"), "utf8"))
   };
@@ -148,6 +153,16 @@ function main() {
     { igdbId: 4, title: "Witcher 3" }
   ], { maxPerFranchise: 1, headWindow: 3 });
   console.log("Franchise Cap Top 3:", capped.slice(0, 3).map((g) => `${g.title} [${extractGameFranchiseKey(g.title)}]`).join(", "));
+
+  // 6. v1.4 Sidecar + Lowdin Axes + Pure Console Cold Expansion Check
+  const orthDot = models.tunerAxes.intensityVec.reduce((s, v, i) => s + v * models.tunerAxes.toneVec[i], 0);
+  const pureSwitch = buildGameRecommendationIds(
+    [{ igdbId: 7346, title: "The Legend of Zelda: Breath of the Wild", userRating: 10, status: "completed", genres: ["Adventure"] }],
+    [],
+    models,
+    { platformFamily: "nintendo", warmLimit: 40, coldLimit: 18 }
+  );
+  console.log(`v1.4 Checks | CatalogMeta=${models.catalogMeta?.count || 0} | Lowdin cos(int,tone)=${orthDot.toFixed(6)} | Pure-Nintendo Cold Pool=${pureSwitch.coldIds.length} IDs`);
 }
 
 main();

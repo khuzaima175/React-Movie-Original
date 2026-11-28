@@ -1249,6 +1249,9 @@ export function AppProvider({ children }) {
         localStorage.removeItem("cinemavault_tmdb_backfill_checked_v1");
       } catch (_) {}
       clearExploreForYouCache().catch(() => {});
+      import("../games/services/gameVaultStorage")
+        .then((mod) => mod.clearAllLocalGameVaultData?.())
+        .catch(() => {});
       requestAnimationFrame(() => {
         suppressProfileSyncRef.current = false;
       });

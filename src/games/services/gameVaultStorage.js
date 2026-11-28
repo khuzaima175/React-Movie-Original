@@ -5,8 +5,13 @@
 
 export const GAME_VAULT_IDB_NAME = "gamevault_vault_v1";
 export const GAME_VAULT_IDB_STORE = "kv";
+export const GAME_IGDB_CACHE_IDB_NAME = "gamevault_igdb_cache_v1";
 export const GAME_PLAYED_STORAGE_KEY = "gamevault_played_v1";
 export const GAME_BACKLOG_STORAGE_KEY = "gamevault_backlog_v1";
+export const GAME_DISMISSED_STORAGE_KEY = "gamevault_dismissed_v1";
+export const GAME_DELETED_TOMBSTONES_KEY = "gamevault_deleted_tombstones_v1";
+export const GAME_RIG_STORAGE_KEY_REF = "gamevault_rig_profile_v1";
+const TOMBSTONE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 export const GAME_STATUS_OPTIONS = Object.freeze([
   { id: "completed", label: "Completed" },
@@ -290,6 +295,100 @@ export async function saveGameVaultSlice(key, list = []) {
   writeLocalFallback(key, clean);
   await idbSet(key, clean);
   return clean;
+}
+
+export function loadGameDeletedTombstones(nowMs = Date.now()) {
+  try {
+    if (typeof localStorage === "undefined") return {};
+    const raw = localStorage.getItem(GAME_DELETED_TOMBSTONES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const pruned = {};
+    for (const [k, ts] of Object.entries(parsed)) {
+      const id = Number(k);
+      const ms = Date.parse(String(ts || ""));
+      if (Number.isInteger(id) && id > 0 && Number.isFinite(ms) && nowMs - ms <= TOMBSTONE_TTL_MS) {
+        pruned[String(id)] = new Date(ms).toISOString();
+      }
+    }
+    return pruned;
+  } catch {
+    return {};
+  }
+}
+
+function writeGameDeletedTombstones(map) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(GAME_DELETED_TOMBSTONES_KEY, JSON.stringify(map || {}));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function recordGameDeletedTombstone(igdbId, deletedAt = new Date().toISOString()) {
+  const id = Number(igdbId);
+  if (!Number.isInteger(id) || id <= 0) return {};
+  const map = loadGameDeletedTombstones();
+  map[String(id)] = deletedAt;
+  writeGameDeletedTombstones(map);
+  return map;
+}
+
+export function clearGameDeletedTombstone(igdbId) {
+  const id = Number(igdbId);
+  if (!Number.isInteger(id) || id <= 0) return {};
+  const map = loadGameDeletedTombstones();
+  if (Object.prototype.hasOwnProperty.call(map, String(id))) {
+    delete map[String(id)];
+    writeGameDeletedTombstones(map);
+  }
+  return map;
+}
+
+function deleteIndexedDbSafe(name) {
+  if (typeof indexedDB === "undefined" || typeof indexedDB.deleteDatabase !== "function") {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/**
+ * Completely wipes all local GameVault user data (IndexedDB + localStorage) on account sign-out.
+ */
+export async function clearAllLocalGameVaultData() {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(GAME_PLAYED_STORAGE_KEY);
+      localStorage.removeItem(GAME_BACKLOG_STORAGE_KEY);
+      localStorage.removeItem(GAME_DISMISSED_STORAGE_KEY);
+      localStorage.removeItem(GAME_DELETED_TOMBSTONES_KEY);
+      localStorage.removeItem(GAME_RIG_STORAGE_KEY_REF);
+    }
+  } catch {
+    // ignore storage errors
+  }
+  await Promise.all([
+    deleteIndexedDbSafe(GAME_VAULT_IDB_NAME),
+    deleteIndexedDbSafe(GAME_IGDB_CACHE_IDB_NAME)
+  ]);
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("gamevault:local-cleared"));
+    }
+  } catch {
+    // ignore in non-DOM test environments
+  }
 }
 
 export function buildGameExportPayload({ played = [], backlog = [] } = {}) {

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Cpu, Sparkles } from "lucide-react";
 import { useGameVault } from "../context/GameVaultContext";
-import { discoverGames, fetchGamesBatch } from "../services/igdbService";
+import { discoverHomeRows, fetchGamesBatch } from "../services/igdbService";
 import {
   applyFranchiseDiversityCap,
   buildGameRecommendationIds,
@@ -53,18 +53,13 @@ export default function GamesDiscoverPage() {
     let active = true;
     setLoadingCatalog(true);
     setError("");
-    Promise.all([
-      discoverGames({ preset: "popular", limit: 18 }),
-      discoverGames({ preset: "recent_hits", limit: 16 }),
-      discoverGames({ preset: "exclusives", limit: 16 }),
-      discoverGames({ preset: "top_rated", limit: 16 })
-    ])
-      .then(([pop, recent, excl, top]) => {
+    discoverHomeRows()
+      .then((bundle) => {
         if (!active) return;
-        setPopularHits(pop);
-        setRecentHits(recent);
-        setExclusives(excl);
-        setTopRated(top);
+        setPopularHits(bundle.popular || []);
+        setRecentHits(bundle.recent_hits || []);
+        setExclusives(bundle.exclusives || []);
+        setTopRated(bundle.top_rated || []);
       })
       .catch(() => {
         if (active) setError("Could not reach IGDB proxy. Check IGDB_CLIENT_ID & IGDB_CLIENT_SECRET.");
@@ -85,10 +80,13 @@ export default function GamesDiscoverPage() {
     }
     let active = true;
     setLoadingForYou(true);
+    const rigPlatformFams = getRigPlatformFamilies(rigProfile);
     const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, {
       warmLimit: 44,
       coldLimit: 18,
-      dismissedIds
+      dismissedIds,
+      platformFamily: rigPlatformFams.length === 1 ? rigPlatformFams[0] : "all",
+      rigProfile
     });
     fetchGamesBatch(allIds.slice(0, 42))
       .then((hydrated) => {

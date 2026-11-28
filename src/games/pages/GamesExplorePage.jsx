@@ -72,7 +72,7 @@ export default function GamesExplorePage() {
     document.title = "Explore Games | GameVault";
   }, []);
 
-  // Load For-You ML pool (deduplicated against played editions & dismissed games)
+  // Load For-You ML pool (pre-filtered across 24.4k sidecar by platform, genre, rig & Break-My-Bubble!)
   useEffect(() => {
     if (mode !== "for-you") return undefined;
     if (modelsLoading || played.length === 0) return undefined;
@@ -81,7 +81,11 @@ export default function GamesExplorePage() {
     const { allIds, maps } = buildGameRecommendationIds(played, backlog, models, {
       warmLimit: 54,
       coldLimit: 22,
-      dismissedIds
+      dismissedIds,
+      platformFamily,
+      genreId: genreId ? Number(genreId) : null,
+      rigProfile: rigOnly ? rigProfile : null,
+      antiBubble: tuner.antiBubble
     });
     fetchGamesBatch(allIds)
       .then((hydrated) => {
@@ -101,7 +105,7 @@ export default function GamesExplorePage() {
     return () => {
       active = false;
     };
-  }, [mode, played, backlog, dismissedIds, models, modelsLoading]);
+  }, [mode, played, backlog, dismissedIds, platformFamily, genreId, rigOnly, rigProfile, tuner.antiBubble, models, modelsLoading]);
 
   // Reset page when catalog filters change
   useEffect(() => {

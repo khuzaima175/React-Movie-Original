@@ -220,3 +220,78 @@ test("buildIgdbQuery enforces high review-count floors on popular & rating catal
   assert.match(catDefault.body, /total_rating_count >= 120/);
   assert.match(catDefault.body, /sort total_rating_count desc;/);
 });
+
+test("api/igdb v1.4 supports GET discover_home multiquery (1 IGDB call + 1h Edge CDN Cache-Control) and igdbService sends GET with sorted batch IDs", async () => {
+  resetRateLimitBuckets();
+  const { default: handler, resetIgdbTokenCache } = await import("../api/igdb.js");
+  const { discoverHomeRows, fetchGamesBatch } = await import("../src/games/services/igdbService.js");
+  resetIgdbTokenCache();
+
+  const origId = process.env.IGDB_CLIENT_ID;
+  const origSec = process.env.IGDB_CLIENT_SECRET;
+  process.env.IGDB_CLIENT_ID = "cid_v14";
+  process.env.IGDB_CLIENT_SECRET = "sec_v14";
+
+  const upstreamUrls = [];
+  const mockFetch = async (url) => {
+    upstreamUrls.push(String(url));
+    if (String(url).startsWith("https://id.twitch.tv/oauth2/token")) {
+      return { ok: true, status: 200, json: async () => ({ access_token: "tok_v14", expires_in: 3600 }) };
+    }
+    if (String(url) === "https://api.igdb.com/v4/multiquery") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { name: "popular", result: [{ id: 1942, name: "The Witcher 3", total_rating: 94 }] },
+          { name: "recent_hits", result: [{ id: 228525, name: "Hades II", total_rating: 90 }] },
+          { name: "exclusives", result: [{ id: 7334, name: "Bloodborne", total_rating: 92 }] },
+          { name: "top_rated", result: [{ id: 119133, name: "Elden Ring", total_rating: 95 }] }
+        ]
+      };
+    }
+    throw new Error(`Unexpected upstream URL: ${url}`);
+  };
+
+  try {
+    const res = createMockRes();
+    await handler(
+      {
+        method: "GET",
+        headers: { origin: "http://localhost:3000" },
+        query: { action: "discover_home" },
+        fetchFn: mockFetch
+      },
+      res
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.action, "discover_home");
+    assert.equal(res.body.sections.popular.length, 1);
+    assert.equal(res.body.sections.exclusives[0].id, 7334);
+    assert.match(res.headers["cache-control"], /s-maxage=3600/);
+    assert.equal(upstreamUrls.filter((u) => u.includes("multiquery")).length, 1);
+
+    // Client igdbService sends GET /api/igdb?action=discover_home and canonical sorted GET for batch
+    const clientCalls = [];
+    const clientFetch = async (url, init) => {
+      clientCalls.push({ url: String(url), method: init?.method || "GET" });
+      if (String(url).includes("action=discover_home")) {
+        return { ok: true, status: 200, json: async () => res.body };
+      }
+      return { ok: true, status: 200, json: async () => ({ items: [{ id: 7334, name: "Bloodborne" }, { id: 1942, name: "Witcher 3" }] }) };
+    };
+    const home = await discoverHomeRows({ fetchFn: clientFetch });
+    assert.equal(home.popular[0].igdbId, 1942);
+    assert.equal(clientCalls[0].method, "GET");
+    assert.match(clientCalls[0].url, /\/api\/igdb\?action=discover_home/);
+
+    await fetchGamesBatch([999111, 888222], { fetchFn: clientFetch });
+    const batchCall = clientCalls.find((c) => c.url.includes("action=batch"));
+    assert.ok(batchCall, "expected batch GET call");
+    assert.equal(batchCall.method, "GET");
+    assert.match(batchCall.url, /ids=888222%2C999111|ids=888222,999111/);
+  } finally {
+    if (origId === undefined) delete process.env.IGDB_CLIENT_ID; else process.env.IGDB_CLIENT_ID = origId;
+    if (origSec === undefined) delete process.env.IGDB_CLIENT_SECRET; else process.env.IGDB_CLIENT_SECRET = origSec;
+  }
+});
