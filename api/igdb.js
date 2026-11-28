@@ -135,13 +135,23 @@ export function buildIgdbQuery(payload = {}) {
       return { error: "Missing search query" };
     }
     const limit = clampInt(payload.limit, 1, 40, 20);
+    // Primary query: case-insensitive substring match sorted by popularity so flagship titles
+    // (e.g. "Sid Meier's Civilization VI", "Call of Duty: Black Ops") always surface first
+    // instead of getting buried behind 0-vote indie shovelware in IGDB's unsorted `search`.
     const body = [
+      `fields ${CARD_FIELDS};`,
+      `where ${baseWhere.join(" & ")} & cover != null & name ~ *"${clean}"*;`,
+      `sort total_rating_count desc;`,
+      `limit ${limit};`
+    ].join(" ");
+    // Fuzzy fallback for acronyms/typos (e.g. "bg3", "gta 5", "rdr2", "civ 6")
+    const fallbackBody = [
       `search "${clean}";`,
       `fields ${CARD_FIELDS};`,
       `where ${baseWhere.join(" & ")};`,
       `limit ${limit};`
     ].join(" ");
-    return { action, endpoint: IGDB_GAMES_URL, body };
+    return { action, endpoint: IGDB_GAMES_URL, body, fallbackBody };
   }
 
   if (action === "details") {
@@ -361,7 +371,7 @@ export default async function handler(req, res) {
     token = await fetchTwitchAccessToken(clientId, clientSecret, fetchFn, false);
 
     const targetUrl = built.endpoint || IGDB_GAMES_URL;
-    const runQuery = async (bearer) =>
+    const runQuery = async (bearer, queryBody = built.body) =>
       fetchFn(targetUrl, {
         method: "POST",
         headers: {
@@ -370,13 +380,13 @@ export default async function handler(req, res) {
           Accept: "application/json",
           "Content-Type": "text/plain"
         },
-        body: built.body
+        body: queryBody
       });
 
-    let upstream = await runQuery(token);
+    let upstream = await runQuery(token, built.body);
     if (upstream && upstream.status === 401) {
       token = await fetchTwitchAccessToken(clientId, clientSecret, fetchFn, true);
-      upstream = await runQuery(token);
+      upstream = await runQuery(token, built.body);
     }
 
     if (!upstream || !upstream.ok) {
@@ -408,7 +418,29 @@ export default async function handler(req, res) {
       });
     }
 
-    const items = Array.isArray(rows) ? rows : [];
+    let items = Array.isArray(rows) ? rows : [];
+    // If popularity-sorted substring search returned sparse results (e.g. acronym "civ 6", "bg3", "gta 5", or typo),
+    // merge in IGDB full-text `search` fallback results cleanly.
+    if (built.action === "search" && built.fallbackBody && items.length < 5) {
+      try {
+        const fbRes = await runQuery(token, built.fallbackBody);
+        if (fbRes && fbRes.ok) {
+          const fbRows = await fbRes.json();
+          if (Array.isArray(fbRows) && fbRows.length > 0) {
+            const seenIds = new Set(items.map((g) => Number(g?.id)));
+            for (const row of fbRows) {
+              const gid = Number(row?.id);
+              if (gid > 0 && !seenIds.has(gid)) {
+                seenIds.add(gid);
+                items.push(row);
+              }
+            }
+          }
+        }
+      } catch {
+        // non-fatal: keep primary substring matches
+      }
+    }
     return res.status(200).json({
       action: built.action,
       items,

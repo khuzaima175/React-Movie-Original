@@ -324,7 +324,7 @@ export default function GameDetailsPage() {
       {/* Inline Flagship Ascending 10-Bar Game Rating Studio */}
       <ScrollRevealSection className="gv-section">
         <GameRatingStage
-          key={`${game.igdbId}-${logged?.updatedAt || "new"}`}
+          key={game.igdbId}
           game={game}
           existing={logged}
           played={played}

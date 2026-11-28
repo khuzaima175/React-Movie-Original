@@ -180,10 +180,19 @@ export default function GamesExplorePage() {
       searchGames(cleanQ, { limit: 32, signal: ctrl.signal })
         .then((items) => {
           if (!active) return;
-          const enriched = played.length > 0 && (models.easeIndex || models.contentIndex)
-            ? rankGameCandidates(items, played, backlog, models, null, { dismissedIds, pointLookup: true })
-            : items;
-          setLiveSearchItems(enriched);
+          if (played.length > 0 && (models.easeIndex || models.contentIndex) && items.length > 0) {
+            // Enrich with personal Match % while PRESERVING search relevance & popularity order!
+            const ranked = rankGameCandidates(items, played, backlog, models, null, { dismissedIds, pointLookup: true });
+            const scoreById = new Map(ranked.map((r) => [r.igdbId, r]));
+            setLiveSearchItems(
+              items.map((g) => {
+                const scored = scoreById.get(g.igdbId);
+                return scored ? { ...g, ...scored } : g;
+              })
+            );
+          } else {
+            setLiveSearchItems(items);
+          }
         })
         .catch((err) => {
           if (active && err?.name !== "AbortError") setLiveSearchItems([]);

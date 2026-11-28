@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp, Clock, Gamepad2, Minus, Plus, Sparkles, Trash2, Trophy } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Clock, Gamepad2, Minus, Plus, Sparkles, Trash2, Trophy } from "lucide-react";
 import StarRatingStage from "../../components/StarRatingStage";
 import { Select } from "../../components/ui/Select";
 import { useGameVault } from "../context/GameVaultContext";
@@ -46,6 +46,30 @@ export default function GameRatingStage({
   );
   const [saving, setSaving] = useState(false);
   const [savedPulse, setSavedPulse] = useState(false);
+  const [savedMessage, setSavedMessage] = useState("");
+  const hydratedExistingRef = useRef(Boolean(existing));
+  const pulseTimerRef = useRef(null);
+
+  // Sync form fields once if `existing` arrives asynchronously after mount (without clobbering save confirmation!)
+  useEffect(() => {
+    if (!hydratedExistingRef.current && existing) {
+      hydratedExistingRef.current = true;
+      setSelectedScore(Number(existing.userRating ?? 0) || 0);
+      setStatus(existing.status || "completed");
+      setHours(existing.hoursPlayed > 0 ? String(existing.hoursPlayed) : "");
+      if (existing.platformPlayed) setPlatformPlayed(existing.platformPlayed);
+      setCraft({ ...(existing.ratingBreakdown || {}) });
+      setQuickTags(Array.isArray(existing.quickTags) ? [...existing.quickTags] : []);
+      setUserNote(existing.userNote || "");
+      if (existing.userNote || existing.ratingBreakdown || existing.quickTags?.length) {
+        setShowDetails(true);
+      }
+    }
+  }, [existing]);
+
+  useEffect(() => () => {
+    if (pulseTimerRef.current) window.clearTimeout(pulseTimerRef.current);
+  }, []);
 
   const previewScore = hoverScore || selectedScore;
   const calibration = useMemo(
@@ -102,6 +126,7 @@ export default function GameRatingStage({
     setSaving(true);
     try {
       const numHours = Number(hours);
+      const isUpdate = Boolean(existing);
       await onSave?.(game, {
         userRating: selectedScore >= 1 ? selectedScore : 0,
         status,
@@ -111,8 +136,14 @@ export default function GameRatingStage({
         quickTags,
         userNote: userNote.trim()
       });
+      setSavedMessage(
+        selectedScore > 0
+          ? `${isUpdate ? "Updated" : "Saved"} ${selectedScore}/10 (${currentStatusLabel}) in your Vault`
+          : `${isUpdate ? "Updated" : "Saved"} as "${currentStatusLabel}" in your Vault`
+      );
       setSavedPulse(true);
-      window.setTimeout(() => setSavedPulse(false), 1800);
+      if (pulseTimerRef.current) window.clearTimeout(pulseTimerRef.current);
+      pulseTimerRef.current = window.setTimeout(() => setSavedPulse(false), 2600);
       onAfterSave?.();
     } finally {
       setSaving(false);
@@ -316,47 +347,64 @@ export default function GameRatingStage({
 
         {/* Commit Action Bar */}
         <div className="gv-studio-actions">
-          {existing && onRemove ? (
-            <button
-              type="button"
-              className="gv-btn gv-btn-sm gv-btn-danger-ghost"
-              onClick={async () => {
-                await onRemove(game.igdbId);
-                onAfterSave?.();
-              }}
-            >
-              <Trash2 size={14} /> Remove from Vault
-            </button>
-          ) : (
-            <span className="text-[1.2rem] text-text-3">
-              {selectedScore > 0
-                ? "Feeds your local EASE^R + 128-D neural taste profile immediately."
-                : status === "tried_bored"
-                  ? "No rating needed — teaches GameVault to dial back similar slow/boring vibes."
-                  : canSaveWithoutScore
-                    ? `You can save as "${currentStatusLabel}" with or without a 1–10 score.`
-                    : "Click any bar (1–10) above to lock your score."}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {existing && onRemove ? (
+              <button
+                type="button"
+                className="gv-btn gv-btn-sm gv-btn-danger-ghost"
+                onClick={async () => {
+                  await onRemove(game.igdbId);
+                  onAfterSave?.();
+                }}
+              >
+                <Trash2 size={14} /> Remove from Vault
+              </button>
+            ) : null}
+
+            {savedPulse ? (
+              <span
+                role="status"
+                aria-live="polite"
+                className="gv-pill gv-pill-match inline-flex items-center gap-1.5 text-[1.22rem] font-semibold"
+              >
+                <Check size={14} aria-hidden="true" /> {savedMessage || "Saved to Game Vault"}
+              </span>
+            ) : !existing ? (
+              <span className="text-[1.2rem] text-text-3">
+                {selectedScore > 0
+                  ? "Feeds your local EASE^R + 128-D neural taste profile immediately."
+                  : status === "tried_bored"
+                    ? "Logged neutrally — won't penalize this genre in case you give it another shot later!"
+                    : canSaveWithoutScore
+                      ? `You can save as "${currentStatusLabel}" with or without a 1–10 score.`
+                      : "Click any bar (1–10) above to lock your score."}
+              </span>
+            ) : (
+              <span className="text-[1.18rem] text-text-3">
+                {status === "tried_bored"
+                  ? "Neutral log — won't push away similar games if you try it again later."
+                  : "Edit score, status, hours, craft sliders, or tags anytime."}
+              </span>
+            )}
+          </div>
 
           <button
             type="submit"
             disabled={saving || !canSubmit}
-            className="gv-btn gv-btn-primary"
+            className={`gv-btn ${savedPulse ? "gv-btn-saved" : "gv-btn-primary"}`}
           >
-            {savedPulse
-              ? selectedScore > 0
-                ? `Saved ${selectedScore}/10 to Vault`
-                : `Saved as ${currentStatusLabel}`
-              : selectedScore > 0
-                ? existing
-                  ? `Update ${selectedScore}/10 Entry`
-                  : `Save ${selectedScore}/10 to Vault`
-                : canSaveWithoutScore
-                  ? existing
-                    ? `Update (${currentStatusLabel})`
-                    : `Save as ${currentStatusLabel}`
-                  : "Select Rating (1–10)"}
+            {savedPulse ? (
+              <>
+                <Check size={15} aria-hidden="true" />
+                {selectedScore > 0 ? `Saved ${selectedScore}/10!` : "Saved to Vault!"}
+              </>
+            ) : selectedScore > 0 ? (
+              existing ? `Update ${selectedScore}/10 Entry` : `Save ${selectedScore}/10 to Vault`
+            ) : canSaveWithoutScore ? (
+              existing ? `Update (${currentStatusLabel})` : `Save as ${currentStatusLabel}`
+            ) : (
+              "Select Rating (1–10)"
+            )}
           </button>
         </div>
       </div>

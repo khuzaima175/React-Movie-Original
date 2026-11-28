@@ -150,7 +150,7 @@ test("api/igdb caches Twitch OAuth token across calls, builds safe canonical que
     );
     assert.equal(r2.statusCode, 200);
     assert.equal(oauthCalls, 1, "should reuse cached OAuth token");
-    assert.match(igdbBodies[1], /where id = \(119133,7334\)/);
+    assert.match(igdbBodies[igdbBodies.length - 1], /where id = \(119133,7334\)/);
 
     // 3. Discover action handles 401 refresh automatically
     failOnceWith401 = true;
@@ -219,6 +219,11 @@ test("buildIgdbQuery enforces high review-count floors on popular & rating catal
   const catDefault = buildIgdbQuery({ action: "discover", preset: "catalog", sort: "popular", limit: 36 });
   assert.match(catDefault.body, /total_rating_count >= 120/);
   assert.match(catDefault.body, /sort total_rating_count desc;/);
+
+  const searchBuilt = buildIgdbQuery({ action: "search", query: "civilization", limit: 20 });
+  assert.match(searchBuilt.body, /name ~ \*"civilization"\*/);
+  assert.match(searchBuilt.body, /sort total_rating_count desc;/);
+  assert.match(searchBuilt.fallbackBody, /search "civilization";/);
 });
 
 test("api/igdb v1.4 supports GET discover_home multiquery (1 IGDB call + 1h Edge CDN Cache-Control) and igdbService sends GET with sorted batch IDs", async () => {

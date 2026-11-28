@@ -597,9 +597,16 @@ export function buildWeightedGameRatings(
 
     let weight = 0;
     if (Number.isFinite(rating) && rating > 0) {
-      if (status === "tried_bored" && rating <= 6) {
-        // Explicit early bounce / got bored in start -> clear taste rejection signal
-        weight = hours >= saltyThreshold ? -0.15 : -0.60 * (1 + Math.max(0, 5 - rating) * 0.15);
+      if (status === "tried_bored") {
+        // Tried / bored early does NOT mean the player hates the genre (many GOATs have slow intros!).
+        // Keep unrated or 5-6 neutral; only explicit <=4/10 gets mild repulsion; 7+ still counts mildly positive.
+        if (rating >= 7) {
+          weight = 0.45 * playBoost;
+        } else if (rating <= 4) {
+          weight = hours >= saltyThreshold ? -0.10 : -0.35;
+        } else {
+          weight = 0;
+        }
       } else if (rating >= 7) {
         const z = Math.max(0, (rating - Math.min(meanR, 7.5)) / stdR);
         weight = (0.75 + 0.25 * (rating - 6) + 0.35 * z) * playBoost;
@@ -616,8 +623,8 @@ export function buildWeightedGameRatings(
       // Played a bit / unfinished without hating it: modest positive when engaged, tiny otherwise
       weight = hours >= 3 ? 0.45 * playBoost : 0.20;
     } else if (status === "tried_bored") {
-      // Tried briefly and got bored at the start -> clean repulsion without needing a 1/10 score
-      weight = hours >= dropSaltyThreshold ? -0.15 : -0.55;
+      // Purely neutral (0.0): tracks games you bounced off early without penalizing the genre!
+      weight = 0;
     } else if (status === "dropped") {
       weight = hours >= dropSaltyThreshold ? 0.0 : -0.45;
     }
