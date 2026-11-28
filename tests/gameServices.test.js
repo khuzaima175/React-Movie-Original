@@ -875,4 +875,14 @@ test("gameRankerService v1.6: Spectral-EASE norm rescaling, CVGM v3 live CCU/sen
     { recentKick: true, nowMs }
   );
   assert.ok(kickWeights[0].weight > kickWeights[1].weight * 5, "Recent Kick should strongly focus on last-week games (>5x ratio vs 1yr+ old)");
+
+  // Same-day bulk-imported vault (all share today's datePlayed) still distinguishes newest 5 logged items
+  const sameDayBulk = Array.from({ length: 8 }, (_, i) => ({
+    igdbId: 2000 + i,
+    title: `Bulk Game ${i}`,
+    userRating: 9,
+    datePlayed: "2026-11-28"
+  }));
+  const bulkKickWeights = buildWeightedGameRatings(sameDayBulk, { recentKick: true, nowMs });
+  assert.ok(bulkKickWeights[0].weight > bulkKickWeights[7].weight * 4, "Recent Kick should still focus top-5 newest on same-day bulk imports");
 });

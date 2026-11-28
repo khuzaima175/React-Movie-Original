@@ -553,14 +553,26 @@ export function buildWeightedGameRatings(
 
   // Identify newest positive items for Dual-Timescale "Match My Recent Kick" mode
   let recentTopIds = null;
+  let hasSpreadDates = false;
   if (recentKick && list.length > 0) {
+    let minDateMs = Infinity;
+    let maxDateMs = -Infinity;
     const dated = list
-      .map((g, idx) => ({
-        id: Number(g?.igdbId ?? g?.id ?? 0),
-        ts: Date.parse(String(g?.datePlayed || g?.updatedAt || "")) || (nowMs - idx * 86_400_000 * 7)
-      }))
+      .map((g, idx) => {
+        const dp = g?.datePlayed ? Date.parse(String(g.datePlayed)) : NaN;
+        if (Number.isFinite(dp) && dp > 0) {
+          if (dp < minDateMs) minDateMs = dp;
+          if (dp > maxDateMs) maxDateMs = dp;
+        }
+        const upd = g?.updatedAt ? Date.parse(String(g.updatedAt)) : NaN;
+        const sortTs = Number.isFinite(upd) && upd > 0
+          ? upd
+          : (Number.isFinite(dp) && dp > 0 ? dp - idx * 1000 : nowMs - idx * 86_400_000 * 7);
+        return { id: Number(g?.igdbId ?? g?.id ?? 0), ts: sortTs };
+      })
       .filter((x) => x.id > 0)
       .sort((a, b) => b.ts - a.ts);
+    hasSpreadDates = Number.isFinite(minDateMs) && Number.isFinite(maxDateMs) && (maxDateMs - minDateMs) >= 14 * 86_400_000;
     recentTopIds = new Set(dated.slice(0, 5).map((x) => x.id));
   }
 
@@ -651,11 +663,11 @@ export function buildWeightedGameRatings(
       if (tagSet.has("#janky") && rating < 9) weight *= 0.94;
     }
 
-    // Dual-timescale recency: gentle (+/-12%) normally; 21-day half-life + top-5 focus in "Recent Kick" mode
+    // Dual-timescale recency: gentle (+/-12%) normally; 21-day half-life (or top-5 newest fallback on same-day imports) in "Recent Kick" mode
     if (weight > 0) {
-      const playedMs = g?.datePlayed ? Date.parse(String(g.datePlayed)) : (g?.updatedAt && recentKick ? Date.parse(String(g.updatedAt)) : NaN);
+      const playedMs = g?.datePlayed ? Date.parse(String(g.datePlayed)) : NaN;
       if (recentKick) {
-        if (Number.isFinite(playedMs) && playedMs > 0) {
+        if (hasSpreadDates && Number.isFinite(playedMs) && playedMs > 0) {
           const ageDays = Math.max(0, (nowMs - playedMs) / 86_400_000);
           weight *= 0.25 + 2.15 * Math.exp(-ageDays / 21);
         } else {
